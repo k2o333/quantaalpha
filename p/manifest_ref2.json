@@ -1,0 +1,858 @@
+{
+  "project_name": "test2",
+  "created_at": "2025-11-28T17:16:18.226339",
+  "root_target": "基于沪深A股数据平台方案的N个原子技术验证点(POC)，排除下载/Token部分，验证核心依赖库可用性、关键数据结构合理性、模拟输入输出符合预期",
+  "schemes": {
+    "scheme_core_deps": {
+      "description": "核心依赖库可用性验证",
+      "atoms": [
+        "atom_duckdb_availability",
+        "atom_pyarrow_availability",
+        "atom_polars_availability",
+        "atom_sqlite_availability",
+        "atom_psutil_availability"
+      ],
+      "status": "success"
+    },
+    "scheme_data_structures": {
+      "description": "关键数据结构设计合理性验证",
+      "atoms": [
+        "atom_dict_schema_validation",
+        "atom_data_type_mapping_validation",
+        "atom_schema_consistency_validation",
+        "atom_partition_config_validation"
+      ],
+      "status": "success"
+    },
+    "scheme_io_simulation": {
+      "description": "模拟输入输出符合预期验证",
+      "atoms": [
+        "atom_atomic_write_simulation",
+        "atom_mock_data_generation",
+        "atom_etl_pipeline_simulation",
+        "atom_partitioned_storage_simulation"
+      ],
+      "status": "success"
+    },
+    "scheme_config_validation": {
+      "description": "配置管理与参数验证",
+      "atoms": [
+        "atom_path_resolution_validation",
+        "atom_config_file_structure",
+        "atom_api_limits_config_validation"
+      ],
+      "status": "success"
+    },
+    "scheme_download_auth": {
+      "description": "数据下载和鉴权逻辑验证",
+      "status": "success",
+      "atoms": [
+        "atom_env_token_loading",
+        "atom_tushare_auth_initialization",
+        "atom_api_rate_limiting_setup",
+        "atom_download_interface_selection"
+      ]
+    },
+    "scheme_data_download": {
+      "description": "数据下载功能实现，包括新增的16个接口和现有接口的修复",
+      "status": "success",
+      "atoms": [
+        "atom_existing_cashflow_vip",
+        "atom_download_disclosure_date",
+        "atom_cyq_chips_download",
+        "atom_download_broker_recommend",
+        "atom_existing_daily_basic",
+        "atom_block_trade_download",
+        "atom_existing_income_vip",
+        "atom_download_block_trade",
+        "atom_download_fina_audit",
+        "atom_download_express",
+        "atom_download_cyq_chips",
+        "atom_download_fina_mainbz",
+        "atom_download_forecast",
+        "atom_download_moneyflow_dc",
+        "atom_download_stk_managers",
+        "atom_download_moneyflow_ths",
+        "atom_existing_fina_indicator_vip",
+        "atom_daily_data_download",
+        "atom_existing_stk_factor",
+        "atom_download_pro_bar",
+        "atom_download_report_rc",
+        "atom_download_stk_surv",
+        "atom_download_pledge_stat",
+        "atom_financial_data_download",
+        "atom_existing_balancesheet_vip",
+        "atom_download_moneyflow"
+      ]
+    },
+    "scheme_auth_logic": {
+      "description": "鉴权逻辑实现，使用tushare token进行API访问",
+      "status": "success",
+      "atoms": [
+        "atom_token_config",
+        "atom_api_auth",
+        "atom_rate_limiting"
+      ]
+    },
+    "scheme_dict_evolution": {
+      "description": "演进式字典更新机制验证，确保ID的永久稳定性",
+      "atoms": [
+        "atom_evolve_global_dictionaries",
+        "atom_evolve_industry_dictionaries",
+        "atom_update_stock_basic_with_ids"
+      ],
+      "status": "success"
+    },
+    "scheme_etl_enhancements": {
+      "description": "ETL流程增强功能验证，包括数据转换、ID增强、日期处理等",
+      "atoms": [
+        "atom_etl_pipeline",
+        "atom_atomic_unpartitioned_sink",
+        "atom_normalize_dtypes_for_concat"
+      ],
+      "status": "success"
+    },
+    "scheme_data_validation": {
+      "description": "数据验证机制验证，确保下载数据的质量和完整性",
+      "atoms": [
+        "atom_validate_downloaded_data",
+        "atom_enhance_with_dict_ids"
+      ],
+      "status": "success"
+    },
+    "scheme_system_monitoring": {
+      "description": "系统监控与日志功能验证",
+      "atoms": [
+        "atom_log_memory",
+        "atom_monitor_system_resources",
+        "atom_setup_logging"
+      ],
+      "status": "success"
+    },
+    "scheme_metadata_management": {
+      "description": "元数据管理功能验证，包括SQLite数据库初始化和状态更新",
+      "atoms": [
+        "atom_init_metadata_db",
+        "atom_get_last_update_date",
+        "atom_update_last_update_date",
+        "atom_update_financial_data"
+      ],
+      "status": "success"
+    },
+    "scheme_workflow_orchestration": {
+      "description": "任务编排与工作流管理验证",
+      "atoms": [
+        "atom_workflows_a_b",
+        "atom_initialize_rate_limiters",
+        "atom_infer_api_name"
+      ],
+      "status": "success"
+    }
+  },
+  "assumptions": {
+    "atom_polars_availability": {
+      "description": "验证Polars库是否可以正确导入和使用基本功能",
+      "parent_scheme": "scheme_core_deps",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_polars_availability.py",
+      "timestamp": "2025-11-28T17:19:32.149723"
+    },
+    "atom_duckdb_availability": {
+      "description": "验证DuckDB库是否可以正确导入和执行基本SQL操作",
+      "parent_scheme": "scheme_core_deps",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_duckdb_availability.py",
+      "timestamp": "2025-11-28T17:20:45.256766"
+    },
+    "atom_sqlite_availability": {
+      "description": "验证SQLite库是否可以正确导入和执行基本数据库操作",
+      "parent_scheme": "scheme_core_deps",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_sqlite_availability.py",
+      "timestamp": "2025-11-28T17:21:35.593403"
+    },
+    "atom_pyarrow_availability": {
+      "description": "验证PyArrow库是否可以正确导入和执行基本数据操作",
+      "parent_scheme": "scheme_core_deps",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_pyarrow_availability.py",
+      "timestamp": "2025-11-28T17:24:28.278188"
+    },
+    "atom_psutil_availability": {
+      "description": "验证psutil库是否可以正确导入和获取系统资源信息",
+      "parent_scheme": "scheme_core_deps",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_psutil_availability.py",
+      "timestamp": "2025-11-28T17:25:39.530503"
+    },
+    "atom_dict_schema_validation": {
+      "description": "验证股票代码字典、行业字典等关键数据结构的Schema设计",
+      "parent_scheme": "scheme_data_structures",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_dict_schema_validation.py",
+      "timestamp": "2025-11-28T17:27:25.472495"
+    },
+    "atom_partition_config_validation": {
+      "description": "验证分区配置(PARTITION_CONFIG)的结构和参数设置",
+      "parent_scheme": "scheme_data_structures",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_partition_config_validation.py",
+      "timestamp": "2025-11-28T17:28:02.808402"
+    },
+    "atom_data_type_mapping_validation": {
+      "description": "验证数据类型映射和转换逻辑的合理性",
+      "parent_scheme": "scheme_data_structures",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_data_type_mapping_validation.py",
+      "timestamp": "2025-11-28T17:31:39.626585"
+    },
+    "atom_schema_consistency_validation": {
+      "description": "验证不同数据类型间的Schema一致性",
+      "parent_scheme": "scheme_data_structures",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_schema_consistency_validation.py",
+      "timestamp": "2025-11-28T17:34:05.648555"
+    },
+    "atom_mock_data_generation": {
+      "description": "模拟数据生成机制，验证数据结构的完整性",
+      "parent_scheme": "scheme_io_simulation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_mock_data_generation.py",
+      "timestamp": "2025-11-28T17:37:06.276117"
+    },
+    "atom_etl_pipeline_simulation": {
+      "description": "模拟ETL流程，验证数据转换和处理逻辑",
+      "parent_scheme": "scheme_io_simulation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_etl_pipeline_simulation.py",
+      "timestamp": "2025-11-28T17:38:17.277275"
+    },
+    "atom_partitioned_storage_simulation": {
+      "description": "模拟分区存储机制，验证按年、年月等分区策略",
+      "parent_scheme": "scheme_io_simulation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_partitioned_storage_simulation.py",
+      "timestamp": "2025-11-28T17:40:06.377684"
+    },
+    "atom_atomic_write_simulation": {
+      "description": "模拟原子写入机制，验证数据写入的完整性",
+      "parent_scheme": "scheme_io_simulation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_atomic_write_simulation.py",
+      "timestamp": "2025-11-28T17:41:03.714167"
+    },
+    "atom_config_file_structure": {
+      "description": "验证配置文件的结构和参数设置",
+      "parent_scheme": "scheme_config_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_config_file_structure.py",
+      "timestamp": "2025-11-28T17:42:40.504284"
+    },
+    "atom_path_resolution_validation": {
+      "description": "验证路径解析和目录结构的正确性",
+      "parent_scheme": "scheme_config_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_path_resolution_validation.py",
+      "timestamp": "2025-11-28T17:47:34.441879"
+    },
+    "atom_api_limits_config_validation": {
+      "description": "验证API限频配置的结构和参数设置（虽然不执行下载，但验证配置结构）",
+      "parent_scheme": "scheme_config_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_api_limits_config_validation.py",
+      "timestamp": "2025-11-28T17:50:43.598574"
+    },
+    "atom_env_token_loading": {
+      "description": "验证从.env文件正确加载Tushare token",
+      "parent_scheme": "scheme_download_auth",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_env_token_loading.py",
+      "timestamp": "2025-12-02T18:45:11.363759",
+      "metrics": {
+        "test_name": "env_token_loading",
+        "execution_time_ms": 50,
+        "file_exists": true,
+        "token_match": true
+      }
+    },
+    "atom_tushare_auth_initialization": {
+      "description": "验证Tushare API认证初始化",
+      "parent_scheme": "scheme_download_auth",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_tushare_auth_initialization.py",
+      "timestamp": "2025-12-02T18:49:08.160458"
+    },
+    "atom_api_rate_limiting_setup": {
+      "description": "验证API速率限制器配置和初始化",
+      "parent_scheme": "scheme_download_auth",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_api_rate_limiting_setup.py",
+      "timestamp": "2025-12-02T18:49:35.151502"
+    },
+    "atom_download_interface_selection": {
+      "description": "验证根据数据类型选择合适的下载接口(VIP接口优先)",
+      "parent_scheme": "scheme_download_auth",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_interface_selection.py",
+      "timestamp": "2025-12-02T18:49:54.039582"
+    },
+    "atom_existing_cashflow_vip": {
+      "description": "现有cashflow_vip接口功能已实现并正常工作",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_existing_cashflow_vip.py",
+      "timestamp": "2025-12-02T20:30:50.802512",
+      "metrics": {
+        "test_name": "existing_cashflow_vip",
+        "execution_time_ms": 85,
+        "config_exists": true,
+        "cashflow_vip_configured": true
+      }
+    },
+    "atom_download_disclosure_date": {
+      "description": "实现disclosure_date(财报披露计划)接口下载，单文件存储在/home/quan/testdata/aspipe/data/events/disclosure_date.parquet",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_disclosure_date.py",
+      "timestamp": "2025-12-02T20:31:35.175935",
+      "metrics": {
+        "test_name": "download_disclosure_date",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "disclosure_date_configured": true
+      }
+    },
+    "atom_cyq_chips_download": {
+      "description": "验证筹码分布数据下载功能(按年分区)",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_cyq_chips_download.py",
+      "timestamp": "2025-12-02T20:32:16.334964",
+      "metrics": {
+        "test_name": "cyq_chips_download",
+        "execution_time_ms": 80,
+        "config_exists": true,
+        "cyq_chips_configured": true
+      }
+    },
+    "atom_download_broker_recommend": {
+      "description": "实现broker_recommend(券商荐股)接口下载，单文件存储",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_broker_recommend.py",
+      "timestamp": "2025-12-02T20:33:55.164250",
+      "metrics": {
+        "test_name": "download_broker_recommend",
+        "execution_time_ms": 70,
+        "config_exists": true,
+        "broker_recommend_configured": true
+      }
+    },
+    "atom_existing_daily_basic": {
+      "description": "现有daily_basic接口功能已实现并正常工作",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_existing_daily_basic.py",
+      "timestamp": "2025-12-02T20:35:23.268209",
+      "metrics": {
+        "test_name": "existing_daily_basic",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "daily_basic_configured": true
+      }
+    },
+    "atom_block_trade_download": {
+      "description": "验证大宗交易数据下载功能(按年-月分区)",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_block_trade_download.py",
+      "timestamp": "2025-12-02T20:35:40.320658",
+      "metrics": {
+        "test_name": "block_trade_download",
+        "execution_time_ms": 80,
+        "config_exists": true,
+        "block_trade_configured": true
+      }
+    },
+    "atom_existing_income_vip": {
+      "description": "现有income_vip接口功能已实现并正常工作",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_existing_income_vip.py",
+      "timestamp": "2025-12-02T20:35:59.606636",
+      "metrics": {
+        "test_name": "existing_income_vip",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "income_vip_configured": true
+      }
+    },
+    "atom_download_block_trade": {
+      "description": "实现block_trade(大宗交易)接口下载，按年-月分区存储在/home/quan/testdata/aspipe/data/events/block_trade/",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_block_trade.py",
+      "timestamp": "2025-12-02T20:36:14.679654",
+      "metrics": {
+        "test_name": "download_block_trade",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "block_trade_configured": true
+      }
+    },
+    "atom_download_fina_audit": {
+      "description": "修复并实现fina_audit(财务审计)接口下载，单文件存储在/home/quan/testdata/aspipe/data/financials/fina_audit.parquet，修复原参数传递错误",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_fina_audit.py",
+      "timestamp": "2025-12-02T20:36:39.116709",
+      "metrics": {
+        "test_name": "download_fina_audit",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "fina_audit_configured": true
+      }
+    },
+    "atom_download_express": {
+      "description": "实现express(业绩快报)接口下载，单文件覆盖存储在/home/quan/testdata/aspipe/data/events/express.parquet",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_express.py",
+      "timestamp": "2025-12-02T20:37:01.693701",
+      "metrics": {
+        "test_name": "download_express",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "express_configured": true
+      }
+    },
+    "atom_download_cyq_chips": {
+      "description": "实现cyq_chips(筹码分布)接口下载，按年分区存储在/home/quan/testdata/aspipe/data/market_structure/cyq_chips/",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_cyq_chips.py",
+      "timestamp": "2025-12-02T20:37:34.380714",
+      "metrics": {
+        "test_name": "download_cyq_chips",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "cyq_chips_configured": true
+      }
+    },
+    "atom_download_fina_mainbz": {
+      "description": "实现fina_mainbz(主营业务构成)接口下载，按报告期存储",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_fina_mainbz.py",
+      "timestamp": "2025-12-02T20:39:42.722377",
+      "metrics": {
+        "test_name": "download_fina_mainbz",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "fina_mainbz_configured": true
+      }
+    },
+    "atom_download_forecast": {
+      "description": "实现forecast(业绩预告)接口下载，单文件覆盖存储在/home/quan/testdata/aspipe/data/events/forecast.parquet",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_forecast.py",
+      "timestamp": "2025-12-02T20:40:05.528659",
+      "metrics": {
+        "test_name": "download_forecast",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "forecast_configured": true
+      }
+    },
+    "atom_download_moneyflow_dc": {
+      "description": "实现moneyflow_dc(东财资金流)接口下载，按年分区存储在/home/quan/testdata/aspipe/data/daily/moneyflow_dc/",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_moneyflow_dc.py",
+      "timestamp": "2025-12-02T20:40:27.633961",
+      "metrics": {
+        "test_name": "download_moneyflow_dc",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "moneyflow_dc_configured": true
+      }
+    },
+    "atom_download_stk_managers": {
+      "description": "实现stk_managers(上市公司管理层)接口下载，单文件存储",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_stk_managers.py",
+      "timestamp": "2025-12-02T20:41:52.920960",
+      "metrics": {
+        "test_name": "download_stk_managers",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "stk_managers_configured": true
+      }
+    },
+    "atom_download_moneyflow_ths": {
+      "description": "实现moneyflow_ths(同花顺资金流)接口下载，按年分区存储在/home/quan/testdata/aspipe/data/daily/moneyflow_ths/",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_moneyflow_ths.py",
+      "timestamp": "2025-12-02T20:42:25.477777",
+      "metrics": {
+        "test_name": "download_moneyflow_ths",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "moneyflow_ths_configured": true
+      }
+    },
+    "atom_existing_fina_indicator_vip": {
+      "description": "现有fina_indicator_vip接口功能已实现并正常工作",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_existing_fina_indicator_vip.py",
+      "timestamp": "2025-12-02T20:43:00.149091",
+      "metrics": {
+        "test_name": "existing_fina_indicator_vip",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "fina_indicator_vip_configured": true
+      }
+    },
+    "atom_daily_data_download": {
+      "description": "验证日线数据(后复权)下载功能",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_daily_data_download.py",
+      "timestamp": "2025-12-02T20:43:33.774376",
+      "metrics": {
+        "test_name": "daily_data_download",
+        "execution_time_ms": 80,
+        "config_exists": true,
+        "daily_data_configured": true
+      }
+    },
+    "atom_existing_stk_factor": {
+      "description": "现有stk_factor接口功能已实现并正常工作",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_existing_stk_factor.py",
+      "timestamp": "2025-12-02T20:44:30.123959",
+      "metrics": {
+        "test_name": "existing_stk_factor",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "stk_factor_configured": true
+      }
+    },
+    "atom_download_pro_bar": {
+      "description": "实现pro_bar(通用行情)接口下载，按年分区存储，替代原来的daily接口",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_pro_bar.py",
+      "timestamp": "2025-12-02T20:48:28.211682",
+      "metrics": {
+        "test_name": "download_pro_bar",
+        "execution_time_ms": 80,
+        "config_exists": true,
+        "pro_bar_configured": true
+      }
+    },
+    "atom_download_report_rc": {
+      "description": "修复并实现report_rc(卖方盈利预测)接口下载，修复配置遗漏问题，存储在/home/quan/testdata/aspipe/data/daily/report_rc.parquet",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_report_rc.py",
+      "timestamp": "2025-12-02T20:49:47.977118",
+      "metrics": {
+        "test_name": "download_report_rc",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "report_rc_configured": true
+      }
+    },
+    "atom_download_stk_surv": {
+      "description": "实现stk_surv(机构调研)接口下载，按年-月分区存储在/home/quan/testdata/aspipe/data/research/stk_surv/",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_stk_surv.py",
+      "timestamp": "2025-12-02T20:50:58.521306",
+      "metrics": {
+        "test_name": "download_stk_surv",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "stk_surv_configured": true
+      }
+    },
+    "atom_download_pledge_stat": {
+      "description": "实现pledge_stat(股权质押统计)接口下载，单文件存储在/home/quan/testdata/aspipe/data/holders/pledge_stat.parquet",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_pledge_stat.py",
+      "timestamp": "2025-12-02T20:56:14.793538",
+      "metrics": {
+        "test_name": "download_pledge_stat",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "pledge_stat_configured": true
+      }
+    },
+    "atom_financial_data_download": {
+      "description": "验证财务数据下载功能(使用VIP接口)",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_financial_data_download.py",
+      "timestamp": "2025-12-02T20:57:26.173133",
+      "metrics": {
+        "test_name": "financial_data_download",
+        "execution_time_ms": 80,
+        "config_exists": true,
+        "financial_data_configured": true
+      }
+    },
+    "atom_existing_balancesheet_vip": {
+      "description": "现有balancesheet_vip接口功能已实现并正常工作",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_existing_balancesheet_vip.py",
+      "timestamp": "2025-12-02T21:00:33.692469",
+      "metrics": {
+        "test_name": "existing_balancesheet_vip",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "balancesheet_vip_configured": true
+      }
+    },
+    "atom_download_moneyflow": {
+      "description": "实现moneyflow(个股资金流向)接口下载，按年分区存储在/home/quan/testdata/aspipe/data/daily/moneyflow/",
+      "parent_scheme": "scheme_data_download",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_download_moneyflow.py",
+      "timestamp": "2025-12-02T21:01:47.664495",
+      "metrics": {
+        "test_name": "download_moneyflow",
+        "execution_time_ms": 75,
+        "config_exists": true,
+        "moneyflow_configured": true
+      }
+    },
+    "atom_token_config": {
+      "description": "在配置中正确设置tushare token，从.env文件读取值为66522b97c97454782caed4d94ee2bf66f9c6f22278dc498e2d551803",
+      "parent_scheme": "scheme_auth_logic",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_token_config.py",
+      "timestamp": "2025-12-02T18:47:40.812110",
+      "metrics": {
+        "test_name": "token_config",
+        "execution_time_ms": 120,
+        "config_file_created": true,
+        "required_configs_present": true
+      }
+    },
+    "atom_api_auth": {
+      "description": "实现API鉴权逻辑，使用tushare token进行API调用认证",
+      "parent_scheme": "scheme_auth_logic",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_api_auth.py",
+      "timestamp": "2025-12-02T18:48:20.763375"
+    },
+    "atom_rate_limiting": {
+      "description": "实现API速率限制逻辑，使用API_LIMITS配置字典管理不同API的限频参数",
+      "parent_scheme": "scheme_auth_logic",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_rate_limiting.py",
+      "timestamp": "2025-12-02T18:48:50.996509"
+    },
+    "atom_evolve_global_dictionaries": {
+      "description": "实现演进式全局字典更新机制，确保ID的永久稳定性",
+      "parent_scheme": "scheme_dict_evolution",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_evolve_global_dictionaries.py",
+      "timestamp": "2025-12-02T21:08:22.782074"
+    },
+    "atom_evolve_industry_dictionaries": {
+      "description": "实现行业字典的演进式更新机制",
+      "parent_scheme": "scheme_dict_evolution",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_evolve_industry_dictionaries.py",
+      "timestamp": "2025-12-02T21:09:41.919945"
+    },
+    "atom_update_stock_basic_with_ids": {
+      "description": "更新stock_basic表，加入ID字段，使其成为元数据主表",
+      "parent_scheme": "scheme_dict_evolution",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_update_stock_basic_with_ids.py",
+      "timestamp": "2025-12-02T21:10:24.969963"
+    },
+    "atom_etl_pipeline": {
+      "description": "核心ETL函数，处理数据转换、ID增强、日期转换、排序和写入",
+      "parent_scheme": "scheme_etl_enhancements",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_etl_pipeline.py",
+      "timestamp": "2025-12-02T21:16:39.729293"
+    },
+    "atom_atomic_unpartitioned_sink": {
+      "description": "原子写入函数，用于非分区数据的原子化写入",
+      "parent_scheme": "scheme_etl_enhancements",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_atomic_unpartitioned_sink.py",
+      "timestamp": "2025-12-02T21:17:51.340408"
+    },
+    "atom_normalize_dtypes_for_concat": {
+      "description": "数据类型标准化函数，处理不同时间段数据的类型一致性问题",
+      "parent_scheme": "scheme_etl_enhancements",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_normalize_dtypes_for_concat.py",
+      "timestamp": "2025-12-02T21:22:55.406268"
+    },
+    "atom_validate_downloaded_data": {
+      "description": "数据质量验证函数，检查下载数据的完整性和逻辑一致性",
+      "parent_scheme": "scheme_data_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_validate_downloaded_data.py",
+      "timestamp": "2025-12-02T21:26:32.980125"
+    },
+    "atom_enhance_with_dict_ids": {
+      "description": "使用字典ID增强数据的函数，通过元数据主表进行数据增强",
+      "parent_scheme": "scheme_data_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_enhance_with_dict_ids.py",
+      "timestamp": "2025-12-02T21:28:20.132099"
+    },
+    "atom_log_memory": {
+      "description": "内存使用监控函数，在不同阶段记录内存使用情况",
+      "parent_scheme": "scheme_system_monitoring",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_log_memory.py",
+      "timestamp": "2025-12-02T21:29:44.625399"
+    },
+    "atom_monitor_system_resources": {
+      "description": "系统资源监控函数，监控CPU和内存使用情况",
+      "parent_scheme": "scheme_system_monitoring",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_monitor_system_resources.py",
+      "timestamp": "2025-12-02T21:32:26.377023"
+    },
+    "atom_setup_logging": {
+      "description": "日志系统设置函数，配置日志记录和轮转机制",
+      "parent_scheme": "scheme_system_monitoring",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_setup_logging.py",
+      "timestamp": "2025-12-02T21:33:30.212695"
+    },
+    "atom_init_metadata_db": {
+      "description": "SQLite元数据数据库初始化函数",
+      "parent_scheme": "scheme_metadata_management",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_init_metadata_db.py",
+      "timestamp": "2025-12-02T21:35:57.533838"
+    },
+    "atom_get_last_update_date": {
+      "description": "获取表最后更新日期的函数",
+      "parent_scheme": "scheme_metadata_management",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_get_last_update_date.py",
+      "timestamp": "2025-12-02T21:39:30.298068"
+    },
+    "atom_update_last_update_date": {
+      "description": "更新表最后更新日期的函数",
+      "parent_scheme": "scheme_metadata_management",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_update_last_update_date.py",
+      "timestamp": "2025-12-02T21:46:55.731306"
+    },
+    "atom_update_financial_data": {
+      "description": "财务数据更新函数，处理修订数据",
+      "parent_scheme": "scheme_metadata_management",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_update_financial_data.py",
+      "timestamp": "2025-12-02T21:54:14.683956"
+    },
+    "atom_workflows_a_b": {
+      "description": "工作流管理，区分首次全量构建和每日增量更新两种工作流",
+      "parent_scheme": "scheme_workflow_orchestration",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_workflows_a_b.py",
+      "timestamp": "2025-12-02T21:58:11.585998"
+    },
+    "atom_initialize_rate_limiters": {
+      "description": "初始化所有必需的速率限制器",
+      "parent_scheme": "scheme_workflow_orchestration",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_initialize_rate_limiters.py",
+      "timestamp": "2025-12-02T22:00:05.539353"
+    },
+    "atom_infer_api_name": {
+      "description": "从函数对象推断API名称的函数",
+      "parent_scheme": "scheme_workflow_orchestration",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/atom_infer_api_name.py",
+      "timestamp": "2025-12-02T22:07:10.556875"
+    }
+  }
+}
