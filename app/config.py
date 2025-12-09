@@ -1,5 +1,5 @@
 """
-Configuration management for aspipe_v4
+Configuration management for aspipe_v4 with automatic fallback support
 """
 import os
 from dotenv import load_dotenv
@@ -7,10 +7,27 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv('/home/quan/testdata/aspipe_v4/.env')
 
-# TuShare configuration
+# TuShare configuration - Primary token
 TUSHARE_TOKEN = os.getenv('tushare_token')
+TUSHARE2_TOKEN = os.getenv('tushare2_token')
+
 if not TUSHARE_TOKEN:
-    raise ValueError("TUSHARE_TOKEN not found in environment variables")
+    if TUSHARE2_TOKEN:
+        # Fallback to second token if primary is not available
+        TUSHARE_TOKEN = TUSHARE2_TOKEN
+        TUSHARE_POINTS = int(os.getenv('tushare2_points', '2000'))
+        PROXY_URL = os.getenv('PROXY_URL2', '')
+        print("Using secondary token as primary")
+    else:
+        raise ValueError("No TUSHARE_TOKEN found in environment variables")
+else:
+    # Use primary token configuration
+    TUSHARE_POINTS = int(os.getenv('tushare_points', '120'))  # Default to 120 if not specified
+    PROXY_URL = os.getenv('PROXY_URL')
+
+# Store both tokens for availability check
+PRIMARY_TOKEN = os.getenv('tushare_token')
+SECONDARY_TOKEN = os.getenv('tushare2_token')
 
 # API limits configuration
 API_LIMITS = {

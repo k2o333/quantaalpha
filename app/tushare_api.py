@@ -1,13 +1,23 @@
 """
-TuShare API integration for aspipe_v4
+TuShare API integration for aspipe_v4 with automatic token switching
 """
 import tushare as ts
 import time
 import logging
 from typing import Optional
-from config import TUSHARE_TOKEN, API_LIMITS
+try:
+    from .config import TUSHARE_TOKEN, API_LIMITS, TUSHARE_POINTS, PRIMARY_TOKEN, SECONDARY_TOKEN, PROXY_URL
+except ImportError:
+    from config import TUSHARE_TOKEN, API_LIMITS, TUSHARE_POINTS, PRIMARY_TOKEN, SECONDARY_TOKEN, PROXY_URL
+try:
+    from .score_config import get_api_limits_for_score
+except ImportError:
+    from score_config import get_api_limits_for_score
 import pandas as pd
-from error_handler import ErrorHandler, retry_on_failure
+try:
+    from .error_handler import ErrorHandler, retry_on_failure
+except ImportError:
+    from error_handler import ErrorHandler, retry_on_failure
 
 
 class TuShareDownloader:
@@ -15,11 +25,64 @@ class TuShareDownloader:
         """
         Initialize the TuShare API downloader with token authentication and rate limiting
         """
-        self.pro = ts.pro_api(TUSHARE_TOKEN)
-        self.api_limits = API_LIMITS
+        # Store both tokens for switching
+        self.primary_token = PRIMARY_TOKEN
+        self.secondary_token = SECONDARY_TOKEN
+        self.current_token = TUSHARE_TOKEN  # Use the default token initially
+        self.current_points = TUSHARE_POINTS
+        self.current_proxy = PROXY_URL
+
+        # Set proxy if available
+        if self.current_proxy:
+            import os
+            os.environ["HTTP_PROXY"] = self.current_proxy
+            os.environ["HTTPS_PROXY"] = self.current_proxy
+
+        # Initialize with current token
+        self.pro = ts.pro_api(self.current_token)
+
+        # Update API limits based on current user's points
+        self.api_limits = get_api_limits_for_score(self.current_points)
         self.last_call_times = {}
 
         self.logger = logging.getLogger(__name__)
+
+    def switch_token(self):
+        """
+        Switch to the secondary token if available, or back to primary
+        """
+        if self.primary_token and self.secondary_token:
+            if self.current_token == self.primary_token:
+                # Switch to secondary token
+                self.current_token = self.secondary_token
+                self.current_points = int(__import__('os').environ.get('tushare2_points', '2000'))
+                self.current_proxy = __import__('os').environ.get('PROXY_URL2', '')
+                self.logger.info("Switching to secondary token")
+            else:
+                # Switch back to primary token
+                self.current_token = self.primary_token
+                self.current_points = int(__import__('os').environ.get('tushare_points', '120'))
+                self.current_proxy = __import__('os').environ.get('PROXY_URL', '')
+                self.logger.info("Switching to primary token")
+
+            # Update proxy settings
+            if self.current_proxy:
+                import os
+                os.environ["HTTP_PROXY"] = self.current_proxy
+                os.environ["HTTPS_PROXY"] = self.current_proxy
+            else:
+                # Clear proxy if empty
+                if "HTTP_PROXY" in __import__('os').environ:
+                    del __import__('os').environ["HTTP_PROXY"]
+                if "HTTPS_PROXY" in __import__('os').environ:
+                    del __import__('os').environ["HTTPS_PROXY"]
+
+            # Reinitialize the API with the new token
+            self.pro = ts.pro_api(self.current_token)
+            # Update API limits based on new points
+            self.api_limits = get_api_limits_for_score(self.current_points)
+        else:
+            self.logger.warning("Only one token available, cannot switch")
 
     def _rate_limit(self, api_name: str) -> None:
         """
@@ -27,7 +90,7 @@ class TuShareDownloader:
         """
         current_time = time.time()
 
-        # Get the rate limit for this API (default to 200 calls per minute)
+        # Get the rate limit for this API
         calls_per_minute = self.api_limits.get(api_name, {}).get('calls_per_minute', 200)
         min_interval = 60.0 / calls_per_minute
 
@@ -65,6 +128,21 @@ class TuShareDownloader:
             except Exception as e:
                 self.logger.warning(f"Attempt {attempt + 1} failed for {api_name}: {str(e)}")
 
+                # Check if the error is related to token authentication
+                error_msg = str(e).lower()
+                if "token" in error_msg or "auth" in error_msg:
+                    # Try switching to the other token
+                    if self.primary_token and self.secondary_token:
+                        self.switch_token()
+                        self.logger.info(f"Switched token due to authentication error. Retrying {api_name}...")
+                        # Retry immediately with the new token
+                        try:
+                            result = api_func(*args, **kwargs)
+                            self.logger.info(f"Successfully called {api_name} after token switch, got {len(result) if hasattr(result, '__len__') else 'unknown'} records")
+                            return result
+                        except Exception as retry_e:
+                            self.logger.warning(f"Retry with switched token failed for {api_name}: {str(retry_e)}")
+
                 if attempt == max_retries:
                     self.logger.error(f"All {max_retries + 1} attempts failed for {api_name}")
                     ErrorHandler.handle_api_error(e, f"API call {api_name}")
@@ -77,7 +155,12 @@ class TuShareDownloader:
     def download_stock_basic(self) -> pd.DataFrame:
         """
         Download stock basic information
+        Available to users with 2000+ points
         """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("stock_basic requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
         try:
             result = self.download_with_retry(
                 self.pro.stock_basic,
@@ -95,6 +178,7 @@ class TuShareDownloader:
     def download_daily_data(self, ts_code: str, start_date: str = '20100101', end_date: str = '20231231') -> pd.DataFrame:
         """
         Download daily data for a specific stock
+        Available to all users
         """
         try:
             result = self.download_with_retry(
@@ -108,6 +192,473 @@ class TuShareDownloader:
         except Exception as e:
             self.logger.error(f"Failed to download daily data for {ts_code}: {e}")
             ErrorHandler.handle_api_error(e, f"download_daily_data for {ts_code}")
+            raise
+
+    def download_trade_cal(self, exchange: str = 'SSE', start_date: str = '20100101', end_date: str = '20251231') -> pd.DataFrame:
+        """
+        Download trade calendar data
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("trade_cal requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.trade_cal,
+                exchange=exchange,
+                start_date=start_date,
+                end_date=end_date
+            )
+            self.logger.info(f"Successfully downloaded trade calendar: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download trade calendar: {e}")
+            ErrorHandler.handle_api_error(e, "download_trade_cal")
+            raise
+
+    def download_daily_basic(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download daily basic metrics for all stocks on a specific date
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("daily_basic requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.daily_basic,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded daily basic: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download daily basic: {e}")
+            ErrorHandler.handle_api_error(e, "download_daily_basic")
+            raise
+
+    def download_income(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
+        """
+        Download income statement data
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("income requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.income_vip if TUSHARE_POINTS >= 5000 else self.pro.income
+
+            params = {'period': period}
+            if ts_code:
+                params['ts_code'] = ts_code
+            else:
+                # If no ts_code provided, just use period (for single quarter data)
+                pass
+
+            result = self.download_with_retry(api_func, **params)
+            self.logger.info(f"Successfully downloaded income statement: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download income statement: {e}")
+            ErrorHandler.handle_api_error(e, "download_income")
+            raise
+
+    def download_balancesheet(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
+        """
+        Download balance sheet data
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("balancesheet requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.balancesheet_vip if TUSHARE_POINTS >= 5000 else self.pro.balancesheet
+
+            params = {'period': period}
+            if ts_code:
+                params['ts_code'] = ts_code
+            else:
+                # If no ts_code provided, just use period (for single quarter data)
+                pass
+
+            result = self.download_with_retry(api_func, **params)
+            self.logger.info(f"Successfully downloaded balance sheet: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download balance sheet: {e}")
+            ErrorHandler.handle_api_error(e, "download_balancesheet")
+            raise
+
+    def download_cashflow(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
+        """
+        Download cash flow statement data
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("cashflow requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.cashflow_vip if TUSHARE_POINTS >= 5000 else self.pro.cashflow
+
+            params = {'period': period}
+            if ts_code:
+                params['ts_code'] = ts_code
+            else:
+                # If no ts_code provided, just use period (for single quarter data)
+                pass
+
+            result = self.download_with_retry(api_func, **params)
+            self.logger.info(f"Successfully downloaded cash flow: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download cash flow: {e}")
+            ErrorHandler.handle_api_error(e, "download_cashflow")
+            raise
+
+    def download_fina_indicator(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
+        """
+        Download financial indicators data
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("fina_indicator requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.fina_indicator_vip if TUSHARE_POINTS >= 5000 else self.pro.fina_indicator
+
+            params = {'period': period}
+            if ts_code:
+                params['ts_code'] = ts_code
+            else:
+                # If no ts_code provided, just use period (for single quarter data)
+                pass
+
+            result = self.download_with_retry(api_func, **params)
+            self.logger.info(f"Successfully downloaded financial indicators: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download financial indicators: {e}")
+            ErrorHandler.handle_api_error(e, "download_fina_indicator")
+            raise
+
+    def download_moneyflow(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download individual stock money flow data
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("moneyflow requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded money flow: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download money flow: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow")
+            raise
+
+    def download_new_share(self, start_date: str = '20230101', end_date: str = '20231231') -> pd.DataFrame:
+        """
+        Download new share listing data
+        Available to users with 120+ points
+        """
+        if TUSHARE_POINTS < 120:
+            self.logger.warning("new_share requires 120+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.new_share,
+                start_date=start_date,
+                end_date=end_date
+            )
+            self.logger.info(f"Successfully downloaded new share data: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download new share data: {e}")
+            ErrorHandler.handle_api_error(e, "download_new_share")
+            raise
+
+    def download_stock_company(self, exchange: str = None) -> pd.DataFrame:
+        """
+        Download company information for listed stocks
+        Available to users with 120+ points
+        """
+        if TUSHARE_POINTS < 120:
+            self.logger.warning("stock_company requires 120+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {}
+            if exchange:
+                params['exchange'] = exchange
+
+            result = self.download_with_retry(
+                self.pro.stock_company,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded stock company info: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download stock company info: {e}")
+            ErrorHandler.handle_api_error(e, "download_stock_company")
+            raise
+
+    def download_namechange(self, ts_code: str = None) -> pd.DataFrame:
+        """
+        Download stock name change history
+        Available to all users (no points required)
+        """
+        try:
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                self.pro.namechange,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded name change data: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download name change data: {e}")
+            ErrorHandler.handle_api_error(e, "download_namechange")
+            raise
+
+    def download_dividend(self, ts_code: str = None) -> pd.DataFrame:
+        """
+        Download dividend information
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("dividend requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                self.pro.dividend,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded dividend data: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download dividend data: {e}")
+            ErrorHandler.handle_api_error(e, "download_dividend")
+            raise
+
+    def download_top10_holders(self, ts_code: str, period: str = '20231231') -> pd.DataFrame:
+        """
+        Download top 10 shareholders
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("top10_holders requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.top10_holders,
+                ts_code=ts_code,
+                period=period
+            )
+            self.logger.info(f"Successfully downloaded top10_holders for {ts_code}: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download top10_holders for {ts_code}: {e}")
+            ErrorHandler.handle_api_error(e, f"download_top10_holders for {ts_code}")
+            raise
+
+    def download_stk_rewards(self, ts_code: str) -> pd.DataFrame:
+        """
+        Download management compensation and shareholding
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("stk_rewards requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.stk_rewards,
+                ts_code=ts_code
+            )
+            self.logger.info(f"Successfully downloaded stk_rewards for {ts_code}: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download stk_rewards for {ts_code}: {e}")
+            ErrorHandler.handle_api_error(e, f"download_stk_rewards for {ts_code}")
+            raise
+
+    def download_stk_managers(self, ts_code: str = None) -> pd.DataFrame:
+        """
+        Download company management information
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("stk_managers requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                self.pro.stk_managers,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded stk_managers: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download stk_managers: {e}")
+            ErrorHandler.handle_api_error(e, "download_stk_managers")
+            raise
+
+    def download_forecast(self, period: str = '20231231') -> pd.DataFrame:
+        """
+        Download earnings forecast
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("forecast requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.forecast_vip if TUSHARE_POINTS >= 5000 else self.pro.forecast
+
+            result = self.download_with_retry(
+                api_func,
+                period=period
+            )
+            self.logger.info(f"Successfully downloaded forecast: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download forecast: {e}")
+            ErrorHandler.handle_api_error(e, "download_forecast")
+            raise
+
+    def download_express(self, period: str = '20231231') -> pd.DataFrame:
+        """
+        Download earnings express (fast report)
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("express requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.express_vip if TUSHARE_POINTS >= 5000 else self.pro.express
+
+            result = self.download_with_retry(
+                api_func,
+                period=period
+            )
+            self.logger.info(f"Successfully downloaded express: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download express: {e}")
+            ErrorHandler.handle_api_error(e, "download_express")
+            raise
+
+    def download_fina_audit(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
+        """
+        Download financial audit opinions
+        Available to users with 500+ points
+        """
+        if TUSHARE_POINTS < 500:
+            self.logger.warning("fina_audit requires 500+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {'period': period}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                self.pro.fina_audit,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded fina_audit: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download fina_audit: {e}")
+            ErrorHandler.handle_api_error(e, "download_fina_audit")
+            raise
+
+    def download_fina_mainbz(self, period: str = '20231231', ts_code: str = None, type_: str = 'P') -> pd.DataFrame:
+        """
+        Download main business composition (by product or region)
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("fina_mainbz requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.fina_mainbz_vip if TUSHARE_POINTS >= 5000 else self.pro.fina_mainbz
+
+            params = {'period': period, 'type': type_}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                api_func,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded fina_mainbz: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download fina_mainbz: {e}")
+            ErrorHandler.handle_api_error(e, "download_fina_mainbz")
+            raise
+
+    def download_disclosure_date(self, ann_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download financial report disclosure schedule
+        Available to users with 500+ points
+        """
+        if TUSHARE_POINTS < 500:
+            self.logger.warning("disclosure_date requires 500+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.disclosure_date,
+                ann_date=ann_date
+            )
+            self.logger.info(f"Successfully downloaded disclosure_date: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download disclosure_date: {e}")
+            ErrorHandler.handle_api_error(e, "download_disclosure_date")
             raise
 
 
