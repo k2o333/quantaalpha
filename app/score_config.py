@@ -52,11 +52,15 @@ SCORE_REQUIREMENTS = {
             'stk_rewards',    # 管理层薪酬和持股
             'stk_managers',   # 上市公司管理层
             'moneyflow',      # 个股资金流向
+            'broker_recommend', # 券商每月荐股
         ]
     },
     3000: {
         'basic': [
             'stock_st',       # ST股票列表
+        ],
+        'holders': [
+            'top10_floatholders', # 前十大流通股东
         ],
         'others': [
             'stock_hsgt',     # 沪深港通股票列表
@@ -70,6 +74,7 @@ SCORE_REQUIREMENTS = {
             'pro_bar',        # 复权行情
             'bak_daily',      # 备用行情
             'stk_factor',     # 股票技术因子
+            'stk_factor_pro', # 股票技术面因子(专业版)
         ],
         'financial': [
             'income_vip',         # 利润表VIP
@@ -87,6 +92,7 @@ SCORE_REQUIREMENTS = {
             'moneyflow_dc',   # 个股资金流向(东财)
             'moneyflow_ths',  # 个股资金流向(同花顺)
             'moneyflow_ind_dc', # 行业/概念资金流向（东财）
+            'moneyflow_mkt_dc', # 大盘资金流向（东财）
             'moneyflow_cnt_ths', # 概念板块资金流向（同花顺）
             'moneyflow_ind_ths', # 行业板块资金流向（同花顺）
         ],
@@ -108,6 +114,7 @@ SCORE_REQUIREMENTS = {
         ],
         'others': [
             'disclosure_date', # 财报披露计划
+            'broker_recommend', # 券商每月荐股
         ]
     },
     8000: {
@@ -167,14 +174,24 @@ def get_api_limits_for_score(user_points):
             'cashflow_vip': {'calls_per_minute': 200},
             'fina_indicator_vip': {'calls_per_minute': 200},
             'stk_factor': {'calls_per_minute': 100},
+            'stk_factor_pro': {'calls_per_minute': 100},
             'cyq_perf': {'calls_per_minute': 100},
             'cyq_chips': {'calls_per_minute': 100},
             'moneyflow_dc': {'calls_per_minute': 100},
             'moneyflow_ths': {'calls_per_minute': 100},
+            'moneyflow_ind_dc': {'calls_per_minute': 100},
+            'moneyflow_mkt_dc': {'calls_per_minute': 100},
+            'moneyflow_cnt_ths': {'calls_per_minute': 100},
+            'moneyflow_ind_ths': {'calls_per_minute': 100},
+            'top10_floatholders': {'calls_per_minute': 100},
+            'report_rc': {'calls_per_minute': 100},
+            'stk_surv': {'calls_per_minute': 100},
+            'broker_recommend': {'calls_per_minute': 100},
         })
     elif user_points >= 2000:
         limits.update({
             'moneyflow': {'calls_per_minute': 100},
+            'broker_recommend': {'calls_per_minute': 100},
         })
     
     return limits

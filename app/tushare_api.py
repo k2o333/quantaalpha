@@ -661,6 +661,353 @@ class TuShareDownloader:
             ErrorHandler.handle_api_error(e, "download_disclosure_date")
             raise
 
+    # ===== Missing Interfaces Added per Implementation Plan =====
+    
+    def download_stock_st(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download ST stock list
+        Available to users with 3000+ points
+        """
+        if TUSHARE_POINTS < 3000:
+            self.logger.warning("stock_st requires 3000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.stock_st,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded stock_st: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download stock_st: {e}")
+            ErrorHandler.handle_api_error(e, "download_stock_st")
+            raise
+
+    def download_bak_basic(self) -> pd.DataFrame:
+        """
+        Download backup basic data
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("bak_basic requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.bak_basic
+            )
+            self.logger.info(f"Successfully downloaded bak_basic: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download bak_basic: {e}")
+            ErrorHandler.handle_api_error(e, "download_bak_basic")
+            raise
+
+    def download_moneyflow_dc(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download individual stock money flow (East Money)
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("moneyflow_dc requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow_dc,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded moneyflow_dc: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_dc: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_dc")
+            raise
+
+    def download_moneyflow_ths(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download individual stock money flow (THS)
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("moneyflow_ths requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow_ths,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded moneyflow_ths: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_ths: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_ths")
+            raise
+
+    def download_moneyflow_ind_dc(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download industry/concept money flow (East Money)
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("moneyflow_ind_dc requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow_ind_dc,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded moneyflow_ind_dc: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_ind_dc: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_ind_dc")
+            raise
+
+    def download_moneyflow_mkt_dc(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download market money flow (East Money)
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("moneyflow_mkt_dc requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow_mkt_dc,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded moneyflow_mkt_dc: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_mkt_dc: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_mkt_dc")
+            raise
+
+    def download_moneyflow_cnt_ths(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download concept sector money flow (THS)
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("moneyflow_cnt_ths requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow_cnt_ths,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded moneyflow_cnt_ths: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_cnt_ths: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_cnt_ths")
+            raise
+
+    def download_moneyflow_ind_ths(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download industry sector money flow (THS)
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("moneyflow_ind_ths requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow_ind_ths,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded moneyflow_ind_ths: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_ind_ths: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_ind_ths")
+            raise
+
+    def download_top10_floatholders(self, ts_code: str, period: str = '20231231') -> pd.DataFrame:
+        """
+        Download top 10 floating shareholders
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("top10_floatholders requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.top10_floatholders,
+                ts_code=ts_code,
+                period=period
+            )
+            self.logger.info(f"Successfully downloaded top10_floatholders for {ts_code}: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download top10_floatholders for {ts_code}: {e}")
+            ErrorHandler.handle_api_error(e, f"download_top10_floatholders for {ts_code}")
+            raise
+
+    def download_stk_factor(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download stock technical factors
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("stk_factor requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.stk_factor,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded stk_factor: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download stk_factor: {e}")
+            ErrorHandler.handle_api_error(e, "download_stk_factor")
+            raise
+
+    def download_stk_factor_pro(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download stock technical factors (professional version)
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("stk_factor_pro requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.stk_factor_pro,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded stk_factor_pro: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download stk_factor_pro: {e}")
+            ErrorHandler.handle_api_error(e, "download_stk_factor_pro")
+            raise
+
+    def download_cyq_perf(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download daily chip distribution and win rate
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("cyq_perf requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.cyq_perf,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded cyq_perf: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download cyq_perf: {e}")
+            ErrorHandler.handle_api_error(e, "download_cyq_perf")
+            raise
+
+    def download_cyq_chips(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download daily chip distribution
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("cyq_chips requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.cyq_chips,
+                trade_date=trade_date
+            )
+            self.logger.info(f"Successfully downloaded cyq_chips: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download cyq_chips: {e}")
+            ErrorHandler.handle_api_error(e, "download_cyq_chips")
+            raise
+
+    def download_report_rc(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
+        """
+        Download sell-side earnings forecast data
+        Available to users with 5000+ points (8000+ for formal access)
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("report_rc requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {'period': period}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                self.pro.report_rc,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded report_rc: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download report_rc: {e}")
+            ErrorHandler.handle_api_error(e, "download_report_rc")
+            raise
+
+    def download_stk_surv(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
+        """
+        Download institutional research survey
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("stk_surv requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {'period': period}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                self.pro.stk_surv,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded stk_surv: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download stk_surv: {e}")
+            ErrorHandler.handle_api_error(e, "download_stk_surv")
+            raise
+
+    def download_broker_recommend(self, start_date: str = '20230101', end_date: str = '20231231') -> pd.DataFrame:
+        """
+        Download broker monthly stock recommendations
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("broker_recommend requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.broker_recommend,
+                start_date=start_date,
+                end_date=end_date
+            )
+            self.logger.info(f"Successfully downloaded broker_recommend: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download broker_recommend: {e}")
+            ErrorHandler.handle_api_error(e, "download_broker_recommend")
+            raise
+
 
 # Example usage
 if __name__ == "__main__":

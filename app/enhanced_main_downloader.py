@@ -119,6 +119,13 @@ class EnhancedMainDownloader:
         if 'new_share' in self.available_types.get('basic', []):
             tasks.append(('new_share', self.downloader.download_new_share, 3))
         
+        # Add new basic interfaces
+        if 'stock_st' in self.available_types.get('basic', []):
+            tasks.append(('stock_st', self.downloader.download_stock_st, 3))
+            
+        if 'bak_basic' in self.available_types.get('basic', []):
+            tasks.append(('bak_basic', self.downloader.download_bak_basic, 3))
+        
         # Daily data downloads (high priority)
         if 'daily_basic' in self.available_types.get('daily', []):
             tasks.append(('daily_basic', self.downloader.download_daily_basic, 3))
@@ -136,10 +143,42 @@ class EnhancedMainDownloader:
         if 'fina_indicator' in self.available_types.get('financial', []):
             tasks.append(('fina_indicator', self._download_fina_indicator_safe, 3))
         
-        # Other data downloads
+        # Money flow data downloads
         if 'moneyflow' in self.available_types.get('funds', []):
             tasks.append(('moneyflow', self._download_moneyflow_safe, 3))
         
+        # Add new money flow interfaces
+        money_flow_types = ['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 
+                           'moneyflow_cnt_ths', 'moneyflow_ind_ths']
+        for mf_type in money_flow_types:
+            if mf_type in self.available_types.get('funds', []):
+                tasks.append((mf_type, getattr(self.downloader, f'download_{mf_type}'), 3))
+        
+        # Holder data downloads
+        if 'top10_holders' in self.available_types.get('holders', []):
+            tasks.append(('top10_holders', self._download_top10_holders_safe, 3))
+            
+        if 'top10_floatholders' in self.available_types.get('holders', []):
+            tasks.append(('top10_floatholders', self._download_top10_floatholders_safe, 3))
+        
+        # Technical analysis and market structure data
+        # Check both daily and market_structure categories for these interfaces
+        tech_types = ['stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips']
+        for tech_type in tech_types:
+            if (tech_type in self.available_types.get('market_structure', []) or 
+                tech_type in self.available_types.get('daily', [])):
+                tasks.append((tech_type, getattr(self.downloader, f'download_{tech_type}'), 3))
+        
+        # Research data downloads
+        research_types = ['report_rc', 'stk_surv', 'broker_recommend']
+        for research_type in research_types:
+            if research_type in self.available_types.get('research', []):
+                if research_type == 'broker_recommend':
+                    tasks.append((research_type, self._download_broker_recommend_safe, 3))
+                else:
+                    tasks.append((research_type, getattr(self.downloader, f'download_{research_type}'), 3))
+        
+        # Other data downloads
         if 'stk_rewards' in self.available_types.get('others', []):
             tasks.append(('stk_rewards', self._download_stk_rewards_safe, 3))
         
@@ -203,6 +242,30 @@ class EnhancedMainDownloader:
                 return self.downloader.download_fina_indicator(period='20231231')
             except Exception:
                 return pd.DataFrame()
+    
+    def _download_top10_holders_safe(self) -> pd.DataFrame:
+        """Safe download of top10_holders with error handling"""
+        # Get a sample stock
+        stock_df = self.downloader.download_stock_basic()
+        if not stock_df.empty and len(stock_df) > 0:
+            ts_code = stock_df.iloc[0]['ts_code']
+            return self.downloader.download_top10_holders(ts_code=ts_code, period='20231231')
+        else:
+            return pd.DataFrame()
+    
+    def _download_top10_floatholders_safe(self) -> pd.DataFrame:
+        """Safe download of top10_floatholders with error handling"""
+        # Get a sample stock
+        stock_df = self.downloader.download_stock_basic()
+        if not stock_df.empty and len(stock_df) > 0:
+            ts_code = stock_df.iloc[0]['ts_code']
+            return self.downloader.download_top10_floatholders(ts_code=ts_code, period='20231231')
+        else:
+            return pd.DataFrame()
+    
+    def _download_broker_recommend_safe(self) -> pd.DataFrame:
+        """Safe download of broker_recommend with error handling"""
+        return self.downloader.download_broker_recommend(start_date='20230101', end_date='20231231')
     
     def _download_moneyflow_safe(self) -> pd.DataFrame:
         """Safe download of moneyflow with error handling"""
@@ -269,11 +332,19 @@ class EnhancedMainDownloader:
         import datetime
         current_date = datetime.datetime.now().strftime('%Y%m%d')
         
-        if task_name in ['daily_basic', 'moneyflow']:
+        if task_name in ['daily_basic', 'moneyflow', 'stock_st', 
+                           'moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc',
+                           'moneyflow_cnt_ths', 'moneyflow_ind_ths',
+                           'stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips']:
             # These require a date parameter
             return f"{task_name}_{current_date}"
-        elif task_name in ['income', 'balancesheet', 'cashflow', 'fina_indicator']:
+        elif task_name in ['income', 'balancesheet', 'cashflow', 'fina_indicator',
+                           'top10_holders', 'top10_floatholders', 
+                           'report_rc', 'stk_surv']:
             # These are financial reports
+            return f"{task_name}_20231231"
+        elif task_name == 'broker_recommend':
+            # This uses a date range
             return f"{task_name}_20231231"
         else:
             return task_name

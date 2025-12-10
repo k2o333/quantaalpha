@@ -1,9 +1,9 @@
-# 实施方案：添加缺失接口和统一失败处理机制
+# 实施方案：添加缺失接口（简化版）
 
 ## 项目目标
 
 1. 将 `/home/quan/testdata/aspipe_v4/p/tudown.md` 中提到但代码中缺失的16个接口添加到系统中
-2. 统一并优化现有失败处理机制，使其在整个系统中共享和一致
+2. 复用现有失败处理机制，保持一致性
 
 ## 第一部分：缺失接口添加方案
 
@@ -33,205 +33,164 @@
 15. `stk_surv` - 机构调研表
 16. `broker_recommend` - 券商每月荐股
 
-### 接口实现步骤
+### 实现步骤
 
 #### 步骤1：在 `tushare_api.py` 中添加接口方法
 
-为每个缺失接口创建对应的下载方法，遵循现有模式：
+为每个缺失接口创建对应的下载方法，遵循现有模式。例如：
 
 ```python
-def download_interface_name(self, parameters) -> pd.DataFrame:
+def download_stock_st(self, trade_date: str = '20231201') -> pd.DataFrame:
     """
-    下载 interface_name 数据
-    权限要求：xxx积分起
+    下载ST股票列表
+    权限要求：3000积分起
     """
-    if TUSHARE_POINTS < required_points:
-        self.logger.warning("interface_name requires xxx+ points, skipping download")
+    if TUSHARE_POINTS < 3000:
+        self.logger.warning("stock_st requires 3000+ points, skipping download")
         return pd.DataFrame()
 
     try:
         result = self.download_with_retry(
-            self.pro.interface_name,
-            **parameters
+            self.pro.stock_st,
+            trade_date=trade_date
         )
-        self.logger.info(f"Successfully downloaded interface_name: {len(result)} records")
+        self.logger.info(f"Successfully downloaded stock_st: {len(result)} records")
         return result
     except Exception as e:
-        self.logger.error(f"Failed to download interface_name: {e}")
-        ErrorHandler.handle_api_error(e, "download_interface_name")
+        self.logger.error(f"Failed to download stock_st: {e}")
+        ErrorHandler.handle_api_error(e, "download_stock_st")
+        raise
+
+def download_bak_basic(self) -> pd.DataFrame:
+    """
+    下载备用基础数据
+    权限要求：5000积分起
+    """
+    if TUSHARE_POINTS < 5000:
+        self.logger.warning("bak_basic requires 5000+ points, skipping download")
+        return pd.DataFrame()
+
+    try:
+        result = self.download_with_retry(
+            self.pro.bak_basic
+        )
+        self.logger.info(f"Successfully downloaded bak_basic: {len(result)} records")
+        return result
+    except Exception as e:
+        self.logger.error(f"Failed to download bak_basic: {e}")
+        ErrorHandler.handle_api_error(e, "download_bak_basic")
         raise
 ```
 
 #### 步骤2：在 `date_range_downloader.py` 中添加任务调度
 
-在 `_create_download_task_list()` 方法中添加新的任务类型：
+在 `_create_download_task_list()` 方法中添加新的任务类型，将这些接口集成到现有的下载流程中：
 
 ```python
-# 新增类型示例
-new_types = ['interface_name1', 'interface_name2']
-for data_type in new_types:
-    if self._is_data_type_available(data_type):
-        tasks.append((data_type, lambda dt=data_type: self._download_new_type(dt), 3))
+# 在适当分类中添加新的接口
+static_types = ['stock_basic', 'trade_cal', 'new_share', 'stock_company', 'stock_st', 'bak_basic', 'namechange']
+# top10_floatholders 可以按其他股东数据分类
+other_types = ['stk_rewards', 'stk_managers', 'namechange', 'top10_floatholders', 'broker_recommend']
+# 资金流向类接口
+fund_types = ['moneyflow', 'moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 'moneyflow_cnt_ths', 'moneyflow_ind_ths']
+# 技术分析类接口
+tech_types = ['stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips', 'report_rc', 'stk_surv']
 ```
 
-同时添加对应的下载方法：
-
-```python
-def _download_new_type(self, data_type: str) -> Dict[str, any]:
-    """
-    下载新的数据类型
-    """
-    # 实现具体的下载逻辑
-    pass
-```
+同时添加对应的下载方法，复用现有的 `_download_daily_type_for_range`、`_download_static_type` 等方法的模式。
 
 #### 步骤3：更新 `score_config.py` 中的权限配置
 
 在 `SCORE_REQUIREMENTS` 字典中添加新接口的权限要求：
 
 ```python
-# 示例：在适当积分级别下添加
-5000: {
-    'new_category': [
-        'interface_name1',
-        'interface_name2',
-        # ...
-    ],
-},
+SCORE_REQUIREMENTS = {
+    ...
+    3000: {
+        'basic': [
+            'stock_st',       # ST股票列表
+        ],
+        'others': [
+            'stock_hsgt',     # 沪深港通股票列表
+        ]
+    },
+    5000: {
+        'basic': [
+            'bak_basic',      # 备用基础数据
+        ],
+        'daily': [
+            'pro_bar',        # 复权行情
+            'bak_daily',      # 备用行情
+            'stk_factor',     # 股票技术因子
+            'stk_factor_pro', # 股票技术面因子(专业版)
+        ],
+        'market_structure': [
+            'cyq_perf',       # 每日筹码及胜率
+            'cyq_chips',      # 每日筹码分布
+        ],
+        'funds': [
+            'moneyflow_dc',   # 个股资金流向(东财)
+            'moneyflow_ths',  # 个股资金流向(同花顺)
+            'moneyflow_ind_dc', # 行业/概念资金流向（东财）
+            'moneyflow_mkt_dc', # 大盘资金流向（东财）
+            'moneyflow_cnt_ths', # 概念板块资金流向（同花顺）
+            'moneyflow_ind_ths', # 行业板块资金流向（同花顺）
+        ],
+        'holders': [
+            'top10_floatholders', # 前十大流通股东
+        ],
+        'research': [
+            'report_rc',      # 卖方盈利预测数据
+            'stk_surv',       # 机构调研表
+        ],
+    },
+    8000: {
+        'research': [
+            'report_rc',      # 卖方盈利预测数据 (正式权限)
+        ]
+    },
+    2000: {
+        'others': [
+            'broker_recommend', # 券商每月荐股
+        ]
+    }
+}
 ```
 
-## 第二部分：统一失败处理机制方案
+## 第二部分：失败处理机制
 
-### 当前失败处理机制分析
+复用现有的失败处理机制，无需额外开发：
 
-目前系统已有以下失败处理机制：
 1. `@retry_on_failure` 装饰器 - 重试机制
 2. 令牌切换机制 - 认证失败时自动切换令牌
 3. 错误分类处理 - 不同错误类型的不同处理策略
 4. 智能任务队列 - 任务失败后的队列管理
 
-### 统一失败处理机制改进方案
+所有新增接口都使用 `download_with_retry` 方法和 `ErrorHandler.handle_api_error` 函数，保持一致性。
 
-#### 方案1：创建统一的下载装饰器
+## 第三部分：实施步骤
 
-创建一个新的装饰器 `@download_handler`，整合所有失败处理逻辑：
+### 步骤1：在 `tushare_api.py` 中添加16个接口方法（1天）
+- 按照现有代码模式添加所有缺失接口
+- 确保权限检查正确
+- 复用现有错误处理机制
 
-```python
-def download_handler(max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0,
-                     handle_token_switch: bool = True, handle_rate_limit: bool = True):
-    """
-    统一的下载处理装饰器，集成重试、令牌切换、频率控制等功能
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(self, *args, **kwargs) -> Any:
-            # 实现统一的处理逻辑
-            pass
-        return wrapper
-    return decorator
-```
+### 步骤2：更新 `score_config.py` 权限配置（半天）
+- 添加新接口的权限要求
+- 按接口类型分类
 
-#### 方案2：创建下载基类
+### 步骤3：更新 `date_range_downloader.py` 任务调度（1天）
+- 添加任务到相应分类
+- 实现对应的下载方法
+- 集成到现有的下载流程中
 
-创建一个 `BaseDownloader` 类，将公共的失败处理逻辑封装其中：
+### 步骤4：测试和验证（半天）
+- 单独测试各接口功能
+- 整体下载流程测试
+- 错误处理机制验证
 
-```python
-class BaseDownloader:
-    def __init__(self):
-        self.retry_manager = RetryManager()
-        self.token_manager = TokenManager()
-        self.rate_limiter = RateLimiter()
-        self.error_handler = ErrorHandler()
+## 第四部分：预期效果
 
-    def execute_with_failover(self, func, *args, **kwargs):
-        """执行带故障转移的下载操作"""
-        pass
-```
-
-#### 方案3：全局错误处理器
-
-增强现有的 `ErrorHandler` 类，使其成为全局错误处理中心：
-
-```python
-class GlobalErrorHandler(ErrorHandler):
-    """全局错误处理器，统一处理所有下载相关的错误"""
-
-    @staticmethod
-    def handle_download_error(error: Exception, context: str = "", download_type: str = ""):
-        """统一处理下载错误"""
-        # 统一日志记录
-        # 统一错误分类
-        # 统一重试策略
-        # 统一恢复机制
-        pass
-```
-
-## 第三部分：具体实施步骤
-
-### 阶段1：接口添加 (预计2天)
-
-1. **第1天**：添加基础信息类和股东数据类接口
-   - 实现 `stock_st`, `bak_basic`, `top10_floatholders` 接口
-   - 更新权限配置
-   - 添加任务调度逻辑
-
-2. **第2天**：添加资金流向类和技术分析类接口
-   - 实现剩余13个接口
-   - 更新权限配置
-   - 添加任务调度逻辑
-
-### 阶段2：失败处理机制统一 (预计3天)
-
-1. **第1天**：设计并实现统一的装饰器
-   - 创建 `@download_handler` 装饰器
-   - 替换现有的 `@retry_on_failure` 装饰器
-
-2. **第2天**：重构错误处理模块
-   - 增强 `ErrorHandler` 类功能
-   - 统一错误日志格式
-   - 实现全局错误处理策略
-
-3. **第3天**：集成测试和优化
-   - 测试所有接口的错误处理
-   - 优化重试策略
-   - 完善日志记录
-
-### 阶段3：测试和部署 (预计2天)
-
-1. **第1天**：单元测试
-   - 为新增接口编写单元测试
-   - 测试失败处理机制
-
-2. **第2天**：集成测试和部署
-   - 整体功能测试
-   - 性能测试
-   - 文档更新
-
-## 第四部分：风险评估和应对措施
-
-### 风险1：接口权限不足
-- **应对措施**：在代码中添加积分检查，积分不足时优雅降级
-
-### 风险2：API调用频率超限
-- **应对措施**：加强频率控制机制，实现动态调整
-
-### 风险3：网络不稳定导致下载失败
-- **应对措施**：增强重试机制，增加网络错误的特殊处理
-
-### 风险4：数据格式变化
-- **应对措施**：添加数据验证机制，确保数据一致性
-
-## 第五部分：预期效果
-
-1. **功能完整性**：系统将支持tudown.md中提到的所有接口
-2. **健壮性提升**：统一的失败处理机制将提高系统稳定性
-3. **维护性改善**：标准化的接口实现和错误处理便于后续维护
-4. **性能优化**：优化的重试和令牌切换机制将提高下载效率
-
-## 第六部分：验收标准
-
-1. 所有16个缺失接口都能正常工作
-2. 新增接口能正确处理各种错误情况
-3. 统一的失败处理机制在整个系统中一致应用
-4. 系统整体性能和稳定性得到提升
-5. 通过所有单元测试和集成测试
+1. 系统将支持tudown.md中提到的所有接口
+2. 保持与现有系统的一致性和兼容性
+3. 使用相同的错误处理机制，维护代码统一性

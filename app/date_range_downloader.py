@@ -82,12 +82,26 @@ class DateRangeDownloader:
 
         # 日度数据 - 高优先级 (通常比较稳定)
         daily_types = ['daily', 'daily_basic', 'moneyflow']
+        # Add money flow interfaces from East Money and THS
+        if TUSHARE_POINTS >= 5000:
+            daily_types.extend(['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 
+                               'moneyflow_cnt_ths', 'moneyflow_ind_ths'])
+        # Add technical factors and chip data
+        if TUSHARE_POINTS >= 5000:
+            daily_types.extend(['stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips'])
+        
         for data_type in daily_types:
             if self._is_data_type_available(data_type):
                 tasks.append((data_type, lambda dt=data_type: self._download_daily_type_for_range(dt), 3))
 
         # 静态数据 - 高优先级
         static_types = ['stock_basic', 'trade_cal', 'new_share', 'stock_company']
+        # Add stock_st and bak_basic to static types
+        if TUSHARE_POINTS >= 3000:
+            static_types.append('stock_st')
+        if TUSHARE_POINTS >= 5000:
+            static_types.append('bak_basic')
+        
         for data_type in static_types:
             if self._is_data_type_available(data_type):
                 tasks.append((data_type, lambda dt=data_type: self._download_static_type(dt), 3))
@@ -103,6 +117,24 @@ class DateRangeDownloader:
         for data_type in event_types:
             if self._is_data_type_available(data_type):
                 tasks.append((data_type, lambda dt=data_type: self._download_event_type_for_range(dt), 3))
+
+        # 股东数据 - 中等优先级
+        holder_types = ['top10_holders']
+        if TUSHARE_POINTS >= 3000:
+            holder_types.append('top10_floatholders')
+        for data_type in holder_types:
+            if self._is_data_type_available(data_type):
+                tasks.append((data_type, lambda dt=data_type: self._download_holder_type_for_range(dt), 3))
+
+        # 研究数据 - 中等优先级
+        research_types = []
+        if TUSHARE_POINTS >= 5000:
+            research_types.extend(['report_rc', 'stk_surv'])
+        if TUSHARE_POINTS >= 2000:
+            research_types.append('broker_recommend')
+        for data_type in research_types:
+            if self._is_data_type_available(data_type):
+                tasks.append((data_type, lambda dt=data_type: self._download_research_type_for_range(dt), 3))
 
         # 其他数据 - 最后尝试
         other_types = ['stk_rewards', 'stk_managers', 'namechange']
@@ -132,6 +164,28 @@ class DateRangeDownloader:
                     df = self.downloader.download_daily_basic(trade_date=trade_date)
                 elif data_type == 'moneyflow':
                     df = self.downloader.download_moneyflow(trade_date=trade_date)
+                # New money flow interfaces from East Money and THS
+                elif data_type == 'moneyflow_dc':
+                    df = self.downloader.download_moneyflow_dc(trade_date=trade_date)
+                elif data_type == 'moneyflow_ths':
+                    df = self.downloader.download_moneyflow_ths(trade_date=trade_date)
+                elif data_type == 'moneyflow_ind_dc':
+                    df = self.downloader.download_moneyflow_ind_dc(trade_date=trade_date)
+                elif data_type == 'moneyflow_mkt_dc':
+                    df = self.downloader.download_moneyflow_mkt_dc(trade_date=trade_date)
+                elif data_type == 'moneyflow_cnt_ths':
+                    df = self.downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
+                elif data_type == 'moneyflow_ind_ths':
+                    df = self.downloader.download_moneyflow_ind_ths(trade_date=trade_date)
+                # Technical factors and chip data
+                elif data_type == 'stk_factor':
+                    df = self.downloader.download_stk_factor(trade_date=trade_date)
+                elif data_type == 'stk_factor_pro':
+                    df = self.downloader.download_stk_factor_pro(trade_date=trade_date)
+                elif data_type == 'cyq_perf':
+                    df = self.downloader.download_cyq_perf(trade_date=trade_date)
+                elif data_type == 'cyq_chips':
+                    df = self.downloader.download_cyq_chips(trade_date=trade_date)
                 else:
                     self.logger.warning(f"未知的日度数据类型: {data_type}")
                     continue
@@ -175,6 +229,10 @@ class DateRangeDownloader:
                 df = self.downloader.download_trade_cal(start_date=self.start_date, end_date=self.end_date)
             elif data_type == 'new_share':
                 df = self.downloader.download_new_share(start_date=self.start_date, end_date=self.end_date)
+            elif data_type == 'stock_st':
+                df = self.downloader.download_stock_st(trade_date=self.start_date)
+            elif data_type == 'bak_basic':
+                df = self.downloader.download_bak_basic()
             else:
                 self.logger.warning(f"未知的静态数据类型: {data_type}")
                 return 0
@@ -237,6 +295,107 @@ class DateRangeDownloader:
             self.logger.error(f"下载财务数据 {data_type} 失败: {e}")
 
         return results
+
+    def _download_holder_type_for_range(self, data_type: str) -> Dict[str, int]:
+        """
+        下载特定股东数据类型的日期范围数据
+        """
+        results = {}
+        self.logger.info(f"开始下载股东数据 {data_type}")
+
+        try:
+            # 获取报告期在指定范围内的数据
+            periods = self._get_financial_periods_in_range()
+
+            for period in periods:
+                try:
+                    self.logger.info(f"正在下载 {data_type} - {period}")
+
+                    # 先获取股票列表
+                    stock_df = self.downloader.download_stock_basic()
+                    if not stock_df.empty:
+                        ts_code = stock_df.iloc[0]['ts_code']
+
+                        if data_type == 'top10_holders':
+                            df = self.downloader.download_top10_holders(ts_code=ts_code, period=period)
+                        elif data_type == 'top10_floatholders':
+                            df = self.downloader.download_top10_floatholders(ts_code=ts_code, period=period)
+                        else:
+                            self.logger.warning(f"未知的股东数据类型: {data_type}")
+                            continue
+
+                        if not df.empty:
+                            filename = f"{data_type}_{period}"
+                            file_path = save_to_parquet(df, filename, subdir="holders")
+                            results[period] = len(df)
+
+                            self.logger.info(f"成功保存 {data_type}_{period}: {len(df)} 条记录")
+                        else:
+                            self.logger.warning(f"{data_type} - {period} 无数据")
+
+                except Exception as e:
+                    self.logger.error(f"下载 {data_type} - {period} 失败: {e}")
+                    continue
+
+        except Exception as e:
+            self.logger.error(f"下载股东数据 {data_type} 失败: {e}")
+
+        return results
+
+    def _download_research_type_for_range(self, data_type: str) -> Dict[str, any]:
+        """
+        下载特定研究数据类型
+        """
+        try:
+            if data_type == 'report_rc':
+                # Download sell-side earnings forecast data
+                periods = self._get_financial_periods_in_range()
+                results = {}
+                
+                for period in periods:
+                    try:
+                        df = self.downloader.download_report_rc(period=period)
+                        if not df.empty:
+                            filename = f"{data_type}_{period}"
+                            file_path = save_to_parquet(df, filename, subdir="research")
+                            results[period] = len(df)
+                    except Exception as e:
+                        self.logger.error(f"下载 {data_type} - {period} 失败: {e}")
+                
+                return results
+                
+            elif data_type == 'stk_surv':
+                # Download institutional research survey
+                periods = self._get_financial_periods_in_range()
+                results = {}
+                
+                for period in periods:
+                    try:
+                        df = self.downloader.download_stk_surv(period=period)
+                        if not df.empty:
+                            filename = f"{data_type}_{period}"
+                            file_path = save_to_parquet(df, filename, subdir="research")
+                            results[period] = len(df)
+                    except Exception as e:
+                        self.logger.error(f"下载 {data_type} - {period} 失败: {e}")
+                
+                return results
+                
+            elif data_type == 'broker_recommend':
+                # Download broker monthly stock recommendations
+                try:
+                    df = self.downloader.download_broker_recommend(start_date=self.start_date, end_date=self.end_date)
+                    if not df.empty:
+                        file_path = save_to_parquet(df, data_type, subdir="research")
+                        self.logger.info(f"成功保存 {data_type}: {len(df)} 条记录")
+                        return {'records': len(df)}
+                except Exception as e:
+                    self.logger.error(f"下载 {data_type} 失败: {e}")
+
+            return {}
+        except Exception as e:
+            self.logger.error(f"下载研究数据 {data_type} 失败: {e}")
+            return {}
 
     def _get_financial_periods_in_range(self) -> List[str]:
         """

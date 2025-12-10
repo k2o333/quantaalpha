@@ -307,6 +307,353 @@ class ScoreBasedDownloader:
             ErrorHandler.handle_api_error(e, "download_fina_indicator")
             raise
 
+    # ===== Missing Interfaces Added per Implementation Plan =====
+    
+    def download_stock_st(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download ST stock list (available at 3000+ points)
+        """
+        if not self.is_data_type_available('stock_st'):
+            logger.warning("stock_st not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading ST stock list...")
+            result = self.download_with_retry(
+                self.pro.stock_st,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded stock_st: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download stock_st: {e}")
+            ErrorHandler.handle_api_error(e, "download_stock_st")
+            raise
+
+    def download_bak_basic(self) -> pd.DataFrame:
+        """
+        Download backup basic data (available at 5000+ points)
+        """
+        if not self.is_data_type_available('bak_basic'):
+            logger.warning("bak_basic not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading backup basic data...")
+            result = self.download_with_retry(
+                self.pro.bak_basic
+            )
+            logger.info(f"Successfully downloaded bak_basic: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download bak_basic: {e}")
+            ErrorHandler.handle_api_error(e, "download_bak_basic")
+            raise
+
+    def download_moneyflow_dc(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download individual stock money flow (East Money) (available at 5000+ points)
+        """
+        if not self.is_data_type_available('moneyflow_dc'):
+            logger.warning("moneyflow_dc not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading money flow data (East Money)...")
+            result = self.download_with_retry(
+                self.pro.moneyflow_dc,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded moneyflow_dc: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download moneyflow_dc: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_dc")
+            raise
+
+    def download_moneyflow_ths(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download individual stock money flow (THS) (available at 5000+ points)
+        """
+        if not self.is_data_type_available('moneyflow_ths'):
+            logger.warning("moneyflow_ths not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading money flow data (THS)...")
+            result = self.download_with_retry(
+                self.pro.moneyflow_ths,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded moneyflow_ths: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download moneyflow_ths: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_ths")
+            raise
+
+    def download_moneyflow_ind_dc(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download industry/concept money flow (East Money) (available at 5000+ points)
+        """
+        if not self.is_data_type_available('moneyflow_ind_dc'):
+            logger.warning("moneyflow_ind_dc not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading industry/concept money flow (East Money)...")
+            result = self.download_with_retry(
+                self.pro.moneyflow_ind_dc,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded moneyflow_ind_dc: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download moneyflow_ind_dc: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_ind_dc")
+            raise
+
+    def download_moneyflow_mkt_dc(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download market money flow (East Money) (available at 5000+ points)
+        """
+        if not self.is_data_type_available('moneyflow_mkt_dc'):
+            logger.warning("moneyflow_mkt_dc not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading market money flow (East Money)...")
+            result = self.download_with_retry(
+                self.pro.moneyflow_mkt_dc,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded moneyflow_mkt_dc: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download moneyflow_mkt_dc: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_mkt_dc")
+            raise
+
+    def download_moneyflow_cnt_ths(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download concept sector money flow (THS) (available at 5000+ points)
+        """
+        if not self.is_data_type_available('moneyflow_cnt_ths'):
+            logger.warning("moneyflow_cnt_ths not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading concept sector money flow (THS)...")
+            result = self.download_with_retry(
+                self.pro.moneyflow_cnt_ths,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded moneyflow_cnt_ths: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download moneyflow_cnt_ths: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_cnt_ths")
+            raise
+
+    def download_moneyflow_ind_ths(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download industry sector money flow (THS) (available at 5000+ points)
+        """
+        if not self.is_data_type_available('moneyflow_ind_ths'):
+            logger.warning("moneyflow_ind_ths not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading industry sector money flow (THS)...")
+            result = self.download_with_retry(
+                self.pro.moneyflow_ind_ths,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded moneyflow_ind_ths: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download moneyflow_ind_ths: {e}")
+            ErrorHandler.handle_api_error(e, "download_moneyflow_ind_ths")
+            raise
+
+    def download_top10_floatholders(self, ts_code: str = None, period: str = '20231231') -> pd.DataFrame:
+        """
+        Download top 10 floating shareholders (available at 5000+ points)
+        """
+        if not self.is_data_type_available('top10_floatholders'):
+            logger.warning("top10_floatholders not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading top 10 floating shareholders...")
+            # Get stock code if not provided
+            if not ts_code:
+                stock_df = self.download_stock_basic()
+                if not stock_df.empty:
+                    ts_code = stock_df.iloc[0]['ts_code']
+                else:
+                    return pd.DataFrame()
+                    
+            result = self.download_with_retry(
+                self.pro.top10_floatholders,
+                ts_code=ts_code,
+                period=period
+            )
+            logger.info(f"Successfully downloaded top10_floatholders for {ts_code}: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download top10_floatholders: {e}")
+            ErrorHandler.handle_api_error(e, "download_top10_floatholders")
+            raise
+
+    def download_stk_factor(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download stock technical factors (available at 5000+ points)
+        """
+        if not self.is_data_type_available('stk_factor'):
+            logger.warning("stk_factor not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading stock technical factors...")
+            result = self.download_with_retry(
+                self.pro.stk_factor,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded stk_factor: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download stk_factor: {e}")
+            ErrorHandler.handle_api_error(e, "download_stk_factor")
+            raise
+
+    def download_stk_factor_pro(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download stock technical factors (professional version) (available at 5000+ points)
+        """
+        if not self.is_data_type_available('stk_factor_pro'):
+            logger.warning("stk_factor_pro not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading stock technical factors (professional version)...")
+            result = self.download_with_retry(
+                self.pro.stk_factor_pro,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded stk_factor_pro: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download stk_factor_pro: {e}")
+            ErrorHandler.handle_api_error(e, "download_stk_factor_pro")
+            raise
+
+    def download_cyq_perf(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download daily chip distribution and win rate (available at 5000+ points)
+        """
+        if not self.is_data_type_available('cyq_perf'):
+            logger.warning("cyq_perf not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading daily chip distribution and win rate...")
+            result = self.download_with_retry(
+                self.pro.cyq_perf,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded cyq_perf: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download cyq_perf: {e}")
+            ErrorHandler.handle_api_error(e, "download_cyq_perf")
+            raise
+
+    def download_cyq_chips(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download daily chip distribution (available at 5000+ points)
+        """
+        if not self.is_data_type_available('cyq_chips'):
+            logger.warning("cyq_chips not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading daily chip distribution...")
+            result = self.download_with_retry(
+                self.pro.cyq_chips,
+                trade_date=trade_date
+            )
+            logger.info(f"Successfully downloaded cyq_chips: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download cyq_chips: {e}")
+            ErrorHandler.handle_api_error(e, "download_cyq_chips")
+            raise
+
+    def download_report_rc(self, period: str = '20231231') -> pd.DataFrame:
+        """
+        Download sell-side earnings forecast data (available at 5000+ points)
+        """
+        if not self.is_data_type_available('report_rc'):
+            logger.warning("report_rc not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading sell-side earnings forecast data...")
+            result = self.download_with_retry(
+                self.pro.report_rc,
+                period=period
+            )
+            logger.info(f"Successfully downloaded report_rc: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download report_rc: {e}")
+            ErrorHandler.handle_api_error(e, "download_report_rc")
+            raise
+
+    def download_stk_surv(self, period: str = '20231231') -> pd.DataFrame:
+        """
+        Download institutional research survey (available at 5000+ points)
+        """
+        if not self.is_data_type_available('stk_surv'):
+            logger.warning("stk_surv not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading institutional research survey...")
+            result = self.download_with_retry(
+                self.pro.stk_surv,
+                period=period
+            )
+            logger.info(f"Successfully downloaded stk_surv: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download stk_surv: {e}")
+            ErrorHandler.handle_api_error(e, "download_stk_surv")
+            raise
+
+    def download_broker_recommend(self, start_date: str = '20230101', end_date: str = '20231231') -> pd.DataFrame:
+        """
+        Download broker monthly stock recommendations (available at 2000+ points)
+        """
+        if not self.is_data_type_available('broker_recommend'):
+            logger.warning("broker_recommend not available with current score, skipping")
+            return pd.DataFrame()
+            
+        try:
+            logger.info("Downloading broker monthly stock recommendations...")
+            result = self.download_with_retry(
+                self.pro.broker_recommend,
+                start_date=start_date,
+                end_date=end_date
+            )
+            logger.info(f"Successfully downloaded broker_recommend: {len(result)} records")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to download broker_recommend: {e}")
+            ErrorHandler.handle_api_error(e, "download_broker_recommend")
+            raise
+
     def download_all_available_data(self):
         """
         Download all data types available for the user's score level
@@ -381,6 +728,72 @@ class ScoreBasedDownloader:
                     results['fina_indicator'] = len(df)
             except Exception as e:
                 logger.error(f"Error downloading fina_indicator: {e}")
+        
+        # Download missing interfaces
+        if self.is_data_type_available('stock_st'):
+            try:
+                df = self.download_stock_st()
+                if not df.empty:
+                    save_to_parquet(df, 'stock_st_20231201', subdir="basic")
+                    results['stock_st'] = len(df)
+            except Exception as e:
+                logger.error(f"Error downloading stock_st: {e}")
+        
+        if self.is_data_type_available('bak_basic'):
+            try:
+                df = self.download_bak_basic()
+                if not df.empty:
+                    save_to_parquet(df, 'bak_basic', subdir="basic")
+                    results['bak_basic'] = len(df)
+            except Exception as e:
+                logger.error(f"Error downloading bak_basic: {e}")
+        
+        # Download money flow interfaces
+        money_flow_types = ['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 
+                           'moneyflow_cnt_ths', 'moneyflow_ind_ths']
+        for mf_type in money_flow_types:
+            if self.is_data_type_available(mf_type):
+                try:
+                    df = getattr(self, f'download_{mf_type}')()
+                    if not df.empty:
+                        save_to_parquet(df, f'{mf_type}_20231201', subdir="funds")
+                        results[mf_type] = len(df)
+                except Exception as e:
+                    logger.error(f"Error downloading {mf_type}: {e}")
+        
+        # Download technical factors and chip data
+        tech_types = ['stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips']
+        for tech_type in tech_types:
+            if self.is_data_type_available(tech_type):
+                try:
+                    df = getattr(self, f'download_{tech_type}')()
+                    if not df.empty:
+                        save_to_parquet(df, f'{tech_type}_20231201', subdir="market_structure")
+                        results[tech_type] = len(df)
+                except Exception as e:
+                    logger.error(f"Error downloading {tech_type}: {e}")
+        
+        # Download holder data
+        if self.is_data_type_available('top10_floatholders'):
+            try:
+                df = self.download_top10_floatholders()
+                if not df.empty:
+                    save_to_parquet(df, 'top10_floatholders_20231231', subdir="holders")
+                    results['top10_floatholders'] = len(df)
+            except Exception as e:
+                logger.error(f"Error downloading top10_floatholders: {e}")
+        
+        # Download research data
+        research_types = ['report_rc', 'stk_surv', 'broker_recommend']
+        for research_type in research_types:
+            if self.is_data_type_available(research_type):
+                try:
+                    df = getattr(self, f'download_{research_type}')()
+                    if not df.empty:
+                        save_to_parquet(df, f'{research_type}_20231231', subdir="research")
+                        results[research_type] = len(df)
+                except Exception as e:
+                    logger.error(f"Error downloading {research_type}: {e}")
         
         logger.info(f"Download completed. Results: {results}")
         return results
