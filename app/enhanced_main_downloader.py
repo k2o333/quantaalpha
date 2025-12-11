@@ -265,7 +265,8 @@ class EnhancedMainDownloader:
     
     def _download_broker_recommend_safe(self) -> pd.DataFrame:
         """Safe download of broker_recommend with error handling"""
-        return self.downloader.download_broker_recommend(start_date='20230101', end_date='20231231')
+        # Use a specific month instead of date range
+        return self.downloader.download_broker_recommend(month='202311')
     
     def _download_moneyflow_safe(self) -> pd.DataFrame:
         """Safe download of moneyflow with error handling"""

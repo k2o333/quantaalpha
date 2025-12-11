@@ -571,6 +571,36 @@ class DateRangeDownloader:
             self.logger.warning(f"下载事件数据 {data_type} 时出错: {e}")
             return pd.DataFrame()
 
+    def _download_unsafe_type_safe(self, data_type: str) -> Dict[str, any]:
+        """
+        安全下载可能失效的数据类型
+        """
+        try:
+            if data_type == 'forecast':
+                df = self.downloader.download_forecast_safe(period='20231231')
+            elif data_type == 'express':
+                df = self.downloader.download_express_safe(period='20231231')
+            elif data_type == 'moneyflow_ths':
+                df = self.downloader.download_moneyflow_ths_safe(trade_date=self.start_date)
+            elif data_type == 'moneyflow_cnt_ths':
+                df = self.downloader.download_moneyflow_cnt_ths_safe(trade_date=self.start_date)
+            elif data_type == 'moneyflow_ind_ths':
+                df = self.downloader.download_moneyflow_ind_ths_safe(trade_date=self.start_date)
+            else:
+                self.logger.warning(f"未知的不安全数据类型: {data_type}")
+                return {}
+
+            if not df.empty:
+                file_path = save_to_parquet(df, data_type, subdir="unsafe")
+                self.logger.info(f"成功保存 {data_type}: {len(df)} 条记录")
+                return {'records': len(df)}
+            else:
+                self.logger.info(f"{data_type} 无数据或下载失败")
+                return {}
+        except Exception as e:
+            self.logger.error(f"下载不安全数据类型 {data_type} 失败: {e}")
+            return {}
+
     def download_all_available_data(self) -> Dict[str, any]:
         """
         下载所有可用数据，使用改进的错误处理和优先级机制

@@ -915,19 +915,30 @@ class TuShareDownloader:
             ErrorHandler.handle_api_error(e, "download_cyq_perf")
             raise
 
-    def download_cyq_chips(self, trade_date: str = '20231201') -> pd.DataFrame:
+    def download_cyq_chips(self, ts_code: str, trade_date: str = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """
         Download daily chip distribution
         Available to users with 5000+ points
+        Must provide ts_code parameter, and either trade_date or (start_date, end_date)
         """
         if TUSHARE_POINTS < 5000:
             self.logger.warning("cyq_chips requires 5000+ points, skipping download")
             return pd.DataFrame()
 
         try:
+            # Build parameters based on what was provided
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if trade_date:
+                params['trade_date'] = trade_date
+            elif start_date and end_date:
+                params['start_date'] = start_date
+                params['end_date'] = end_date
+
             result = self.download_with_retry(
                 self.pro.cyq_chips,
-                trade_date=trade_date
+                **params
             )
             self.logger.info(f"Successfully downloaded cyq_chips: {len(result)} records")
             return result
@@ -986,10 +997,11 @@ class TuShareDownloader:
             ErrorHandler.handle_api_error(e, "download_stk_surv")
             raise
 
-    def download_broker_recommend(self, start_date: str = '20230101', end_date: str = '20231231') -> pd.DataFrame:
+    def download_broker_recommend(self, month: str) -> pd.DataFrame:
         """
         Download broker monthly stock recommendations
         Available to users with 2000+ points
+        Must provide month parameter in YYYYMM format
         """
         if TUSHARE_POINTS < 2000:
             self.logger.warning("broker_recommend requires 2000+ points, skipping download")
@@ -998,8 +1010,7 @@ class TuShareDownloader:
         try:
             result = self.download_with_retry(
                 self.pro.broker_recommend,
-                start_date=start_date,
-                end_date=end_date
+                month=month
             )
             self.logger.info(f"Successfully downloaded broker_recommend: {len(result)} records")
             return result
@@ -1008,6 +1019,290 @@ class TuShareDownloader:
             ErrorHandler.handle_api_error(e, "download_broker_recommend")
             raise
 
+
+    def download_with_pagination(self, api_func, limit_per_call=2000, **base_kwargs):
+        """
+        分页下载数据的通用函数
+
+        Args:
+            api_func: API调用函数
+            limit_per_call: 每次调用的最大记录数
+            **base_kwargs: 传递给API函数的基础参数
+
+        Returns:
+            pd.DataFrame: 合并后的所有数据
+        """
+        all_data = []
+        offset = 0
+
+        while True:
+            # 添加分页参数
+            kwargs = base_kwargs.copy()
+            kwargs['offset'] = offset
+            kwargs['limit'] = limit_per_call
+
+            try:
+                data = api_func(**kwargs)
+            except Exception as e:
+                self.logger.error(f"分页下载失败, offset={offset}: {e}")
+                break
+
+            if data is None or len(data) == 0:
+                break
+
+            # 将DataFrame添加到列表中，而不是扩展DataFrame
+            all_data.append(data)
+
+            # 如果返回数据少于限制数量，说明已到最后一页
+            if len(data) < limit_per_call:
+                break
+
+            offset += limit_per_call
+
+        # 将所有数据合并成一个DataFrame
+        if all_data:
+            return pd.concat(all_data, ignore_index=True)
+        else:
+            return pd.DataFrame()
+
+    def download_cyq_chips_paginated(self, ts_code: str, start_date: str = None, end_date: str = None,
+                                   limit_per_call: int = 2000) -> pd.DataFrame:
+        """
+        分页下载cyq_chips数据
+
+        Args:
+            ts_code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
+            limit_per_call: 每次调用的最大记录数
+
+        Returns:
+            pd.DataFrame: 合并后的所有数据
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("cyq_chips requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        # 构建基础参数
+        base_params = {'ts_code': ts_code}
+        if start_date:
+            base_params['start_date'] = start_date
+        if end_date:
+            base_params['end_date'] = end_date
+
+        return self.download_with_pagination(
+            lambda **kwargs: self.pro.cyq_chips(**kwargs),
+            limit_per_call=limit_per_call,
+            **base_params
+        )
+
+    def download_broker_recommend_paginated(self, month: str, limit_per_call: int = 1000) -> pd.DataFrame:
+        """
+        分页下载broker_recommend数据
+
+        Args:
+            month: 月份 (YYYYMM格式)
+            limit_per_call: 每次调用的最大记录数
+
+        Returns:
+            pd.DataFrame: 合并后的所有数据
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("broker_recommend requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        return self.download_with_pagination(
+            lambda **kwargs: self.pro.broker_recommend(**kwargs),
+            limit_per_call=limit_per_call,
+            month=month
+        )
+
+    def download_moneyflow_dc_paginated(self, trade_date: str, limit_per_call: int = 6000) -> pd.DataFrame:
+        """
+        分页下载moneyflow_dc数据
+
+        Args:
+            trade_date: 交易日期
+            limit_per_call: 每次调用的最大记录数
+
+        Returns:
+            pd.DataFrame: 合并后的所有数据
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("moneyflow_dc requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        return self.download_with_pagination(
+            lambda **kwargs: self.pro.moneyflow_dc(**kwargs),
+            limit_per_call=limit_per_call,
+            trade_date=trade_date
+        )
+
+    def download_stk_factor_paginated(self, trade_date: str, limit_per_call: int = 10000) -> pd.DataFrame:
+        """
+        分页下载stk_factor数据
+
+        Args:
+            trade_date: 交易日期
+            limit_per_call: 每次调用的最大记录数
+
+        Returns:
+            pd.DataFrame: 合并后的所有数据
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("stk_factor requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        return self.download_with_pagination(
+            lambda **kwargs: self.pro.stk_factor(**kwargs),
+            limit_per_call=limit_per_call,
+            trade_date=trade_date
+        )
+
+    def download_cyq_perf_paginated(self, trade_date: str, limit_per_call: int = 5000) -> pd.DataFrame:
+        """
+        分页下载cyq_perf数据
+
+        Args:
+            trade_date: 交易日期
+            limit_per_call: 每次调用的最大记录数
+
+        Returns:
+            pd.DataFrame: 合并后的所有数据
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("cyq_perf requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        return self.download_with_pagination(
+            lambda **kwargs: self.pro.cyq_perf(**kwargs),
+            limit_per_call=limit_per_call,
+            trade_date=trade_date
+        )
+
+    def download_report_rc_paginated(self, period: str, ts_code: str = None, limit_per_call: int = 3000) -> pd.DataFrame:
+        """
+        分页下载report_rc数据
+
+        Args:
+            period: 报告期
+            ts_code: 股票代码(可选)
+            limit_per_call: 每次调用的最大记录数
+
+        Returns:
+            pd.DataFrame: 合并后的所有数据
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("report_rc requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        base_params = {'period': period}
+        if ts_code:
+            base_params['ts_code'] = ts_code
+
+        return self.download_with_pagination(
+            lambda **kwargs: self.pro.report_rc(**kwargs),
+            limit_per_call=limit_per_call,
+            **base_params
+        )
+
+    def safe_download(self, api_func, **kwargs):
+        """
+        为API调用添加安全包装，处理空数据和异常情况
+        """
+        try:
+            data = api_func(**kwargs)
+            if data is None or len(data) == 0:
+                self.logger.warning(f"接口 {api_func.__name__} 返回空数据")
+                return None
+            return data
+        except Exception as e:
+            self.logger.error(f"接口 {api_func.__name__} 调用失败: {e}")
+            return None
+
+    def download_moneyflow_ths_safe(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        安全下载moneyflow_ths数据，处理可能的空返回
+        """
+        try:
+            result = self.safe_download(self.pro.moneyflow_ths, trade_date=trade_date)
+            if result is not None:
+                self.logger.info(f"Successfully downloaded moneyflow_ths: {len(result)} records")
+                return result
+            else:
+                self.logger.info("moneyflow_ths returned no data or failed")
+                return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_ths: {e}")
+            return pd.DataFrame()
+
+    def download_moneyflow_cnt_ths_safe(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        安全下载moneyflow_cnt_ths数据，处理可能的空返回
+        """
+        try:
+            result = self.safe_download(self.pro.moneyflow_cnt_ths, trade_date=trade_date)
+            if result is not None:
+                self.logger.info(f"Successfully downloaded moneyflow_cnt_ths: {len(result)} records")
+                return result
+            else:
+                self.logger.info("moneyflow_cnt_ths returned no data or failed")
+                return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_cnt_ths: {e}")
+            return pd.DataFrame()
+
+    def download_moneyflow_ind_ths_safe(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        安全下载moneyflow_ind_ths数据，处理可能的空返回
+        """
+        try:
+            result = self.safe_download(self.pro.moneyflow_ind_ths, trade_date=trade_date)
+            if result is not None:
+                self.logger.info(f"Successfully downloaded moneyflow_ind_ths: {len(result)} records")
+                return result
+            else:
+                self.logger.info("moneyflow_ind_ths returned no data or failed")
+                return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Failed to download moneyflow_ind_ths: {e}")
+            return pd.DataFrame()
+
+    def download_forecast_safe(self, period: str = '20231231') -> pd.DataFrame:
+        """
+        安全下载forecast数据，处理可能的空返回
+        """
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.forecast_vip if TUSHARE_POINTS >= 5000 else self.pro.forecast
+            result = self.safe_download(api_func, period=period)
+            if result is not None:
+                self.logger.info(f"Successfully downloaded forecast: {len(result)} records")
+                return result
+            else:
+                self.logger.info("forecast returned no data or failed")
+                return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Failed to download forecast: {e}")
+            return pd.DataFrame()
+
+    def download_express_safe(self, period: str = '20231231') -> pd.DataFrame:
+        """
+        安全下载express数据，处理可能的空返回
+        """
+        try:
+            # Use VIP version if available (5000+ points)
+            api_func = self.pro.express_vip if TUSHARE_POINTS >= 5000 else self.pro.express
+            result = self.safe_download(api_func, period=period)
+            if result is not None:
+                self.logger.info(f"Successfully downloaded express: {len(result)} records")
+                return result
+            else:
+                self.logger.info("express returned no data or failed")
+                return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Failed to download express: {e}")
+            return pd.DataFrame()
 
 # Example usage
 if __name__ == "__main__":
