@@ -375,6 +375,28 @@ class TuShareDownloader:
             ErrorHandler.handle_api_error(e, "download_moneyflow")
             raise
 
+    def download_daily_moneyflow_range(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        Download date range money flow data
+        Available to users with 2000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("moneyflow requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.moneyflow,
+                start_date=start_date,
+                end_date=end_date
+            )
+            self.logger.info(f"Successfully downloaded money flow range {start_date} to {end_date}: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download money flow range {start_date} to {end_date}: {e}")
+            ErrorHandler.handle_api_error(e, "download_daily_moneyflow_range")
+            raise
+
     def download_new_share(self, start_date: str = '20230101', end_date: str = '20231231') -> pd.DataFrame:
         """
         Download new share listing data

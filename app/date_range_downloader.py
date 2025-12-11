@@ -159,69 +159,266 @@ class DateRangeDownloader:
 
     def _download_daily_type_for_range(self, data_type: str) -> Dict[str, int]:
         """
-        下载特定日度数据类型的日期范围数据
+        优化后的下载特定日度数据类型的日期范围数据，采用分段下载控制内存使用
         """
         results = {}
         trading_days = self.get_trading_days()
 
         self.logger.info(f"开始下载 {data_type} 数据，共 {len(trading_days)} 个交易日")
 
-        for i, trade_date in enumerate(trading_days):
+        # 内存控制：按30个交易日为一批进行分段下载
+        max_days_per_batch = 30
+        for i in range(0, len(trading_days), max_days_per_batch):
+            batch_days = trading_days[i:i + max_days_per_batch]
+            batch_start = batch_days[0]
+            batch_end = batch_days[-1]
+
+            self.logger.info(f"处理批次: {batch_start} 到 {batch_end} ({len(batch_days)} 天)")
+
+            # 按日期范围批量下载数据，然后在本地分片
             try:
-                self.logger.info(f"正在下载 {data_type} - {trade_date} ({i+1}/{len(trading_days)})")
+                self.logger.info(f"批量下载 {data_type} 数据范围: {batch_start} 到 {batch_end}")
 
-                # 根据数据类型调用相应的方法
-                if data_type == 'daily':
-                    df = self.downloader.download_daily_data(ts_code=None, start_date=trade_date, end_date=trade_date)
-                elif data_type == 'daily_basic':
-                    df = self.downloader.download_daily_basic(trade_date=trade_date)
-                elif data_type == 'moneyflow':
-                    df = self.downloader.download_moneyflow(trade_date=trade_date)
-                # New money flow interfaces from East Money and THS
-                elif data_type == 'moneyflow_dc':
-                    df = self.downloader.download_moneyflow_dc(trade_date=trade_date)
-                elif data_type == 'moneyflow_ths':
-                    df = self.downloader.download_moneyflow_ths(trade_date=trade_date)
-                elif data_type == 'moneyflow_ind_dc':
-                    df = self.downloader.download_moneyflow_ind_dc(trade_date=trade_date)
-                elif data_type == 'moneyflow_mkt_dc':
-                    df = self.downloader.download_moneyflow_mkt_dc(trade_date=trade_date)
-                elif data_type == 'moneyflow_cnt_ths':
-                    df = self.downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
-                elif data_type == 'moneyflow_ind_ths':
-                    df = self.downloader.download_moneyflow_ind_ths(trade_date=trade_date)
-                # Technical factors and chip data
-                elif data_type == 'stk_factor':
-                    df = self.downloader.download_stk_factor(trade_date=trade_date)
-                elif data_type == 'stk_factor_pro':
-                    df = self.downloader.download_stk_factor_pro(trade_date=trade_date)
-                elif data_type == 'cyq_perf':
-                    df = self.downloader.download_cyq_perf(trade_date=trade_date)
-                elif data_type == 'cyq_chips':
-                    df = self.downloader.download_cyq_chips(trade_date=trade_date)
-                else:
-                    self.logger.warning(f"未知的日度数据类型: {data_type}")
-                    continue
+                # 根据数据类型调用相应的方法，批量获取日期范围内的所有数据
+                if data_type in ['daily', 'daily_basic', 'moneyflow', 'stk_factor', 'stk_factor_pro',
+                                 'cyq_perf', 'cyq_chips', 'moneyflow_dc', 'moneyflow_ths',
+                                 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 'moneyflow_cnt_ths', 'moneyflow_ind_ths']:
 
-                if not df.empty:
-                    # 按年/月/日分区保存
-                    year = trade_date[:4]
-                    month = trade_date[4:6]
+                    # 使用日期范围批量下载
+                    if data_type == 'daily':
+                        df = self.downloader.download_daily_data(ts_code=None, start_date=batch_start, end_date=batch_end)
+                    elif data_type == 'daily_basic':
+                        # 对于daily_basic，仍需按日期调用，但可以优化为按周或月批量处理
+                        df = pd.DataFrame()  # 保持原有逻辑或进行类似优化
+                        # 回退到按日下载，因为daily_basic接口不支持日期范围
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_daily_basic(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'moneyflow':
+                        df = self.downloader.download_daily_moneyflow_range(batch_start, batch_end)  # 使用新添加的方法
+                    elif data_type == 'moneyflow_dc':
+                        df = self.downloader.download_moneyflow_dc(trade_date=batch_end)  # 仍按日下载
+                        # 针对不支持日期范围的接口，按日下载整个批次的日期
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_moneyflow_dc(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'moneyflow_ths':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_moneyflow_ths(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'moneyflow_ind_dc':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_moneyflow_ind_dc(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'moneyflow_mkt_dc':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_moneyflow_mkt_dc(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'moneyflow_cnt_ths':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'moneyflow_ind_ths':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_moneyflow_ind_ths(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'stk_factor':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_stk_factor(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'stk_factor_pro':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_stk_factor_pro(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'cyq_perf':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_cyq_perf(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    elif data_type == 'cyq_chips':
+                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
+                        for trade_date in batch_days:
+                            try:
+                                daily_df = self.downloader.download_cyq_chips(trade_date=trade_date)
+                                if not daily_df.empty:
+                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
+                                    df = pd.concat([df, daily_df], ignore_index=True)
+                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
+                            except Exception as e:
+                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                                continue
+                    else:
+                        self.logger.warning(f"未知的日度数据类型: {data_type}")
+                        continue
 
-                    # 创建分区目录
-                    subdir = f"daily/{year}/{month}"
+                    if not df.empty:
+                        # 确保有trade_date列用于分组
+                        if 'trade_date' in df.columns:
+                            # 如果trade_date是字符串，转换为datetime
+                            if df['trade_date'].dtype == 'object':
+                                df['trade_date'] = pd.to_datetime(df['trade_date'], errors='coerce')
 
-                    filename = f"{data_type}_{trade_date}"
-                    file_path = save_to_parquet(df, filename, subdir=subdir)
-                    results[trade_date] = len(df)
+                            # 按日期进行分组并保存
+                            date_groups = df.groupby(df['trade_date'].dt.strftime('%Y-%m'))
+                            total_records = 0
+                            for (year_month), group in date_groups:
+                                year, month = year_month.split('-')
+                                subdir = f"daily/{year}/{month}"
+                                filename = f"{data_type}_{year_month}"
 
-                    self.logger.info(f"成功保存 {data_type}_{trade_date}: {len(df)} 条记录")
-                else:
-                    self.logger.warning(f"{data_type} - {trade_date} 无数据")
+                                file_path = save_to_parquet(group, filename, subdir=subdir)
+                                results[year_month] = len(group)
+                                total_records += len(group)
+                                self.logger.info(f"成功保存 {data_type}_{year_month}: {len(group)} 条记录")
+
+                            self.logger.info(f"{data_type} 批次下载完成: {batch_start} 到 {batch_end}, 共 {total_records} 条记录")
+                        else:
+                            # 如果没有trade_date列，按照其他方式处理
+                            year = batch_start[:4]
+                            month = batch_start[4:6]
+                            subdir = f"daily/{year}/{month}"
+                            filename = f"{data_type}_{batch_start}_to_{batch_end}"
+                            file_path = save_to_parquet(df, filename, subdir=subdir)
+                            results[f"{batch_start}_to_{batch_end}"] = len(df)
+                            self.logger.info(f"成功保存 {data_type}: {len(df)} 条记录")
+                    else:
+                        self.logger.warning(f"{data_type} - 日期范围 {batch_start} 到 {batch_end} 无数据")
 
             except Exception as e:
-                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                continue
+                self.logger.error(f"批量下载 {data_type} 失败: {e}")
+                # 回退到逐日下载方式
+                self.logger.info(f"回退到逐日下载方式处理 {data_type}")
+                for trade_date in batch_days:
+                    try:
+                        self.logger.info(f"正在下载 {data_type} - {trade_date} (回退模式)")
+
+                        if data_type == 'daily':
+                            df = self.downloader.download_daily_data(ts_code=None, start_date=trade_date, end_date=trade_date)
+                        elif data_type == 'daily_basic':
+                            df = self.downloader.download_daily_basic(trade_date=trade_date)
+                        elif data_type == 'moneyflow':
+                            df = self.downloader.download_moneyflow(trade_date=trade_date)
+                        elif data_type == 'moneyflow_dc':
+                            df = self.downloader.download_moneyflow_dc(trade_date=trade_date)
+                        elif data_type == 'moneyflow_ths':
+                            df = self.downloader.download_moneyflow_ths(trade_date=trade_date)
+                        elif data_type == 'moneyflow_ind_dc':
+                            df = self.downloader.download_moneyflow_ind_dc(trade_date=trade_date)
+                        elif data_type == 'moneyflow_mkt_dc':
+                            df = self.downloader.download_moneyflow_mkt_dc(trade_date=trade_date)
+                        elif data_type == 'moneyflow_cnt_ths':
+                            df = self.downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
+                        elif data_type == 'moneyflow_ind_ths':
+                            df = self.downloader.download_moneyflow_ind_ths(trade_date=trade_date)
+                        elif data_type == 'stk_factor':
+                            df = self.downloader.download_stk_factor(trade_date=trade_date)
+                        elif data_type == 'stk_factor_pro':
+                            df = self.downloader.download_stk_factor_pro(trade_date=trade_date)
+                        elif data_type == 'cyq_perf':
+                            df = self.downloader.download_cyq_perf(trade_date=trade_date)
+                        elif data_type == 'cyq_chips':
+                            df = self.downloader.download_cyq_chips(trade_date=trade_date)
+                        else:
+                            self.logger.warning(f"未知的日度数据类型: {data_type}")
+                            continue
+
+                        if not df.empty:
+                            # 按年/月/日分区保存
+                            year = trade_date[:4]
+                            month = trade_date[4:6]
+
+                            # 创建分区目录
+                            subdir = f"daily/{year}/{month}"
+
+                            filename = f"{data_type}_{trade_date}"
+                            file_path = save_to_parquet(df, filename, subdir=subdir)
+                            results[trade_date] = len(df)
+
+                            self.logger.info(f"成功保存 {data_type}_{trade_date}: {len(df)} 条记录")
+                        else:
+                            self.logger.warning(f"{data_type} - {trade_date} 无数据")
+
+                    except Exception as e:
+                        self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                        continue
 
         return results
 
