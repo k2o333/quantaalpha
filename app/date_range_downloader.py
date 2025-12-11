@@ -11,6 +11,7 @@ from tushare_api import TuShareDownloader
 from config import TUSHARE_POINTS
 from score_config import get_available_data_types
 from data_storage import save_to_parquet
+from download_config import DOWNLOAD_CONFIG
 
 
 class DateRangeDownloader:
@@ -84,14 +85,15 @@ class DateRangeDownloader:
         daily_types = ['daily', 'daily_basic', 'moneyflow']
         # Add money flow interfaces from East Money and THS
         if TUSHARE_POINTS >= 5000:
-            daily_types.extend(['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 
+            daily_types.extend(['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc',
                                'moneyflow_cnt_ths', 'moneyflow_ind_ths'])
         # Add technical factors and chip data
         if TUSHARE_POINTS >= 5000:
             daily_types.extend(['stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips'])
-        
+
         for data_type in daily_types:
-            if self._is_data_type_available(data_type):
+            if (self._is_data_type_available(data_type) and
+                DOWNLOAD_CONFIG.get(data_type, True)):
                 tasks.append((data_type, lambda dt=data_type: self._download_daily_type_for_range(dt), 3))
 
         # 静态数据 - 高优先级
@@ -101,21 +103,24 @@ class DateRangeDownloader:
             static_types.append('stock_st')
         if TUSHARE_POINTS >= 5000:
             static_types.append('bak_basic')
-        
+
         for data_type in static_types:
-            if self._is_data_type_available(data_type):
+            if (self._is_data_type_available(data_type) and
+                DOWNLOAD_CONFIG.get(data_type, True)):
                 tasks.append((data_type, lambda dt=data_type: self._download_static_type(dt), 3))
 
         # 财务数据 - 中等优先级 (可能需要特定参数)
         financial_types = ['income', 'balancesheet', 'cashflow', 'fina_indicator']
         for data_type in financial_types:
-            if self._is_data_type_available(data_type):
+            if (self._is_data_type_available(data_type) and
+                DOWNLOAD_CONFIG.get(data_type, True)):
                 tasks.append((data_type, lambda dt=data_type: self._download_financial_type_for_range(dt), 3))
 
         # 事件数据 - 中等优先级
         event_types = ['dividend', 'forecast', 'express']
         for data_type in event_types:
-            if self._is_data_type_available(data_type):
+            if (self._is_data_type_available(data_type) and
+                DOWNLOAD_CONFIG.get(data_type, True)):
                 tasks.append((data_type, lambda dt=data_type: self._download_event_type_for_range(dt), 3))
 
         # 股东数据 - 中等优先级
@@ -123,7 +128,8 @@ class DateRangeDownloader:
         if TUSHARE_POINTS >= 3000:
             holder_types.append('top10_floatholders')
         for data_type in holder_types:
-            if self._is_data_type_available(data_type):
+            if (self._is_data_type_available(data_type) and
+                DOWNLOAD_CONFIG.get(data_type, True)):
                 tasks.append((data_type, lambda dt=data_type: self._download_holder_type_for_range(dt), 3))
 
         # 研究数据 - 中等优先级
@@ -133,14 +139,21 @@ class DateRangeDownloader:
         if TUSHARE_POINTS >= 2000:
             research_types.append('broker_recommend')
         for data_type in research_types:
-            if self._is_data_type_available(data_type):
+            if (self._is_data_type_available(data_type) and
+                DOWNLOAD_CONFIG.get(data_type, True)):
                 tasks.append((data_type, lambda dt=data_type: self._download_research_type_for_range(dt), 3))
 
         # 其他数据 - 最后尝试
         other_types = ['stk_rewards', 'stk_managers', 'namechange']
         for data_type in other_types:
-            if self._is_data_type_available(data_type):
+            if (self._is_data_type_available(data_type) and
+                DOWNLOAD_CONFIG.get(data_type, True)):
                 tasks.append((data_type, lambda dt=data_type: self._download_other_type_for_range(dt), 3))
+
+        # Log which interfaces will be skipped due to configuration
+        for data_type in DOWNLOAD_CONFIG:
+            if not DOWNLOAD_CONFIG[data_type]:
+                self.logger.info(f"Skipping interface {data_type} (configured as not to download)")
 
         return tasks
 

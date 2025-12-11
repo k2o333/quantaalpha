@@ -443,6 +443,80 @@ class TuShareDownloader:
             ErrorHandler.handle_api_error(e, "download_namechange")
             raise
 
+    def download_namechange_with_period_split(self, start_date: str, end_date: str, ts_code: str = None) -> pd.DataFrame:
+        """
+        Download namechange data with automatic time period splitting
+        When download period exceeds 30 days, automatically decompose into multiple segments
+        of no more than 30 days each
+
+        Args:
+            start_date: Start date in format YYYYMMDD
+            end_date: End date in format YYYYMMDD
+            ts_code: Optional stock code
+
+        Returns:
+            DataFrame with combined data from all periods
+        """
+        from datetime import datetime, timedelta
+
+        try:
+            # Parse dates
+            start = datetime.strptime(start_date, '%Y%m%d')
+            end = datetime.strptime(end_date, '%Y%m%d')
+
+            all_data = []
+            current_start = start
+
+            # Process in 30-day segments
+            while current_start <= end:
+                # Calculate end of current segment (max 30 days)
+                current_end = min(current_start + timedelta(days=30), end)
+
+                # Format date strings
+                current_start_str = current_start.strftime('%Y%m%d')
+                current_end_str = current_end.strftime('%Y%m%d')
+
+                try:
+                    # Download data for current segment
+                    params = {
+                        'start_date': current_start_str,
+                        'end_date': current_end_str
+                    }
+                    if ts_code:
+                        params['ts_code'] = ts_code
+
+                    df = self.download_with_retry(
+                        self.pro.namechange,
+                        **params
+                    )
+
+                    if df is not None and not df.empty:
+                        all_data.append(df)
+                        self.logger.info(f"Successfully downloaded namechange data for {current_start_str} to {current_end_str}: {len(df)} records")
+                    else:
+                        self.logger.debug(f"No namechange data for {current_start_str} to {current_end_str}")
+
+                except Exception as e:
+                    self.logger.error(f"Failed to download namechange data for {current_start_str} to {current_end_str}: {e}")
+                    # Continue with next segment even if one fails
+
+                # Move to next segment
+                current_start = current_end + timedelta(days=1)
+
+            # Combine all data
+            if all_data:
+                result = pd.concat(all_data, ignore_index=True)
+                self.logger.info(f"Successfully downloaded namechange data with period splitting: {len(result)} records total")
+                return result
+            else:
+                self.logger.warning("No namechange data could be downloaded with period splitting")
+                return pd.DataFrame()
+
+        except Exception as e:
+            self.logger.error(f"Failed to download namechange data with period splitting: {e}")
+            ErrorHandler.handle_api_error(e, "download_namechange_with_period_split")
+            raise
+
     def download_dividend(self, ts_code: str = None) -> pd.DataFrame:
         """
         Download dividend information
@@ -540,22 +614,49 @@ class TuShareDownloader:
         """
         Download earnings forecast
         Available to users with 2000+ points
-        Uses VIP version if user has 5000+ points
+        Uses VIP version if user has 5000+ points, falls back to per-stock download if needed
         """
         if TUSHARE_POINTS < 2000:
             self.logger.warning("forecast requires 2000+ points, skipping download")
             return pd.DataFrame()
 
         try:
-            # Use VIP version if available (5000+ points)
-            api_func = self.pro.forecast_vip if TUSHARE_POINTS >= 5000 else self.pro.forecast
+            # Use VIP version if available (5000+ points) for full market data
+            if TUSHARE_POINTS >= 5000:
+                # Use VIP interface to get full market data
+                result = self.download_with_retry(
+                    self.pro.forecast_vip,
+                    period=period
+                )
+                self.logger.info(f"Successfully downloaded forecast_vip: {len(result)} records")
+                return result
+            else:
+                # For users with lower points, fall back to per-stock download
+                # Get stock list first
+                stock_df = self.download_stock_basic()
+                all_data = []
+                for _, stock in stock_df.iterrows():
+                    ts_code = stock['ts_code']
+                    try:
+                        df = self.download_with_retry(
+                            self.pro.forecast,
+                            ts_code=ts_code,
+                            period=period
+                        )
+                        if df is not None and not df.empty:
+                            all_data.append(df)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to download forecast for {ts_code}: {e}")
+                        continue  # Continue with next stock even if one fails
 
-            result = self.download_with_retry(
-                api_func,
-                period=period
-            )
-            self.logger.info(f"Successfully downloaded forecast: {len(result)} records")
-            return result
+                # Combine all data
+                if all_data:
+                    result = pd.concat(all_data, ignore_index=True)
+                    self.logger.info(f"Successfully downloaded forecast for multiple stocks: {len(result)} records")
+                    return result
+                else:
+                    self.logger.warning("No forecast data could be downloaded for any stock")
+                    return pd.DataFrame()
         except Exception as e:
             self.logger.error(f"Failed to download forecast: {e}")
             ErrorHandler.handle_api_error(e, "download_forecast")
@@ -565,22 +666,49 @@ class TuShareDownloader:
         """
         Download earnings express (fast report)
         Available to users with 2000+ points
-        Uses VIP version if user has 5000+ points
+        Uses VIP version if user has 5000+ points, falls back to per-stock download if needed
         """
         if TUSHARE_POINTS < 2000:
             self.logger.warning("express requires 2000+ points, skipping download")
             return pd.DataFrame()
 
         try:
-            # Use VIP version if available (5000+ points)
-            api_func = self.pro.express_vip if TUSHARE_POINTS >= 5000 else self.pro.express
+            # Use VIP version if available (5000+ points) for full market data
+            if TUSHARE_POINTS >= 5000:
+                # Use VIP interface to get full market data
+                result = self.download_with_retry(
+                    self.pro.express_vip,
+                    period=period
+                )
+                self.logger.info(f"Successfully downloaded express_vip: {len(result)} records")
+                return result
+            else:
+                # For users with lower points, fall back to per-stock download
+                # Get stock list first
+                stock_df = self.download_stock_basic()
+                all_data = []
+                for _, stock in stock_df.iterrows():
+                    ts_code = stock['ts_code']
+                    try:
+                        df = self.download_with_retry(
+                            self.pro.express,
+                            ts_code=ts_code,
+                            period=period
+                        )
+                        if df is not None and not df.empty:
+                            all_data.append(df)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to download express for {ts_code}: {e}")
+                        continue  # Continue with next stock even if one fails
 
-            result = self.download_with_retry(
-                api_func,
-                period=period
-            )
-            self.logger.info(f"Successfully downloaded express: {len(result)} records")
-            return result
+                # Combine all data
+                if all_data:
+                    result = pd.concat(all_data, ignore_index=True)
+                    self.logger.info(f"Successfully downloaded express for multiple stocks: {len(result)} records")
+                    return result
+                else:
+                    self.logger.warning("No express data could be downloaded for any stock")
+                    return pd.DataFrame()
         except Exception as e:
             self.logger.error(f"Failed to download express: {e}")
             ErrorHandler.handle_api_error(e, "download_express")
@@ -945,6 +1073,83 @@ class TuShareDownloader:
         except Exception as e:
             self.logger.error(f"Failed to download cyq_chips: {e}")
             ErrorHandler.handle_api_error(e, "download_cyq_chips")
+            raise
+
+    def download_cyq_chips_for_all_stocks(self, trade_date: str = '20231201') -> pd.DataFrame:
+        """
+        Download cyq_chips data for all stocks by looping through each stock code
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("cyq_chips_for_all_stocks requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Get stock list first
+            stock_df = self.download_stock_basic()
+            if stock_df.empty:
+                self.logger.warning("No stock data available, cannot download cyq_chips for all stocks")
+                return pd.DataFrame()
+
+            all_data = []
+            self.logger.info(f"Starting to download cyq_chips for {len(stock_df)} stocks on {trade_date}")
+
+            for i, stock in stock_df.iterrows():
+                ts_code = stock['ts_code']
+
+                if (i + 1) % 50 == 0:  # Log progress every 50 stocks
+                    self.logger.info(f"Processed {i + 1}/{len(stock_df)} stocks...")
+
+                try:
+                    df = self.download_with_retry(
+                        self.pro.cyq_chips,
+                        ts_code=ts_code,
+                        trade_date=trade_date
+                    )
+                    if df is not None and not df.empty:
+                        all_data.append(df)
+                    else:
+                        self.logger.debug(f"No cyq_chips data for stock {ts_code} on {trade_date}")
+
+                except Exception as e:
+                    self.logger.warning(f"Failed to download cyq_chips for {ts_code} on {trade_date}: {e}")
+                    continue  # Continue with next stock even if one fails
+
+            # Combine all data
+            if all_data:
+                result = pd.concat(all_data, ignore_index=True)
+                self.logger.info(f"Successfully downloaded cyq_chips for all stocks: {len(result)} records")
+                return result
+            else:
+                self.logger.warning("No cyq_chips data could be downloaded for any stock")
+                return pd.DataFrame()
+
+        except Exception as e:
+            self.logger.error(f"Failed to download cyq_chips for all stocks: {e}")
+            ErrorHandler.handle_api_error(e, "download_cyq_chips_for_all_stocks")
+            raise
+
+    def download_cyq_chips_with_date_range(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        Download cyq_chips data for a specific stock over a date range
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("cyq_chips_with_date_range requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.cyq_chips,
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date
+            )
+            self.logger.info(f"Successfully downloaded cyq_chips for {ts_code} ({start_date} to {end_date}): {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download cyq_chips for {ts_code} ({start_date} to {end_date}): {e}")
+            ErrorHandler.handle_api_error(e, f"download_cyq_chips for {ts_code}")
             raise
 
     def download_report_rc(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:

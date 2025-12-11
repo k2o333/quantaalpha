@@ -10,6 +10,7 @@ from tushare_api import TuShareDownloader
 from score_based_downloader import ScoreBasedDownloader
 from data_storage import save_to_parquet
 from score_config import get_available_data_types
+from download_config import DOWNLOAD_CONFIG
 import time
 
 
@@ -108,90 +109,115 @@ class EnhancedMainDownloader:
         Create a list of download tasks with their associated functions and retry limits
         """
         tasks = []
-        
+
         # Basic information downloads (high priority)
-        if 'stock_basic' in self.available_types.get('basic', []):
+        if ('stock_basic' in self.available_types.get('basic', []) and
+            DOWNLOAD_CONFIG.get('stock_basic', True)):
             tasks.append(('stock_basic', self.downloader.download_stock_basic, 3))
-        
-        if 'trade_cal' in self.available_types.get('basic', []):
+
+        if ('trade_cal' in self.available_types.get('basic', []) and
+            DOWNLOAD_CONFIG.get('trade_cal', True)):
             tasks.append(('trade_cal', self._download_trade_cal, 3))
-        
-        if 'new_share' in self.available_types.get('basic', []):
+
+        if ('new_share' in self.available_types.get('basic', []) and
+            DOWNLOAD_CONFIG.get('new_share', True)):
             tasks.append(('new_share', self.downloader.download_new_share, 3))
-        
+
         # Add new basic interfaces
-        if 'stock_st' in self.available_types.get('basic', []):
+        if ('stock_st' in self.available_types.get('basic', []) and
+            DOWNLOAD_CONFIG.get('stock_st', True)):
             tasks.append(('stock_st', self.downloader.download_stock_st, 3))
-            
-        if 'bak_basic' in self.available_types.get('basic', []):
+
+        if ('bak_basic' in self.available_types.get('basic', []) and
+            DOWNLOAD_CONFIG.get('bak_basic', True)):
             tasks.append(('bak_basic', self.downloader.download_bak_basic, 3))
-        
+
         # Daily data downloads (high priority)
-        if 'daily_basic' in self.available_types.get('daily', []):
+        if ('daily_basic' in self.available_types.get('daily', []) and
+            DOWNLOAD_CONFIG.get('daily_basic', True)):
             tasks.append(('daily_basic', self.downloader.download_daily_basic, 3))
-        
+
         # Financial data downloads (medium priority - can be problematic)
-        if 'income' in self.available_types.get('financial', []):
+        if ('income' in self.available_types.get('financial', []) and
+            DOWNLOAD_CONFIG.get('income', True)):
             tasks.append(('income', self._download_income_safe, 3))
-        
-        if 'balancesheet' in self.available_types.get('financial', []):
+
+        if ('balancesheet' in self.available_types.get('financial', []) and
+            DOWNLOAD_CONFIG.get('balancesheet', True)):
             tasks.append(('balancesheet', self._download_balancesheet_safe, 3))
-        
-        if 'cashflow' in self.available_types.get('financial', []):
+
+        if ('cashflow' in self.available_types.get('financial', []) and
+            DOWNLOAD_CONFIG.get('cashflow', True)):
             tasks.append(('cashflow', self._download_cashflow_safe, 3))
-        
-        if 'fina_indicator' in self.available_types.get('financial', []):
+
+        if ('fina_indicator' in self.available_types.get('financial', []) and
+            DOWNLOAD_CONFIG.get('fina_indicator', True)):
             tasks.append(('fina_indicator', self._download_fina_indicator_safe, 3))
-        
+
         # Money flow data downloads
-        if 'moneyflow' in self.available_types.get('funds', []):
+        if ('moneyflow' in self.available_types.get('funds', []) and
+            DOWNLOAD_CONFIG.get('moneyflow', True)):
             tasks.append(('moneyflow', self._download_moneyflow_safe, 3))
-        
+
         # Add new money flow interfaces
-        money_flow_types = ['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 
+        money_flow_types = ['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc', 'moneyflow_mkt_dc',
                            'moneyflow_cnt_ths', 'moneyflow_ind_ths']
         for mf_type in money_flow_types:
-            if mf_type in self.available_types.get('funds', []):
+            if (mf_type in self.available_types.get('funds', []) and
+                DOWNLOAD_CONFIG.get(mf_type, True)):
                 tasks.append((mf_type, getattr(self.downloader, f'download_{mf_type}'), 3))
-        
+
         # Holder data downloads
-        if 'top10_holders' in self.available_types.get('holders', []):
+        if ('top10_holders' in self.available_types.get('holders', []) and
+            DOWNLOAD_CONFIG.get('top10_holders', True)):
             tasks.append(('top10_holders', self._download_top10_holders_safe, 3))
-            
-        if 'top10_floatholders' in self.available_types.get('holders', []):
+
+        if ('top10_floatholders' in self.available_types.get('holders', []) and
+            DOWNLOAD_CONFIG.get('top10_floatholders', True)):
             tasks.append(('top10_floatholders', self._download_top10_floatholders_safe, 3))
-        
+
         # Technical analysis and market structure data
         # Check both daily and market_structure categories for these interfaces
         tech_types = ['stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips']
         for tech_type in tech_types:
-            if (tech_type in self.available_types.get('market_structure', []) or 
-                tech_type in self.available_types.get('daily', [])):
+            if ((tech_type in self.available_types.get('market_structure', []) or
+                 tech_type in self.available_types.get('daily', [])) and
+                DOWNLOAD_CONFIG.get(tech_type, True)):
                 tasks.append((tech_type, getattr(self.downloader, f'download_{tech_type}'), 3))
-        
+
         # Research data downloads
         research_types = ['report_rc', 'stk_surv', 'broker_recommend']
         for research_type in research_types:
-            if research_type in self.available_types.get('research', []):
+            if (research_type in self.available_types.get('research', []) and
+                DOWNLOAD_CONFIG.get(research_type, True)):
                 if research_type == 'broker_recommend':
                     tasks.append((research_type, self._download_broker_recommend_safe, 3))
                 else:
                     tasks.append((research_type, getattr(self.downloader, f'download_{research_type}'), 3))
-        
+
         # Other data downloads
-        if 'stk_rewards' in self.available_types.get('others', []):
+        if ('stk_rewards' in self.available_types.get('others', []) and
+            DOWNLOAD_CONFIG.get('stk_rewards', True)):
             tasks.append(('stk_rewards', self._download_stk_rewards_safe, 3))
-        
-        if 'stk_managers' in self.available_types.get('others', []):
+
+        if ('stk_managers' in self.available_types.get('others', []) and
+            DOWNLOAD_CONFIG.get('stk_managers', True)):
             tasks.append(('stk_managers', self._download_stk_managers_safe, 3))
-        
-        if 'namechange' in self.available_types.get('others', []):
+
+        if ('namechange' in self.available_types.get('others', []) and
+            DOWNLOAD_CONFIG.get('namechange', True)):
             tasks.append(('namechange', self._download_namechange_safe, 3))
-        
+
         # Stock company info
-        if 'stock_company' in self.available_types.get('basic', []):
+        if ('stock_company' in self.available_types.get('basic', []) and
+            DOWNLOAD_CONFIG.get('stock_company', True)):
             tasks.append(('stock_company', self._download_stock_company_combined, 3))
-        
+
+        # Log which interfaces will be skipped due to configuration
+        for data_type in DOWNLOAD_CONFIG:
+            if not DOWNLOAD_CONFIG[data_type]:
+                self.logger.info(f"Skipping interface {data_type} (configured as not to download)")
+
         return tasks
 
     def _download_trade_cal(self) -> pd.DataFrame:
