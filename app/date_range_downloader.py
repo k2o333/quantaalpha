@@ -10,8 +10,12 @@ from typing import List, Dict, Optional, Tuple
 from tushare_api import TuShareDownloader
 from config import TUSHARE_POINTS
 from score_config import get_available_data_types
-from data_storage import save_to_parquet
+from data_storage import save_to_parquet, get_cache_path, is_data_cached, is_data_fresh
 from download_config import DOWNLOAD_CONFIG
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+import time
+import random
 
 
 class DateRangeDownloader:
@@ -159,268 +163,126 @@ class DateRangeDownloader:
 
     def _download_daily_type_for_range(self, data_type: str) -> Dict[str, int]:
         """
-        优化后的下载特定日度数据类型的日期范围数据，采用分段下载控制内存使用
+        优化后的下载特定日度数据类型的日期范围数据，并发处理和内存控制
         """
         results = {}
         trading_days = self.get_trading_days()
 
         self.logger.info(f"开始下载 {data_type} 数据，共 {len(trading_days)} 个交易日")
 
-        # 内存控制：按30个交易日为一批进行分段下载
+        # 内存控制和批量处理参数
         max_days_per_batch = 30
-        for i in range(0, len(trading_days), max_days_per_batch):
-            batch_days = trading_days[i:i + max_days_per_batch]
-            batch_start = batch_days[0]
-            batch_end = batch_days[-1]
+        max_memory_threshold = 500  # MB
 
-            self.logger.info(f"处理批次: {batch_start} 到 {batch_end} ({len(batch_days)} 天)")
+        # 使用并发下载器
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            # 按日期范围批量下载数据，然后在本地分片
+        # 为不同数据类型分配不同数量的线程
+        if data_type == 'daily_basic':
+            # daily_basic最慢，可用更多线程
+            max_workers = min(8, len(trading_days))
+        else:
+            # 其他类型使用适度的线程数
+            max_workers = min(4, len(trading_days))
+
+        download_lock = threading.Lock()
+        all_data = []
+
+        # 函数：下载单个日期的指定数据类型
+        def download_single_day(trade_date):
             try:
-                self.logger.info(f"批量下载 {data_type} 数据范围: {batch_start} 到 {batch_end}")
+                # 检查缓存
+                cache_path = get_cache_path(data_type, trade_date)
+                if is_data_cached(cache_path):
+                    self.logger.info(f"使用缓存数据: {data_type} - {trade_date}")
+                    df = pd.read_parquet(cache_path)
+                    return (trade_date, df, len(df))
 
-                # 根据数据类型调用相应的方法，批量获取日期范围内的所有数据
-                if data_type in ['daily', 'daily_basic', 'moneyflow', 'stk_factor', 'stk_factor_pro',
-                                 'cyq_perf', 'cyq_chips', 'moneyflow_dc', 'moneyflow_ths',
-                                 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 'moneyflow_cnt_ths', 'moneyflow_ind_ths']:
+                # 真实API调用
+                if data_type == 'daily':
+                    df = self.downloader.download_daily_data(ts_code=None, start_date=trade_date, end_date=trade_date)
+                elif data_type == 'daily_basic':
+                    df = self.downloader.download_daily_basic(trade_date=trade_date)
+                elif data_type == 'moneyflow':
+                    df = self.downloader.download_moneyflow(trade_date=trade_date)
+                elif data_type == 'moneyflow_dc':
+                    df = self.downloader.download_moneyflow_dc(trade_date=trade_date)
+                elif data_type == 'moneyflow_ths':
+                    df = self.downloader.download_moneyflow_ths(trade_date=trade_date)
+                elif data_type == 'moneyflow_ind_dc':
+                    df = self.downloader.download_moneyflow_ind_dc(trade_date=trade_date)
+                elif data_type == 'moneyflow_mkt_dc':
+                    df = self.downloader.download_moneyflow_mkt_dc(trade_date=trade_date)
+                elif data_type == 'moneyflow_cnt_ths':
+                    df = self.downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
+                elif data_type == 'moneyflow_ind_ths':
+                    df = self.downloader.download_moneyflow_ind_ths(trade_date=trade_date)
+                elif data_type == 'stk_factor':
+                    # 使用分页下载
+                    df = self.downloader.download_stk_factor_paginated(trade_date=trade_date)
+                elif data_type == 'stk_factor_pro':
+                    df = self.downloader.download_stk_factor_pro(trade_date=trade_date)
+                elif data_type == 'cyq_perf':
+                    # 使用分页下载
+                    df = self.downloader.download_cyq_perf_paginated(trade_date=trade_date)
+                elif data_type == 'cyq_chips':
+                    # 使用分页下载
+                    df = self.downloader.download_cyq_chips_paginated(trade_date=trade_date)
+                # ... 其他类型的处理逻辑
 
-                    # 使用日期范围批量下载
-                    if data_type == 'daily':
-                        df = self.downloader.download_daily_data(ts_code=None, start_date=batch_start, end_date=batch_end)
-                    elif data_type == 'daily_basic':
-                        # 对于daily_basic，仍需按日期调用，但可以优化为按周或月批量处理
-                        df = pd.DataFrame()  # 保持原有逻辑或进行类似优化
-                        # 回退到按日下载，因为daily_basic接口不支持日期范围
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_daily_basic(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'moneyflow':
-                        df = self.downloader.download_daily_moneyflow_range(batch_start, batch_end)  # 使用新添加的方法
-                    elif data_type == 'moneyflow_dc':
-                        df = self.downloader.download_moneyflow_dc(trade_date=batch_end)  # 仍按日下载
-                        # 针对不支持日期范围的接口，按日下载整个批次的日期
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_moneyflow_dc(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'moneyflow_ths':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_moneyflow_ths(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'moneyflow_ind_dc':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_moneyflow_ind_dc(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'moneyflow_mkt_dc':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_moneyflow_mkt_dc(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'moneyflow_cnt_ths':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'moneyflow_ind_ths':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_moneyflow_ind_ths(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'stk_factor':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_stk_factor(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'stk_factor_pro':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_stk_factor_pro(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'cyq_perf':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_cyq_perf(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    elif data_type == 'cyq_chips':
-                        df = pd.DataFrame()  # 重置df以收集多个日期的数据
-                        for trade_date in batch_days:
-                            try:
-                                daily_df = self.downloader.download_cyq_chips(trade_date=trade_date)
-                                if not daily_df.empty:
-                                    daily_df['trade_date'] = pd.to_datetime(trade_date)
-                                    df = pd.concat([df, daily_df], ignore_index=True)
-                                    self.logger.info(f"成功下载 {data_type} - {trade_date}")
-                            except Exception as e:
-                                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                                continue
-                    else:
-                        self.logger.warning(f"未知的日度数据类型: {data_type}")
-                        continue
+                if not df.empty:
+                    # 添加交易日期标记
+                    df['trade_date'] = pd.to_datetime(trade_date)
 
-                    if not df.empty:
-                        # 确保有trade_date列用于分组
-                        if 'trade_date' in df.columns:
-                            # 如果trade_date是字符串，转换为datetime
-                            if df['trade_date'].dtype == 'object':
-                                df['trade_date'] = pd.to_datetime(df['trade_date'], errors='coerce')
+                    # 保存到本地
+                    year = trade_date[:4]
+                    month = trade_date[4:6]
+                    subdir = f"daily/{year}/{month}"
+                    filename = f"{data_type}_{trade_date}"
 
-                            # 按日期进行分组并保存
-                            date_groups = df.groupby(df['trade_date'].dt.strftime('%Y-%m'))
-                            total_records = 0
-                            for (year_month), group in date_groups:
-                                year, month = year_month.split('-')
-                                subdir = f"daily/{year}/{month}"
-                                filename = f"{data_type}_{year_month}"
+                    with download_lock:
+                        file_path = save_to_parquet(df, filename, subdir=subdir)
 
-                                file_path = save_to_parquet(group, filename, subdir=subdir)
-                                results[year_month] = len(group)
-                                total_records += len(group)
-                                self.logger.info(f"成功保存 {data_type}_{year_month}: {len(group)} 条记录")
-
-                            self.logger.info(f"{data_type} 批次下载完成: {batch_start} 到 {batch_end}, 共 {total_records} 条记录")
-                        else:
-                            # 如果没有trade_date列，按照其他方式处理
-                            year = batch_start[:4]
-                            month = batch_start[4:6]
-                            subdir = f"daily/{year}/{month}"
-                            filename = f"{data_type}_{batch_start}_to_{batch_end}"
-                            file_path = save_to_parquet(df, filename, subdir=subdir)
-                            results[f"{batch_start}_to_{batch_end}"] = len(df)
-                            self.logger.info(f"成功保存 {data_type}: {len(df)} 条记录")
-                    else:
-                        self.logger.warning(f"{data_type} - 日期范围 {batch_start} 到 {batch_end} 无数据")
+                    self.logger.debug(f"成功下载 {data_type} - {trade_date}: {len(df)} 条记录")
+                    return (trade_date, df, len(df))
+                else:
+                    self.logger.warning(f"{data_type} - {trade_date} 无数据")
+                    return (trade_date, pd.DataFrame(), 0)
 
             except Exception as e:
-                self.logger.error(f"批量下载 {data_type} 失败: {e}")
-                # 回退到逐日下载方式
-                self.logger.info(f"回退到逐日下载方式处理 {data_type}")
-                for trade_date in batch_days:
-                    try:
-                        self.logger.info(f"正在下载 {data_type} - {trade_date} (回退模式)")
+                self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
+                return (trade_date, pd.DataFrame(), 0)
 
-                        if data_type == 'daily':
-                            df = self.downloader.download_daily_data(ts_code=None, start_date=trade_date, end_date=trade_date)
-                        elif data_type == 'daily_basic':
-                            df = self.downloader.download_daily_basic(trade_date=trade_date)
-                        elif data_type == 'moneyflow':
-                            df = self.downloader.download_moneyflow(trade_date=trade_date)
-                        elif data_type == 'moneyflow_dc':
-                            df = self.downloader.download_moneyflow_dc(trade_date=trade_date)
-                        elif data_type == 'moneyflow_ths':
-                            df = self.downloader.download_moneyflow_ths(trade_date=trade_date)
-                        elif data_type == 'moneyflow_ind_dc':
-                            df = self.downloader.download_moneyflow_ind_dc(trade_date=trade_date)
-                        elif data_type == 'moneyflow_mkt_dc':
-                            df = self.downloader.download_moneyflow_mkt_dc(trade_date=trade_date)
-                        elif data_type == 'moneyflow_cnt_ths':
-                            df = self.downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
-                        elif data_type == 'moneyflow_ind_ths':
-                            df = self.downloader.download_moneyflow_ind_ths(trade_date=trade_date)
-                        elif data_type == 'stk_factor':
-                            df = self.downloader.download_stk_factor(trade_date=trade_date)
-                        elif data_type == 'stk_factor_pro':
-                            df = self.downloader.download_stk_factor_pro(trade_date=trade_date)
-                        elif data_type == 'cyq_perf':
-                            df = self.downloader.download_cyq_perf(trade_date=trade_date)
-                        elif data_type == 'cyq_chips':
-                            df = self.downloader.download_cyq_chips(trade_date=trade_date)
-                        else:
-                            self.logger.warning(f"未知的日度数据类型: {data_type}")
-                            continue
+        # 并行下载所有日期的数据
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            futures = {
+                executor.submit(download_single_day, day): day
+                for day in trading_days
+            }
 
-                        if not df.empty:
-                            # 按年/月/日分区保存
-                            year = trade_date[:4]
-                            month = trade_date[4:6]
+            # 收集结果
+            for future in as_completed(futures):
+                trade_date, df, record_count = future.result()
+                if not df.empty and record_count > 0:
+                    all_data.append(df)
+                    results[trade_date] = record_count
 
-                            # 创建分区目录
-                            subdir = f"daily/{year}/{month}"
+        # 合并结果
+        final_result = {}
+        if all_data:
+            # 按月分组数据(如果需要进一步组织存储)
+            combined_df = pd.concat(all_data, ignore_index=True)
+            if 'trade_date' in combined_df.columns:
+                date_groups = combined_df.groupby(combined_df['trade_date'].dt.strftime('%Y-%m'))
+                for (year_month), group in date_groups:
+                    year, month = year_month.split('-')
+                    subdir = f"daily/{year}/{month}"
+                    filename = f"{data_type}_{year_month}"
+                    file_path = save_to_parquet(group, filename, subdir=subdir)
+                    final_result[year_month] = len(group)
 
-                            filename = f"{data_type}_{trade_date}"
-                            file_path = save_to_parquet(df, filename, subdir=subdir)
-                            results[trade_date] = len(df)
-
-                            self.logger.info(f"成功保存 {data_type}_{trade_date}: {len(df)} 条记录")
-                        else:
-                            self.logger.warning(f"{data_type} - {trade_date} 无数据")
-
-                    except Exception as e:
-                        self.logger.error(f"下载 {data_type} - {trade_date} 失败: {e}")
-                        continue
-
-        return results
+        return final_result
 
     def _download_static_type(self, data_type: str) -> int:
         """
@@ -561,7 +423,7 @@ class DateRangeDownloader:
                 # Download sell-side earnings forecast data
                 periods = self._get_financial_periods_in_range()
                 results = {}
-                
+
                 for period in periods:
                     try:
                         df = self.downloader.download_report_rc(period=period)
@@ -571,14 +433,14 @@ class DateRangeDownloader:
                             results[period] = len(df)
                     except Exception as e:
                         self.logger.error(f"下载 {data_type} - {period} 失败: {e}")
-                
+
                 return results
-                
+
             elif data_type == 'stk_surv':
                 # Download institutional research survey
                 periods = self._get_financial_periods_in_range()
                 results = {}
-                
+
                 for period in periods:
                     try:
                         df = self.downloader.download_stk_surv(period=period)
@@ -588,9 +450,9 @@ class DateRangeDownloader:
                             results[period] = len(df)
                     except Exception as e:
                         self.logger.error(f"下载 {data_type} - {period} 失败: {e}")
-                
+
                 return results
-                
+
             elif data_type == 'broker_recommend':
                 # Download broker monthly stock recommendations
                 try:
@@ -893,6 +755,242 @@ class DateRangeDownloader:
             if data_type in category_types:
                 return True
         return False
+
+
+class ParallelDownloader:
+    def __init__(self, max_workers=4):
+        """
+        Initialize the parallel downloader with thread pool
+
+        Args:
+            max_workers: Maximum number of worker threads
+        """
+        self.max_workers = max_workers
+        self.tushare_downloader = TuShareDownloader()
+        self.download_lock = threading.Lock()
+        self.logger = logging.getLogger(__name__)
+
+    def download_daily_types_batched(self, data_types, start_date, end_date):
+        """
+        Download different types of data in batches with parallel processing
+        """
+        results = {}
+
+        def download_single_type(data_type):
+            try:
+                if data_type in ['daily', 'moneyflow', 'moneyflow_dc', 'moneyflow_ths',
+                               'moneyflow_ind_dc', 'moneyflow_mkt_dc', 'moneyflow_ind_ths',
+                               'stk_factor_pro', 'cyq_perf', 'cyq_chips']:
+                    # Batch download for interfaces supporting date range
+                    return self.download_batched_range(data_type, start_date, end_date)
+                elif data_type in ['daily_basic', 'moneyflow_cnt_ths', 'stk_factor']:
+                    # For interfaces not supporting date range, use parallel batch processing
+                    return self.download_daily_type_batched_parallel(data_type, start_date, end_date)
+                else:
+                    # For other types of data
+                    return self.download_other_data_type(data_type, start_date, end_date)
+            except Exception as e:
+                self.logger.error(f"Download {data_type} failed: {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Download different data types in parallel
+            future_to_type = {
+                executor.submit(download_single_type, data_type): data_type
+                for data_type in data_types
+            }
+
+            for future in as_completed(future_to_type):
+                data_type = future_to_type[future]
+                try:
+                    result = future.result()
+                    results[data_type] = result
+                    self.logger.info(f"✅ {data_type} download completed")
+                except Exception as e:
+                    self.logger.error(f"❌ {data_type} download failed: {e}")
+
+        return results
+
+    def download_batched_range(self, data_type, start_date, end_date):
+        """
+        Batch download for interfaces supporting date range
+        """
+        try:
+            if data_type == 'daily':
+                df = self.tushare_downloader.download_daily_data(ts_code=None, start_date=start_date, end_date=end_date)
+            elif data_type == 'moneyflow':
+                df = self.tushare_downloader.download_daily_moneyflow_range(start_date, end_date)
+            elif data_type in ['moneyflow_dc', 'moneyflow_ths', 'moneyflow_ind_dc',
+                             'moneyflow_mkt_dc', 'moneyflow_ind_ths', 'stk_factor_pro',
+                             'cyq_perf', 'cyq_chips']:
+                # Call the corresponding date range download method
+                method_name = f"download_{data_type}_range"
+                if hasattr(self.tushare_downloader, method_name):
+                    df = getattr(self.tushare_downloader, method_name)(start_date, end_date)
+                else:
+                    # Fallback to generic method
+                    df = self._generic_batch_download(data_type, start_date, end_date)
+            else:
+                # Other interfaces supporting batch download
+                df = self._generic_batch_download(data_type, start_date, end_date)
+
+            return df
+        except Exception as e:
+            self.logger.error(f"Batch download {data_type} failed: {e}")
+            raise
+
+    def download_daily_type_batched_parallel(self, data_type, start_date, end_date, batch_size=30):
+        """
+        For interfaces not supporting date range, split the date range into batches and process each batch in parallel
+        For daily_basic, moneyflow_cnt_ths, stk_factor, etc.
+        """
+        # Get trading days
+        trading_days = self.get_trading_days_in_range(start_date, end_date)
+
+        # Split dates into batches
+        batches = [trading_days[i:i + batch_size] for i in range(0, len(trading_days), batch_size)]
+
+        all_data = []
+
+        def process_batch(day_batch):
+            batch_data = []
+            for trade_date in day_batch:
+                # Check if cache exists
+                cache_path = self.get_cache_path(data_type, trade_date)
+                if not self.is_data_cached(cache_path):
+                    try:
+                        # Call corresponding download method based on data type
+                        if data_type == 'daily_basic':
+                            df = self.tushare_downloader.download_daily_basic(trade_date=trade_date)
+                        elif data_type == 'moneyflow_cnt_ths':
+                            df = self.tushare_downloader.download_moneyflow_cnt_ths(trade_date=trade_date)
+                        elif data_type == 'stk_factor':
+                            # Use pagination download for stk_factor
+                            df = self.tushare_downloader.download_stk_factor_paginated(trade_date=trade_date)
+                        elif data_type == 'stk_factor_pro':
+                            df = self.tushare_downloader.download_stk_factor_pro(trade_date=trade_date)
+                        elif data_type == 'cyq_perf':
+                            # Use pagination download for cyq_perf
+                            df = self.tushare_downloader.download_cyq_perf_paginated(trade_date=trade_date)
+                        elif data_type == 'cyq_chips':
+                            # Use pagination download for cyq_chips
+                            df = self.tushare_downloader.download_cyq_chips_paginated(trade_date=trade_date)
+                        else:
+                            self.logger.warning(f"Unknown daily data type: {data_type}")
+                            continue
+
+                        if not df.empty:
+                            df['trade_date'] = trade_date
+                            batch_data.append(df)
+                            # Save to cache
+                            self.save_to_cache(df, data_type, trade_date)
+                    except Exception as e:
+                        self.logger.error(f"Download {data_type}_{trade_date} failed: {e}")
+                        continue  # Skip failed date
+                else:
+                    # Load cached data
+                    df = self.load_from_cache(cache_path)
+                    batch_data.append(df)
+
+            return batch_data
+
+        # Process all batches in parallel
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            future_to_batch = {
+                executor.submit(process_batch, batch): i
+                for i, batch in enumerate(batches)
+            }
+
+            for future in as_completed(future_to_batch):
+                batch_result = future.result()
+                all_data.extend(batch_result)
+
+        return all_data
+
+    def _generic_batch_download(self, data_type, start_date, end_date):
+        """
+        Generic date range download method
+        """
+        # Implement generic date range download logic
+        pass
+
+    def get_trading_days_in_range(self, start_date, end_date):
+        """
+        Get trading days between start and end date
+        """
+        try:
+            # First download calendar data
+            trade_cal = self.tushare_downloader.download_trade_cal(
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            # Filter for trading days (is_open=1)
+            trading_days = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
+            trading_days.sort()
+
+            self.logger.info(f"Retrieved {len(trading_days)} trading days")
+            return trading_days
+
+        except Exception as e:
+            self.logger.error(f"Failed to get trading calendar: {e}")
+            # If we can't get trading calendar, return all dates in range as fallback
+            return self._generate_date_range(start_date, end_date)
+
+    def _generate_date_range(self, start_date, end_date):
+        """
+        Generate all dates in range as fallback
+        """
+        start = datetime.strptime(start_date, '%Y%m%d')
+        end = datetime.strptime(end_date, '%Y%m%d')
+
+        date_list = []
+        current = start
+        while current <= end:
+            date_list.append(current.strftime('%Y%m%d'))
+            current += timedelta(days=1)
+
+        return date_list
+
+    def get_cache_path(self, data_type: str, trade_date: str = None) -> str:
+        """
+        Get cache path for given data type and date
+        """
+        if trade_date:
+            year = trade_date[:4]
+            month = trade_date[4:6]
+            subdir = f"daily/{year}/{month}"
+            filename = f"{data_type}_{trade_date}"
+            return str(Path("data") / subdir / f"{filename}.parquet")
+        else:
+            return str(Path("data") / f"{data_type}" / "all_data.parquet")
+
+    def is_data_cached(self, file_path: str) -> bool:
+        """
+        Check if data is cached
+        """
+        return Path(file_path).exists()
+
+    def save_to_cache(self, df, data_type: str, trade_date: str):
+        """
+        Save data to cache file
+        """
+        year = trade_date[:4]
+        month = trade_date[4:6]
+        subdir = f"daily/{year}/{month}"
+        filename = f"{data_type}_{trade_date}"
+        with self.download_lock:
+            save_to_parquet(df, filename, subdir=subdir)
+
+    def load_from_cache(self, cache_path: str) -> pd.DataFrame:
+        """
+        Load data from cache file
+        """
+        try:
+            return pd.read_parquet(cache_path)
+        except Exception as e:
+            self.logger.warning(f"Failed to load cached data {cache_path}: {e}")
+            return pd.DataFrame()  # Return empty DataFrame if cache load fails
 
 
 def main_download_by_date_range(start_date: str, end_date: str = None):
