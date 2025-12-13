@@ -1,0 +1,244 @@
+{
+  "project_name": "conc",
+  "created_at": "2025-12-13T10:40:37.452390",
+  "root_target": "/home/quan/testdata/aspipe_v4/app",
+  "schemes": {
+    "interface_optimization_validation": {
+      "description": "验证接口优化方案的前提假设",
+      "atoms": [
+        "verify_serial_processing_bottleneck",
+        "verify_rate_limit_impact",
+        "verify_independent_api_calls",
+        "verify_no_concurrent_download",
+        "verify_no_cache_mechanism",
+        "verify_inefficient_error_handling",
+        "verify_insufficient_memory_management",
+        "verify_pagination_not_utilized",
+        "verify_date_range_support",
+        "verify_interface_capabilities"
+      ],
+      "status": "success"
+    },
+    "cache_concurrency_optimization_validation": {
+      "description": "验证接口优化方案中提出的缓存和并发优化方案的可行性",
+      "atoms": [
+        "verify_smart_cache_mechanism",
+        "verify_thread_pool_concurrent_download",
+        "verify_intelligent_rate_limiting",
+        "verify_memory_management_optimization",
+        "verify_pagination_utilization",
+        "verify_date_range_batch_download",
+        "verify_breakpoint_resume_capability",
+        "verify_data_timestamp_validation"
+      ],
+      "status": "success"
+    }
+  },
+  "assumptions": {
+    "verify_serial_processing_bottleneck": {
+      "description": "验证当前实现确实存在串行处理瓶颈，特别是daily_basic及多个其他接口采用逐日下载处理",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_serial_processing_bottleneck.py",
+      "timestamp": "2025-12-13T10:42:01.628283"
+    },
+    "verify_rate_limit_impact": {
+      "description": "验证每个API调用都受速率限制控制，每两次调用之间存在等待时间，这极大地减慢了下载速度",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_rate_limit_impact.py",
+      "timestamp": "2025-12-13T10:42:28.464955"
+    },
+    "verify_independent_api_calls": {
+      "description": "验证对于多个日度数据接口，代码对每个交易日执行独立的API调用，而没有进行批量处理或并行化",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_independent_api_calls.py",
+      "timestamp": "2025-12-13T10:44:16.131772"
+    },
+    "verify_no_concurrent_download": {
+      "description": "验证所有不同类型的数据下载任务都是串行执行的，没有充分利用多核CPU并行下载多种数据类型",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_no_concurrent_download.py",
+      "timestamp": "2025-12-13T10:45:35.854750"
+    },
+    "verify_no_cache_mechanism": {
+      "description": "验证系统没有检查已下载的数据文件，不管数据是否已经存在都会尝试重新下载，导致不必要的API调用和重复工作",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_no_cache_mechanism.py",
+      "timestamp": "2025-12-13T10:47:51.424718"
+    },
+    "verify_inefficient_error_handling": {
+      "description": "验证当下载失败时，系统会进行指数退避重试，这会增加总时间，且没有有效的失败后跳过机制",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_inefficient_error_handling.py",
+      "timestamp": "2025-12-13T10:49:05.285979"
+    },
+    "verify_insufficient_memory_management": {
+      "description": "验证在处理大量数据下载时，没有有效的内存控制机制，可能导致内存溢出",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_insufficient_memory_management.py",
+      "timestamp": "2025-12-13T10:50:28.011198"
+    },
+    "verify_pagination_not_utilized": {
+      "description": "验证多个接口支持分页功能但未被充分利用，如cyq_perf单次最大5000条，cyq_chips单次最大2000条，stk_factor单次最大10000条等",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_pagination_not_utilized.py",
+      "timestamp": "2025-12-13T10:51:26.401609"
+    },
+    "verify_date_range_support": {
+      "description": "验证不同接口对日期范围查询的支持情况，哪些接口支持日期范围查询，哪些不支持",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_date_range_support.py",
+      "timestamp": "2025-12-13T10:52:23.895657"
+    },
+    "verify_interface_capabilities": {
+      "description": "验证各接口的实际能力和限制，包括单次调用最大返回记录数、分页支持、日期范围支持等",
+      "parent_scheme": "interface_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_interface_capabilities.py",
+      "timestamp": "2025-12-13T10:53:07.664687"
+    },
+    "verify_smart_cache_mechanism": {
+      "description": "验证智能缓存机制的可行性，包括文件存在性检查、基于时间戳或数据标识符验证数据是否最新",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_smart_cache_mechanism.py",
+      "timestamp": "2025-12-13T11:10:14.356556",
+      "metrics": {
+        "execution_time_ms": 0.00476837158203125,
+        "cache_feasibility": true,
+        "verification_result": "Smart cache mechanism is feasible"
+      }
+    },
+    "verify_thread_pool_concurrent_download": {
+      "description": "验证使用ThreadPoolExecutor进行并发下载的可行性，包括不同数据类型的并行下载和同类型数据的分批并行处理",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_thread_pool_concurrent_download.py",
+      "timestamp": "2025-12-13T11:10:44.357461",
+      "metrics": {
+        "execution_time_ms": 201.643705368042,
+        "concurrent_download_feasibility": true,
+        "processed_tasks_count": 8,
+        "estimated_speedup": 2.0,
+        "verification_result": "Thread pool concurrent download is feasible"
+      }
+    },
+    "verify_intelligent_rate_limiting": {
+      "description": "验证更智能的令牌切换机制和精细化速率限制管理的可行性",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_intelligent_rate_limiting.py",
+      "timestamp": "2025-12-13T12:01:52.338904",
+      "metrics": {
+        "execution_time_ms": 31058.888912200928,
+        "rate_limiting_feasibility": true,
+        "total_requests": 1000,
+        "successful_requests": 1000,
+        "success_rate": 1.0,
+        "usage_variance": 0,
+        "verification_result": "Intelligent rate limiting is feasible"
+      }
+    },
+    "verify_memory_management_optimization": {
+      "description": "验证内存管理优化的可行性，包括分批处理方式减少内存占用和及时释放不需要的中间数据",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_memory_management_optimization.py",
+      "timestamp": "2025-12-13T12:02:16.902426",
+      "metrics": {
+        "execution_time_ms": 8.375883102416992,
+        "memory_optimization_feasibility": true,
+        "total_data_size": 10000,
+        "batch_size": 1000,
+        "processed_batches": 10,
+        "verification_result": "Memory management optimization is feasible"
+      }
+    },
+    "verify_pagination_utilization": {
+      "description": "验证对接口分页功能的充分利用，如cyq_perf、cyq_chips、stk_factor等接口的offset/limit参数使用",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_pagination_utilization.py",
+      "timestamp": "2025-12-13T12:02:57.307604",
+      "metrics": {
+        "execution_time_ms": 0.04649162292480469,
+        "pagination_feasibility": true,
+        "interfaces_tested": 5,
+        "total_records_to_fetch": 50000,
+        "average_efficiency_improvement": 25.0,
+        "verification_result": "Pagination utilization is feasible"
+      }
+    },
+    "verify_date_range_batch_download": {
+      "description": "验证支持日期范围查询接口的批量下载策略，如daily、moneyflow等接口的start_date/end_date参数使用",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_date_range_batch_download.py",
+      "timestamp": "2025-12-13T12:04:23.072453",
+      "metrics": {
+        "execution_time_ms": 0.05507469177246094,
+        "date_range_feasibility": true,
+        "interfaces_tested": 5,
+        "total_days": 365,
+        "average_efficiency_improvement": 15.0,
+        "verification_result": "Date range batch download is feasible"
+      }
+    },
+    "verify_breakpoint_resume_capability": {
+      "description": "验证断点续传功能的可行性，对部分下载失败的数据进行增量下载",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_breakpoint_resume_capability.py",
+      "timestamp": "2025-12-13T12:06:53.514039",
+      "metrics": {
+        "execution_time_ms": 0.04601478576660156,
+        "breakpoint_resume_feasibility": true,
+        "total_chunks": 100,
+        "failed_chunks_count": 8,
+        "resume_efficiency": 12.5,
+        "verification_result": "Breakpoint resume capability is feasible"
+      }
+    },
+    "verify_data_timestamp_validation": {
+      "description": "验证基于时间戳或数据标识符验证数据是否最新的机制",
+      "parent_scheme": "cache_concurrency_optimization_validation",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/verify_data_timestamp_validation.py",
+      "timestamp": "2025-12-13T12:08:11.389093",
+      "metrics": {
+        "execution_time_ms": 3.5164356231689453,
+        "timestamp_validation_feasibility": true,
+        "files_checked": 3,
+        "outdated_files_detected": 2,
+        "validation_performance_ms": 0.5,
+        "verification_result": "Data timestamp validation is feasible"
+      }
+    }
+  }
+}
