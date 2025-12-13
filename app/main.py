@@ -7,10 +7,21 @@ import time
 from datetime import datetime, date
 from pathlib import Path
 import argparse
-from enhanced_main_downloader import EnhancedMainDownloader
-from config import TUSHARE_POINTS
-from score_config import get_available_data_types
-from tushare_api import TuShareDownloader
+import sys
+import os
+# Add the app directory to the path so modules can find each other
+app_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, app_dir)
+
+# For modules with subdirectories, also add them
+utils_dir = os.path.join(app_dir, 'utils')
+sys.path.insert(0, utils_dir)
+
+interfaces_dir = os.path.join(app_dir, 'interfaces')
+sys.path.insert(0, interfaces_dir)
+
+from config_manager import ConfigManager
+from download_manager import DownloadManager
 import pandas as pd
 
 # Set up logging with Chinese characters support
@@ -36,11 +47,14 @@ def download_all_data_from_date(start_date: str, end_date: str = None):
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
 
-    logger.info(f"🚀 开始下载数据：从 {start_date} 到 {end_date}")
-    logger.info(f"积分: {TUSHARE_POINTS}")
+    # 初始化配置管理器
+    config_manager = ConfigManager()
 
-    # Show what's available based on user's score
-    available_types = get_available_data_types(TUSHARE_POINTS)
+    logger.info(f"🚀 开始下载数据：从 {start_date} 到 {end_date}")
+    logger.info(f"积分: {config_manager.tushare_points}")
+
+    # 显示基于用户积分的可用数据类型
+    available_types = config_manager.get_available_data_types()
     total_available = sum(len(types) for types in available_types.values() if types)
     logger.info(f"可用数据类型: {total_available} 种")
 
@@ -50,15 +64,14 @@ def download_all_data_from_date(start_date: str, end_date: str = None):
             for t in types:
                 logger.info(f"    - {t}")
 
-    # Use the date range downloader for comprehensive download
-    from date_range_downloader import DateRangeDownloader
-    downloader = DateRangeDownloader(start_date, end_date)
+    # 使用新的下载管理器进行下载
+    downloader = DownloadManager(config_manager)
 
     start_time = time.time()
 
     try:
-        # Download all score-appropriate data for the date range
-        results = downloader.download_all_available_data()
+        # 下载所有积分匹配的数据
+        results = downloader.download_all_score_appropriate_data()
 
         elapsed_time = time.time() - start_time
         logger.info(f"✅ 数据下载完成！")
@@ -97,23 +110,23 @@ def main():
     logger.info(f"📅 启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     try:
-        # Download all data
+        # 下载所有数据
         results = download_all_data_from_date(args.start_date, args.end_date)
 
-        # Generate final summary
+        # 生成最终统计
         elapsed_time = time.time() - start_time
 
-        # Calculate total records properly by checking data types
+        # 计算总记录数
         total_records = 0
         for result in results.values():
             if isinstance(result, dict):
-                # If result is a dictionary, sum its values
+                # 如果结果是字典，求和其值
                 total_records += sum(result.values()) if result else 0
             elif isinstance(result, (int, float)):
-                # If result is a number, add directly
+                # 如果结果是数字，直接相加
                 total_records += result
             else:
-                # For other types, skip or treat as 0
+                # 对于其他类型，跳过或视为0
                 continue
 
         logger.info("="*60)

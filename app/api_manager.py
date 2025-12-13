@@ -1,144 +1,141 @@
 """
-TuShare API integration for aspipe_v4 with automatic token switching
+统一API管理器
 """
 import tushare as ts
 import time
 import logging
-from typing import Optional
-try:
-    from .config import TUSHARE_TOKEN, API_LIMITS, TUSHARE_POINTS, PRIMARY_TOKEN, SECONDARY_TOKEN, PROXY_URL
-except ImportError:
-    from config import TUSHARE_TOKEN, API_LIMITS, TUSHARE_POINTS, PRIMARY_TOKEN, SECONDARY_TOKEN, PROXY_URL
-try:
-    from .score_config import get_api_limits_for_score
-except ImportError:
-    from score_config import get_api_limits_for_score
+import random
+import sys
+import os
+from typing import Optional, Dict, Any
 import pandas as pd
-try:
-    from .error_handler import ErrorHandler, retry_on_failure
-except ImportError:
-    from error_handler import ErrorHandler, retry_on_failure
 
-# 导入各个接口模块
-try:
-    # 尝试相对导入，当作为包运行时
-    from .interfaces.basic_data import BasicDataDownloader
-    from .interfaces.daily_data import DailyDataDownloader
-    from .interfaces.financial_data import FinancialDataDownloader
-    from .interfaces.market_flow import MarketFlowDownloader
-    from .interfaces.holders_data import HoldersDataDownloader
-    from .interfaces.technical_factors import TechnicalFactorsDownloader
-    from .interfaces.market_structure import MarketStructureDownloader
-    from .interfaces.research_data import ResearchDataDownloader
-except ImportError:
-    # 当作为独立脚本运行时的回退导入
-    from interfaces.basic_data import BasicDataDownloader
-    from interfaces.daily_data import DailyDataDownloader
-    from interfaces.financial_data import FinancialDataDownloader
-    from interfaces.market_flow import MarketFlowDownloader
-    from interfaces.holders_data import HoldersDataDownloader
-    from interfaces.technical_factors import TechnicalFactorsDownloader
-    from interfaces.market_structure import MarketStructureDownloader
-    from interfaces.research_data import ResearchDataDownloader
+# Add paths for modules to find each other
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+sys.path.insert(0, os.path.join(current_dir, 'interfaces'))
+
+from config_manager import ConfigManager
+from error_handler import ErrorHandler, retry_on_failure
+from interfaces.basic_data import BasicDataDownloader
+from interfaces.daily_data import DailyDataDownloader
+from interfaces.financial_data import FinancialDataDownloader
+from interfaces.holders_data import HoldersDataDownloader
+from interfaces.market_flow import MarketFlowDownloader
+from interfaces.technical_factors import TechnicalFactorsDownloader
+from interfaces.market_structure import MarketStructureDownloader
+from interfaces.research_data import ResearchDataDownloader
 
 
-class TuShareDownloader:
-    def __init__(self):
-        """
-        Initialize the TuShare API downloader with token authentication and rate limiting
-        """
-        # Store both tokens for switching
-        self.primary_token = PRIMARY_TOKEN
-        self.secondary_token = SECONDARY_TOKEN
-        self.current_token = TUSHARE_TOKEN  # Use the default token initially
-        self.current_points = TUSHARE_POINTS
-        self.current_proxy = PROXY_URL
+class TuShareAPIManager:
+    def __init__(self, config_manager: ConfigManager):
+        self.config = config_manager
+        self.primary_token = self.config.primary_token
+        self.secondary_token = self.config.secondary_token
+        self.current_token = self.config.tushare_token
+        self.current_points = self.config.tushare_points
+        self.current_proxy = self.config.proxy_url
 
-        # Set proxy if available
+        # 设置代理
         if self.current_proxy:
             import os
             os.environ["HTTP_PROXY"] = self.current_proxy
             os.environ["HTTPS_PROXY"] = self.current_proxy
 
-        # Initialize with current token
+        # 初始化API
         self.pro = ts.pro_api(self.current_token)
 
-        # Update API limits based on current user's points
-        self.api_limits = get_api_limits_for_score(self.current_points)
+        # API限制和调用时间记录
+        self.api_limits = self.config.api_limits
         self.last_call_times = {}
 
         self.logger = logging.getLogger(__name__)
 
         # 初始化各个接口模块
-        self.basic_data = BasicDataDownloader(self.pro)
-        self.daily_data = DailyDataDownloader(self.pro)
-        self.financial_data = FinancialDataDownloader(self.pro)
-        self.market_flow = MarketFlowDownloader(self.pro)
-        self.holders_data = HoldersDataDownloader(self.pro)
-        self.technical_factors = TechnicalFactorsDownloader(self.pro)
-        self.market_structure = MarketStructureDownloader(self.pro)
-        self.research_data = ResearchDataDownloader(self.pro)
+        self.basic_data = BasicDataDownloader(self.pro, self.config)
+        self.daily_data = DailyDataDownloader(self.pro, self.config)
+        self.financial_data = FinancialDataDownloader(self.pro, self.config)
+        self.market_flow = MarketFlowDownloader(self.pro, self.config)
+        self.holders_data = HoldersDataDownloader(self.pro, self.config)
+        self.technical_factors = TechnicalFactorsDownloader(self.pro, self.config)
+        self.market_structure = MarketStructureDownloader(self.pro, self.config)
+        self.research_data = ResearchDataDownloader(self.pro, self.config)
+
+        # 重试处理器
+        self.retry_handler = ErrorHandler()
 
     def switch_token(self):
-        """
-        Switch to the secondary token if available, or back to primary
-        """
+        """切换到备用token"""
         if self.primary_token and self.secondary_token:
             if self.current_token == self.primary_token:
-                # Switch to secondary token
+                # 切换到备用token
                 self.current_token = self.secondary_token
                 self.current_points = int(__import__('os').environ.get('tushare2_points', '2000'))
                 self.current_proxy = __import__('os').environ.get('PROXY_URL2', '')
                 self.logger.info("Switching to secondary token")
             else:
-                # Switch back to primary token
+                # 切换回主token
                 self.current_token = self.primary_token
                 self.current_points = int(__import__('os').environ.get('tushare_points', '120'))
                 self.current_proxy = __import__('os').environ.get('PROXY_URL', '')
                 self.logger.info("Switching to primary token")
 
-            # Update proxy settings
+            # 更新代理设置
             if self.current_proxy:
                 import os
                 os.environ["HTTP_PROXY"] = self.current_proxy
                 os.environ["HTTPS_PROXY"] = self.current_proxy
             else:
-                # Clear proxy if empty
+                # 清除代理
                 if "HTTP_PROXY" in __import__('os').environ:
                     del __import__('os').environ["HTTP_PROXY"]
                 if "HTTPS_PROXY" in __import__('os').environ:
                     del __import__('os').environ["HTTPS_PROXY"]
 
-            # Reinitialize the API with the new token
+            # 重新初始化API
             self.pro = ts.pro_api(self.current_token)
-            # Update API limits based on new points
-            self.api_limits = get_api_limits_for_score(self.current_points)
-        else:
-            self.logger.warning("Only one token available, cannot switch")
+            # 更新API限制
+            self.api_limits = self._get_updated_api_limits()
+
+    def _get_updated_api_limits(self):
+        """获取基于当前积分的API限制"""
+        from score_config import get_api_limits_for_score
+        return get_api_limits_for_score(self.current_points)
 
     def _rate_limit(self, api_name: str) -> None:
-        """
-        Implement rate limiting for API calls to avoid exceeding limits
-        """
-        # Use the advanced rate limiting method
-        self._advanced_rate_limit(api_name)
+        """实现速率限制"""
+        current_time = time.perf_counter()
+
+        # 获取此API的速率限制
+        api_config = self.api_limits.get(api_name, {'calls_per_minute': 200})
+        calls_per_minute = api_config['calls_per_minute']
+
+        # 添加随机性以避免被识别为自动化脚本
+        min_interval = (60.0 / calls_per_minute) * random.uniform(0.8, 1.2)
+
+        # 检查是否最近调用过此API
+        if api_name in self.last_call_times:
+            elapsed = current_time - self.last_call_times[api_name]
+            if elapsed < min_interval:
+                sleep_time = min_interval - elapsed
+                self.logger.debug(f"Rate limiting {api_name}, sleeping for {sleep_time:.2f}s")
+                time.sleep(min_interval)
+
+        self.last_call_times[api_name] = current_time
 
     @retry_on_failure(max_retries=3, delay=1.0, backoff=2.0)
     def download_with_retry(self, api_func, *args, max_retries: int = 3, **kwargs):
         """
-        Download data with retry mechanism and rate limiting
+        下载数据带重试机制
         """
         api_name = api_func.__name__ if hasattr(api_func, '__name__') else 'unknown_api'
 
         for attempt in range(max_retries + 1):
             try:
-                # Implement rate limiting
+                # 实现速率限制
                 self._rate_limit(api_name)
 
-                # Log the API call
-                self.logger.info(f"Calling {api_name} API attempt {attempt + 1}")
-
-                # Make the API call
+                # 调用API
                 result = api_func(*args, **kwargs)
 
                 self.logger.info(f"Successfully called {api_name}, got {len(result) if hasattr(result, '__len__') else 'unknown'} records")
@@ -147,14 +144,14 @@ class TuShareDownloader:
             except Exception as e:
                 self.logger.warning(f"Attempt {attempt + 1} failed for {api_name}: {str(e)}")
 
-                # Check if the error is related to token authentication
+                # 检查是否与token认证相关
                 error_msg = str(e).lower()
                 if "token" in error_msg or "auth" in error_msg:
-                    # Try switching to the other token
+                    # 尝试切换到另一个token
                     if self.primary_token and self.secondary_token:
                         self.switch_token()
                         self.logger.info(f"Switched token due to authentication error. Retrying {api_name}...")
-                        # Retry immediately with the new token
+                        # 用新token重试
                         try:
                             result = api_func(*args, **kwargs)
                             self.logger.info(f"Successfully called {api_name} after token switch, got {len(result) if hasattr(result, '__len__') else 'unknown'} records")
@@ -164,9 +161,9 @@ class TuShareDownloader:
 
                 if attempt == max_retries:
                     self.logger.error(f"All {max_retries + 1} attempts failed for {api_name}")
-                    ErrorHandler.handle_api_error(e, f"API call {api_name}")
+                    self.retry_handler.handle_api_error(e, f"API call {api_name}")
 
-                # Exponential backoff: wait longer between each attempt
+                # 指数退避：每次重试等待更长时间
                 wait_time = 2 ** attempt
                 self.logger.info(f"Waiting {wait_time}s before next attempt...")
                 time.sleep(wait_time)
@@ -285,50 +282,6 @@ class TuShareDownloader:
             # 回退到普通下载方法
             return self.pro.cyq_chips(trade_date=trade_date, ts_code=ts_code)
 
-    def _advanced_rate_limit(self, api_name: str) -> None:
-        """
-        更精细的速率限制管理
-        包括随机抖动避免API检测和令牌切换
-        """
-        current_time = time.perf_counter()
-
-        # 获取此API的速率限制
-        api_config = self.api_limits.get(api_name, {'calls_per_minute': 200})
-        calls_per_minute = api_config['calls_per_minute']
-
-        # 添加随机性以避免被识别为自动化脚本
-        min_interval = (60.0 / calls_per_minute) * random.uniform(0.8, 1.2)
-
-        # 检查是否最近调用过此API
-        if api_name in self.last_call_times:
-            elapsed = current_time - self.last_call_times[api_name]
-            if elapsed < min_interval:
-                sleep_time = min_interval - elapsed
-                self.logger.debug(f"Rate limiting {api_name}, sleeping for {sleep_time:.2f}s")
-                time.sleep(min_interval)
-
-        self.last_call_times[api_name] = current_time
-
-    def smart_token_switch(self, api_name: str):
-        """
-        基于使用频率和剩余配额智能切换令牌
-        """
-        # 在每次API调用时检查令牌使用情况
-        if self._should_switch_token(api_name):
-            self.switch_token()
-
-    def _should_switch_token(self, api_name: str) -> bool:
-        """
-        根据API限制和调用频率决定是否切换令牌
-        """
-        # 实现智能令牌切换逻辑
-        current_api_limits = get_api_limits_for_score(self.current_points)
-        if api_name in current_api_limits:
-            # 监控当前令牌的使用情况
-            pass
-        # 逻辑：如果当前令牌的配额接近用完，则切换到另一个
-        return False
-
     def download_daily_moneyflow_range(self, start_date: str, end_date: str, ts_code: str = None):
         """
         按日期范围批量下载资金流数据
@@ -390,50 +343,3 @@ class TuShareDownloader:
         except Exception as e:
             self.logger.error(f"接口 {api_func.__name__} 调用失败: {e}")
             return None
-
-    def __getattr__(self, name):
-        """
-        代理到各个子模块的方法
-        保持向后兼容性
-        """
-        # 检查各个子模块是否包含该方法
-        for module in [
-            self.basic_data,
-            self.daily_data,
-            self.financial_data,
-            self.market_flow,
-            self.holders_data,
-            self.technical_factors,
-            self.market_structure,
-            self.research_data
-        ]:
-            if hasattr(module, name):
-                return getattr(module, name)
-
-        # 对于moneyflow，尝试映射到正确的实现
-        if name == 'download_moneyflow':
-            return self.download_moneyflow_fallback
-
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-
-    def download_moneyflow_fallback(self, trade_date: str = None, ts_code: str = None) -> pd.DataFrame:
-        """
-        Fallback function for moneyflow download when the main method is not available
-        """
-        try:
-            # 如果有trade_date参数，使用TuShare原生的moneyflow接口
-            if trade_date:
-                return self.pro.moneyflow(trade_date=trade_date)
-            else:
-                # 否则返回空DataFrame
-                return pd.DataFrame()
-        except Exception as e:
-            self.logger.error(f"Error in fallback moneyflow download: {e}")
-            return pd.DataFrame()
-
-# Example usage
-if __name__ == "__main__":
-    downloader = TuShareDownloader()
-    # Example calls - these would be used by the main system
-    # basic_info = downloader.download_stock_basic()
-    # daily_data = downloader.download_daily_data('000001.SZ')

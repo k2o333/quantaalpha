@@ -9,9 +9,10 @@ ASPipe v4 是一个基于 TuShare API 的中国股市数据自动化下载平台
 - 🚀 **积分自动适配**：根据 TuShare 积分级别自动下载所有可用数据
 - 📊 **全面数据覆盖**：支持股票基本信息、日线数据、财务报表、股东信息、资金流向等
 - 💾 **高效存储**：使用 Parquet 格式存储数据，支持快速查询和分析
-- 🔄 **自动重试**：内置错误处理和重试机制，确保数据完整性
+- 🔄 **自动重试**：内置错误处理和重试机制，包括指数退避策略，确保数据完整性
 - 📝 **详细日志**：提供详细的中文日志，实时跟踪下载进度
 - 🔧 **模块化设计**：清晰的模块划分，易于维护和扩展
+- 🛡️ **智能错误处理**：支持API频次限制、认证错误、网络错误等各类异常的自动处理
 
 ## 安装与配置
 
@@ -94,26 +95,29 @@ python app/main.py --start_date $(date -d "1 year ago" +%Y%m%d)
 ```
 aspipe_v4/app/
 ├── main.py                      # 主入口程序
-├── config.py                    # 配置管理
-├── tushare_api.py              # TuShare API 集成
-├── data_storage.py             # 数据存储管理
-├── date_range_downloader.py    # 日期范围下载器
-├── score_based_downloader.py   # 积分基础下载器
-├── enhanced_main_downloader.py # 增强主下载器
-├── error_handler.py            # 错误处理和重试
-├── score_config.py             # 积分配置定义
-├── download_config.py          # 下载配置
-└── interfaces/                 # 数据接口模块
+├── config_manager.py            # 统一配置管理器
+├── api_manager.py               # 统一API管理器
+├── download_manager.py          # 统一下载管理器
+├── data_storage.py              # 数据存储管理
+├── error_handler.py             # 高级错误处理和重试机制
+├── score_config.py              # 积分配置定义
+├── utils/                       # 通用工具模块
+│   ├── __init__.py
+│   ├── date_processor.py        # 日期处理工具
+│   ├── score_selector.py        # 积分选择器
+│   ├── parallel_downloader.py   # 并行下载器
+│   └── retry_handler.py         # 重试处理器
+└── interfaces/                  # 数据接口模块
     ├── __init__.py
-    ├── base.py                 # 基础接口类
-    ├── basic_data.py           # 基础数据接口
-    ├── daily_data.py           # 日线数据接口
-    ├── financial_data.py       # 财务数据接口
-    ├── holders_data.py         # 股东信息接口
-    ├── market_flow.py          # 市场资金流向接口
-    ├── technical_factors.py    # 技术因子接口
-    ├── market_structure.py     # 市场结构接口
-    └── research_data.py        # 研究数据接口
+    ├── base.py                  # 基础接口类
+    ├── basic_data.py            # 基础数据接口
+    ├── daily_data.py            # 日线数据接口
+    ├── financial_data.py        # 财务数据接口
+    ├── holders_data.py          # 股东信息接口
+    ├── market_flow.py           # 市场资金流向接口
+    ├── technical_factors.py     # 技术因子接口
+    ├── market_structure.py      # 市场结构接口
+    └── research_data.py         # 研究数据接口
 ```
 
 ## 数据存储
@@ -184,9 +188,11 @@ df = pd.read_parquet('data/daily/2023-01.parquet')
 - **API 集成**：使用官方 TuShare Python SDK
 - **数据处理**：Pandas + Polars 双引擎支持
 - **存储格式**：Apache Parquet 列式存储
-- **错误处理**：指数退避重试机制
+- **错误处理**：指数退避重试机制 + 智能错误分类处理
 - **并发控制**：API 限频和请求管理
 - **日志系统**：结构化中文日志输出
+- **架构模式**：模块化设计，统一配置、API和下载管理
+- **数据质量**：内置数据验证和清洗功能
 
 ## 许可证
 
@@ -199,7 +205,10 @@ df = pd.read_parquet('data/daily/2023-01.parquet')
 - 模块化的数据接口架构
 - 支持 5000 积分的高级数据类型
 - 优化的数据存储格式
-- 增强的错误处理和重试机制
+- 增强的错误处理和重试机制（支持指数退避和智能错误分类）
+- 重构的架构：统一配置、API和下载管理器
+- 简化的接口模块设计
+- 并行下载功能支持
 
 ---
 

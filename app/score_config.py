@@ -2,11 +2,6 @@
 Score-based configuration for Tushare API data access
 Defines which data interfaces are available based on user's Tushare积分 (points)
 """
-try:
-    from .config import API_LIMITS
-except ImportError:
-    from config import API_LIMITS
-
 # Define data interfaces by score requirements
 SCORE_REQUIREMENTS = {
     120: {
@@ -139,17 +134,17 @@ def get_available_data_types(user_points):
         'research': set(),
         'others': set()
     }
-    
+
     # Collect all data types available for scores up to the user's score
     for score in sorted(SCORE_REQUIREMENTS.keys()):
         if score <= user_points:
             for category, types in SCORE_REQUIREMENTS[score].items():
                 available_types[category].update(types)
-    
+
     # Convert sets back to lists
     for category in available_types:
         available_types[category] = list(available_types[category])
-    
+
     return available_types
 
 def get_api_limits_for_score(user_points):
@@ -165,7 +160,7 @@ def get_api_limits_for_score(user_points):
         'cashflow': {'calls_per_minute': 200 if user_points >= 5000 else 100},
         'fina_indicator': {'calls_per_minute': 200 if user_points >= 5000 else 100},
     }
-    
+
     # Add limits for higher-score APIs if available
     if user_points >= 5000:
         limits.update({
@@ -193,5 +188,5 @@ def get_api_limits_for_score(user_points):
             'moneyflow': {'calls_per_minute': 100},
             'broker_recommend': {'calls_per_minute': 100},
         })
-    
+
     return limits
