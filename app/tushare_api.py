@@ -3,6 +3,7 @@ TuShare API integration for aspipe_v4 with automatic token switching
 """
 import tushare as ts
 import time
+import random
 import logging
 from typing import Optional
 try:
@@ -173,18 +174,12 @@ class TuShareDownloader:
 
     def download_with_pagination(self, api_func, limit_per_call=2000, **base_kwargs):
         """
-        分页下载数据的通用函数
-
-        Args:
-            api_func: API调用函数
-            limit_per_call: 每次调用的最大记录数
-            **base_kwargs: 传递给API函数的基础参数
-
-        Returns:
-            pd.DataFrame: 合并后的所有数据
+        分页下载数据的通用函数，改进错误处理
         """
         all_data = []
         offset = 0
+        max_retries = 3  # 仅对网络错误重试
+        retry_count = 0
 
         while True:
             # 添加分页参数
@@ -193,24 +188,53 @@ class TuShareDownloader:
             kwargs['limit'] = limit_per_call
 
             try:
+                # 实现API调用前的频率限制
+                api_name = getattr(api_func, '__name__', 'unknown_api')
+                self._rate_limit(api_name)
                 data = api_func(**kwargs)
+                retry_count = 0  # 成功则重置重试计数
             except Exception as e:
+                error_msg = str(e).lower()
                 self.logger.error(f"分页下载失败, offset={offset}: {e}")
-                break
+
+                # 检查错误类型并决定是否重试
+                if "指定数据不存在" in str(e) or "data does not exist" in error_msg:
+                    # 数据不存在错误，不应该重试，直接结束
+                    self.logger.info(f"数据不存在，结束下载: {e}")
+                    break
+                elif any(keyword in error_msg for keyword in ["timeout", "connection", "tushare.xyz", "network"]):
+                    # 网络相关错误，可以重试
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        wait_time = min(10 * retry_count, 60)  # 指数退避，最大60秒
+                        self.logger.warning(f"网络错误，等待 {wait_time:.2f} 秒后重试 (第{retry_count}/{max_retries}次)")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        self.logger.error(f"网络错误超过最大重试次数，跳过当前分页")
+                        break
+                else:
+                    # 其他错误，不重试
+                    self.logger.error(f"非网络错误，停止下载: {e}")
+                    break
 
             if data is None or len(data) == 0:
                 break
 
-            # 将DataFrame添加到列表中，而不是扩展DataFrame
+            # 将DataFrame添加到列表中
             all_data.append(data)
 
             # 如果返回数据少于限制数量，说明已到最后一页
             if len(data) < limit_per_call:
                 break
 
+            # 更新offset
             offset += limit_per_call
 
-        # 将所有数据合并成一个DataFrame
+            # 在每次API调用之间添加延迟
+            time.sleep(random.uniform(0.5, 1.0))
+
+        # 合并所有数据
         if all_data:
             return pd.concat(all_data, ignore_index=True)
         else:
@@ -264,37 +288,82 @@ class TuShareDownloader:
 
     def download_cyq_chips_paginated(self, trade_date: str = None, ts_code: str = None):
         """
-        分页下载cyq_chips数据
+        分页下载cyq_chips数据，改进错误处理
         """
         try:
-            # 使用分页下载方法
             kwargs = {}
             if trade_date:
                 kwargs['trade_date'] = trade_date
             if ts_code:
                 kwargs['ts_code'] = ts_code
+            else:
+                # 如果没有提供ts_code但提供了trade_date，则需要获取股票列表
+                if trade_date and not ts_code:
+                    # 需要先获取股票列表
+                    from stock_list_manager import StockListManager
+                    stock_manager = StockListManager()
+                    stock_list = stock_manager.get_stock_basic()
+                    if not stock_list.empty:
+                        # 返回所有股票的数据，通过循环调用
+                        all_data = []
+                        for _, stock in stock_list.iterrows():
+                            stock_code = stock['ts_code']
+                            try:
+                                # 对每个股票单独进行分页下载，避免API限制
+                                stock_data = self.download_with_pagination(
+                                    self.pro.cyq_chips,
+                                    limit_per_call=1000,  # 减小每次调用的数据量，降低超时风险
+                                    ts_code=stock_code,
+                                    trade_date=trade_date
+                                )
+                                if not stock_data.empty:
+                                    all_data.append(stock_data)
+                                # 在循环中添加延迟，避免超出API限制
+                                time.sleep(random.uniform(0.5, 1.0))
+                            except Exception as e:
+                                self.logger.warning(f"分页下载股票 {stock_code} 的cyq_chips失败: {e}")
+                                continue
+                        if all_data:
+                            return pd.concat(all_data, ignore_index=True)
+                        else:
+                            return pd.DataFrame()
 
-            # 使用最大支持的limit值
+            # 减小每次调用的数据量，降低超时风险
             return self.download_with_pagination(
                 self.pro.cyq_chips,
-                limit_per_call=2000,  # cyq_chips单次最大2000条
+                limit_per_call=1000,  # 从2000减少到1000
                 **kwargs
             )
         except Exception as e:
             self.logger.error(f"分页下载cyq_chips失败: {e}")
-            # 回退到普通下载方法
-            return self.pro.cyq_chips(trade_date=trade_date, ts_code=ts_code)
+
+            # 对于cyq_chips特有的错误处理
+            if "指定数据不存在" in str(e):
+                self.logger.info("cyq_chips: 指定日期无数据，返回空DataFrame")
+                return pd.DataFrame()
+            else:
+                # 其他错误重新抛出
+                raise e
 
     def _advanced_rate_limit(self, api_name: str) -> None:
         """
         更精细的速率限制管理
-        包括随机抖动避免API检测和令牌切换
+        包括随机抖动避免API检测和令牌切换，针对不同数据类型实施差异化限制
         """
         current_time = time.perf_counter()
 
-        # 获取此API的速率限制
-        api_config = self.api_limits.get(api_name, {'calls_per_minute': 200})
-        calls_per_minute = api_config['calls_per_minute']
+        # 特殊处理特色数据接口
+        special_apis = ['cyq_chips', 'cyq_perf', 'stk_factor', 'moneyflow', 'daily_basic']
+        if api_name in special_apis:
+            # 对于特色数据接口，使用更严格的限制
+            if 'cyq' in api_name:
+                # cyq_chips接口有特殊限制，可能需要更长的间隔
+                calls_per_minute = 200  # 特色数据接口的限制
+            else:
+                calls_per_minute = min(200, self.api_limits.get(api_name, {'calls_per_minute': 200})['calls_per_minute'])
+        else:
+            # 标准接口使用账户默认限制
+            calls_per_minute = self.api_limits.get(api_name, {'calls_per_minute': 500})['calls_per_minute']
 
         # 添加随机性以避免被识别为自动化脚本
         min_interval = (60.0 / calls_per_minute) * random.uniform(0.8, 1.2)
@@ -305,7 +374,15 @@ class TuShareDownloader:
             if elapsed < min_interval:
                 sleep_time = min_interval - elapsed
                 self.logger.debug(f"Rate limiting {api_name}, sleeping for {sleep_time:.2f}s")
-                time.sleep(min_interval)
+                # 使用更长的随机延迟避免API检测
+                actual_sleep = max(sleep_time, random.uniform(0.5, 1.5))
+                time.sleep(actual_sleep)
+            else:
+                # 为防止突发请求，再添加一个较短的随机延迟
+                time.sleep(random.uniform(0.1, 0.3))
+        else:
+            # 对于首次调用，添加一个初始延迟
+            time.sleep(random.uniform(0.1, 0.5))
 
         self.last_call_times[api_name] = current_time
 

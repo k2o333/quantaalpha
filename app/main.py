@@ -50,6 +50,15 @@ def download_all_data_from_date(start_date: str, end_date: str = None):
             for t in types:
                 logger.info(f"    - {t}")
 
+    # Initialize StockListManager to avoid duplicate stock_basic calls
+    from stock_list_manager import init_stock_manager
+    tushare_downloader = TuShareDownloader()
+    stock_manager = init_stock_manager(
+        downloader=tushare_downloader,
+        cache_dir="cache",
+        max_cache_age_hours=24
+    )
+
     # Use the date range downloader for comprehensive download
     from date_range_downloader import DateRangeDownloader
     downloader = DateRangeDownloader(start_date, end_date)

@@ -45,25 +45,29 @@ class ErrorHandler:
     @staticmethod
     def handle_api_error(error: Exception, context: str = ""):
         """
-        Handle API-specific errors
+        增强的API错误处理，区分错误类型
         """
         error_msg = str(error).lower()
-        
+
         if "limit" in error_msg or "频次" in error_msg or "frequency" in error_msg:
-            logger.error(f"API frequency limit exceeded in {context}: {error}")
-            # In a real system, we might want to wait longer or reduce concurrent requests
-            time.sleep(60)  # Wait a minute before retrying
+            logger.error(f"API频率限制超出 in {context}: {error}")
+            time.sleep(120)  # 频率限制等待更长时间
         elif "token" in error_msg or "auth" in error_msg:
-            logger.error(f"Authentication error in {context}: {error}")
-            # This is likely a permanent error
+            logger.error(f"认证错误 in {context}: {error}")
             raise error
-        elif "network" in error_msg or "timeout" in error_msg or "connection" in error_msg:
-            logger.warning(f"Network error in {context}: {error}")
-            # This might be temporary, handled by retry mechanism
+        elif any(keyword in error_msg for keyword in ["network", "timeout", "connection", "tushare.xyz"]):
+            logger.warning(f"网络错误 in {context}: {error}")
+            time.sleep(30)  # 网络错误等待30秒后重试
+        elif "指定数据不存在" in str(error):
+            logger.warning(f"数据不存在 in {context}: {error}")
+            # 数据不存在错误不需要抛出异常，由调用方处理
+            pass
         else:
-            logger.error(f"Unknown error in {context}: {error}")
-        
-        raise error
+            logger.error(f"未知错误 in {context}: {error}")
+
+        # 对于数据不存在错误，不抛出异常
+        if "指定数据不存在" not in str(error):
+            raise error
 
 
 def validate_and_clean_data(df, required_columns=None):

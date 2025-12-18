@@ -488,7 +488,9 @@ class ScoreBasedDownloader:
             logger.info("Downloading top 10 floating shareholders...")
             # Get stock code if not provided
             if not ts_code:
-                stock_df = self.download_stock_basic()
+                from stock_list_manager import StockListManager
+                stock_manager = StockListManager()
+                stock_df = stock_manager.get_stock_basic()
                 if not stock_df.empty:
                     ts_code = stock_df.iloc[0]['ts_code']
                 else:

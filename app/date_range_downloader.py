@@ -196,6 +196,11 @@ class DateRangeDownloader:
                 if is_data_cached(cache_path):
                     self.logger.info(f"使用缓存数据: {data_type} - {trade_date}")
                     df = pd.read_parquet(cache_path)
+                    # 验证并转换日期列，避免.dt访问器错误
+                    from utils.date_utils import validate_and_convert_datetime
+                    for col in df.columns:
+                        if 'date' in col.lower() or 'trade_date' in col.lower() or 'cal_date' in col.lower() or 'time' in col.lower():
+                            df = validate_and_convert_datetime(df, col)
                     return (trade_date, df, len(df))
 
                 # 真实API调用
@@ -274,13 +279,27 @@ class DateRangeDownloader:
             # 按月分组数据(如果需要进一步组织存储)
             combined_df = pd.concat(all_data, ignore_index=True)
             if 'trade_date' in combined_df.columns:
-                date_groups = combined_df.groupby(combined_df['trade_date'].dt.strftime('%Y-%m'))
-                for (year_month), group in date_groups:
-                    year, month = year_month.split('-')
+                # 验证并转换trade_date列，避免.dt访问器错误
+                from utils.date_utils import validate_and_convert_datetime
+                combined_df = validate_and_convert_datetime(combined_df, 'trade_date')
+
+                # 确保trade_date列是datetime类型后再使用.dt访问器
+                if pd.api.types.is_datetime64_any_dtype(combined_df['trade_date']):
+                    date_groups = combined_df.groupby(combined_df['trade_date'].dt.strftime('%Y-%m'))
+                    for (year_month), group in date_groups:
+                        year, month = year_month.split('-')
+                        subdir = f"daily/{year}/{month}"
+                        filename = f"{data_type}_{year_month}"
+                        file_path = save_to_parquet(group, filename, subdir=subdir)
+                        final_result[year_month] = len(group)
+                else:
+                    # 如果无法转换为datetime，则按原方式保存整个数据集
+                    year = self.start_date[:4]
+                    month = self.start_date[4:6]
                     subdir = f"daily/{year}/{month}"
-                    filename = f"{data_type}_{year_month}"
-                    file_path = save_to_parquet(group, filename, subdir=subdir)
-                    final_result[year_month] = len(group)
+                    filename = f"{data_type}_range_{self.start_date}_{self.end_date}"
+                    file_path = save_to_parquet(combined_df, filename, subdir=subdir)
+                    final_result[f"{year}-{month}"] = len(combined_df)
 
         return final_result
 
@@ -334,21 +353,84 @@ class DateRangeDownloader:
             # 获取报告期在指定范围内的数据
             periods = self._get_financial_periods_in_range()
 
+            # 获取股票列表
+            from stock_list_manager import StockListManager
+            stock_df = StockListManager().get_stock_basic()
+            if stock_df.empty:
+                self.logger.warning("无法获取股票列表，使用默认股票代码")
+                stock_codes = ['000001.SZ']  # 默认只使用一个股票代码
+            else:
+                stock_codes = stock_df['ts_code'].tolist()
+
             for period in periods:
                 try:
                     self.logger.info(f"正在下载 {data_type} - {period}")
 
-                    if data_type == 'income':
-                        df = self.downloader.download_income(period=period, ts_code='000001.SZ')
-                    elif data_type == 'balancesheet':
-                        df = self.downloader.download_balancesheet(period=period, ts_code='000001.SZ')
-                    elif data_type == 'cashflow':
-                        df = self.downloader.download_cashflow(period=period, ts_code='000001.SZ')
-                    elif data_type == 'fina_indicator':
-                        df = self.downloader.download_fina_indicator(period=period, ts_code='000001.SZ')
+                    # 根据用户积分选择合适的下载方式
+                    if TUSHARE_POINTS >= 5000:
+                        # 高积分用户可以使用VIP接口获取全市场数据
+                        try:
+                            if data_type == 'income':
+                                df = self.downloader.download_income_vip(period=period)
+                            elif data_type == 'balancesheet':
+                                df = self.downloader.download_balancesheet_vip(period=period)
+                            elif data_type == 'cashflow':
+                                df = self.downloader.download_cashflow_vip(period=period)
+                            elif data_type == 'fina_indicator':
+                                df = self.downloader.download_fina_indicator_vip(period=period)
+                            else:
+                                self.logger.warning(f"未知的财务数据类型: {data_type}")
+                                continue
+                        except Exception as e:
+                            self.logger.warning(f"VIP接口下载失败，回退到普通接口: {e}")
+                            # 如果VIP接口失败，则使用普通接口循环下载
+                            df = pd.DataFrame()
+                            for ts_code in stock_codes:
+                                try:
+                                    if data_type == 'income':
+                                        stock_df = self.downloader.download_income(period=period, ts_code=ts_code)
+                                    elif data_type == 'balancesheet':
+                                        stock_df = self.downloader.download_balancesheet(period=period, ts_code=ts_code)
+                                    elif data_type == 'cashflow':
+                                        stock_df = self.downloader.download_cashflow(period=period, ts_code=ts_code)
+                                    elif data_type == 'fina_indicator':
+                                        stock_df = self.downloader.download_fina_indicator(period=period, ts_code=ts_code)
+                                    else:
+                                        break
+
+                                    if not stock_df.empty:
+                                        if df.empty:
+                                            df = stock_df
+                                        else:
+                                            df = pd.concat([df, stock_df], ignore_index=True)
+                                except Exception as e:
+                                    self.logger.warning(f"下载股票 {ts_code} 的 {data_type} 数据失败: {e}")
+                                    continue
                     else:
-                        self.logger.warning(f"未知的财务数据类型: {data_type}")
-                        continue
+                        # 普通用户通过循环下载每个股票
+                        df = pd.DataFrame()
+                        for ts_code in stock_codes:
+                            try:
+                                if data_type == 'income':
+                                    stock_df = self.downloader.download_income(period=period, ts_code=ts_code)
+                                elif data_type == 'balancesheet':
+                                    stock_df = self.downloader.download_balancesheet(period=period, ts_code=ts_code)
+                                elif data_type == 'cashflow':
+                                    stock_df = self.downloader.download_cashflow(period=period, ts_code=ts_code)
+                                elif data_type == 'fina_indicator':
+                                    stock_df = self.downloader.download_fina_indicator(period=period, ts_code=ts_code)
+                                else:
+                                    self.logger.warning(f"未知的财务数据类型: {data_type}")
+                                    continue
+
+                                if not stock_df.empty:
+                                    if df.empty:
+                                        df = stock_df
+                                    else:
+                                        df = pd.concat([df, stock_df], ignore_index=True)
+                            except Exception as e:
+                                self.logger.warning(f"下载股票 {ts_code} 的 {data_type} 数据失败: {e}")
+                                continue
 
                     if not df.empty:
                         filename = f"{data_type}_{period}"
@@ -379,31 +461,48 @@ class DateRangeDownloader:
             # 获取报告期在指定范围内的数据
             periods = self._get_financial_periods_in_range()
 
+            # 获取股票列表
+            from stock_list_manager import StockListManager
+            stock_df = StockListManager().get_stock_basic()
+            if stock_df.empty:
+                self.logger.warning("无法获取股票列表，使用默认股票代码")
+                stock_codes = ['000001.SZ']  # 默认只使用一个股票代码
+            else:
+                stock_codes = stock_df['ts_code'].tolist()
+
             for period in periods:
                 try:
                     self.logger.info(f"正在下载 {data_type} - {period}")
 
-                    # 先获取股票列表
-                    stock_df = self.downloader.download_stock_basic()
-                    if not stock_df.empty:
-                        ts_code = stock_df.iloc[0]['ts_code']
+                    # 循环下载每个股票的数据
+                    df = pd.DataFrame()
+                    for ts_code in stock_codes:
+                        try:
+                            if data_type == 'top10_holders':
+                                stock_df = self.downloader.download_top10_holders(ts_code=ts_code, period=period)
+                            elif data_type == 'top10_floatholders':
+                                stock_df = self.downloader.download_top10_floatholders(ts_code=ts_code, period=period)
+                            else:
+                                self.logger.warning(f"未知的股东数据类型: {data_type}")
+                                continue
 
-                        if data_type == 'top10_holders':
-                            df = self.downloader.download_top10_holders(ts_code=ts_code, period=period)
-                        elif data_type == 'top10_floatholders':
-                            df = self.downloader.download_top10_floatholders(ts_code=ts_code, period=period)
-                        else:
-                            self.logger.warning(f"未知的股东数据类型: {data_type}")
+                            if not stock_df.empty:
+                                if df.empty:
+                                    df = stock_df
+                                else:
+                                    df = pd.concat([df, stock_df], ignore_index=True)
+                        except Exception as e:
+                            self.logger.warning(f"下载股票 {ts_code} 的 {data_type} 数据失败: {e}")
                             continue
 
-                        if not df.empty:
-                            filename = f"{data_type}_{period}"
-                            file_path = save_to_parquet(df, filename, subdir="holders")
-                            results[period] = len(df)
+                    if not df.empty:
+                        filename = f"{data_type}_{period}"
+                        file_path = save_to_parquet(df, filename, subdir="holders")
+                        results[period] = len(df)
 
-                            self.logger.info(f"成功保存 {data_type}_{period}: {len(df)} 条记录")
-                        else:
-                            self.logger.warning(f"{data_type} - {period} 无数据")
+                        self.logger.info(f"成功保存 {data_type}_{period}: {len(df)} 条记录")
+                    else:
+                        self.logger.warning(f"{data_type} - {period} 无数据")
 
                 except Exception as e:
                     self.logger.error(f"下载 {data_type} - {period} 失败: {e}")
@@ -552,7 +651,8 @@ class DateRangeDownloader:
         try:
             if data_type == 'stk_rewards':
                 # 先获取股票列表
-                stock_df = self.downloader.download_stock_basic()
+                from stock_list_manager import StockListManager
+                stock_df = StockListManager().get_stock_basic()
                 if not stock_df.empty:
                     ts_code = stock_df.iloc[0]['ts_code']
                     df = self.downloader.download_stk_rewards(ts_code=ts_code)
@@ -561,7 +661,8 @@ class DateRangeDownloader:
                         self.logger.info(f"成功保存 {data_type}: {len(df)} 条记录")
                         return {'records': len(df)}
             elif data_type == 'stk_managers':
-                stock_df = self.downloader.download_stock_basic()
+                from stock_list_manager import StockListManager
+                stock_df = StockListManager().get_stock_basic()
                 if not stock_df.empty:
                     ts_code = stock_df.iloc[0]['ts_code']
                     df = self.downloader.download_stk_managers(ts_code=ts_code)
@@ -600,7 +701,8 @@ class DateRangeDownloader:
                     # 如果按公告日期失败，尝试使用其他参数
                     try:
                         # 获取一些股票代码作为参数
-                        stock_df = self.downloader.download_stock_basic()
+                        from stock_list_manager import StockListManager
+                        stock_df = StockListManager().get_stock_basic()
                         if not stock_df.empty:
                             ts_code = stock_df.iloc[0]['ts_code']
                             df = self.downloader.download_dividend(ts_code=ts_code)
@@ -611,7 +713,8 @@ class DateRangeDownloader:
             elif data_type == 'forecast':
                 try:
                     # 有些接口需要特定参数，需要先获取股票代码
-                    stock_df = self.downloader.download_stock_basic()
+                    from stock_list_manager import StockListManager
+                    stock_df = StockListManager().get_stock_basic()
                     if not stock_df.empty:
                         ts_code = stock_df.iloc[0]['ts_code']
                         df = self.downloader.download_forecast(ts_code=ts_code)
@@ -625,7 +728,8 @@ class DateRangeDownloader:
             elif data_type == 'express':
                 try:
                     # 有些接口需要特定参数，需要先获取股票代码
-                    stock_df = self.downloader.download_stock_basic()
+                    from stock_list_manager import StockListManager
+                    stock_df = StockListManager().get_stock_basic()
                     if not stock_df.empty:
                         ts_code = stock_df.iloc[0]['ts_code']
                         df = self.downloader.download_express(ts_code=ts_code)
@@ -987,7 +1091,13 @@ class ParallelDownloader:
         Load data from cache file
         """
         try:
-            return pd.read_parquet(cache_path)
+            df = pd.read_parquet(cache_path)
+            # 验证并转换日期列，避免.dt访问器错误
+            from utils.date_utils import validate_and_convert_datetime
+            for col in df.columns:
+                if 'date' in col.lower() or 'trade_date' in col.lower() or 'cal_date' in col.lower() or 'time' in col.lower():
+                    df = validate_and_convert_datetime(df, col)
+            return df
         except Exception as e:
             self.logger.warning(f"Failed to load cached data {cache_path}: {e}")
             return pd.DataFrame()  # Return empty DataFrame if cache load fails

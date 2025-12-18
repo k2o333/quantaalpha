@@ -19,7 +19,15 @@ class EnhancedMainDownloader:
         self.downloader = TuShareDownloader()
         self.score_downloader = ScoreBasedDownloader()
         self.logger = logging.getLogger(__name__)
-        
+
+        # Initialize StockListManager to avoid duplicate stock_basic calls
+        from stock_list_manager import init_stock_manager
+        self.stock_manager = init_stock_manager(
+            downloader=self.downloader,
+            cache_dir="cache",
+            max_cache_age_hours=24
+        )
+
         self.logger.info(f"EnhancedMainDownloader initialized with {TUSHARE_POINTS} points")
         self.available_types = self.score_downloader.get_available_data_types()
         self.logger.info(f"Available data types: {self.available_types}")
@@ -272,7 +280,8 @@ class EnhancedMainDownloader:
     def _download_top10_holders_safe(self) -> pd.DataFrame:
         """Safe download of top10_holders with error handling"""
         # Get a sample stock
-        stock_df = self.downloader.download_stock_basic()
+        from stock_list_manager import StockListManager
+        stock_df = StockListManager().get_stock_basic()
         if not stock_df.empty and len(stock_df) > 0:
             ts_code = stock_df.iloc[0]['ts_code']
             return self.downloader.download_top10_holders(ts_code=ts_code, period='20231231')
@@ -282,7 +291,8 @@ class EnhancedMainDownloader:
     def _download_top10_floatholders_safe(self) -> pd.DataFrame:
         """Safe download of top10_floatholders with error handling"""
         # Get a sample stock
-        stock_df = self.downloader.download_stock_basic()
+        from stock_list_manager import StockListManager
+        stock_df = StockListManager().get_stock_basic()
         if not stock_df.empty and len(stock_df) > 0:
             ts_code = stock_df.iloc[0]['ts_code']
             return self.downloader.download_top10_floatholders(ts_code=ts_code, period='20231231')
@@ -301,7 +311,8 @@ class EnhancedMainDownloader:
     def _download_stk_rewards_safe(self) -> pd.DataFrame:
         """Safe download of stk_rewards with error handling"""
         # Need to first get a stock code to download
-        stock_df = self.downloader.download_stock_basic()
+        from stock_list_manager import StockListManager
+        stock_df = StockListManager().get_stock_basic()
         if not stock_df.empty and len(stock_df) > 0:
             ts_code = stock_df.iloc[0]['ts_code']
             return self.downloader.download_stk_rewards(ts_code=ts_code)
@@ -311,7 +322,8 @@ class EnhancedMainDownloader:
     def _download_stk_managers_safe(self) -> pd.DataFrame:
         """Safe download of stk_managers with error handling"""
         # Get a sample stock
-        stock_df = self.downloader.download_stock_basic()
+        from stock_list_manager import StockListManager
+        stock_df = StockListManager().get_stock_basic()
         if not stock_df.empty and len(stock_df) > 0:
             ts_code = stock_df.iloc[0]['ts_code']
             return self.downloader.download_stk_managers(ts_code=ts_code)
@@ -321,7 +333,8 @@ class EnhancedMainDownloader:
     def _download_namechange_safe(self) -> pd.DataFrame:
         """Safe download of namechange with error handling"""
         # Get a sample stock
-        stock_df = self.downloader.download_stock_basic()
+        from stock_list_manager import StockListManager
+        stock_df = StockListManager().get_stock_basic()
         if not stock_df.empty and len(stock_df) > 0:
             ts_code = stock_df.iloc[0]['ts_code']
             return self.downloader.download_namechange(ts_code=ts_code)

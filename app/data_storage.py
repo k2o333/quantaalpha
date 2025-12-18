@@ -7,6 +7,10 @@ import polars as pl
 from pathlib import Path
 import logging
 from datetime import datetime
+try:
+    from .utils.date_utils import validate_and_convert_datetime
+except ImportError:
+    from utils.date_utils import validate_and_convert_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +79,12 @@ def load_from_parquet(filename: str, subdir: str = None) -> pd.DataFrame:
         # Load and return the DataFrame
         df = pd.read_parquet(filepath, engine='pyarrow')
         logger.info(f"Loaded {len(df)} records from {filepath}")
+
+        # 验证并转换日期列（对常见日期列名进行检查）
+        for col in df.columns:
+            if 'date' in col.lower() or 'trade_date' in col.lower() or 'cal_date' in col.lower() or 'time' in col.lower():
+                df = validate_and_convert_datetime(df, col)
+
         return df
 
     except Exception as e:
