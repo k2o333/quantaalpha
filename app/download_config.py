@@ -18,7 +18,7 @@ DOWNLOAD_CONFIG = {
     'stk_factor': True,
     'stk_factor_pro': True,
     'cyq_perf': True,
-    'cyq_chips': True,  # 修改：cyq_chips可以下载
+    'cyq_chips': False,  # 暂时禁用：cyq_chips接口因性能问题已重构优化
     'stock_basic': True,
     'trade_cal': True,
     'new_share': True,

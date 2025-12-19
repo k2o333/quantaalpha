@@ -107,115 +107,8 @@ class TechnicalFactorsDownloader:
             ErrorHandler.handle_api_error(e, "download_cyq_perf")
             raise
 
-    def download_cyq_chips(self, ts_code: str, trade_date: str = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-        """
-        Download daily chip distribution
-        Available to users with 5000+ points
-        Must provide ts_code parameter, and either trade_date or (start_date, end_date)
-        """
-        if TUSHARE_POINTS < 5000:
-            self.logger.warning("cyq_chips requires 5000+ points, skipping download")
-            return pd.DataFrame()
 
-        try:
-            # Build parameters based on what was provided
-            params = {}
-            if ts_code:
-                params['ts_code'] = ts_code
-            if trade_date:
-                params['trade_date'] = trade_date
-            elif start_date and end_date:
-                params['start_date'] = start_date
-                params['end_date'] = end_date
 
-            result = self.download_with_retry(
-                self.pro.cyq_chips,
-                **params
-            )
-            self.logger.info(f"Successfully downloaded cyq_chips: {len(result)} records")
-            return result
-        except Exception as e:
-            self.logger.error(f"Failed to download cyq_chips: {e}")
-            ErrorHandler.handle_api_error(e, "download_cyq_chips")
-            raise
-
-    def download_cyq_chips_for_all_stocks(self, trade_date: str = '20231201') -> pd.DataFrame:
-        """
-        Download cyq_chips data for all stocks by looping through each stock code
-        Available to users with 5000+ points
-        """
-        if TUSHARE_POINTS < 5000:
-            self.logger.warning("cyq_chips_for_all_stocks requires 5000+ points, skipping download")
-            return pd.DataFrame()
-
-        try:
-            # Get stock list first
-            from .basic_data import BasicDataDownloader
-            basic_downloader = BasicDataDownloader(self.pro)
-            stock_df = basic_downloader.download_stock_basic()
-            if stock_df.empty:
-                self.logger.warning("No stock data available, cannot download cyq_chips for all stocks")
-                return pd.DataFrame()
-
-            all_data = []
-            self.logger.info(f"Starting to download cyq_chips for {len(stock_df)} stocks on {trade_date}")
-
-            for i, stock in stock_df.iterrows():
-                ts_code = stock['ts_code']
-
-                if (i + 1) % 50 == 0:  # Log progress every 50 stocks
-                    self.logger.info(f"Processed {i + 1}/{len(stock_df)} stocks...")
-
-                try:
-                    df = self.download_with_retry(
-                        self.pro.cyq_chips,
-                        ts_code=ts_code,
-                        trade_date=trade_date
-                    )
-                    if df is not None and not df.empty:
-                        all_data.append(df)
-                    else:
-                        self.logger.debug(f"No cyq_chips data for stock {ts_code} on {trade_date}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to download cyq_chips for {ts_code} on {trade_date}: {e}")
-                    continue  # Continue with next stock even if one fails
-
-            # Combine all data
-            if all_data:
-                result = pd.concat(all_data, ignore_index=True)
-                self.logger.info(f"Successfully downloaded cyq_chips for all stocks: {len(result)} records")
-                return result
-            else:
-                self.logger.warning("No cyq_chips data could be downloaded for any stock")
-                return pd.DataFrame()
-
-        except Exception as e:
-            self.logger.error(f"Failed to download cyq_chips for all stocks: {e}")
-            ErrorHandler.handle_api_error(e, "download_cyq_chips_for_all_stocks")
-            raise
-
-    def download_cyq_chips_with_date_range(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """
-        Download cyq_chips data for a specific stock over a date range
-        Available to users with 5000+ points
-        """
-        if TUSHARE_POINTS < 5000:
-            self.logger.warning("cyq_chips_with_date_range requires 5000+ points, skipping download")
-            return pd.DataFrame()
-
-        try:
-            result = self.download_with_retry(
-                self.pro.cyq_chips,
-                ts_code=ts_code,
-                start_date=start_date,
-                end_date=end_date
-            )
-            self.logger.info(f"Successfully downloaded cyq_chips for {ts_code} ({start_date} to {end_date}): {len(result)} records")
-            return result
-        except Exception as e:
-            self.logger.error(f"Failed to download cyq_chips for {ts_code} ({start_date} to {end_date}): {e}")
-            ErrorHandler.handle_api_error(e, f"download_cyq_chips for {ts_code}")
-            raise
 
     def download_stk_factor_range(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -266,18 +159,6 @@ class TechnicalFactorsDownloader:
             ErrorHandler.handle_api_error(e, "download_stk_factor_range")
             raise
 
-    def download_cyq_chips_paginated(self, ts_code: str, start_date: str = None, end_date: str = None,
-                                   limit_per_call: int = 2000) -> pd.DataFrame:
-        """
-        分页下载cyq_chips数据
-        """
-        return self.download_with_pagination(
-            lambda **kwargs: self.pro.cyq_chips(**kwargs),
-            limit_per_call=limit_per_call,
-            ts_code=ts_code,
-            start_date=start_date,
-            end_date=end_date
-        )
 
     def download_stk_factor_paginated(self, trade_date: str, limit_per_call: int = 10000) -> pd.DataFrame:
         """

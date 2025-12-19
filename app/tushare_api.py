@@ -29,6 +29,7 @@ try:
     from .interfaces.market_flow import MarketFlowDownloader
     from .interfaces.holders_data import HoldersDataDownloader
     from .interfaces.technical_factors import TechnicalFactorsDownloader
+    from .interfaces.cyq_chips import CyqChipsDownloader
     from .interfaces.market_structure import MarketStructureDownloader
     from .interfaces.research_data import ResearchDataDownloader
 except ImportError:
@@ -39,6 +40,7 @@ except ImportError:
     from interfaces.market_flow import MarketFlowDownloader
     from interfaces.holders_data import HoldersDataDownloader
     from interfaces.technical_factors import TechnicalFactorsDownloader
+    from interfaces.cyq_chips import CyqChipsDownloader
     from interfaces.market_structure import MarketStructureDownloader
     from interfaces.research_data import ResearchDataDownloader
 
@@ -77,6 +79,7 @@ class TuShareDownloader:
         self.market_flow = MarketFlowDownloader(self.pro)
         self.holders_data = HoldersDataDownloader(self.pro)
         self.technical_factors = TechnicalFactorsDownloader(self.pro)
+        self.cyq_chips = CyqChipsDownloader(self.pro)
         self.market_structure = MarketStructureDownloader(self.pro)
         self.research_data = ResearchDataDownloader(self.pro)
 
