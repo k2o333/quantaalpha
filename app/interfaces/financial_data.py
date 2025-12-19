@@ -240,7 +240,7 @@ class FinancialDataDownloader:
         self.logger.info(f"Successfully downloaded financial indicators VIP: {len(result)} records")
         return result
 
-    def download_forecast(self, period: str = '20231231') -> pd.DataFrame:
+    def download_forecast(self, period: str = '20231231', ts_code: str = None) -> pd.DataFrame:
         """
         Download earnings forecast
         Available to users with 2000+ points
@@ -252,7 +252,7 @@ class FinancialDataDownloader:
 
         try:
             # Use VIP version if available (5000+ points) for full market data
-            if TUSHARE_POINTS >= 5000:
+            if TUSHARE_POINTS >= 5000 and ts_code is None:
                 # Use VIP interface to get full market data
                 result = self.download_with_retry(
                     self.pro.forecast_vip,
@@ -261,34 +261,44 @@ class FinancialDataDownloader:
                 self.logger.info(f"Successfully downloaded forecast_vip: {len(result)} records")
                 return result
             else:
-                # For users with lower points, fall back to per-stock download
-                # Get stock list first
-                from .basic_data import BasicDataDownloader
-                basic_downloader = BasicDataDownloader(self.pro)
-                stock_df = basic_downloader.download_stock_basic()
-                all_data = []
-                for _, stock in stock_df.iterrows():
-                    ts_code = stock['ts_code']
-                    try:
-                        df = self.download_with_retry(
-                            self.pro.forecast,
-                            ts_code=ts_code,
-                            period=period
-                        )
-                        if df is not None and not df.empty:
-                            all_data.append(df)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to download forecast for {ts_code}: {e}")
-                        continue  # Continue with next stock even if one fails
-
-                # Combine all data
-                if all_data:
-                    result = pd.concat(all_data, ignore_index=True)
-                    self.logger.info(f"Successfully downloaded forecast for multiple stocks: {len(result)} records")
+                # For users with lower points or specific stock request, use normal interface
+                if ts_code:
+                    # Download specific stock
+                    result = self.download_with_retry(
+                        self.pro.forecast,
+                        ts_code=ts_code,
+                        period=period
+                    )
+                    self.logger.info(f"Successfully downloaded forecast for {ts_code}: {len(result)} records")
                     return result
                 else:
-                    self.logger.warning("No forecast data could be downloaded for any stock")
-                    return pd.DataFrame()
+                    # Get stock list first and download for all stocks
+                    from .basic_data import BasicDataDownloader
+                    basic_downloader = BasicDataDownloader(self.pro)
+                    stock_df = basic_downloader.download_stock_basic()
+                    all_data = []
+                    for _, stock in stock_df.iterrows():
+                        ts_code = stock['ts_code']
+                        try:
+                            df = self.download_with_retry(
+                                self.pro.forecast,
+                                ts_code=ts_code,
+                                period=period
+                            )
+                            if df is not None and not df.empty:
+                                all_data.append(df)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to download forecast for {ts_code}: {e}")
+                            continue  # Continue with next stock even if one fails
+
+                    # Combine all data
+                    if all_data:
+                        result = pd.concat(all_data, ignore_index=True)
+                        self.logger.info(f"Successfully downloaded forecast for multiple stocks: {len(result)} records")
+                        return result
+                    else:
+                        self.logger.warning("No forecast data could be downloaded for any stock")
+                        return pd.DataFrame()
         except Exception as e:
             self.logger.error(f"Failed to download forecast: {e}")
             ErrorHandler.handle_api_error(e, "download_forecast")
@@ -384,19 +394,28 @@ class FinancialDataDownloader:
             return pd.DataFrame()
 
         try:
-            # Use VIP version if available (5000+ points)
-            api_func = self.pro.fina_mainbz_vip if TUSHARE_POINTS >= 5000 else self.pro.fina_mainbz
+            # Use VIP version if available (5000+ points) for full market data
+            if TUSHARE_POINTS >= 5000 and ts_code is None:
+                # Use VIP interface to get full market data
+                result = self.download_with_retry(
+                    self.pro.fina_mainbz_vip,
+                    period=period,
+                    type=type_
+                )
+                self.logger.info(f"Successfully downloaded fina_mainbz_vip: {len(result)} records")
+                return result
+            else:
+                # For users with lower points or specific stock request, use normal interface
+                params = {'period': period, 'type': type_}
+                if ts_code:
+                    params['ts_code'] = ts_code
 
-            params = {'period': period, 'type': type_}
-            if ts_code:
-                params['ts_code'] = ts_code
-
-            result = self.download_with_retry(
-                api_func,
-                **params
-            )
-            self.logger.info(f"Successfully downloaded fina_mainbz: {len(result)} records")
-            return result
+                result = self.download_with_retry(
+                    self.pro.fina_mainbz,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded fina_mainbz: {len(result)} records")
+                return result
         except Exception as e:
             self.logger.error(f"Failed to download fina_mainbz: {e}")
             ErrorHandler.handle_api_error(e, "download_fina_mainbz")

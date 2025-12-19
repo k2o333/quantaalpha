@@ -52,17 +52,41 @@ class DailyDataDownloader:
         Available to all users
         """
         try:
+            # Check if user has 5000+ points to use VIP interface
+            api_func = self.pro.daily_vip if TUSHARE_POINTS >= 5000 else self.pro.daily
             result = self.download_with_retry(
-                self.pro.daily,
+                api_func,
                 ts_code=ts_code,
                 start_date=start_date,
                 end_date=end_date
             )
-            self.logger.info(f"Successfully downloaded daily data for {ts_code}: {len(result)} records")
+            self.logger.info(f"Successfully downloaded daily data for {ts_code} using {'daily_vip' if TUSHARE_POINTS >= 5000 else 'daily'}: {len(result)} records")
             return result
         except Exception as e:
             self.logger.error(f"Failed to download daily data for {ts_code}: {e}")
             ErrorHandler.handle_api_error(e, f"download_daily_data for {ts_code}")
+            raise
+
+    def download_daily_data_vip(self, start_date: str = '20100101', end_date: str = '20231231') -> pd.DataFrame:
+        """
+        Download daily data for all stocks using VIP interface (5000+ points required)
+        This can download up to 10000 records at once
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("daily_vip requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.daily_vip,
+                start_date=start_date,
+                end_date=end_date
+            )
+            self.logger.info(f"Successfully downloaded daily_vip data: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download daily_vip data: {e}")
+            ErrorHandler.handle_api_error(e, "download_daily_vip_data")
             raise
 
     def download_daily_basic(self, trade_date: str = '20231201') -> pd.DataFrame:

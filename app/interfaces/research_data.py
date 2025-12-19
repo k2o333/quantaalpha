@@ -201,6 +201,58 @@ class ResearchDataDownloader:
             month=month
         )
 
+    def download_news(self, start_date: str = None, end_date: str = None, src: str = 'sina') -> pd.DataFrame:
+        """
+        Download news data
+        Available to users with 2000+ points
+        Uses VIP version if user has 5000+ points
+        """
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("news requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # Use VIP version if available (5000+ points)
+            if TUSHARE_POINTS >= 5000:
+                # Use VIP interface to get news data
+                params = {}
+                if start_date:
+                    params['start_date'] = start_date
+                if end_date:
+                    params['end_date'] = end_date
+                if src:
+                    params['src'] = src
+
+                result = self.download_with_retry(
+                    self.pro.news_vip,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded news_vip: {len(result)} records")
+                return result
+            else:
+                # For users with lower points, use normal news interface if available
+                # Note: The normal news interface is available to 2000+ point users
+                params = {}
+                if start_date:
+                    params['start_date'] = start_date
+                if end_date:
+                    params['end_date'] = end_date
+                if src:
+                    params['src'] = src
+
+                # Note: The normal news interface may not be available in all Tushare versions
+                # If it's not available, this will raise an exception handled by the error handler
+                result = self.download_with_retry(
+                    self.pro.news,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded news: {len(result)} records")
+                return result
+        except Exception as e:
+            self.logger.error(f"Failed to download news: {e}")
+            ErrorHandler.handle_api_error(e, "download_news")
+            raise
+
     def download_with_pagination(self, api_func, limit_per_call=2000, **base_kwargs):
         """
         分页下载数据的通用函数
