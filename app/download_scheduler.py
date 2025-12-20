@@ -5,6 +5,7 @@
 import threading
 import time
 import logging
+import queue
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime, timedelta
 import pandas as pd
@@ -457,12 +458,6 @@ class DownloadScheduler:
     def execute_scheduled_tasks(self, wait_for_completion: bool = True) -> Dict[str, Any]:
         """
         执行所有已调度的任务
-
-        Args:
-            wait_for_completion: 是否等待所有任务完成
-
-        Returns:
-            执行结果统计
         """
         if self.is_running:
             self.logger.warning("调度器已在运行中")
@@ -471,6 +466,17 @@ class DownloadScheduler:
         self.logger.info(f"开始执行下载调度，日期范围: {self.start_date} - {self.end_date}")
         self.is_running = True
         self.main_thread = threading.current_thread()
+
+        # 启动任务消费者线程
+        consumer_threads = []
+        for i in range(self.max_workers):
+            consumer_thread = threading.Thread(
+                target=self._task_consumer_loop,
+                name=f"TaskConsumer-{i}",
+                daemon=True
+            )
+            consumer_thread.start()
+            consumer_threads.append(consumer_thread)
 
         # 启动监控线程
         monitor_thread = threading.Thread(target=self._monitor_progress, daemon=True)
@@ -510,6 +516,69 @@ class DownloadScheduler:
                 f"队列大小: {stats['queue_size']}"
             )
             time.sleep(30)  # 每30秒报告一次
+
+    def _task_consumer_loop(self):
+        """
+        任务消费者循环 - 从队列中获取并执行任务
+        """
+        while self.is_running and not self.shutdown_event.is_set():
+            try:
+                # 从任务队列获取任务
+                task = self.task_manager.get_next_task(timeout=1.0)
+
+                if task is None:
+                    # 无任务可执行，继续循环
+                    continue
+
+                try:
+                    # 更新任务状态为处理中
+                    task.status = TaskStatus.PROCESSING
+                    task.started_at = datetime.now()
+
+                    # 执行任务
+                    self.logger.info(f"开始执行任务: {task.task_id}, 类型: {task.task_type}")
+
+                    # 调用任务目标函数
+                    result = task.target_func(*task.args, **task.kwargs)
+
+                    # 标记任务完成
+                    task.result = result
+                    task.status = TaskStatus.COMPLETED
+                    task.completed_at = datetime.now()
+
+                    # 完成任务
+                    self.task_manager.complete_task(task.task_id, result, success=True)
+
+                    # 如果任务需要等待完成，需要额外处理
+                    if task.wait_for_completion:
+                        # 处理等待完成的逻辑
+                        pass
+
+                    self.logger.info(f"任务执行完成: {task.task_id}")
+
+                except Exception as e:
+                    task.error = e
+                    task.status = TaskStatus.FAILED
+                    task.completed_at = datetime.now()
+
+                    self.logger.error(f"任务执行失败: {task.task_id}, 错误: {e}")
+
+                    # 根据重试配置决定是否重试
+                    if task.retry_count < task.max_retries:
+                        if self.task_manager.retry_task(task):
+                            self.logger.info(f"任务已安排重试: {task.task_id}")
+                        else:
+                            self.task_manager.complete_task(task.task_id, e, success=False)
+                    else:
+                        self.task_manager.complete_task(task.task_id, e, success=False)
+
+            except queue.Empty:
+                # 队列为空，继续循环
+                continue
+            except Exception as e:
+                self.logger.error(f"任务消费者循环错误: {e}")
+                # 短暂休眠避免过于频繁的错误
+                time.sleep(1)
 
     def get_stats(self) -> Dict[str, Any]:
         """
