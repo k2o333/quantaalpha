@@ -87,7 +87,9 @@ aspipe_v4/
 ├── log/                   # Log files
 ├── cache/                 # Temporary cache files
 ├── requirements.txt       # Dependencies
-└── .env                   # Environment variables (not committed)
+├── .env                   # Environment variables (not committed)
+├── test/                  # 所有测试脚本都放在这里，别放在app/
+└── p/                     # 所有生成的文档，除了 claude.md和readme.md 都放在这里
 ```
 
 ## Development Notes
