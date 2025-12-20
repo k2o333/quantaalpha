@@ -128,28 +128,65 @@ class TuShareDownloader:
         self._advanced_rate_limit(api_name)
 
     @retry_on_failure(max_retries=3, delay=1.0, backoff=2.0)
-    def download_with_retry(self, api_func, *args, max_retries: int = 3, **kwargs):
+    def download_with_retry(self, api_func, *args, max_retries: int = 3, api_name: str = None, **kwargs):
         """
         Download data with retry mechanism and rate limiting
         """
-        api_name = api_func.__name__ if hasattr(api_func, '__name__') else 'unknown_api'
+        # Improved method to identify the API name, handling tushare's dynamic functions
+        actual_api_name = api_name
+        if actual_api_name is None:
+            actual_api_name = getattr(api_func, '__name__', getattr(api_func, 'func', lambda: None).__name__ if hasattr(api_func, 'func') else None)
+            if actual_api_name is None or actual_api_name == '<lambda>':
+                # Try to get name from function's class or use the function's representation
+                func_str = str(api_func)
+                # Look for known tushare function patterns
+                if 'trade_cal' in func_str:
+                    actual_api_name = 'trade_cal'
+                elif 'daily' in func_str:
+                    actual_api_name = 'daily'
+                elif 'stock_basic' in func_str:
+                    actual_api_name = 'stock_basic'
+                elif 'income' in func_str:
+                    actual_api_name = 'income'
+                elif 'balancesheet' in func_str:
+                    actual_api_name = 'balancesheet'
+                elif 'cashflow' in func_str:
+                    actual_api_name = 'cashflow'
+                elif 'fina_indicator' in func_str:
+                    actual_api_name = 'fina_indicator'
+                elif 'dividend' in func_str:
+                    actual_api_name = 'dividend'
+                elif 'forecast' in func_str:
+                    actual_api_name = 'forecast'
+                elif 'express' in func_str:
+                    actual_api_name = 'express'
+                elif 'moneyflow' in func_str:
+                    actual_api_name = 'moneyflow'
+                elif 'cyq' in func_str:
+                    actual_api_name = 'cyq_chips' if 'cyq_chips' in func_str or 'chips' in func_str else 'cyq_perf'
+                elif 'stk_factor' in func_str:
+                    actual_api_name = 'stk_factor'
+                elif 'top10' in func_str:
+                    actual_api_name = 'top10_holders' if 'holders' in func_str else 'top10_floatholders'
+                else:
+                    actual_api_name = 'unknown_api'
 
         for attempt in range(max_retries + 1):
             try:
                 # Implement rate limiting
-                self._rate_limit(api_name)
+                self._rate_limit(actual_api_name)
 
                 # Log the API call
-                self.logger.info(f"Calling {api_name} API attempt {attempt + 1}")
+                self.logger.info(f"Calling {actual_api_name} API attempt {attempt + 1}")
 
                 # Make the API call
                 result = api_func(*args, **kwargs)
 
-                self.logger.info(f"Successfully called {api_name}, got {len(result) if hasattr(result, '__len__') else 'unknown'} records")
+                self.logger.info(f"Successfully called {actual_api_name}, got {len(result) if hasattr(result, '__len__') else 'unknown'} records")
                 return result
 
             except Exception as e:
-                self.logger.warning(f"Attempt {attempt + 1} failed for {api_name}: {str(e)}")
+                self.logger.warning(f"Attempt {attempt + 1} failed for {actual_api_name}: {str(e)}")
 
                 # Check if the error is related to token authentication
                 error_msg = str(e).lower()
@@ -157,18 +194,18 @@ class TuShareDownloader:
                     # Try switching to the other token
                     if self.primary_token and self.secondary_token:
                         self.switch_token()
-                        self.logger.info(f"Switched token due to authentication error. Retrying {api_name}...")
+                        self.logger.info(f"Switched token due to authentication error. Retrying {actual_api_name}...")
                         # Retry immediately with the new token
                         try:
                             result = api_func(*args, **kwargs)
-                            self.logger.info(f"Successfully called {api_name} after token switch, got {len(result) if hasattr(result, '__len__') else 'unknown'} records")
+                            self.logger.info(f"Successfully called {actual_api_name} after token switch, got {len(result) if hasattr(result, '__len__') else 'unknown'} records")
                             return result
                         except Exception as retry_e:
-                            self.logger.warning(f"Retry with switched token failed for {api_name}: {str(retry_e)}")
+                            self.logger.warning(f"Retry with switched token failed for {actual_api_name}: {str(retry_e)}")
 
                 if attempt == max_retries:
-                    self.logger.error(f"All {max_retries + 1} attempts failed for {api_name}")
-                    ErrorHandler.handle_api_error(e, f"API call {api_name}")
+                    self.logger.error(f"All {max_retries + 1} attempts failed for {actual_api_name}")
+                    ErrorHandler.handle_api_error(e, f"API call {actual_api_name}")
 
                 # Exponential backoff: wait longer between each attempt
                 wait_time = 2 ** attempt
@@ -470,6 +507,40 @@ class TuShareDownloader:
         except Exception as e:
             self.logger.error(f"接口 {api_func.__name__} 调用失败: {e}")
             return None
+
+    def download_trade_cal(self, exchange: str = 'SSE', start_date: str = '20100101', end_date: str = '20251231') -> pd.DataFrame:
+        """
+        Download trade calendar data - direct access method
+        Available to users with 2000+ points
+        """
+        try:
+            from .config import TUSHARE_POINTS
+        except ImportError:
+            from config import TUSHARE_POINTS
+
+        if TUSHARE_POINTS < 2000:
+            self.logger.warning("trade_cal requires 2000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.trade_cal,
+                exchange=exchange,
+                start_date=start_date,
+                end_date=end_date,
+                api_name='trade_cal'
+            )
+            self.logger.info(f"Successfully downloaded trade calendar: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download trade calendar: {e}")
+            try:
+                from .error_handler import ErrorHandler
+                ErrorHandler.handle_api_error(e, "download_trade_cal")
+            except ImportError:
+                from error_handler import ErrorHandler
+                ErrorHandler.handle_api_error(e, "download_trade_cal")
+            raise
 
     def __getattr__(self, name):
         """

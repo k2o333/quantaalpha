@@ -112,6 +112,15 @@ class DailyDataStrategy(DownloadStrategy):
                         self.logger.error("daily_basic 接口需要 trade_date 或 start_date 参数")
                         return pd.DataFrame()
                     result = self.downloader.download_daily_basic(trade_date=trade_date)
+                elif self.interface_name == 'trade_cal':
+                    # trade_cal 接口使用 start_date 和 end_date 参数
+                    start_date = adapted_params.get('start_date')
+                    end_date = adapted_params.get('end_date')
+                    if start_date and end_date:
+                        result = self.downloader.download_trade_cal(start_date=start_date, end_date=end_date)
+                    else:
+                        self.logger.error("trade_cal 接口需要 start_date 和 end_date 参数")
+                        return pd.DataFrame()
                 elif self.interface_name == 'moneyflow':
                     trade_date = adapted_params.get('trade_date', adapted_params.get('start_date'))
                     if trade_date:

@@ -42,6 +42,10 @@ class DownloadScheduler:
         self.storage_worker = StorageWorker(max_workers=2)
         self.logger = logging.getLogger(__name__)
 
+        # 交易日缓存
+        self._trading_days_cache = None
+        self._trading_days_lock = threading.Lock()
+
         # 调度器状态
         self.is_running = False
         self.shutdown_event = threading.Event()
@@ -65,26 +69,44 @@ class DownloadScheduler:
 
     def _get_trading_days(self) -> List[str]:
         """
-        获取指定日期范围内的交易日
+        获取指定日期范围内的交易日 (带缓存)
         """
+        # 检查缓存
+        with self._trading_days_lock:
+            if self._trading_days_cache is not None:
+                return self._trading_days_cache
+
         try:
             # 先下载交易日历数据
             trade_cal = self.downloader.download_trade_cal(
+                exchange='SSE',  # 默认上交所
                 start_date=self.start_date,
                 end_date=self.end_date
             )
 
             # 过滤出交易日（is_open=1）
-            trading_days = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
-            trading_days.sort()
+            if not trade_cal.empty:
+                trading_days = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
+                trading_days.sort()
+            else:
+                trading_days = []
 
             self.logger.info(f"获取到 {len(trading_days)} 个交易日")
+
+            # 缓存结果
+            with self._trading_days_lock:
+                self._trading_days_cache = trading_days
+
             return trading_days
 
         except Exception as e:
             self.logger.error(f"获取交易日历失败: {e}")
             # 如果无法获取交易日历，返回日期范围内的所有日期作为备选
-            return self._generate_date_range()
+            fallback_days = self._generate_date_range()
+            # 缓存备选结果
+            with self._trading_days_lock:
+                self._trading_days_cache = fallback_days
+            return fallback_days
 
     def _generate_date_range(self) -> List[str]:
         """

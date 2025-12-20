@@ -89,7 +89,8 @@ class BasicDataDownloader:
                 self.pro.trade_cal,
                 exchange=exchange,
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                api_name='trade_cal'
             )
             self.logger.info(f"Successfully downloaded trade calendar: {len(result)} records")
             return result
