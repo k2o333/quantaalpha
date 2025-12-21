@@ -494,6 +494,52 @@ class TuShareDownloader:
             # 回退到按日下载
             return pd.DataFrame()
 
+    def download_daily_data_range(self, start_date: str = '20100101', end_date: str = '20231231') -> pd.DataFrame:
+        """
+        按日期范围下载所有股票的日线数据
+        智能选择使用VIP接口或批量下载
+        """
+        try:
+            from .config import TUSHARE_POINTS
+        except ImportError:
+            from config import TUSHARE_POINTS
+
+        if TUSHARE_POINTS >= 5000:
+            # 使用VIP接口，可以直接按日期范围下载所有股票数据
+            try:
+                return self.daily_data.download_daily_data_vip(start_date=start_date, end_date=end_date)
+            except Exception as e:
+                self.logger.warning(f"VIP接口下载失败，尝试股票列表循环下载: {e}")
+
+        # 否则，获取股票列表并循环下载
+        try:
+            from .stock_list_manager import StockListManager
+        except ImportError:
+            from stock_list_manager import StockListManager
+
+        stock_manager = StockListManager(self)
+        stock_list = stock_manager.get_stock_basic()
+
+        if not stock_list.empty:
+            all_data = []
+            for _, stock in stock_list.iterrows():
+                try:
+                    ts_code = stock['ts_code']
+                    result = self.daily_data.download_daily_data(
+                        ts_code=ts_code,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    if not result.empty:
+                        all_data.append(result)
+                    time.sleep(random.uniform(0.5, 1.0))  # 避免频率限制
+                except Exception as e:
+                    self.logger.warning(f"下载股票 {ts_code} 日线数据失败: {e}")
+                    continue
+            return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+
+        return pd.DataFrame()
+
     def safe_download(self, api_func, **kwargs):
         """
         为API调用添加安全包装，处理空数据和异常情况

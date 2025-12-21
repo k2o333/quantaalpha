@@ -104,7 +104,13 @@ class DailyDataStrategy(DownloadStrategy):
 
                 # 根据接口名称调用相应的下载方法
                 if self.interface_name == 'daily':
-                    result = self.downloader.download_daily_data(**adapted_params)
+                    start_date = adapted_params.get('start_date')
+                    end_date = adapted_params.get('end_date')
+                    if start_date and end_date:
+                        result = self.downloader.download_daily_data_range(start_date=start_date, end_date=end_date)
+                    else:
+                        self.logger.error("daily 接口需要 start_date 和 end_date 参数")
+                        return pd.DataFrame()
                 elif self.interface_name == 'daily_basic':
                     # daily_basic 接口使用 trade_date 参数
                     trade_date = adapted_params.get('trade_date', adapted_params.get('start_date'))
