@@ -17,7 +17,7 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 6. **Download Scheduling** (`app/download_scheduler.py`): Complete download scheduler implementing producer-consumer pattern with task prioritization
 7. **Parallel Downloader** (`app/parallel_downloader.py`): Parallel download framework supporting multiple concurrent interfaces with resource management
 8. **Global Rate Limiter** (`app/global_rate_limiter.py`): Token bucket algorithm implementation for API call rate limiting
-9. **Task Queue Manager** (`app/task_queue_manager.py`): Task queue management with priority and status tracking
+9. **Task Queue Manager** (`test/task_queue_manager.py`): Task queue management with priority and status tracking
 10. **Storage Worker** (`app/storage_worker.py`): Consumer logic for data storage with thread-safe writes and error handling
 11. **Strategy Factory** (`app/strategy_factory.py`): Strategy creation and management with caching mechanism
 12. **Download Strategies** (`app/download_strategies.py`): Strategy pattern implementation for different data download approaches
@@ -124,7 +124,6 @@ aspipe_v4/
 │   ├── download_scheduler.py  # Producer-consumer download scheduler
 │   ├── parallel_downloader.py # Parallel download framework
 │   ├── storage_worker.py  # Data storage consumer logic
-│   ├── task_queue_manager.py # Task queue management with priorities
 │   ├── download_strategies.py # Strategy pattern for different download approaches
 │   ├── global_rate_limiter.py  # Global rate limiting with token bucket
 │   ├── strategy_factory.py    # Strategy factory for management
@@ -146,7 +145,7 @@ aspipe_v4/
 ├── cache/                 # Temporary cache files
 ├── requirements.txt       # Dependencies
 ├── .env                   # Environment variables (not committed)
-├── test/                  # 所有测试脚本都放在这里，别放在app/
+├── test/                  # 所有测试脚本都放在这里，别放在app/ (including task_queue_manager.py)
 └── p/                     # 所有生成的文档，除了 claude.md和readme.md 都放在这里
 ```
 
@@ -160,7 +159,7 @@ aspipe_v4/
 - Data is automatically paginated for large result sets
 - New architecture uses producer-consumer pattern for efficient data pipeline
 - Strategy pattern enables flexible handling of different data types
-- Task queue management with priorities optimizes resource usage
+- Task queue management with priorities optimizes resource usage (task queue manager now in test/ directory)
 - Enhanced configuration system provides granular control over interface settings
 - Configuration adapter maintains backward compatibility while adding advanced features
 - Priority-based scheduling ensures critical data (like trade_cal) is downloaded first
@@ -168,3 +167,5 @@ aspipe_v4/
 - Advanced retry mechanisms with configurable parameters for different interfaces
 - Concurrency controls allow optimized throughput within API rate limits
 - Interface-specific API parameters can be configured for fine-grained control
+- The system features enhanced error handling, rate limiting, caching, and asynchronous processing
+- Asynchronous producer-consumer pattern decouples download and storage operations for better resource utilization

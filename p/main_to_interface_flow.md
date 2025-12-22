@@ -187,7 +187,7 @@ flowchart TD
 - `config_adapter.py` provides interface configurations based on `DOWNLOAD_PIPELINE_CONFIG` with enhanced features
 - `enhanced_download_config.py` provides detailed interface configurations with priority, retry, rate limit, and caching settings
 - Score-based access control via `score_config.py` determines which interfaces are available to the user
-- `task_queue_manager.py` handles priority-based task scheduling with producer-consumer pattern
+- `task_queue_manager.py` handles priority-based task scheduling with producer-consumer pattern (now in test/ directory)
 - `global_rate_limiter.py` manages API call rate limiting using token bucket algorithm
 - `parallel_downloader.py` enables parallel downloads of multiple interfaces with concurrency controls
 - `storage_worker.py` implements consumer threads for asynchronous data storage
@@ -240,7 +240,6 @@ aspipe_v4/
 │   ├── download_scheduler.py  # Producer-consumer scheduler
 │   ├── parallel_downloader.py # Parallel download framework
 │   ├── storage_worker.py  # Storage consumer logic
-│   ├── task_queue_manager.py # Task queue management
 │   ├── download_strategies.py # Strategy pattern for different download approaches
 │   ├── global_rate_limiter.py  # Rate limiting with token bucket
 │   ├── strategy_factory.py    # Strategy management
@@ -257,6 +256,7 @@ aspipe_v4/
 │   │   ├── market_structure.py
 │   │   └── research_data.py
 │   └── utils/             # Utility functions
+├── test/                  # Test scripts (including task_queue_manager.py)
 ├── data/                  # Output directory for downloaded data
 ├── log/                   # Log files
 ├── cache/                 # Temporary cache files
@@ -300,7 +300,7 @@ def __getattr__(self, name):
 This allows external code to call methods like `downloader.download_stock_basic()` which gets delegated to the appropriate submodule.
 
 #### 2. Producer-Consumer Pattern
-- **Files**: `app/download_scheduler.py`, `app/storage_worker.py`, `app/task_queue_manager.py`
+- **Files**: `app/download_scheduler.py`, `app/storage_worker.py`, `test/task_queue_manager.py`
 - **Implementation**: Download tasks produce data, storage workers consume for writing
 - **Benefits**: Decoupled processing, parallel execution, better resource utilization
 
@@ -335,7 +335,7 @@ if result is not None and not result.empty:
 - **Benefits**: Maintains backward compatibility while adding advanced features
 
 #### 5. Task Queue Management
-- **File**: `app/task_queue_manager.py`
+- **File**: `test/task_queue_manager.py`
 - **Implementation**: Priority-based task scheduling with dependency management
 - **Benefits**: Efficient resource management, controlled execution order
 
@@ -371,7 +371,7 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 | `TuShareDownloader` | Facade | Unified API access, delegation to interface modules |
 | `DownloadScheduler` | Orchestrator | Task scheduling, producer-consumer coordination |
 | `StorageWorker` | Consumer | Asynchronous data storage processing |
-| `TaskQueueManager` | Manager | Priority-based task queue management |
+| `TaskQueueManager` | Manager | Priority-based task queue management (now in test/ directory) |
 | `DownloadStrategy` | Strategy | Data download approach selection |
 | `ConfigAdapter` | Adapter | Unifies old and new configuration access |
 | `InterfaceConfig` | Configuration | Enhanced interface settings with priority, retries, etc. |
