@@ -295,7 +295,11 @@ class FinancialDataStrategy(DownloadStrategy):
                         # 普通用户或没有报告期参数，使用批量下载
                         result = self._download_financial_data_batch(ts_code, period)
                 elif self.interface_name == 'dividend':
-                    result = self.downloader.download_dividend(**adapted_params)
+                    # dividend function accepts ts_code, period, and ann_date parameters
+                    ts_code = adapted_params.get('ts_code')
+                    period = adapted_params.get('period')
+                    ann_date = adapted_params.get('ann_date')
+                    result = self.downloader.download_dividend(ts_code=ts_code, period=period, ann_date=ann_date)
                 elif self.interface_name == 'forecast':
                     result = self.downloader.download_forecast(**adapted_params)
                 elif self.interface_name == 'express':
@@ -445,7 +449,13 @@ class StaticDataStrategy(DownloadStrategy):
                 elif self.interface_name == 'namechange':
                     result = self.downloader.download_namechange(**adapted_params)
                 elif self.interface_name == 'stk_rewards':
-                    result = self.downloader.download_stk_rewards(**adapted_params)
+                    # stk_rewards requires a specific ts_code, get it from params or use default logic
+                    ts_code = adapted_params.get('ts_code')
+                    if ts_code:
+                        result = self.downloader.download_stk_rewards(ts_code=ts_code)
+                    else:
+                        # Handle case where no ts_code is provided - maybe download for all stocks or return empty
+                        result = pd.DataFrame()  # or implement logic to get all stock codes
                 elif self.interface_name == 'stk_managers':
                     result = self.downloader.download_stk_managers(**adapted_params)
                 elif self.interface_name == 'broker_recommend':

@@ -135,41 +135,77 @@ class TuShareDownloader:
         # Improved method to identify the API name, handling tushare's dynamic functions
         actual_api_name = api_name
         if actual_api_name is None:
-            actual_api_name = getattr(api_func, '__name__', getattr(api_func, 'func', lambda: None).__name__ if hasattr(api_func, 'func') else None)
-            if actual_api_name is None or actual_api_name == '<lambda>':
-                # Try to get name from function's class or use the function's representation
-                func_str = str(api_func)
-                # Look for known tushare function patterns
-                if 'trade_cal' in func_str:
-                    actual_api_name = 'trade_cal'
-                elif 'daily' in func_str:
-                    actual_api_name = 'daily'
-                elif 'stock_basic' in func_str:
-                    actual_api_name = 'stock_basic'
-                elif 'income' in func_str:
-                    actual_api_name = 'income'
-                elif 'balancesheet' in func_str:
-                    actual_api_name = 'balancesheet'
-                elif 'cashflow' in func_str:
-                    actual_api_name = 'cashflow'
-                elif 'fina_indicator' in func_str:
-                    actual_api_name = 'fina_indicator'
-                elif 'dividend' in func_str:
-                    actual_api_name = 'dividend'
-                elif 'forecast' in func_str:
-                    actual_api_name = 'forecast'
-                elif 'express' in func_str:
-                    actual_api_name = 'express'
-                elif 'moneyflow' in func_str:
-                    actual_api_name = 'moneyflow'
-                elif 'cyq' in func_str:
-                    actual_api_name = 'cyq_chips' if 'cyq_chips' in func_str or 'chips' in func_str else 'cyq_perf'
-                elif 'stk_factor' in func_str:
-                    actual_api_name = 'stk_factor'
-                elif 'top10' in func_str:
-                    actual_api_name = 'top10_holders' if 'holders' in func_str else 'top10_floatholders'
-                else:
-                    actual_api_name = 'unknown_api'
+            # Try to get the actual function name from the TuShare API object
+            if hasattr(api_func, '__name__') and api_func.__name__ != '<lambda>':
+                actual_api_name = api_func.__name__
+            elif hasattr(api_func, '__func__') and api_func.__func__.__name__ != '<lambda>':
+                actual_api_name = api_func.__func__.__name__
+            elif hasattr(api_func, '__name__') and api_func.__name__:
+                # For TuShare's dynamic functions, try to extract the actual name
+                actual_api_name = api_func.__name__
+            else:
+                # Use a more reliable method to identify the function
+                import inspect
+                # Check if this is a bound method of TuShare API
+                if hasattr(api_func, '__self__') and hasattr(api_func.__self__, '__class__'):
+                    # Try to get the original function name from the class
+                    for name, method in inspect.getmembers(api_func.__self__.__class__, predicate=inspect.isfunction):
+                        if hasattr(api_func.__self__, name):
+                            bound_method = getattr(api_func.__self__, name)
+                            if bound_method is api_func or (hasattr(bound_method, '__func__') and bound_method.__func__ is method):
+                                actual_api_name = name
+                                break
+
+                if actual_api_name is None or actual_api_name == 'unknown_api':
+                    # Fallback to string matching if method introspection fails
+                    func_str = str(api_func).lower()
+                    # Look for known tushare function patterns
+                    if 'trade_cal' in func_str:
+                        actual_api_name = 'trade_cal'
+                    elif 'daily' in func_str:
+                        actual_api_name = 'daily'
+                    elif 'stock_basic' in func_str:
+                        actual_api_name = 'stock_basic'
+                    elif 'income' in func_str:
+                        actual_api_name = 'income'
+                    elif 'balancesheet' in func_str:
+                        actual_api_name = 'balancesheet'
+                    elif 'cashflow' in func_str:
+                        actual_api_name = 'cashflow'
+                    elif 'fina_indicator' in func_str:
+                        actual_api_name = 'fina_indicator'
+                    elif 'dividend' in func_str:
+                        actual_api_name = 'dividend'
+                    elif 'forecast' in func_str:
+                        actual_api_name = 'forecast'
+                    elif 'express' in func_str:
+                        actual_api_name = 'express'
+                    elif 'moneyflow' in func_str:
+                        actual_api_name = 'moneyflow'
+                    elif 'cyq' in func_str:
+                        actual_api_name = 'cyq_chips' if 'cyq_chips' in func_str or 'chips' in func_str else 'cyq_perf'
+                    elif 'stk_factor' in func_str:
+                        actual_api_name = 'stk_factor'
+                    elif 'top10' in func_str:
+                        actual_api_name = 'top10_holders' if 'holders' in func_str else 'top10_floatholders'
+                    elif 'stk_rewards' in func_str:
+                        actual_api_name = 'stk_rewards'
+                    elif 'stk_managers' in func_str:
+                        actual_api_name = 'stk_managers'
+                    elif 'namechange' in func_str:
+                        actual_api_name = 'namechange'
+                    elif 'new_share' in func_str:
+                        actual_api_name = 'new_share'
+                    elif 'stock_company' in func_str:
+                        actual_api_name = 'stock_company'
+                    elif 'stock_st' in func_str:
+                        actual_api_name = 'stock_st'
+                    elif 'bak_basic' in func_str:
+                        actual_api_name = 'bak_basic'
+                    elif 'top10_floatholders' in func_str:
+                        actual_api_name = 'top10_floatholders'
+                    else:
+                        actual_api_name = 'unknown_api'
 
         for attempt in range(max_retries + 1):
             try:
@@ -497,21 +533,20 @@ class TuShareDownloader:
     def download_daily_data_range(self, start_date: str = '20100101', end_date: str = '20231231') -> pd.DataFrame:
         """
         按日期范围下载所有股票的日线数据
-        智能选择使用VIP接口或批量下载
+        使用改进的方法下载数据，不再依赖不存在的VIP接口
         """
         try:
             from .config import TUSHARE_POINTS
         except ImportError:
             from config import TUSHARE_POINTS
 
-        if TUSHARE_POINTS >= 5000:
-            # 使用VIP接口，可以直接按日期范围下载所有股票数据
-            try:
-                return self.daily_data.download_daily_data_vip(start_date=start_date, end_date=end_date)
-            except Exception as e:
-                self.logger.warning(f"VIP接口下载失败，尝试股票列表循环下载: {e}")
+        # 不再检查积分等级，直接使用改进的日期范围下载方法
+        try:
+            return self.daily_data.download_daily_data_for_date_range(start_date=start_date, end_date=end_date)
+        except Exception as e:
+            self.logger.warning(f"日期范围下载失败: {e}")
 
-        # 否则，获取股票列表并循环下载
+        # 回退方案：获取股票列表并循环下载
         try:
             from .stock_list_manager import StockListManager
         except ImportError:

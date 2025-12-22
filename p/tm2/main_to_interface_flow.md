@@ -34,6 +34,7 @@ flowchart TD
     O1 --> O8[CyqChipsDownloader Module]
     O1 --> O9[MarketStructureDownloader Module]
     O1 --> O10[ResearchDataDownloader Module]
+    O1 --> O11[BaseDownloader Module]
 
     %% Producer-Consumer pattern for storage
     M --> P1[Check for data download results]
@@ -48,7 +49,7 @@ flowchart TD
     D --> Z[date_range_downloader.py]
     Z --> AA[DateRangeDownloader]
     AA --> AB[TuShareDownloader<br/>Instantiated with delegation]
-    AB --> AC[Download via modules<br/>Q through O10]
+    AB --> AC[Download via modules<br/>O2 through O11]
     AC --> AD[Direct save_to_parquet call]
 
     %% Task management and queuing
@@ -60,6 +61,17 @@ flowchart TD
     %% Task completion and result handling
     P1 --> AH[Original download task completes<br/>without waiting for storage]
     P2 --> AI[Storage completion<br/>handled separately]
+
+    %% Configuration and Priority System
+    I --> AJ[ConfigAdapter.get_all_available_interfaces<br/>based on user points]
+    AJ --> AK[InterfaceConfig with priority, retries, rate limits]
+    AK --> AL[get_interface_priority, get_max_retries, get_rate_limit]
+    AL --> AM[TaskQueue with Priority-based processing]
+
+    %% Enhanced features
+    AM --> AN[Global Rate Limiter<br/>Token Bucket Algorithm]
+    AN --> AO[Parallel Downloader<br/>with concurrency controls]
+    AO --> AP[Enhanced Config<br/>with advanced settings]
 
     subgraph "Main Entry"
         A
@@ -89,6 +101,7 @@ flowchart TD
         O8
         O9
         O10
+        O11
     end
 
     subgraph "Producer-Consumer Storage Pattern"
@@ -115,6 +128,19 @@ flowchart TD
         AH
         AI
     end
+
+    subgraph "Configuration System"
+        AJ
+        AK
+        AL
+        AM
+    end
+
+    subgraph "Enhanced Features"
+        AN
+        AO
+        AP
+    end
 ```
 
 ## Call Flow Description
@@ -124,7 +150,7 @@ flowchart TD
 2. → `download_scheduler.run_download_schedule()`
 3. → `DownloadScheduler` class initialization and task scheduling
 4. → `config_adapter.get_all_available_interfaces()` to get user-accessible interfaces based on points
-5. → `DownloadScheduler.schedule_download_tasks()` creates tasks based on score
+5. → `DownloadScheduler.schedule_download_tasks()` creates tasks based on score and priority
 6. → `DownloadScheduler.execute_scheduled_tasks()` executes the tasks in parallel
 7. → `DownloadScheduler._task_consumer_loop()` processes tasks via task queue manager
 8. → `download_strategies.get_strategy()` gets the appropriate download strategy
@@ -141,6 +167,7 @@ flowchart TD
     - `CyqChipsDownloader` (cyq_chips.py)
     - `MarketStructureDownloader` (market_structure.py)
     - `ResearchDataDownloader` (research_data.py)
+    - `BaseDownloader` (base.py) - base functionality for all interfaces
 11. → API calls executed via interface-specific classes
 12. → Downloaded data processed via Asynchronous Producer-Consumer Pattern:
     - Download task completes and creates storage task via `task_manager.add_storage_task()`
@@ -157,22 +184,40 @@ flowchart TD
 5. → Data saved directly via synchronous `data_storage.py` calls within download methods
 
 ### Configuration and Strategy Layer:
-- `config_adapter.py` provides interface configurations based on `DOWNLOAD_PIPELINE_CONFIG`
-- `download_strategies.py` provides the appropriate strategy for each interface type
+- `config_adapter.py` provides interface configurations based on `DOWNLOAD_PIPELINE_CONFIG` with enhanced features
+- `enhanced_download_config.py` provides detailed interface configurations with priority, retry, rate limit, and caching settings
 - Score-based access control via `score_config.py` determines which interfaces are available to the user
 - `task_queue_manager.py` handles priority-based task scheduling with producer-consumer pattern
-- `global_rate_limiter.py` manages API call rate limiting
-- `parallel_downloader.py` enables parallel downloads of multiple interfaces
+- `global_rate_limiter.py` manages API call rate limiting using token bucket algorithm
+- `parallel_downloader.py` enables parallel downloads of multiple interfaces with concurrency controls
 - `storage_worker.py` implements consumer threads for asynchronous data storage
+- `download_strategies.py` provides different download strategies for different data types (batch, parallel, sequential, paginated)
 
 ### Key Architectural Patterns:
+
 1. **Facade Pattern**: `TuShareDownloader` acts as a unified interface delegating to specialized modules via `__getattr__`
 2. **Producer-Consumer Pattern**: Download tasks and storage tasks are decoupled with independent processing threads
-3. **Strategy Pattern**: Different download approaches are implemented via `download_strategies.py`
+3. **Strategy Pattern**: Different download approaches are implemented via `download_strategies.py` and `DownloadStrategy` enum
 4. **Task Queue Management**: Priority-based task scheduling implemented in `task_queue_manager.py`
 5. **Asynchronous Processing**: Storage operations are handled asynchronously to avoid blocking download threads
+6. **Configuration Adapter Pattern**: New configuration system maintains compatibility with old format while adding advanced features
+7. **Rate Limiting with Token Bucket**: Global rate limiting prevents API throttling across all interfaces
+8. **Priority-based Scheduling**: High priority interfaces (like trade_cal) are processed before low priority ones
+9. **Caching System**: Configurable caching reduces unnecessary API calls and improves performance
+10. **Enhanced Configuration**: Advanced settings for retries, timeouts, concurrency, and API parameters
 
-This enhanced architecture enables modular, extensible data download functionality with proper error handling, retry logic, rate limiting, and asynchronous processing, all orchestrated through the entry point in main.py. The decoupled nature of download and storage operations allows for better resource utilization and system responsiveness.
+### New Enhanced Features:
+
+1. **Priority-based Interface Configuration**: Interfaces are categorized by priority (HIGH, MEDIUM, LOW) to optimize download order
+2. **Advanced Download Strategies**: Different strategies available (BATCH, PARALLEL, SEQUENTIAL, PAGINATED) for optimal data retrieval
+3. **Concurrency Control**: Configurable concurrency levels per interface to maximize throughput within API limits
+4. **Caching Mechanism**: Configurable caching with TTL to reduce redundant API calls
+5. **Token Bucket Rate Limiting**: Sophisticated rate limiting across all API calls with global control
+6. **Enhanced Error Handling**: Improved retry mechanisms with configurable retry counts and backoff strategies
+7. **Configurable API Parameters**: Interface-specific API parameters can be set in configuration
+8. **Backward Compatibility**: New configuration system maintains compatibility with the original DOWNLOAD_CONFIG format
+
+This enhanced architecture enables modular, extensible data download functionality with proper error handling, retry logic, rate limiting, caching, and asynchronous processing, all orchestrated through the entry point in main.py. The decoupled nature of download and storage operations allows for better resource utilization and system responsiveness. The new configuration system provides granular control over download behavior while maintaining backward compatibility with the original system structure.
 
 ## Application Structure and Key Components
 
@@ -188,8 +233,9 @@ aspipe_v4/
 │   ├── score_config.py    # Score-based access control
 │   ├── tushare_api.py     # Main API integration (Facade Pattern)
 │   ├── date_range_downloader.py  # Legacy date range downloader
-│   ├── download_config.py  # Download configuration
-│   ├── enhanced_download_config.py  # Enhanced configuration
+│   ├── download_config.py  # Original download configuration
+│   ├── enhanced_download_config.py  # Enhanced configuration with advanced options
+│   ├── config_adapter.py  # Configuration adapter for backward compatibility
 │   ├── data_storage.py    # Data storage and caching
 │   ├── download_scheduler.py  # Producer-consumer scheduler
 │   ├── parallel_downloader.py # Parallel download framework
@@ -199,8 +245,8 @@ aspipe_v4/
 │   ├── global_rate_limiter.py  # Rate limiting with token bucket
 │   ├── strategy_factory.py    # Strategy management
 │   ├── parameter_adapters.py  # API parameter adaptation
-│   ├── config_adapter.py  # Configuration adapter
 │   ├── interfaces/        # Modular interface classes
+│   │   ├── base.py        # Base interface functionality
 │   │   ├── basic_data.py
 │   │   ├── daily_data.py
 │   │   ├── financial_data.py
@@ -283,7 +329,12 @@ if result is not None and not result.empty:
 - **Implementation**: Different download strategies for different data types
 - **Benefits**: Flexible approach selection, easy extension
 
-#### 4. Task Queue Management
+#### 4. Configuration Adapter Pattern
+- **File**: `app/config_adapter.py`
+- **Implementation**: Unifies access to old and new configuration formats
+- **Benefits**: Maintains backward compatibility while adding advanced features
+
+#### 5. Task Queue Management
 - **File**: `app/task_queue_manager.py`
 - **Implementation**: Priority-based task scheduling with dependency management
 - **Benefits**: Efficient resource management, controlled execution order
@@ -322,4 +373,6 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 | `StorageWorker` | Consumer | Asynchronous data storage processing |
 | `TaskQueueManager` | Manager | Priority-based task queue management |
 | `DownloadStrategy` | Strategy | Data download approach selection |
+| `ConfigAdapter` | Adapter | Unifies old and new configuration access |
+| `InterfaceConfig` | Configuration | Enhanced interface settings with priority, retries, etc. |
 | Interface modules | Implementation | Specific data interface implementations |

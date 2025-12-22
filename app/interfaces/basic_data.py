@@ -167,7 +167,7 @@ class BasicDataDownloader:
             ErrorHandler.handle_api_error(e, "download_namechange")
             raise
 
-    def download_dividend(self, ts_code: str = None) -> pd.DataFrame:
+    def download_dividend(self, ts_code: str = None, period: str = None, ann_date: str = None) -> pd.DataFrame:
         """
         Download dividend information
         Available to users with 2000+ points
@@ -180,6 +180,15 @@ class BasicDataDownloader:
             params = {}
             if ts_code:
                 params['ts_code'] = ts_code
+            if period:
+                params['period'] = period
+            if ann_date:
+                params['ann_date'] = ann_date
+
+            # At least one parameter is required, with ts_code being the most common
+            if not params:
+                self.logger.warning("dividend function requires at least one parameter (ts_code, period, or ann_date)")
+                return pd.DataFrame()
 
             result = self.download_with_retry(
                 self.pro.dividend,

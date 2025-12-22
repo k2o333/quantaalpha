@@ -151,26 +151,48 @@ class ScoreBasedDownloader:
             ErrorHandler.handle_api_error(e, "download_trade_cal")
             raise
 
-    def download_daily(self, ts_code: str = None, trade_date: str = None) -> pd.DataFrame:
+    def download_daily(self, ts_code: str = None, trade_date: str = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """
-        Download daily data (available at basic level, but more data accessible with higher scores)
+        Download daily data with clear parameter logic
+        According to TuShare documentation, daily interface supports:
+        1. Query by stock code with date range (ts_code + start_date/end_date)
+        2. Query by trade date for all stocks (trade_date)
         """
         if not self.is_data_type_available('daily'):
             logger.warning("daily not available with current score, skipping")
             return pd.DataFrame()
-            
+
         try:
             logger.info("Downloading daily data...")
-            params = {}
-            if ts_code:
-                params['ts_code'] = ts_code
+
+            # Clear parameter logic according to TuShare documentation
             if trade_date:
-                params['trade_date'] = trade_date
+                # Query all stocks for a specific trade date
+                result = self.download_with_retry(
+                    self.pro.daily,
+                    trade_date=trade_date
+                )
+            elif ts_code:
+                # Query specific stock with date range
+                params = {
+                    'ts_code': ts_code
+                }
+                if start_date:
+                    params['start_date'] = start_date
+                if end_date:
+                    params['end_date'] = end_date
+
+                result = self.download_with_retry(
+                    self.pro.daily,
+                    **params
+                )
             else:
-                params['start_date'] = '20230101'
-                params['end_date'] = '20231231'
-            
-            result = self.download_with_retry(self.pro.daily, **params)
+                # Default: query all stocks for a recent trade date
+                result = self.download_with_retry(
+                    self.pro.daily,
+                    trade_date='20231201'
+                )
+
             logger.info(f"Successfully downloaded daily data: {len(result)} records")
             return result
         except Exception as e:

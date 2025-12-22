@@ -52,41 +52,75 @@ class DailyDataDownloader:
         Available to all users
         """
         try:
-            # Check if user has 5000+ points to use VIP interface
-            api_func = self.pro.daily_vip if TUSHARE_POINTS >= 5000 else self.pro.daily
+            # Use daily interface (no VIP version exists for daily interface)
+            api_func = self.pro.daily
             result = self.download_with_retry(
                 api_func,
                 ts_code=ts_code,
                 start_date=start_date,
                 end_date=end_date
             )
-            self.logger.info(f"Successfully downloaded daily data for {ts_code} using {'daily_vip' if TUSHARE_POINTS >= 5000 else 'daily'}: {len(result)} records")
+            self.logger.info(f"Successfully downloaded daily data for {ts_code} using daily: {len(result)} records")
             return result
         except Exception as e:
             self.logger.error(f"Failed to download daily data for {ts_code}: {e}")
             ErrorHandler.handle_api_error(e, f"download_daily_data for {ts_code}")
             raise
 
-    def download_daily_data_vip(self, start_date: str = '20100101', end_date: str = '20231231') -> pd.DataFrame:
+    def download_daily_data_for_date_range(self, start_date: str = '20100101', end_date: str = '20231231') -> pd.DataFrame:
         """
-        Download daily data for all stocks using VIP interface (5000+ points required)
-        This can download up to 10000 records at once
+        Download daily data for all stocks in a date range by iterating through trading days
+        Since daily interface doesn't have a VIP version, we'll get data day by day
         """
-        if TUSHARE_POINTS < 5000:
-            self.logger.warning("daily_vip requires 5000+ points, skipping download")
-            return pd.DataFrame()
-
         try:
-            result = self.download_with_retry(
-                self.pro.daily_vip,
+            # Get trading calendar for the date range
+            trade_cal = self.download_with_retry(
+                self.pro.trade_cal,
+                exchange='SSE',
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                is_open=1
             )
-            self.logger.info(f"Successfully downloaded daily_vip data: {len(result)} records")
-            return result
+
+            if trade_cal.empty:
+                self.logger.warning("No trading days found in the specified range")
+                return pd.DataFrame()
+
+            all_data = []
+            trading_days = trade_cal['cal_date'].tolist()
+            trading_days.sort()
+
+            self.logger.info(f"Starting to download daily data for {len(trading_days)} trading days")
+
+            for i, trade_date in enumerate(trading_days):
+                if (i + 1) % 10 == 0:  # Log progress every 10 days
+                    self.logger.info(f"Processed {i + 1}/{len(trading_days)} trading days...")
+
+                try:
+                    df = self.download_with_retry(
+                        self.pro.daily,
+                        trade_date=trade_date
+                    )
+                    if df is not None and not df.empty:
+                        all_data.append(df)
+                    else:
+                        self.logger.debug(f"No daily data for {trade_date}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to download daily data for {trade_date}: {e}")
+                    continue  # Continue with next day even if one fails
+
+            # Combine all data
+            if all_data:
+                result = pd.concat(all_data, ignore_index=True)
+                self.logger.info(f"Successfully downloaded daily data for date range: {len(result)} records")
+                return result
+            else:
+                self.logger.warning("No daily data could be downloaded for the date range")
+                return pd.DataFrame()
+
         except Exception as e:
-            self.logger.error(f"Failed to download daily_vip data: {e}")
-            ErrorHandler.handle_api_error(e, "download_daily_vip_data")
+            self.logger.error(f"Failed to download daily data for date range: {e}")
+            ErrorHandler.handle_api_error(e, "download_daily_data_for_date_range")
             raise
 
     def download_daily_basic(self, trade_date: str = '20231201') -> pd.DataFrame:
