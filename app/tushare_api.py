@@ -32,6 +32,7 @@ try:
     from .interfaces.cyq_chips import CyqChipsDownloader
     from .interfaces.market_structure import MarketStructureDownloader
     from .interfaces.research_data import ResearchDataDownloader
+    from .interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
 except ImportError:
     # 当作为独立脚本运行时的回退导入
     from interfaces.basic_data import BasicDataDownloader
@@ -43,6 +44,7 @@ except ImportError:
     from interfaces.cyq_chips import CyqChipsDownloader
     from interfaces.market_structure import MarketStructureDownloader
     from interfaces.research_data import ResearchDataDownloader
+    from interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
 
 
 class TuShareDownloader:
@@ -82,6 +84,7 @@ class TuShareDownloader:
         self.cyq_chips = CyqChipsDownloader(self.pro)
         self.market_structure = MarketStructureDownloader(self.pro)
         self.research_data = ResearchDataDownloader(self.pro)
+        self.holders_full_history = HoldersDataFullHistoryDownloader(self.pro)
 
     def switch_token(self):
         """
@@ -637,7 +640,8 @@ class TuShareDownloader:
             self.holders_data,
             self.technical_factors,
             self.market_structure,
-            self.research_data
+            self.research_data,
+            self.holders_full_history
         ]:
             if hasattr(module, name):
                 return getattr(module, name)

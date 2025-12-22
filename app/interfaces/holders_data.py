@@ -194,3 +194,67 @@ class HoldersDataDownloader:
             self.logger.error(f"Failed to download stk_holdertrade: {e}")
             ErrorHandler.handle_api_error(e, "download_stk_holdertrade")
             raise
+
+    def download_pledge_detail(self, ts_code: str = None) -> pd.DataFrame:
+        """
+        Download pledge detail data
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("pledge_detail requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+
+            result = self.download_with_retry(
+                self.pro.pledge_detail,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded pledge_detail: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download pledge_detail: {e}")
+            ErrorHandler.handle_api_error(e, "download_pledge_detail")
+            raise
+
+    def download_pledge_detail_batch(self, ts_codes: List[str], group_size: int = 20) -> pd.DataFrame:
+        """
+        批量下载股权质押明细数据
+        将股票代码分组批量查询
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("pledge_detail requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        if not ts_codes:
+            self.logger.warning("No stock codes provided")
+            return pd.DataFrame()
+
+        all_data = []
+        # 将股票代码分组处理
+        for i in range(0, len(ts_codes), group_size):
+            batch_codes = ts_codes[i:i + group_size]
+            self.logger.info(f"Processing batch {i//group_size + 1}: {len(batch_codes)} stock codes")
+
+            for ts_code in batch_codes:
+                try:
+                    df = self.download_pledge_detail(ts_code)
+                    if df is not None and not df.empty:
+                        all_data.append(df)
+                    else:
+                        self.logger.debug(f"No pledge_detail data for {ts_code}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to download pledge_detail for {ts_code}: {e}")
+                    continue  # Continue with next stock even if one fails
+
+        # Combine all data
+        if all_data:
+            result = pd.concat(all_data, ignore_index=True)
+            self.logger.info(f"Successfully downloaded pledge_detail batch: {len(result)} total records")
+            return result
+        else:
+            self.logger.warning("No pledge_detail data could be downloaded for any stock")
+            return pd.DataFrame()

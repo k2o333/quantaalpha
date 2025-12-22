@@ -199,3 +199,99 @@ class DailyDataDownloader:
             self.logger.error(f"Failed to download daily_basic for date range: {e}")
             ErrorHandler.handle_api_error(e, "download_daily_basic_range")
             raise
+
+    def download_pro_bar(self, ts_code: str, start_date: str = None, end_date: str = None, adj: str = 'qfq', freq: str = 'D') -> pd.DataFrame:
+        """
+        Download复权行情数据
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("pro_bar requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            params = {
+                'ts_code': ts_code,
+                'adj': adj,
+                'freq': freq
+            }
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+
+            result = self.download_with_retry(
+                self.pro.pro_bar,
+                **params
+            )
+            self.logger.info(f"Successfully downloaded pro_bar for {ts_code}: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download pro_bar for {ts_code}: {e}")
+            ErrorHandler.handle_api_error(e, f"download_pro_bar for {ts_code}")
+            raise
+
+    def download_pro_bar_range(self, ts_code: str, start_date: str, end_date: str, adj: str = 'qfq', freq: str = 'D') -> pd.DataFrame:
+        """
+        Download复权行情数据（指定日期范围）
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("pro_bar requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            result = self.download_with_retry(
+                self.pro.pro_bar,
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+                adj=adj,
+                freq=freq
+            )
+            self.logger.info(f"Successfully downloaded pro_bar for {ts_code} from {start_date} to {end_date}: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download pro_bar for {ts_code} from {start_date} to {end_date}: {e}")
+            ErrorHandler.handle_api_error(e, f"download_pro_bar_range for {ts_code}")
+            raise
+
+    def download_pro_bar_full_history(self, ts_code: str, adj: str = 'qfq', freq: str = 'D') -> pd.DataFrame:
+        """
+        Download full history复权行情数据（从上市日到今天）
+        Available to users with 5000+ points
+        """
+        if TUSHARE_POINTS < 5000:
+            self.logger.warning("pro_bar requires 5000+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # 获取股票基本信息以确定上市日期
+            from .basic_data import BasicDataDownloader
+            basic_downloader = BasicDataDownloader(self.pro)
+            stock_info = basic_downloader.download_stock_basic()
+
+            # 查找该股票的上市日期
+            stock_row = stock_info[stock_info['ts_code'] == ts_code]
+            if stock_row.empty:
+                self.logger.warning(f"Stock {ts_code} not found in stock basic info")
+                return pd.DataFrame()
+
+            list_date = stock_row.iloc[0]['list_date']
+            end_date = pd.Timestamp.now().strftime('%Y%m%d')
+
+            # 下载从上市日到今天的全部历史数据
+            result = self.download_with_retry(
+                self.pro.pro_bar,
+                ts_code=ts_code,
+                start_date=list_date,
+                end_date=end_date,
+                adj=adj,
+                freq=freq
+            )
+            self.logger.info(f"Successfully downloaded full history pro_bar for {ts_code} from {list_date} to {end_date}: {len(result)} records")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to download full history pro_bar for {ts_code}: {e}")
+            ErrorHandler.handle_api_error(e, f"download_pro_bar_full_history for {ts_code}")
+            raise

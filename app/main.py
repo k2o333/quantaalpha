@@ -173,6 +173,12 @@ def main():
                         help='结束日期 (YYYYMMDD格式，默认: 今天)')
     parser.add_argument('--use_legacy', action='store_true',
                         help='使用传统下载方式（跳过新调度器）')
+    parser.add_argument('--holders-data', dest='holders_data', action='store_true',
+                        help='启用stk_rewards, top10_holders, pledge_detail, fina_audit等股东数据下载')
+    parser.add_argument('--pro-bar-only', dest='pro_bar_only', action='store_true',
+                        help='仅启用pro_bar复权行情下载')
+    parser.add_argument('--tscode-historical', dest='tscode_historical', action='store_true',
+                        help='下载全历史数据而非指定日期范围（仅适用于指定接口）')
 
     args = parser.parse_args()
 
@@ -182,12 +188,78 @@ def main():
     logger.info(f"📅 启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     try:
-        # Download all data using the appropriate method
-        if args.use_legacy:
-            logger.info("使用传统下载方式")
-            results = download_with_legacy_method(args.start_date, args.end_date)
+        # 如果指定了holders_data或pro_bar_only参数，或只指定了tscode_historical参数，则只下载特定数据
+        if args.holders_data or args.pro_bar_only or (args.tscode_historical and not (args.holders_data or args.pro_bar_only)):
+            logger.info("开始下载指定的全历史数据...")
+            # 初始化TuShareDownloader
+            from tushare_api import TuShareDownloader
+            downloader = TuShareDownloader()
+
+            results = {}
+
+            # 如果只指定了tscode_historical参数（没有指定holders_data或pro_bar_only），则默认下载所有5个接口
+            download_holders_data = args.holders_data or (args.tscode_historical and not (args.holders_data or args.pro_bar_only))
+            download_pro_bar_only = args.pro_bar_only or (args.tscode_historical and not (args.holders_data or args.pro_bar_only))
+
+            if download_holders_data:
+                logger.info("下载股东相关全历史数据...")
+                # 下载stk_rewards, top10_holders, pledge_detail, fina_audit数据
+                if args.tscode_historical:
+                    # 下载全历史数据
+                    # 先获取股票列表以提高性能
+                    from interfaces.basic_data import BasicDataDownloader
+                    basic_downloader = BasicDataDownloader(downloader.pro)
+                    stock_list = basic_downloader.download_stock_basic()
+
+                    # 创建全历史下载器实例
+                    from interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
+                    full_history_downloader = HoldersDataFullHistoryDownloader(downloader.pro, stock_list)
+
+                    logger.info("下载stk_rewards全历史数据...")
+                    results['stk_rewards_full'] = full_history_downloader.download_stk_rewards_full_history()
+
+                    logger.info("下载top10_holders全历史数据...")
+                    results['top10_holders_full'] = full_history_downloader.download_top10_holders_full_history()
+
+                    if TUSHARE_POINTS >= 5000:
+                        logger.info("下载pledge_detail全历史数据...")
+                        results['pledge_detail_full'] = full_history_downloader.download_pledge_detail_full_history()
+
+                    if TUSHARE_POINTS >= 500:
+                        logger.info("下载fina_audit全历史数据...")
+                        # 对于fina_audit，直接从FinancialDataDownloader调用
+                        from interfaces.financial_data import FinancialDataDownloader
+                        financial_downloader = FinancialDataDownloader(downloader.pro)
+                        results['fina_audit_full'] = financial_downloader.download_fina_audit_full_history()
+                else:
+                    # 使用传统方式下载指定日期范围
+                    results = download_with_legacy_fallback(args.start_date, args.end_date)
+
+            if download_pro_bar_only:
+                logger.info("下载pro_bar复权行情数据...")
+                if args.tscode_historical:
+                    # 下载全历史数据
+                    logger.info("下载pro_bar全历史数据...")
+                    # 传递股票列表以提高性能
+                    from interfaces.basic_data import BasicDataDownloader
+                    basic_downloader = BasicDataDownloader(downloader.pro)
+                    stock_list = basic_downloader.download_stock_basic()
+
+                    from interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
+                    full_history_downloader = HoldersDataFullHistoryDownloader(downloader.pro, stock_list)
+                    results['pro_bar_full'] = full_history_downloader.download_pro_bar_full_history_all_stocks()
+                else:
+                    # 使用传统方式下载指定日期范围
+                    if 'results' not in locals():
+                        results = download_with_legacy_fallback(args.start_date, args.end_date)
+
         else:
-            results = download_with_legacy_fallback(args.start_date, args.end_date)
+            # Download all data using the appropriate method
+            if args.use_legacy:
+                logger.info("使用传统下载方式")
+                results = download_with_legacy_method(args.start_date, args.end_date)
+            else:
+                results = download_with_legacy_fallback(args.start_date, args.end_date)
 
         # Generate final summary
         elapsed_time = time.time() - start_time
@@ -195,8 +267,25 @@ def main():
         # Calculate total records properly by checking data types
         total_records = 0
         if isinstance(results, dict):
-            # Handle results from new scheduler
-            total_records = results.get('total_downloaded', 0)
+            # Handle results from new scheduler or custom downloads
+            if 'total_downloaded' in results:
+                # Handle results from new scheduler
+                total_records = results.get('total_downloaded', 0)
+            else:
+                # Handle results from custom downloads (pandas DataFrames)
+                for key, result in results.items():
+                    if isinstance(result, pd.DataFrame):
+                        # If result is a DataFrame, count its rows
+                        total_records += len(result) if result is not None else 0
+                    elif isinstance(result, dict):
+                        # If result is a dictionary, sum its values
+                        total_records += sum(result.values()) if result else 0
+                    elif isinstance(result, (int, float)):
+                        # If result is a number, add directly
+                        total_records += result
+                    else:
+                        # For other types, skip or treat as 0
+                        continue
         else:
             # Handle results from legacy method
             for result in results.values():

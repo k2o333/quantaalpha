@@ -130,6 +130,14 @@ DOWNLOAD_PIPELINE_CONFIG = {
         batch_size=5000,
         required_points=5000
     ),
+    'pro_bar': InterfaceConfig(
+        enabled=ORIGINAL_DOWNLOAD_CONFIG.get('pro_bar', True),
+        priority=DataTypePriority.MEDIUM,
+        max_retries=3,
+        strategy=DownloadStrategy.PARALLEL,
+        concurrency=4,
+        required_points=5000
+    ),
 
     # 芯片分布接口 - 低优先级（已暂时禁用）
     'cyq_perf': InterfaceConfig(
@@ -280,6 +288,14 @@ DOWNLOAD_PIPELINE_CONFIG = {
         max_retries=2,
         strategy=DownloadStrategy.SEQUENTIAL,
         required_points=120
+    ),
+    'pledge_detail': InterfaceConfig(
+        enabled=ORIGINAL_DOWNLOAD_CONFIG.get('pledge_detail', True),
+        priority=DataTypePriority.LOW,
+        max_retries=2,
+        strategy=DownloadStrategy.PAGINATED,
+        batch_size=1000,
+        required_points=5000
     ),
 
     # 东财资金流接口 - 低优先级（已禁用）
