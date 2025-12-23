@@ -303,7 +303,6 @@ class DownloadScheduler:
         task_ids = []
         for period in periods:
             task_params = {
-                'interface_name': interface_name,
                 'period': period
             }
 
@@ -321,6 +320,11 @@ class DownloadScheduler:
                     priority=priority
                 )
                 continue
+
+            task_params = {
+                'interface_name': interface_name,
+                'period': period
+            }
 
             task_id = self.task_manager.add_task(
                 task_type='download',
@@ -388,9 +392,7 @@ class DownloadScheduler:
         """
         调度静态数据接口下载任务
         """
-        task_params = {
-            'interface_name': interface_name
-        }
+        task_params = {}
 
         # 检查是否应该跳过此任务（使用扩展的缓存功能）
         should_skip, cached_data = self._should_skip_download_task(interface_name, **task_params)
@@ -406,6 +408,10 @@ class DownloadScheduler:
                 priority=priority
             )
             return None
+
+        task_params = {
+            'interface_name': interface_name
+        }
 
         task_id = self.task_manager.add_task(
             task_type='download',
@@ -546,9 +552,8 @@ class DownloadScheduler:
             batch_start = batch_days[0]
             batch_end = batch_days[-1]
 
-            # 创建任务参数
+            # 创建任务参数（用于缓存检查）
             task_params = {
-                'interface_name': interface_name,
                 'start_date': batch_start,
                 'end_date': batch_end,
                 'trading_days': batch_days
@@ -568,6 +573,14 @@ class DownloadScheduler:
                     priority=priority
                 )
                 continue
+
+            # 创建完整的任务参数（包括接口名称）
+            task_params = {
+                'interface_name': interface_name,
+                'start_date': batch_start,
+                'end_date': batch_end,
+                'trading_days': batch_days
+            }
 
             # 提交下载任务
             task_id = self.task_manager.add_task(
@@ -1006,15 +1019,30 @@ def run_download_schedule(start_date: str, end_date: str, interfaces: List[str] 
     Returns:
         下载统计结果
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info("创建下载调度器实例")
     scheduler = create_download_scheduler(start_date, end_date)
+    logger.info("下载调度器创建成功")
 
     try:
+        logger.info("开始调度下载任务")
         # 调度下载任务
         scheduler.schedule_download_tasks(interfaces)
+        logger.info("下载任务调度完成，等待执行")
 
+        logger.info("开始执行调度的任务")
         # 执行所有任务
         results = scheduler.execute_scheduled_tasks(wait_for_completion=True)
+        logger.info("任务执行完成")
 
         return results
+    except Exception as e:
+        logger.error(f"执行下载调度时出错: {e}")
+        import traceback
+        logger.error(f"错误追踪: {traceback.format_exc()}")
+        raise
     finally:
+        logger.info("关闭下载调度器")
         scheduler.shutdown()

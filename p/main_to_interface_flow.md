@@ -35,6 +35,7 @@ flowchart TD
     O1 --> O9[MarketStructureDownloader Module]
     O1 --> O10[ResearchDataDownloader Module]
     O1 --> O11[BaseDownloader Module]
+    O1 --> O12[HoldersDataFullHistoryDownloader Module]
 
     %% Producer-Consumer pattern for storage
     M --> P1[Check for data download results]
@@ -49,7 +50,7 @@ flowchart TD
     D --> Z[date_range_downloader.py]
     Z --> AA[DateRangeDownloader]
     AA --> AB[TuShareDownloader<br/>Instantiated with delegation]
-    AB --> AC[Download via modules<br/>O2 through O11]
+    AB --> AC[Download via modules<br/>O2 through O12]
     AC --> AD[Direct save_to_parquet call]
 
     %% Task management and queuing
@@ -72,6 +73,56 @@ flowchart TD
     AM --> AN[Global Rate Limiter<br/>Token Bucket Algorithm]
     AN --> AO[Parallel Downloader<br/>with concurrency controls]
     AO --> AP[Enhanced Config<br/>with advanced settings]
+
+    %% Missing components from analysis
+    AP --> AQ[ParameterAdapterManager<br/>for parameter validation and adaptation]
+    AQ --> AR[DailyDataParameterAdapter, FinancialDataParameterAdapter, etc.]
+
+    O12 --> AS[HoldersDataFullHistoryDownloader<br/>for ts_code-dependent interfaces]
+    AS --> O2[BasicDataDownloader for stock_basic]
+    AS --> O4[FinancialDataDownloader for fina_audit]
+    AS --> O3[DailyDataDownloader for pro_bar]
+
+    AQ --> O
+    AR --> O
+
+    %% Cache components
+    O --> AT[cache_key_generator.py<br/>Standardized cache key generation]
+    AT --> AU[cache_manager.py<br/>Cache preheating, cleaning and monitoring]
+    AU --> AV[cache_monitor.py<br/>Cache hit rate tracking]
+    AV --> AW[data_storage.py integration<br/>for caching system]
+
+    %% Error handling components
+    O1 --> AX[error_handler.py<br/>Enhanced error handling and retry mechanisms]
+    AX --> AX1[retry_on_failure decorator<br/>with exponential backoff]
+    AX1 --> AX2[ErrorHandler.handle_api_error<br/>with specific error handling]
+
+    %% Stock List Manager - Singleton pattern
+    O --> AY[stock_list_manager.py<br/>Singleton stock list manager]
+    AY --> AY1[Prevents duplicate stock_basic API calls]
+
+    %% Strategy Factory pattern
+    N --> AZ[strategy_factory.py<br/>Strategy creation and caching]
+    AZ --> BA[StrategyFactory.get_strategy<br/>with caching mechanism]
+
+    %% Date utilities
+    AW --> BB[utils/date_utils.py<br/>Date validation and conversion tools]
+
+    %% Error handling integration
+    O --> AX
+    M --> AX
+    AX --> BA
+
+    %% Cache integration in download process
+    AW --> M
+    AU --> F
+    AV --> N
+
+    %% Stock List Manager integration
+    AY --> AS
+    AY --> O4
+    AY --> O3
+    AY --> O2
 
     subgraph "Main Entry"
         A
@@ -102,6 +153,7 @@ flowchart TD
         O9
         O10
         O11
+        O12
     end
 
     subgraph "Producer-Consumer Storage Pattern"
@@ -140,6 +192,36 @@ flowchart TD
         AN
         AO
         AP
+        AQ
+        AR
+        AZ
+        BA
+    end
+
+    subgraph "Caching System"
+        AT
+        AU
+        AV
+        AW
+    end
+
+    subgraph "Error Handling"
+        AX
+        AX1
+        AX2
+    end
+
+    subgraph "Specialized Components"
+        AS
+    end
+
+    subgraph "Stock Management"
+        AY
+        AY1
+    end
+
+    subgraph "Utilities"
+        BB
     end
 ```
 
@@ -154,10 +236,11 @@ flowchart TD
 6. → `DownloadScheduler.execute_scheduled_tasks()` executes the tasks in parallel
 7. → `DownloadScheduler._task_consumer_loop()` processes tasks via task queue manager
 8. → `download_strategies.get_strategy()` gets the appropriate download strategy
-9. → `TuShareDownloader` main class that orchestrates the interface usage (Facade Pattern)
-   - Implements facade pattern with `__getattr__` delegation to individual interface modules
-   - Maintains unified interface while delegating to specialized modules
-10. → Individual interface classes from `app/interfaces/`:
+9. → `strategy_factory.get_strategy()` provides cached strategy instances with configuration
+10. → `TuShareDownloader` main class that orchestrates the interface usage (Facade Pattern)
+    - Implements facade pattern with `__getattr__` delegation to individual interface modules
+    - Maintains unified interface while delegating to specialized modules
+11. → Individual interface classes from `app/interfaces/`:
     - `BasicDataDownloader` (basic_data.py)
     - `DailyDataDownloader` (daily_data.py)
     - `FinancialDataDownloader` (financial_data.py)
@@ -168,20 +251,39 @@ flowchart TD
     - `MarketStructureDownloader` (market_structure.py)
     - `ResearchDataDownloader` (research_data.py)
     - `BaseDownloader` (base.py) - base functionality for all interfaces
-11. → API calls executed via interface-specific classes
-12. → Downloaded data processed via Asynchronous Producer-Consumer Pattern:
+    - `HoldersDataFullHistoryDownloader` (holders_data_downloader.py) - for ts_code-dependent interfaces requiring full history
+12. → Parameter validation and adaptation via `parameter_adapters.py`:
+    - `ParameterAdapterManager` routes to appropriate adapter
+    - `DailyDataParameterAdapter`, `FinancialDataParameterAdapter`, etc.
+    - Standardized parameter validation and date formatting
+13. → Error handling via `error_handler.py`:
+    - `retry_on_failure` decorator with exponential backoff
+    - `ErrorHandler.handle_api_error` with specific error type handling
+14. → Advanced caching system via `cache_key_generator.py`, `cache_manager.py`, `cache_monitor.py`:
+    - Standardized cache key generation with intelligent matching
+    - Cache preheating and monitoring capabilities
+    - Cache hit rate tracking and statistics
+15. → Stock list management via `stock_list_manager.py` singleton pattern:
+    - Prevents duplicate stock_basic API calls
+    - Cached stock list with configurable TTL
+16. → API calls executed via interface-specific classes
+17. → Downloaded data processed via Asynchronous Producer-Consumer Pattern:
     - Download task completes and creates storage task via `task_manager.add_storage_task()`
     - Storage task placed in queue managed by `TaskQueueManager`
     - Independent `StorageWorker` threads consume storage tasks from queue
     - Storage tasks executed separately from download tasks, enabling parallel processing
-13. → Data saved as Parquet files via `data_storage.py`
+18. → Data saved as Parquet files via `data_storage.py`
 
 ### Fallback Flow (Legacy System):
 1. `main.py` → `download_with_legacy_method()`
 2. → `date_range_downloader.DateRangeDownloader`
 3. → `TuShareDownloader` class (shared logic with facade pattern)
 4. → Individual interface classes (same as above)
-5. → Data saved directly via synchronous `data_storage.py` calls within download methods
+5. → Parameter validation and adaptation (same as above)
+6. → Advanced error handling (same as above)
+7. → Caching system integration (same as above)
+8. → Stock list management (same as above)
+9. → Data saved directly via synchronous `data_storage.py` calls within download methods
 
 ### Configuration and Strategy Layer:
 - `config_adapter.py` provides interface configurations based on `DOWNLOAD_PIPELINE_CONFIG` with enhanced features
@@ -192,32 +294,45 @@ flowchart TD
 - `parallel_downloader.py` enables parallel downloads of multiple interfaces with concurrency controls
 - `storage_worker.py` implements consumer threads for asynchronous data storage
 - `download_strategies.py` provides different download strategies for different data types (batch, parallel, sequential, paginated)
+- `strategy_factory.py` manages strategy instantiation with caching
+- `parameter_adapters.py` provides parameter validation and normalization for all interfaces
+- `cache_key_generator.py`, `cache_manager.py`, `cache_monitor.py` provide advanced caching capabilities
+- `stock_list_manager.py` implements singleton pattern to prevent duplicate stock API calls
+- `error_handler.py` provides enhanced error handling with retry mechanisms and API-specific error handling
+- `utils/date_utils.py` provides date validation and conversion utilities
 
 ### Key Architectural Patterns:
 
 1. **Facade Pattern**: `TuShareDownloader` acts as a unified interface delegating to specialized modules via `__getattr__`
 2. **Producer-Consumer Pattern**: Download tasks and storage tasks are decoupled with independent processing threads
-3. **Strategy Pattern**: Different download approaches are implemented via `download_strategies.py` and `DownloadStrategy` enum
-4. **Task Queue Management**: Priority-based task scheduling implemented in `task_queue_manager.py`
-5. **Asynchronous Processing**: Storage operations are handled asynchronously to avoid blocking download threads
-6. **Configuration Adapter Pattern**: New configuration system maintains compatibility with old format while adding advanced features
-7. **Rate Limiting with Token Bucket**: Global rate limiting prevents API throttling across all interfaces
-8. **Priority-based Scheduling**: High priority interfaces (like trade_cal) are processed before low priority ones
-9. **Caching System**: Configurable caching reduces unnecessary API calls and improves performance
-10. **Enhanced Configuration**: Advanced settings for retries, timeouts, concurrency, and API parameters
+3. **Strategy Pattern**: Different download approaches are implemented via `download_strategies.py` and `DownloadStrategy` classes
+4. **Strategy Factory Pattern**: Strategy instantiation and caching via `strategy_factory.py`
+5. **Task Queue Management**: Priority-based task scheduling implemented in `task_queue_manager.py`
+6. **Asynchronous Processing**: Storage operations are handled asynchronously to avoid blocking download threads
+7. **Configuration Adapter Pattern**: New configuration system maintains compatibility with old format while adding advanced features
+8. **Rate Limiting with Token Bucket**: Global rate limiting prevents API throttling across all interfaces
+9. **Parameter Adapter Pattern**: Standardized parameter validation and adaptation per interface type
+10. **Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming
+11. **Singleton Pattern**: Stock list management uses singleton pattern to prevent duplicate API calls
+12. **Enhanced Error Handling**: Improved retry mechanisms with exponential backoff and adaptive rate limiting
 
 ### New Enhanced Features:
 
 1. **Priority-based Interface Configuration**: Interfaces are categorized by priority (HIGH, MEDIUM, LOW) to optimize download order
-2. **Advanced Download Strategies**: Different strategies available (BATCH, PARALLEL, SEQUENTIAL, PAGINATED) for optimal data retrieval
+2. **Advanced Download Strategies**: Different strategies available (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy) for optimal data retrieval
 3. **Concurrency Control**: Configurable concurrency levels per interface to maximize throughput within API limits
-4. **Caching Mechanism**: Configurable caching with TTL to reduce redundant API calls
+4. **Advanced Caching Mechanism**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming capabilities
 5. **Token Bucket Rate Limiting**: Sophisticated rate limiting across all API calls with global control
-6. **Enhanced Error Handling**: Improved retry mechanisms with configurable retry counts and backoff strategies
-7. **Configurable API Parameters**: Interface-specific API parameters can be set in configuration
+6. **Enhanced Error Handling**: Improved retry mechanisms with configurable retry counts and backoff strategies with API-specific error handling
+7. **Parameter Adaptation System**: Interface-specific parameter validation and standardization through adapter pattern
 8. **Backward Compatibility**: New configuration system maintains compatibility with the original DOWNLOAD_CONFIG format
+9. **Stock List Management**: Singleton pattern implementation for efficient stock list access
+10. **Strategy Caching**: Factory pattern with caching to optimize strategy instantiation
+11. **Full History Download Capability**: Specialized downloader for interfaces requiring ts_code parameters for bulk historical data
+12. **Cache Monitoring**: Real-time cache performance tracking with hit rate statistics
 
 This enhanced architecture enables modular, extensible data download functionality with proper error handling, retry logic, rate limiting, caching, and asynchronous processing, all orchestrated through the entry point in main.py. The decoupled nature of download and storage operations allows for better resource utilization and system responsiveness. The new configuration system provides granular control over download behavior while maintaining backward compatibility with the original system structure.
+The integrated caching system with standardized cache key generation, parameter validation system with interface-specific adapters, error handling with API-specific logic, and singleton stock list manager all contribute to a more robust and efficient architecture.
 
 ## Application Structure and Key Components
 
@@ -242,8 +357,13 @@ aspipe_v4/
 │   ├── storage_worker.py  # Storage consumer logic
 │   ├── download_strategies.py # Strategy pattern for different download approaches
 │   ├── global_rate_limiter.py  # Rate limiting with token bucket
-│   ├── strategy_factory.py    # Strategy management
+│   ├── strategy_factory.py    # Strategy management with caching
 │   ├── parameter_adapters.py  # API parameter adaptation
+│   ├── error_handler.py   # Enhanced error handling with retry mechanisms
+│   ├── stock_list_manager.py  # Singleton stock list management
+│   ├── cache_key_generator.py # Standardized cache key generation
+│   ├── cache_manager.py       # Cache management and preheating
+│   ├── cache_monitor.py       # Cache monitoring
 │   ├── interfaces/        # Modular interface classes
 │   │   ├── base.py        # Base interface functionality
 │   │   ├── basic_data.py
@@ -251,12 +371,14 @@ aspipe_v4/
 │   │   ├── financial_data.py
 │   │   ├── market_flow.py
 │   │   ├── holders_data.py
+│   │   ├── holders_data_downloader.py  # Full history holder data downloader
 │   │   ├── technical_factors.py
 │   │   ├── cyq_chips.py
 │   │   ├── market_structure.py
 │   │   └── research_data.py
 │   └── utils/             # Utility functions
-├── test/                  # Test scripts (including task_queue_manager.py)
+│       └── date_utils.py      # Date utility functions
+├── test/                  # Test scripts (including task_queue_manager.py and new cache functionality tests)
 ├── data/                  # Output directory for downloaded data
 ├── log/                   # Log files
 ├── cache/                 # Temporary cache files
@@ -329,12 +451,22 @@ if result is not None and not result.empty:
 - **Implementation**: Different download strategies for different data types
 - **Benefits**: Flexible approach selection, easy extension
 
-#### 4. Configuration Adapter Pattern
+#### 4. Strategy Factory Pattern
+- **File**: `app/strategy_factory.py`
+- **Implementation**: Strategy creation and caching
+- **Benefits**: Optimized strategy instantiation, centralized management
+
+#### 5. Configuration Adapter Pattern
 - **File**: `app/config_adapter.py`
 - **Implementation**: Unifies access to old and new configuration formats
 - **Benefits**: Maintains backward compatibility while adding advanced features
 
-#### 5. Task Queue Management
+#### 6. Parameter Adapter Pattern
+- **File**: `app/parameter_adapters.py`
+- **Implementation**: Standardized parameter validation and adaptation per interface
+- **Benefits**: Consistent parameter handling across different interfaces
+
+#### 7. Task Queue Management
 - **File**: `test/task_queue_manager.py`
 - **Implementation**: Priority-based task scheduling with dependency management
 - **Benefits**: Efficient resource management, controlled execution order
@@ -345,18 +477,32 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 - **Retry logic**: Failed tasks can be retried automatically
 - **Statistics tracking**: Monitor task execution metrics
 
+#### 8. Caching System
+- **Files**: `app/cache_key_generator.py`, `app/cache_manager.py`, `app/cache_monitor.py`
+- **Implementation**: Multi-layer caching with intelligent key generation
+- **Benefits**: Reduced API calls, improved performance, cache warming capabilities
+
+#### 9. Singleton Pattern
+- **File**: `app/stock_list_manager.py`
+- **Implementation**: Single instance of stock list management
+- **Benefits**: Prevents duplicate API calls, consistent data access
+
 ### Data Flow Architecture
 
 #### New Scheduler Flow:
 1. **Main Entry** → `main.py`
 2. **Task Scheduling** → `DownloadScheduler.schedule_download_tasks()`
-3. **Task Execution** → `_task_consumer_loop()` processes download tasks
-4. **Strategy Selection** → `download_strategies.get_strategy()`
-5. **Facade Delegation** → `TuShareDownloader.__getattr__()` → Interface modules
-6. **API Calling** → Individual interface modules
-7. **Storage Task Creation** → `task_manager.add_storage_task()`
-8. **Storage Processing** → `StorageWorker` consumer threads
-9. **Data Storage** → `data_storage.save_to_parquet()`
+3. **Strategy Selection** → `strategy_factory.get_strategy()` with caching
+4. **Parameter Adaptation** → `parameter_adapters.adapt_parameters()`
+5. **Task Execution** → `_task_consumer_loop()` processes download tasks
+6. **Strategy Selection** → `download_strategies.get_strategy()`
+7. **Facade Delegation** → `TuShareDownloader.__getattr__()` → Interface modules
+8. **Error Handling** → `error_handler.py` with retry mechanisms
+9. **API Calling** → Individual interface modules
+10. **Caching** → `cache_manager.py` integration for data caching
+11. **Storage Task Creation** → `task_manager.add_storage_task()`
+12. **Storage Processing** → `StorageWorker` consumer threads
+13. **Data Storage** → `data_storage.save_to_parquet()`
 
 #### Legacy Flow:
 1. **Fallback Entry** → `date_range_downloader.DateRangeDownloader`
@@ -372,7 +518,12 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 | `DownloadScheduler` | Orchestrator | Task scheduling, producer-consumer coordination |
 | `StorageWorker` | Consumer | Asynchronous data storage processing |
 | `TaskQueueManager` | Manager | Priority-based task queue management (now in test/ directory) |
-| `DownloadStrategy` | Strategy | Data download approach selection |
+| `DownloadStrategy` classes | Strategy | Data download approach selection per interface type |
+| `StrategyFactory` | Factory | Strategy creation and caching |
 | `ConfigAdapter` | Adapter | Unifies old and new configuration access |
+| `ParameterAdapter` classes | Adapter | Parameter validation and standardization |
+| `CacheManager` | Manager | Cache preheating, cleaning, monitoring |
+| `StockListManager` | Singleton | Stock list management, prevents duplicate calls |
+| `ErrorHandler` | Handler | Error handling and retry mechanisms |
 | `InterfaceConfig` | Configuration | Enhanced interface settings with priority, retries, etc. |
 | Interface modules | Implementation | Specific data interface implementations |

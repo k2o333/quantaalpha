@@ -26,6 +26,10 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 15. **Parameter Adapters** (`app/parameter_adapters.py`): Interface for adapting API parameters across different data interfaces
 16. **Configuration Adapter** (`app/config_adapter.py`): Unifies old and new config access while maintaining backward compatibility
 17. **Enhanced Download Config** (`app/enhanced_download_config.py`): Supports priority-based scheduling and advanced interface settings
+18. **Stock List Manager** (`app/stock_list_manager.py`): Singleton pattern implementation to prevent duplicate stock_basic API calls
+19. **Cache Key Generator** (`app/cache_key_generator.py`): Standardized cache key and path generation for consistent caching
+20. **Cache Manager** (`app/cache_manager.py`): Cache management with preheating, cleanup, and monitoring capabilities
+21. **Cache Monitor** (`app/cache_monitor.py`): Cache performance monitoring with hit rate tracking
 
 ### Key Modules
 - **Main Entry Point**: `app/main.py` - Unified entry point for all data downloads with fallback capability
@@ -63,6 +67,17 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 14. **Config Adapter Pattern**: Maintains compatibility between old and new configuration formats
 15. **Concurrency Control**: Configurable concurrency levels per interface to optimize throughput within API limits
 16. **API Parameter Configuration**: Interface-specific API parameters can be set in configuration
+17. **Full History Download**: Specialized downloader for interfaces that require ts_code parameters, enabling bulk downloads of all historical data for all stocks
+18. **Advanced Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming capabilities
+19. **Singleton Pattern Implementation**: Stock list manager using singleton pattern to prevent duplicate API calls
+20. **Enhanced Error Handling**: Improved retry mechanisms with exponential backoff and adaptive rate limiting
+21. **Dependency-Aware Task Queue**: Task queue management with dependency tracking between tasks
+22. **Intelligent Cache Matching**: Can extract specific data from more general caches (e.g., single stock data from all-stock cache)
+23. **Cache Preheating**: Proactive cache warming for frequently accessed data ranges
+24. **Cache Monitoring**: Real-time tracking of cache hit rates and performance metrics
+25. **Date Range Optimization**: Smart date range handling with overlap detection and merging
+26. **Parameter Validation Framework**: Comprehensive parameter validation and normalization for all interfaces
+27. **Configuration Backward Compatibility**: Seamless integration between old boolean config and new detailed interface config
 
 ## Development Commands
 
@@ -91,6 +106,15 @@ python app/enhanced_main_downloader.py --start_date 20230101 --end_date 20231231
 
 # Use legacy mode (skip new scheduler)
 python app/main.py --start_date 20230101 --end_date 20231231 --use_legacy
+
+# Enable download of stk_rewards, top10_holders, pledge_detail, fina_audit shareholder data
+python app/main.py --start_date 20230101 --end_date 20231231 --holders-data
+
+# Download only pro_bar adjusted price data
+python app/main.py --start_date 20230101 --end_date 20231231 --pro-bar-only
+
+# Download full historical data instead of date-range data (for specific interfaces)
+python app/main.py --start_date 20230101 --end_date 20231231 --tscode-historical
 ```
 
 ### Development Tasks
@@ -104,13 +128,31 @@ python app/test_enhanced_features.py  # Test the enhanced features
 
 # To check available interfaces for your score level:
 python -c "from score_config import get_available_data_types; from config import TUSHARE_POINTS; print(get_available_data_types(TUSHARE_POINTS))"
+
+# Quick interface verification scripts for validating all API endpoints
+python app/test_interface_verification.py
+
+# Cache functionality tests demonstrating the enhanced caching system
+python app/test_cache_functionality.py
+
+# New comprehensive cache tests (moved to test/ directory)
+python -m pytest test/test_cache_functions.py
+python -m pytest test/test_cache_integration.py
+python -m pytest test/test_cache_verification.py
+python -m pytest test/test_cache_verification_clean.py
+python -m pytest test/test_cache_holder_data.py
+python -m pytest test/test_new_cache_implementation.py
+python -m pytest test/test_imports.py
+
+# Full history download tests for ts_code-dependent interfaces
+python app/test_full_history_downloads.py
 ```
 
 ## File Structure
 ```
 aspipe_v4/
 ├── app/                    # Main application code
-│   ├── main.py            # Entry point for unified downloads with fallback
+│   ├── main.py            # Entry point for unified downloads with fallback capability
 │   ├── enhanced_main_downloader.py  # Production-ready enhanced downloader with strategy pattern
 │   ├── score_based_downloader.py  # Download management based on user积分 levels
 │   ├── config.py          # Configuration and token management
@@ -128,6 +170,11 @@ aspipe_v4/
 │   ├── global_rate_limiter.py  # Global rate limiting with token bucket
 │   ├── strategy_factory.py    # Strategy factory for management
 │   ├── parameter_adapters.py  # API parameter adaptation
+│   ├── error_handler.py      # Enhanced error handling with retry mechanisms
+│   ├── stock_list_manager.py # Stock list management to avoid duplicates
+│   ├── cache_key_generator.py # Cache key generation
+│   ├── cache_manager.py       # Cache management and preheating
+│   ├── cache_monitor.py       # Cache monitoring
 │   ├── interfaces/        # Modular interface classes
 │   │   ├── base.py        # Base interface functionality
 │   │   ├── basic_data.py  # Basic data interface (stock_basic, etc.)
@@ -135,17 +182,19 @@ aspipe_v4/
 │   │   ├── financial_data.py  # Financial data interface (income, balancesheet, etc.)
 │   │   ├── market_flow.py     # Money flow data interface
 │   │   ├── holders_data.py    # Stock holders data interface
+│   │   ├── holders_data_downloader.py  # Full history holder data downloader
 │   │   ├── technical_factors.py  # Technical factors interface
 │   │   ├── cyq_chips.py       # CYQ chips data interface
 │   │   ├── market_structure.py # Market structure data interface
 │   │   └── research_data.py   # Research data interface
 │   └── utils/             # Utility functions
+│       └── date_utils.py      # Date utility functions
 ├── data/                  # Output directory for downloaded data
 ├── log/                   # Log files
 ├── cache/                 # Temporary cache files
 ├── requirements.txt       # Dependencies
 ├── .env                   # Environment variables (not committed)
-├── test/                  # 所有测试脚本都放在这里，别放在app/ (including task_queue_manager.py)
+├── test/                  # 所有测试脚本都放在这里，别放在app/ (including task_queue_manager.py, cache functionality tests, and new cache implementation tests)
 └── p/                     # 所有生成的文档，除了 claude.md和readme.md 都放在这里
 ```
 
@@ -169,3 +218,12 @@ aspipe_v4/
 - Interface-specific API parameters can be configured for fine-grained control
 - The system features enhanced error handling, rate limiting, caching, and asynchronous processing
 - Asynchronous producer-consumer pattern decouples download and storage operations for better resource utilization
+- Intelligent cache matching allows extracting specific data from more general caches
+- Cache preheating proactively warms frequently accessed data ranges
+- Cache monitoring tracks hit rates and performance metrics in real-time
+- Date range optimization intelligently handles overlaps and merges ranges
+- Parameter validation framework ensures consistent and valid API parameters
+- Configuration backward compatibility seamlessly integrates old and new config formats
+- Singleton pattern implementation prevents duplicate stock_basic API calls
+- Full history download capabilities enable bulk downloads for ts_code-dependent interfaces
+- Dependency-aware task queue management tracks task relationships

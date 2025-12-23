@@ -9,8 +9,21 @@ from datetime import datetime, date
 from pathlib import Path
 import argparse
 import sys
-from config import TUSHARE_POINTS
-from score_config import get_available_data_types
+try:
+    from config import TUSHARE_POINTS
+except ImportError:
+    try:
+        from .config import TUSHARE_POINTS
+    except ImportError:
+        from app.config import TUSHARE_POINTS
+
+try:
+    from score_config import get_available_data_types
+except ImportError:
+    try:
+        from .score_config import get_available_data_types
+    except ImportError:
+        from app.score_config import get_available_data_types
 from tushare_api import TuShareDownloader
 import pandas as pd
 
@@ -20,7 +33,7 @@ log_dir.mkdir(exist_ok=True)  # Ensure log directory exists
 log_file = log_dir / 'aspipe_v4.log'
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_file, encoding='utf-8'),
