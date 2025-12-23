@@ -13,11 +13,18 @@ import pandas as pd
 from tushare_api import TuShareDownloader
 # Import inside the functions to avoid circular import issues
 from config_adapter import get_all_available_interfaces, get_interface_strategy, get_interface_concurrency, get_interface_priority
-from task_queue_manager import DownloadTaskQueueManager, TaskPriority, TaskStatus
+try:
+    from test.task_queue_manager import DownloadTaskQueueManager, TaskPriority, TaskStatus
+except ImportError:
+    # Fallback for when running from project root
+    import sys
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'test'))
+    from task_queue_manager import DownloadTaskQueueManager, TaskPriority, TaskStatus
 from storage_worker import StorageWorker, submit_data_to_storage
 from global_rate_limiter import acquire_tokens
 from parallel_downloader import ParallelDownloader
-from data_storage import save_to_parquet
+from data_storage import save_to_parquet, is_interface_data_cached, load_interface_cached_data, save_interface_data_to_cache
 
 
 class DownloadScheduler:
@@ -300,6 +307,21 @@ class DownloadScheduler:
                 'period': period
             }
 
+            # 检查是否应该跳过此任务（使用扩展的缓存功能）
+            should_skip, cached_data = self._should_skip_download_task(interface_name, **task_params)
+            if should_skip:
+                # 直接创建存储任务，使用现有存储功能
+                filename = f"{interface_name}_{period}"
+                subdir = f"financial/{period[:4]}"
+
+                self.task_manager.add_storage_task(
+                    data=cached_data,
+                    filename=filename,
+                    subdir=subdir,
+                    priority=priority
+                )
+                continue
+
             task_id = self.task_manager.add_task(
                 task_type='download',
                 target_func=self._execute_financial_download,
@@ -336,8 +358,8 @@ class DownloadScheduler:
             if not acquire_tokens(interface_name, 1.0, timeout=300):
                 raise Exception(f"无法获取 {interface_name} 的速率限制令牌")
 
-            # 执行下载
-            result = strategy.download(period=period)
+            # 执行带缓存的下载
+            result = strategy.download_with_cache(period=period)
 
             with self.stats_lock:
                 self.stats['total_downloaded'] += len(result) if result is not None else 0
@@ -370,6 +392,21 @@ class DownloadScheduler:
             'interface_name': interface_name
         }
 
+        # 检查是否应该跳过此任务（使用扩展的缓存功能）
+        should_skip, cached_data = self._should_skip_download_task(interface_name, **task_params)
+        if should_skip:
+            # 直接创建存储任务，使用现有存储功能
+            filename = f"{interface_name}_{self.start_date}_{self.end_date}"
+            subdir = f"static"
+
+            self.task_manager.add_storage_task(
+                data=cached_data,
+                filename=filename,
+                subdir=subdir,
+                priority=priority
+            )
+            return None
+
         task_id = self.task_manager.add_task(
             task_type='download',
             target_func=self._execute_static_download,
@@ -399,8 +436,8 @@ class DownloadScheduler:
             if not acquire_tokens(interface_name, 1.0, timeout=300):
                 raise Exception(f"无法获取 {interface_name} 的速率限制令牌")
 
-            # 执行下载
-            result = strategy.download()
+            # 执行带缓存的下载
+            result = strategy.download_with_cache()
 
             with self.stats_lock:
                 self.stats['total_downloaded'] += len(result) if result is not None else 0
@@ -454,6 +491,205 @@ class DownloadScheduler:
                     filtered_periods.append(period)
 
         return filtered_periods
+
+    def _should_skip_download_task(self, interface_name: str, **task_kwargs) -> tuple[bool, pd.DataFrame]:
+        """
+        检查是否应该跳过下载任务（因为已有有效缓存）
+        基于现有配置系统和数据存储模块
+
+        Returns:
+            (should_skip: bool, cached_data: pd.DataFrame)
+        """
+        # 获取缓存设置 - 利用现有配置系统
+        from config_adapter import get_interface_cache_settings
+        cache_settings = get_interface_cache_settings(interface_name)
+
+        if not cache_settings['enabled']:
+            return False, pd.DataFrame()
+
+        # 使用扩展现有的数据存储功能
+
+        # 提取缓存检查需要的参数
+        cache_kwargs = {}
+        for key in ['ts_code', 'trade_date', 'start_date', 'end_date', 'period']:
+            if key in task_kwargs:
+                cache_kwargs[key] = task_kwargs[key]
+
+        # 检查缓存
+        if is_interface_data_cached(
+            interface_name,
+            cache_ttl_hours=cache_settings['ttl_hours'],
+            **cache_kwargs
+        ):
+            # 缓存存在，加载数据
+            cached_data = load_interface_cached_data(interface_name, **cache_kwargs)
+            if not cached_data.empty:
+                self.logger.info(f"使用缓存数据: {interface_name}")
+                return True, cached_data
+
+        return False, pd.DataFrame()
+
+    def _schedule_daily_interface(self, interface_name: str, priority: TaskPriority) -> str:
+        """
+        调度日度数据接口下载任务（带缓存检查）
+        基于现有架构进行优化
+        """
+        # 获取交易日列表
+        trading_days = self._get_trading_days()
+
+        # 将交易日列表分批，每批处理一段时间范围
+        batch_size = 30  # 每批处理30个交易日
+        task_ids = []
+
+        for i in range(0, len(trading_days), batch_size):
+            batch_days = trading_days[i:i + batch_size]
+            batch_start = batch_days[0]
+            batch_end = batch_days[-1]
+
+            # 创建任务参数
+            task_params = {
+                'interface_name': interface_name,
+                'start_date': batch_start,
+                'end_date': batch_end,
+                'trading_days': batch_days
+            }
+
+            # 检查是否应该跳过此任务（使用扩展的缓存功能）
+            should_skip, cached_data = self._should_skip_download_task(interface_name, **task_params)
+            if should_skip:
+                # 直接创建存储任务，使用现有存储功能
+                filename = f"{interface_name}_{batch_start}_{batch_end}"
+                subdir = f"daily/{batch_start[:4]}/{batch_start[4:6]}"
+
+                self.task_manager.add_storage_task(
+                    data=cached_data,
+                    filename=filename,
+                    subdir=subdir,
+                    priority=priority
+                )
+                continue
+
+            # 提交下载任务
+            task_id = self.task_manager.add_task(
+                task_type='download',
+                target_func=self._execute_daily_download,
+                priority=priority,
+                kwargs=task_params,
+                max_retries=3,
+                metadata={
+                    'interface': interface_name,
+                    'date_range': f"{batch_start} to {batch_end}"
+                }
+            )
+            if task_id:
+                task_ids.append(task_id)
+
+        # 对于有多个批次的接口，创建一个聚合任务ID
+        if len(task_ids) == 1:
+            return task_ids[0]
+        elif len(task_ids) > 1:
+            return task_ids[0]
+        else:
+            return None
+
+    def _execute_daily_download(self, **kwargs) -> pd.DataFrame:
+        """
+        执行日度数据下载（集成缓存逻辑）
+        """
+        interface_name = kwargs.get('interface_name')
+        start_date = kwargs.get('start_date')
+        end_date = kwargs.get('end_date')
+        trading_days = kwargs.get('trading_days', [])
+
+        self.logger.info(f"开始下载日度数据: {interface_name}, 日期范围: {start_date} - {end_date}")
+
+        try:
+            from download_strategies import get_strategy
+            strategy = get_strategy(interface_name, downloader=self.downloader)
+
+            # 申请速率限制令牌
+            if not acquire_tokens(interface_name, 1.0, timeout=300):
+                raise Exception(f"无法获取 {interface_name} 的速率限制令牌")
+
+            # 在策略中集成缓存检查
+            if interface_name in ['daily', 'daily_basic', 'moneyflow']:
+                if interface_name == 'daily_basic':
+                    # daily_basic 按单日下载，集成缓存检查
+                    all_data = []
+                    for trade_date in trading_days:
+                        # 检查单日数据缓存
+                        from config_adapter import get_interface_cache_settings
+
+                        cache_settings = get_interface_cache_settings(interface_name)
+                        if cache_settings['enabled'] and is_interface_data_cached(
+                            interface_name,
+                            cache_ttl_hours=cache_settings['ttl_hours'],
+                            trade_date=trade_date
+                        ):
+                            cached_result = load_interface_cached_data(interface_name, trade_date=trade_date)
+                            if not cached_result.empty:
+                                all_data.append(cached_result)
+                                self.logger.info(f"使用缓存数据: {interface_name}, 日期: {trade_date}")
+                                continue
+
+                        # 未命中缓存，执行下载
+                        day_result = strategy.download(trade_date=trade_date)
+                        if not day_result.empty:
+                            all_data.append(day_result)
+                            # 保存到缓存
+                            if cache_settings['enabled']:
+                                save_interface_data_to_cache(day_result, interface_name, trade_date=trade_date)
+                        time.sleep(0.5)  # 应用速率限制
+                    result = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+                else:
+                    # 对于其他支持日期范围的接口，首先检查整个范围的缓存
+                    from config_adapter import get_interface_cache_settings
+
+                    cache_settings = get_interface_cache_settings(interface_name)
+                    if cache_settings['enabled'] and is_interface_data_cached(
+                        interface_name,
+                        cache_ttl_hours=cache_settings['ttl_hours'],
+                        start_date=start_date,
+                        end_date=end_date
+                    ):
+                        result = load_interface_cached_data(interface_name, start_date=start_date, end_date=end_date)
+                        if not result.empty:
+                            self.logger.info(f"使用缓存数据: {interface_name}, 范围: {start_date} - {end_date}")
+                        else:
+                            result = strategy.download(start_date=start_date, end_date=end_date)
+                            # 保存到缓存
+                            if cache_settings['enabled'] and not result.empty:
+                                save_interface_data_to_cache(result, interface_name, start_date=start_date, end_date=end_date)
+                    else:
+                        result = strategy.download(start_date=start_date, end_date=end_date)
+                        # 保存到缓存
+                        if cache_settings['enabled'] and not result.empty:
+                            save_interface_data_to_cache(result, interface_name, start_date=start_date, end_date=end_date)
+            else:
+                result = strategy.download(start_date=start_date, end_date=end_date)
+
+            with self.stats_lock:
+                self.stats['total_downloaded'] += len(result) if result is not None else 0
+
+            self.logger.info(f"完成下载 {interface_name}，获得 {len(result) if result is not None else 0} 条记录")
+
+            # 提交存储任务
+            if result is not None and not result.empty:
+                filename = f"{interface_name}_{start_date}_{end_date}"
+                subdir = f"daily/{start_date[:4]}/{start_date[4:6]}"
+
+                self.task_manager.add_storage_task(
+                    data=result,
+                    filename=filename,
+                    subdir=subdir,
+                    priority=TaskPriority.MEDIUM
+                )
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"下载日度数据 {interface_name} 失败: {e}")
+            raise
 
     def execute_scheduled_tasks(self, wait_for_completion: bool = True) -> Dict[str, Any]:
         """

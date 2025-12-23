@@ -34,6 +34,69 @@ class DownloadStrategy(ABC):
         self.rate_limit = self.config_adapter.get_rate_limit(interface_name)
         self.batch_size = self.config_adapter.get_batch_size(interface_name)
 
+        # 从现有配置获取缓存设置
+        cache_settings = self.config_adapter.get_cache_settings(interface_name)
+        self.cache_enabled = cache_settings['enabled']
+        self.cache_ttl_hours = cache_settings['ttl_hours']
+
+        # 使用扩展现有的数据存储模块
+        from data_storage import (
+            is_interface_data_cached,
+            load_interface_cached_data,
+            save_interface_data_to_cache
+        )
+        self.is_cached = is_interface_data_cached
+        self.load_cached = load_interface_cached_data
+        self.save_cached = save_interface_data_to_cache
+
+    def _get_cache_key(self, **kwargs) -> dict:
+        """生成缓存键，过滤掉不重要的参数"""
+        # 只保留影响数据结果的关键参数
+        cache_key = {}
+        for key in ['ts_code', 'trade_date', 'start_date', 'end_date', 'period']:
+            if key in kwargs and kwargs[key] is not None:
+                cache_key[key] = kwargs[key]
+        return cache_key
+
+    def download_with_cache(self, **kwargs):
+        """带缓存的下载方法 - 基于现有架构扩展"""
+        cache_key = self._get_cache_key(**kwargs)
+
+        # 如果启用缓存，检查缓存
+        if self.cache_enabled and self._can_use_cache(**kwargs):
+            cache_result = self.load_cached(self.interface_name, **cache_key)
+            if not cache_result.empty:
+                self.logger.info(f"使用缓存数据: {self.interface_name}")
+                return cache_result
+
+        # 执行实际下载
+        result = self.download(**kwargs)
+
+        # 保存到缓存
+        if self.cache_enabled and not result.empty:
+            self.save_cached(result, self.interface_name, **cache_key)
+
+        return result
+
+    def _can_use_cache(self, **kwargs) -> bool:
+        """判断是否可以使用缓存"""
+        # 对于某些参数组合，不使用缓存
+        if 'ts_code' in kwargs and kwargs.get('ts_code') and self.interface_name in ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit']:
+            # 股票特定数据可以缓存
+            return True
+        elif 'trade_date' in kwargs and self.interface_name in ['daily_basic', 'moneyflow']:
+            # 按日期数据可以缓存（短期TTL）
+            return True
+        elif 'start_date' in kwargs and 'end_date' in kwargs:
+            # 按日期范围数据可以缓存
+            return True
+        elif 'period' in kwargs and self.interface_name in ['income', 'balancesheet', 'cashflow']:
+            # 财务报告期数据可以缓存
+            return True
+        else:
+            # 其他情况默认可以缓存
+            return True
+
     @abstractmethod
     def download(self, **kwargs) -> pd.DataFrame:
         """
@@ -226,6 +289,13 @@ class DailyDataStrategy(DownloadStrategy):
 
         return pd.DataFrame()
 
+    def download_with_cache(self, **kwargs):
+        """
+        带缓存的日度数据下载方法
+        """
+        # 使用继承的download_with_cache方法，它会在内部调用download方法
+        return super().download_with_cache(**kwargs)
+
     def get_required_params(self) -> List[str]:
         """
         日度数据策略必需的参数
@@ -353,6 +423,13 @@ class FinancialDataStrategy(DownloadStrategy):
 
         return pd.DataFrame()
 
+    def download_with_cache(self, **kwargs):
+        """
+        带缓存的财务数据下载方法
+        """
+        # 使用继承的download_with_cache方法，它会在内部调用download方法
+        return super().download_with_cache(**kwargs)
+
     def _download_financial_data_batch(self, ts_code: str = None, period: str = None) -> pd.DataFrame:
         """
         批量下载财务数据（普通用户方式）
@@ -476,6 +553,13 @@ class StaticDataStrategy(DownloadStrategy):
                     time.sleep(2 ** attempt)  # 指数退避
 
         return pd.DataFrame()
+
+    def download_with_cache(self, **kwargs):
+        """
+        带缓存的静态数据下载方法
+        """
+        # 使用继承的download_with_cache方法，它会在内部调用download方法
+        return super().download_with_cache(**kwargs)
 
     def get_required_params(self) -> List[str]:
         """

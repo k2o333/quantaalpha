@@ -38,7 +38,7 @@ flowchart TD
 
     %% Producer-Consumer pattern for storage
     M --> P1[Check for data download results]
-    P1 --> P2[If successful, create storage task<br/>via task_manager.add_storage_task()]
+    P1 --> P2[If successful, create storage task<br/>via task_manager.add_storage_task]
     P2 --> Q1[Storage Task Queue<br/>in TaskQueueManager]
 
     Q1 --> R1[StorageWorker Consumer Thread]
