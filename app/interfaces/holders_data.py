@@ -47,7 +47,7 @@ class HoldersDataDownloader:
 
     def download_top10_holders(self, ts_code: str, period: str = '20231231') -> pd.DataFrame:
         """
-        Download top 10 shareholders
+        Download top 10 shareholders with caching
         Available to users with 2000+ points
         """
         if TUSHARE_POINTS < 2000:
@@ -55,12 +55,32 @@ class HoldersDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.top10_holders,
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                ts_code = kwargs.get('ts_code')
+                period = kwargs.get('period', '20231231')
+
+                result = self.download_with_retry(
+                    self.pro.top10_holders,
+                    ts_code=ts_code,
+                    period=period
+                )
+                self.logger.info(f"Successfully downloaded top10_holders for {ts_code}: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='top10_holders',
+                download_func=download_func,
                 ts_code=ts_code,
                 period=period
             )
-            self.logger.info(f"Successfully downloaded top10_holders for {ts_code}: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download top10_holders for {ts_code}: {e}")
@@ -69,7 +89,7 @@ class HoldersDataDownloader:
 
     def download_stk_rewards(self, ts_code: str) -> pd.DataFrame:
         """
-        Download management compensation and shareholding
+        Download management compensation and shareholding with caching
         Available to users with 2000+ points
         """
         if TUSHARE_POINTS < 2000:
@@ -77,11 +97,28 @@ class HoldersDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.stk_rewards,
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                ts_code = kwargs.get('ts_code')
+                result = self.download_with_retry(
+                    self.pro.stk_rewards,
+                    ts_code=ts_code
+                )
+                self.logger.info(f"Successfully downloaded stk_rewards for {ts_code}: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='stk_rewards',
+                download_func=download_func,
                 ts_code=ts_code
             )
-            self.logger.info(f"Successfully downloaded stk_rewards for {ts_code}: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download stk_rewards for {ts_code}: {e}")
@@ -129,7 +166,7 @@ class HoldersDataDownloader:
 
     def download_stk_managers(self, ts_code: str = None) -> pd.DataFrame:
         """
-        Download company management information
+        Download company management information with caching
         Available to users with 2000+ points
         """
         if TUSHARE_POINTS < 2000:
@@ -137,15 +174,32 @@ class HoldersDataDownloader:
             return pd.DataFrame()
 
         try:
-            params = {}
-            if ts_code:
-                params['ts_code'] = ts_code
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
 
-            result = self.download_with_retry(
-                self.pro.stk_managers,
-                **params
+            def download_func(**kwargs):
+                ts_code = kwargs.get('ts_code')
+                params = {}
+                if ts_code:
+                    params['ts_code'] = ts_code
+
+                result = self.download_with_retry(
+                    self.pro.stk_managers,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded stk_managers: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='stk_managers',
+                download_func=download_func,
+                ts_code=ts_code
             )
-            self.logger.info(f"Successfully downloaded stk_managers: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download stk_managers: {e}")
@@ -154,7 +208,7 @@ class HoldersDataDownloader:
 
     def download_top10_floatholders(self, ts_code: str, period: str = '20231231') -> pd.DataFrame:
         """
-        Download top 10 floating shareholders
+        Download top 10 floating shareholders with caching
         Available to users with 5000+ points
         """
         if TUSHARE_POINTS < 5000:
@@ -162,12 +216,32 @@ class HoldersDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.top10_floatholders,
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                ts_code = kwargs.get('ts_code')
+                period = kwargs.get('period', '20231231')
+
+                result = self.download_with_retry(
+                    self.pro.top10_floatholders,
+                    ts_code=ts_code,
+                    period=period
+                )
+                self.logger.info(f"Successfully downloaded top10_floatholders for {ts_code}: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='top10_floatholders',
+                download_func=download_func,
                 ts_code=ts_code,
                 period=period
             )
-            self.logger.info(f"Successfully downloaded top10_floatholders for {ts_code}: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download top10_floatholders for {ts_code}: {e}")
@@ -197,7 +271,7 @@ class HoldersDataDownloader:
 
     def download_pledge_detail(self, ts_code: str = None) -> pd.DataFrame:
         """
-        Download pledge detail data
+        Download pledge detail data with caching
         Available to users with 5000+ points
         """
         if TUSHARE_POINTS < 5000:
@@ -205,15 +279,32 @@ class HoldersDataDownloader:
             return pd.DataFrame()
 
         try:
-            params = {}
-            if ts_code:
-                params['ts_code'] = ts_code
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
 
-            result = self.download_with_retry(
-                self.pro.pledge_detail,
-                **params
+            def download_func(**kwargs):
+                ts_code = kwargs.get('ts_code')
+                params = {}
+                if ts_code:
+                    params['ts_code'] = ts_code
+
+                result = self.download_with_retry(
+                    self.pro.pledge_detail,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded pledge_detail: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='pledge_detail',
+                download_func=download_func,
+                ts_code=ts_code
             )
-            self.logger.info(f"Successfully downloaded pledge_detail: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download pledge_detail: {e}")

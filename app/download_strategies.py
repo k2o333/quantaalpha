@@ -59,22 +59,38 @@ class DownloadStrategy(ABC):
         return cache_key
 
     def download_with_cache(self, **kwargs):
-        """带缓存的下载方法 - 基于现有架构扩展"""
-        cache_key = self._get_cache_key(**kwargs)
+        """带缓存的下载方法 - 改进的智能缓存逻辑"""
+        from cache_key_generator import CacheKeyGenerator
+        from cache_monitor import record_cache_hit, record_cache_miss, record_download
+
+        # 生成标准化缓存键
+        cache_key = CacheKeyGenerator.generate_cache_key(self.interface_name, **kwargs)
 
         # 如果启用缓存，检查缓存
         if self.cache_enabled and self._can_use_cache(**kwargs):
-            cache_result = self.load_cached(self.interface_name, **cache_key)
-            if not cache_result.empty:
+            cached_result = self.load_cached(self.interface_name, **kwargs)
+            if not cached_result.empty:
                 self.logger.info(f"使用缓存数据: {self.interface_name}")
-                return cache_result
+                record_cache_hit(self.interface_name)
+                return cached_result
+            else:
+                record_cache_miss(self.interface_name)
+        else:
+            record_cache_miss(self.interface_name)
 
         # 执行实际下载
         result = self.download(**kwargs)
 
+        # 记录下载操作
+        record_download(self.interface_name, len(result) if result is not None else 0)
+
         # 保存到缓存
         if self.cache_enabled and not result.empty:
-            self.save_cached(result, self.interface_name, **cache_key)
+            save_success = self.save_cached(result, self.interface_name, **kwargs)
+            if save_success:
+                self.logger.info(f"数据已保存到缓存: {self.interface_name}")
+            else:
+                self.logger.warning(f"数据保存到缓存失败: {self.interface_name}")
 
         return result
 

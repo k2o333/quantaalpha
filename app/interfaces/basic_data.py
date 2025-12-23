@@ -54,7 +54,7 @@ class BasicDataDownloader:
 
     def download_stock_basic(self) -> pd.DataFrame:
         """
-        Download stock basic information
+        Download stock basic information with caching
         Available to users with 2000+ points
         """
         if TUSHARE_POINTS < 2000:
@@ -62,13 +62,28 @@ class BasicDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.stock_basic,
-                exchange='',
-                list_status='L',
-                fields='ts_code,symbol,name,area,industry,fullname,enname,market,exchange,curr_type,list_status,list_date,delist_date,is_hs,act_name,act_ent_type'
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                result = self.download_with_retry(
+                    self.pro.stock_basic,
+                    exchange='',
+                    list_status='L',
+                    fields='ts_code,symbol,name,area,industry,fullname,enname,market,exchange,curr_type,list_status,list_date,delist_date,is_hs,act_name,act_ent_type'
+                )
+                self.logger.info(f"Successfully downloaded stock basic info: {len(result)} stocks")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='stock_basic',
+                download_func=download_func
             )
-            self.logger.info(f"Successfully downloaded stock basic info: {len(result)} stocks")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download stock basic info: {e}")
@@ -77,7 +92,7 @@ class BasicDataDownloader:
 
     def download_trade_cal(self, exchange: str = 'SSE', start_date: str = '20100101', end_date: str = '20251231') -> pd.DataFrame:
         """
-        Download trade calendar data
+        Download trade calendar data with caching
         Available to users with 2000+ points
         """
         if TUSHARE_POINTS < 2000:
@@ -85,14 +100,35 @@ class BasicDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.trade_cal,
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                exchange = kwargs.get('exchange', 'SSE')
+                start_date = kwargs.get('start_date', '20100101')
+                end_date = kwargs.get('end_date', '20251231')
+
+                result = self.download_with_retry(
+                    self.pro.trade_cal,
+                    exchange=exchange,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                self.logger.info(f"Successfully downloaded trade calendar: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='trade_cal',
+                download_func=download_func,
                 exchange=exchange,
                 start_date=start_date,
-                end_date=end_date,
-                api_name='trade_cal'
+                end_date=end_date
             )
-            self.logger.info(f"Successfully downloaded trade calendar: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download trade calendar: {e}")
@@ -101,7 +137,7 @@ class BasicDataDownloader:
 
     def download_new_share(self, start_date: str = '20230101', end_date: str = '20231231') -> pd.DataFrame:
         """
-        Download new share listing data
+        Download new share listing data with caching
         Available to users with 120+ points
         """
         if TUSHARE_POINTS < 120:
@@ -109,12 +145,32 @@ class BasicDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.new_share,
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                start_date = kwargs.get('start_date', '20230101')
+                end_date = kwargs.get('end_date', '20231231')
+
+                result = self.download_with_retry(
+                    self.pro.new_share,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                self.logger.info(f"Successfully downloaded new share data: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='new_share',
+                download_func=download_func,
                 start_date=start_date,
                 end_date=end_date
             )
-            self.logger.info(f"Successfully downloaded new share data: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download new share data: {e}")
@@ -123,7 +179,7 @@ class BasicDataDownloader:
 
     def download_stock_company(self, exchange: str = None) -> pd.DataFrame:
         """
-        Download company information for listed stocks
+        Download company information for listed stocks with caching
         Available to users with 120+ points
         """
         if TUSHARE_POINTS < 120:
@@ -131,15 +187,32 @@ class BasicDataDownloader:
             return pd.DataFrame()
 
         try:
-            params = {}
-            if exchange:
-                params['exchange'] = exchange
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
 
-            result = self.download_with_retry(
-                self.pro.stock_company,
-                **params
+            def download_func(**kwargs):
+                exchange = kwargs.get('exchange')
+                params = {}
+                if exchange:
+                    params['exchange'] = exchange
+
+                result = self.download_with_retry(
+                    self.pro.stock_company,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded stock company info: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='stock_company',
+                download_func=download_func,
+                exchange=exchange
             )
-            self.logger.info(f"Successfully downloaded stock company info: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download stock company info: {e}")
@@ -148,19 +221,36 @@ class BasicDataDownloader:
 
     def download_namechange(self, ts_code: str = None) -> pd.DataFrame:
         """
-        Download stock name change history
+        Download stock name change history with caching
         Available to all users (no points required)
         """
         try:
-            params = {}
-            if ts_code:
-                params['ts_code'] = ts_code
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
 
-            result = self.download_with_retry(
-                self.pro.namechange,
-                **params
+            def download_func(**kwargs):
+                ts_code = kwargs.get('ts_code')
+                params = {}
+                if ts_code:
+                    params['ts_code'] = ts_code
+
+                result = self.download_with_retry(
+                    self.pro.namechange,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded name change data: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='namechange',
+                download_func=download_func,
+                ts_code=ts_code
             )
-            self.logger.info(f"Successfully downloaded name change data: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download name change data: {e}")
@@ -169,7 +259,7 @@ class BasicDataDownloader:
 
     def download_dividend(self, ts_code: str = None, period: str = None, ann_date: str = None) -> pd.DataFrame:
         """
-        Download dividend information
+        Download dividend information with caching
         Available to users with 2000+ points
         """
         if TUSHARE_POINTS < 2000:
@@ -177,24 +267,46 @@ class BasicDataDownloader:
             return pd.DataFrame()
 
         try:
-            params = {}
-            if ts_code:
-                params['ts_code'] = ts_code
-            if period:
-                params['period'] = period
-            if ann_date:
-                params['ann_date'] = ann_date
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
 
-            # At least one parameter is required, with ts_code being the most common
-            if not params:
-                self.logger.warning("dividend function requires at least one parameter (ts_code, period, or ann_date)")
-                return pd.DataFrame()
+            def download_func(**kwargs):
+                ts_code = kwargs.get('ts_code')
+                period = kwargs.get('period')
+                ann_date = kwargs.get('ann_date')
 
-            result = self.download_with_retry(
-                self.pro.dividend,
-                **params
+                params = {}
+                if ts_code:
+                    params['ts_code'] = ts_code
+                if period:
+                    params['period'] = period
+                if ann_date:
+                    params['ann_date'] = ann_date
+
+                # At least one parameter is required, with ts_code being the most common
+                if not params:
+                    self.logger.warning("dividend function requires at least one parameter (ts_code, period, or ann_date)")
+                    return pd.DataFrame()
+
+                result = self.download_with_retry(
+                    self.pro.dividend,
+                    **params
+                )
+                self.logger.info(f"Successfully downloaded dividend data: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='dividend',
+                download_func=download_func,
+                ts_code=ts_code,
+                period=period,
+                ann_date=ann_date
             )
-            self.logger.info(f"Successfully downloaded dividend data: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download dividend data: {e}")
@@ -203,7 +315,7 @@ class BasicDataDownloader:
 
     def download_stock_st(self, trade_date: str = '20231201') -> pd.DataFrame:
         """
-        Download ST stock list
+        Download ST stock list with caching
         Available to users with 3000+ points
         """
         if TUSHARE_POINTS < 3000:
@@ -211,11 +323,29 @@ class BasicDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.stock_st,
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                trade_date = kwargs.get('trade_date', '20231201')
+
+                result = self.download_with_retry(
+                    self.pro.stock_st,
+                    trade_date=trade_date
+                )
+                self.logger.info(f"Successfully downloaded stock_st: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='stock_st',
+                download_func=download_func,
                 trade_date=trade_date
             )
-            self.logger.info(f"Successfully downloaded stock_st: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download stock_st: {e}")
@@ -224,7 +354,7 @@ class BasicDataDownloader:
 
     def download_bak_basic(self) -> pd.DataFrame:
         """
-        Download backup basic data
+        Download backup basic data with caching
         Available to users with 5000+ points
         """
         if TUSHARE_POINTS < 5000:
@@ -232,10 +362,25 @@ class BasicDataDownloader:
             return pd.DataFrame()
 
         try:
-            result = self.download_with_retry(
-                self.pro.bak_basic
+            # Use caching mechanism to avoid duplicate downloads
+            try:
+                from ..data_storage import get_cached_or_download_data
+            except ImportError:
+                from data_storage import get_cached_or_download_data
+
+            def download_func(**kwargs):
+                result = self.download_with_retry(
+                    self.pro.bak_basic
+                )
+                self.logger.info(f"Successfully downloaded bak_basic: {len(result)} records")
+                return result
+
+            # Use cached data if available, otherwise download and cache
+            result = get_cached_or_download_data(
+                data_type='bak_basic',
+                download_func=download_func
             )
-            self.logger.info(f"Successfully downloaded bak_basic: {len(result)} records")
+
             return result
         except Exception as e:
             self.logger.error(f"Failed to download bak_basic: {e}")
