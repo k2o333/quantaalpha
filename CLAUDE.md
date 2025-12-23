@@ -78,6 +78,8 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 25. **Date Range Optimization**: Smart date range handling with overlap detection and merging
 26. **Parameter Validation Framework**: Comprehensive parameter validation and normalization for all interfaces
 27. **Configuration Backward Compatibility**: Seamless integration between old boolean config and new detailed interface config
+28. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing
+29. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date range downloads to prevent conflicts
 
 ## Development Commands
 
@@ -113,8 +115,12 @@ python app/main.py --start_date 20230101 --end_date 20231231 --holders-data
 # Download only pro_bar adjusted price data
 python app/main.py --start_date 20230101 --end_date 20231231 --pro-bar-only
 
-# Download full historical data instead of date-range data (for specific interfaces)
+# Download full historical data instead of date-range data (for specific interfaces that require ts_code)
 python app/main.py --start_date 20230101 --end_date 20231231 --tscode-historical
+
+# The --tscode-historical flag automatically handles ts_code-dependent interfaces like:
+# stk_rewards, top10_holders, pledge_detail, fina_audit, and pro_bar
+# These interfaces are automatically disabled during date-range downloads to prevent conflicts
 ```
 
 ### Development Tasks
@@ -227,3 +233,5 @@ aspipe_v4/
 - Singleton pattern implementation prevents duplicate stock_basic API calls
 - Full history download capabilities enable bulk downloads for ts_code-dependent interfaces
 - Dependency-aware task queue management tracks task relationships
+- Historical download tracking automatically marks interfaces as completed after full historical downloads
+- Conditional interface management automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts

@@ -128,6 +128,16 @@ flowchart TD
         A
     end
 
+    %% New Historical Download Marker System
+    A --> A1[get_historical_download_marker_path]
+    A1 --> A2[mark_interfaces_as_historical_downloaded]
+    A2 --> A3[get_historical_downloaded_interfaces]
+    A --> A4[disable_tscode_dependent_interfaces_for_date_range]
+    A4 --> A5[Check for ts_code-dependent interfaces<br/>['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit', 'pro_bar']]
+    A5 --> A6[Temporarily disable interfaces<br/>during date-range downloads]
+    A6 --> A7[Save original interface state<br/>with _original_enabled attribute]
+    A7 --> A8[Restore original interface states<br/>after download completion]
+
     subgraph "Download Scheduling"
         B
         E
@@ -229,18 +239,23 @@ flowchart TD
 
 ### Primary Flow (New Scheduler - Recommended):
 1. `main.py` → `download_all_data_from_date()`
-2. → `download_scheduler.run_download_schedule()`
-3. → `DownloadScheduler` class initialization and task scheduling
-4. → `config_adapter.get_all_available_interfaces()` to get user-accessible interfaces based on points
-5. → `DownloadScheduler.schedule_download_tasks()` creates tasks based on score and priority
-6. → `DownloadScheduler.execute_scheduled_tasks()` executes the tasks in parallel
-7. → `DownloadScheduler._task_consumer_loop()` processes tasks via task queue manager
-8. → `download_strategies.get_strategy()` gets the appropriate download strategy
-9. → `strategy_factory.get_strategy()` provides cached strategy instances with configuration
-10. → `TuShareDownloader` main class that orchestrates the interface usage (Facade Pattern)
+2. → Conditional interface management: `disable_tscode_dependent_interfaces_for_date_range()` temporarily disables ts_code-dependent interfaces during date-range downloads
+   - Identifies interfaces requiring ts_code parameter: ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit', 'pro_bar']
+   - Saves original interface states with `_original_enabled` attribute
+   - Restores original states after download completion (in both success and error scenarios)
+3. → Historical download tracking: checks `get_historical_downloaded_interfaces()` to avoid redundant processing
+4. → `download_scheduler.run_download_schedule()`
+5. → `DownloadScheduler` class initialization and task scheduling
+6. → `config_adapter.get_all_available_interfaces()` to get user-accessible interfaces based on points
+7. → `DownloadScheduler.schedule_download_tasks()` creates tasks based on score and priority
+8. → `DownloadScheduler.execute_scheduled_tasks()` executes the tasks in parallel
+9. → `DownloadScheduler._task_consumer_loop()` processes tasks via task queue manager
+10. → `download_strategies.get_strategy()` gets the appropriate download strategy
+11. → `strategy_factory.get_strategy()` provides cached strategy instances with configuration
+12. → `TuShareDownloader` main class that orchestrates the interface usage (Facade Pattern)
     - Implements facade pattern with `__getattr__` delegation to individual interface modules
     - Maintains unified interface while delegating to specialized modules
-11. → Individual interface classes from `app/interfaces/`:
+13. → Individual interface classes from `app/interfaces/`:
     - `BasicDataDownloader` (basic_data.py)
     - `DailyDataDownloader` (daily_data.py)
     - `FinancialDataDownloader` (financial_data.py)
@@ -252,38 +267,42 @@ flowchart TD
     - `ResearchDataDownloader` (research_data.py)
     - `BaseDownloader` (base.py) - base functionality for all interfaces
     - `HoldersDataFullHistoryDownloader` (holders_data_downloader.py) - for ts_code-dependent interfaces requiring full history
-12. → Parameter validation and adaptation via `parameter_adapters.py`:
+14. → Parameter validation and adaptation via `parameter_adapters.py`:
     - `ParameterAdapterManager` routes to appropriate adapter
     - `DailyDataParameterAdapter`, `FinancialDataParameterAdapter`, etc.
     - Standardized parameter validation and date formatting
-13. → Error handling via `error_handler.py`:
+15. → Error handling via `error_handler.py`:
     - `retry_on_failure` decorator with exponential backoff
     - `ErrorHandler.handle_api_error` with specific error type handling
-14. → Advanced caching system via `cache_key_generator.py`, `cache_manager.py`, `cache_monitor.py`:
+16. → Advanced caching system via `cache_key_generator.py`, `cache_manager.py`, `cache_monitor.py`:
     - Standardized cache key generation with intelligent matching
     - Cache preheating and monitoring capabilities
     - Cache hit rate tracking and statistics
-15. → Stock list management via `stock_list_manager.py` singleton pattern:
+17. → Stock list management via `stock_list_manager.py` singleton pattern:
     - Prevents duplicate stock_basic API calls
     - Cached stock list with configurable TTL
-16. → API calls executed via interface-specific classes
-17. → Downloaded data processed via Asynchronous Producer-Consumer Pattern:
+18. → API calls executed via interface-specific classes
+19. → Downloaded data processed via Asynchronous Producer-Consumer Pattern:
     - Download task completes and creates storage task via `task_manager.add_storage_task()`
     - Storage task placed in queue managed by `TaskQueueManager`
     - Independent `StorageWorker` threads consume storage tasks from queue
     - Storage tasks executed separately from download tasks, enabling parallel processing
-18. → Data saved as Parquet files via `data_storage.py`
+20. → Data saved as Parquet files via `data_storage.py`
+21. → Historical download completion: `mark_interfaces_as_historical_downloaded()` records completed interfaces
 
 ### Fallback Flow (Legacy System):
 1. `main.py` → `download_with_legacy_method()`
-2. → `date_range_downloader.DateRangeDownloader`
-3. → `TuShareDownloader` class (shared logic with facade pattern)
-4. → Individual interface classes (same as above)
-5. → Parameter validation and adaptation (same as above)
-6. → Advanced error handling (same as above)
-7. → Caching system integration (same as above)
-8. → Stock list management (same as above)
-9. → Data saved directly via synchronous `data_storage.py` calls within download methods
+2. → Conditional interface management: `disable_tscode_dependent_interfaces_for_date_range()` temporarily disables ts_code-dependent interfaces during date-range downloads (same as primary flow)
+3. → Historical download tracking: checks `get_historical_downloaded_interfaces()` to avoid redundant processing (same as primary flow)
+4. → `date_range_downloader.DateRangeDownloader`
+5. → `TuShareDownloader` class (shared logic with facade pattern)
+6. → Individual interface classes (same as above)
+7. → Parameter validation and adaptation (same as above)
+8. → Advanced error handling (same as above)
+9. → Caching system integration (same as above)
+10. → Stock list management (same as above)
+11. → Data saved directly via synchronous `data_storage.py` calls within download methods
+12. → Historical download completion: `mark_interfaces_as_historical_downloaded()` records completed interfaces (same as primary flow)
 
 ### Configuration and Strategy Layer:
 - `config_adapter.py` provides interface configurations based on `DOWNLOAD_PIPELINE_CONFIG` with enhanced features
@@ -315,6 +334,8 @@ flowchart TD
 10. **Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming
 11. **Singleton Pattern**: Stock list management uses singleton pattern to prevent duplicate API calls
 12. **Enhanced Error Handling**: Improved retry mechanisms with exponential backoff and adaptive rate limiting
+13. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing (JSON-based marker system)
+14. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
 
 ### New Enhanced Features:
 
@@ -330,9 +351,11 @@ flowchart TD
 10. **Strategy Caching**: Factory pattern with caching to optimize strategy instantiation
 11. **Full History Download Capability**: Specialized downloader for interfaces requiring ts_code parameters for bulk historical data
 12. **Cache Monitoring**: Real-time cache performance tracking with hit rate statistics
+13. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing using JSON-based marker files
+14. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
 
 This enhanced architecture enables modular, extensible data download functionality with proper error handling, retry logic, rate limiting, caching, and asynchronous processing, all orchestrated through the entry point in main.py. The decoupled nature of download and storage operations allows for better resource utilization and system responsiveness. The new configuration system provides granular control over download behavior while maintaining backward compatibility with the original system structure.
-The integrated caching system with standardized cache key generation, parameter validation system with interface-specific adapters, error handling with API-specific logic, and singleton stock list manager all contribute to a more robust and efficient architecture.
+The integrated caching system with standardized cache key generation, parameter validation system with interface-specific adapters, error handling with API-specific logic, singleton stock list manager, historical download tracking, and conditional interface management all contribute to a more robust and efficient architecture.
 
 ## Application Structure and Key Components
 

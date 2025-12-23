@@ -421,6 +421,70 @@ class FinancialDataDownloader:
             ErrorHandler.handle_api_error(e, "download_fina_mainbz")
             raise
 
+    def download_fina_audit_full_history(self, save_to_disk: bool = True) -> pd.DataFrame:
+        """
+        Download full history of financial audit opinions for all stocks
+        Available to users with 500+ points
+        This method downloads data for all stocks by iterating through the stock list
+        """
+        if TUSHARE_POINTS < 500:
+            self.logger.warning("fina_audit_full_history requires 500+ points, skipping download")
+            return pd.DataFrame()
+
+        try:
+            # 获取所有股票代码
+            from .basic_data import BasicDataDownloader
+            basic_downloader = BasicDataDownloader(self.pro)
+            stock_list = basic_downloader.download_stock_basic()
+
+            if stock_list.empty:
+                self.logger.warning("No stock list available for fina_audit full history download")
+                return pd.DataFrame()
+
+            stock_codes = stock_list['ts_code'].tolist()
+            all_data = []
+            self.logger.info(f"Starting to download fina_audit full history for {len(stock_codes)} stocks")
+
+            # 逐个下载每个股票的数据
+            for i, ts_code in enumerate(stock_codes):
+                if (i + 1) % 100 == 0:  # 每100个股票记录一次进度
+                    self.logger.info(f"Processed {i + 1}/{len(stock_codes)} stocks for fina_audit...")
+
+                try:
+                    df = self.download_fina_audit(ts_code=ts_code)  # 直接使用现有的方法
+
+                    if df is not None and not df.empty:
+                        all_data.append(df)
+                    else:
+                        self.logger.debug(f"No fina_audit data for {ts_code}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to download fina_audit for {ts_code}: {e}")
+                    continue
+
+            # 合并所有数据
+            if all_data:
+                result = pd.concat(all_data, ignore_index=True)
+                self.logger.info(f"Successfully downloaded fina_audit full history: {len(result)} records")
+
+                # 保存到磁盘
+                if save_to_disk:
+                    try:
+                        from ..data_storage import save_to_parquet
+                        save_to_parquet(result, "fina_audit_full_history", "financial")
+                        self.logger.info("Successfully saved fina_audit full history to disk")
+                    except Exception as e:
+                        self.logger.error(f"Failed to save fina_audit full history to disk: {e}")
+
+                return result
+            else:
+                self.logger.warning("No fina_audit data could be downloaded for any stock")
+                return pd.DataFrame()
+
+        except Exception as e:
+            self.logger.error(f"Failed to download fina_audit full history: {e}")
+            ErrorHandler.handle_api_error(e, "download_fina_audit_full_history")
+            raise
+
     def download_disclosure_date(self, ann_date: str = '20231201') -> pd.DataFrame:
         """
         Download financial report disclosure schedule

@@ -9,6 +9,7 @@ from datetime import datetime, date
 from pathlib import Path
 import argparse
 import sys
+from typing import List
 try:
     from config import TUSHARE_POINTS
 except ImportError:
@@ -26,6 +27,7 @@ except ImportError:
         from app.score_config import get_available_data_types
 from tushare_api import TuShareDownloader
 import pandas as pd
+import json
 
 # Set up logging with Chinese characters support
 log_dir = Path(__file__).parent.parent / 'log'
@@ -41,6 +43,82 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def get_historical_download_marker_path():
+    """
+    获取历史下载标记文件路径
+    """
+    cache_dir = Path(__file__).parent.parent / 'cache'
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir / 'historical_download_marker.json'
+
+
+def mark_interfaces_as_historical_downloaded(interfaces: List[str]):
+    """
+    记录哪些接口已完成了全历史下载
+    """
+    marker_path = get_historical_download_marker_path()
+    try:
+        # 读取现有的标记
+        if marker_path.exists():
+            with open(marker_path, 'r', encoding='utf-8') as f:
+                markers = json.load(f)
+        else:
+            markers = {}
+
+        # 更新标记
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        for interface in interfaces:
+            markers[interface] = current_time
+
+        # 写入标记
+        with open(marker_path, 'w', encoding='utf-8') as f:
+            json.dump(markers, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"已标记接口完成历史下载: {interfaces}")
+    except Exception as e:
+        logger.error(f"记录历史下载标记失败: {e}")
+
+
+def get_historical_downloaded_interfaces() -> List[str]:
+    """
+    获取已完成历史下载的接口列表
+    """
+    marker_path = get_historical_download_marker_path()
+    try:
+        if marker_path.exists():
+            with open(marker_path, 'r', encoding='utf-8') as f:
+                markers = json.load(f)
+                return list(markers.keys())
+        else:
+            return []
+    except Exception as e:
+        logger.error(f"读取历史下载标记失败: {e}")
+        return []
+
+
+def disable_tscode_dependent_interfaces_for_date_range():
+    """
+    在日期范围下载时禁用需要ts_code参数的接口
+    """
+    from config_adapter import config_adapter
+    from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
+
+    # 定义需要ts_code参数的接口（这些接口在日期范围下载时不适用）
+    tscode_dependent_interfaces = ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit', 'pro_bar']
+
+    logger.info(f"在日期范围下载时将跳过需要ts_code参数的接口: {tscode_dependent_interfaces}")
+
+    # 临时修改配置以禁用这些接口
+    for interface_name in tscode_dependent_interfaces:
+        if interface_name in DOWNLOAD_PIPELINE_CONFIG:
+            config = DOWNLOAD_PIPELINE_CONFIG[interface_name]
+            # 保存原始启用状态
+            if not hasattr(config, '_original_enabled'):
+                config._original_enabled = config.enabled
+            config.enabled = False  # 临时禁用
+            logger.info(f"临时禁用接口 {interface_name} 以避免日期范围下载")
 
 
 def download_all_data_from_date(start_date: str, end_date: str = None):
@@ -201,6 +279,13 @@ def main():
     logger.info(f"📅 启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     try:
+        # 检查是否是使用日期范围参数的情况（非tscode-historical模式）
+        is_date_range_mode = not args.tscode_historical and not args.holders_data and not args.pro_bar_only
+
+        if is_date_range_mode:
+            # 在日期范围模式下，禁用需要ts_code参数的接口
+            disable_tscode_dependent_interfaces_for_date_range()
+
         # 如果指定了holders_data或pro_bar_only参数，或只指定了tscode_historical参数，则只下载特定数据
         if args.holders_data or args.pro_bar_only or (args.tscode_historical and not (args.holders_data or args.pro_bar_only)):
             logger.info("开始下载指定的全历史数据...")
@@ -218,6 +303,15 @@ def main():
                 logger.info("下载股东相关全历史数据...")
                 # 下载stk_rewards, top10_holders, pledge_detail, fina_audit数据
                 if args.tscode_historical:
+                    # 恢复临时禁用的接口以允许下载
+                    from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
+                    for interface_name in ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit']:
+                        if interface_name in DOWNLOAD_PIPELINE_CONFIG:
+                            config = DOWNLOAD_PIPELINE_CONFIG[interface_name]
+                            if hasattr(config, '_original_enabled'):
+                                config.enabled = config._original_enabled
+                                logger.info(f"恢复接口 {interface_name} 以执行历史下载")
+
                     # 下载全历史数据
                     # 先获取股票列表以提高性能
                     from interfaces.basic_data import BasicDataDownloader
@@ -244,13 +338,29 @@ def main():
                         from interfaces.financial_data import FinancialDataDownloader
                         financial_downloader = FinancialDataDownloader(downloader.pro)
                         results['fina_audit_full'] = financial_downloader.download_fina_audit_full_history()
+
+                    # 标记这些接口为已完成历史下载
+                    completed_historical_interfaces = ['stk_rewards', 'top10_holders']
+                    if TUSHARE_POINTS >= 5000:
+                        completed_historical_interfaces.append('pledge_detail')
+                    if TUSHARE_POINTS >= 500:
+                        completed_historical_interfaces.append('fina_audit')
+                    mark_interfaces_as_historical_downloaded(completed_historical_interfaces)
                 else:
-                    # 使用传统方式下载指定日期范围
                     results = download_with_legacy_fallback(args.start_date, args.end_date)
 
             if download_pro_bar_only:
                 logger.info("下载pro_bar复权行情数据...")
                 if args.tscode_historical:
+                    # 恢复临时禁用的接口以允许下载
+                    from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
+                    for interface_name in ['pro_bar']:
+                        if interface_name in DOWNLOAD_PIPELINE_CONFIG:
+                            config = DOWNLOAD_PIPELINE_CONFIG[interface_name]
+                            if hasattr(config, '_original_enabled'):
+                                config.enabled = config._original_enabled
+                                logger.info(f"恢复接口 {interface_name} 以执行历史下载")
+
                     # 下载全历史数据
                     logger.info("下载pro_bar全历史数据...")
                     # 传递股票列表以提高性能
@@ -261,8 +371,10 @@ def main():
                     from interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
                     full_history_downloader = HoldersDataFullHistoryDownloader(downloader.pro, stock_list)
                     results['pro_bar_full'] = full_history_downloader.download_pro_bar_full_history_all_stocks()
+
+                    # 标记pro_bar为已完成历史下载
+                    mark_interfaces_as_historical_downloaded(['pro_bar'])
                 else:
-                    # 使用传统方式下载指定日期范围
                     if 'results' not in locals():
                         results = download_with_legacy_fallback(args.start_date, args.end_date)
 
@@ -321,11 +433,30 @@ def main():
         logger.info(f"📅 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("="*60)
 
+        # 恢复被临时禁用的接口配置
+        from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
+        for interface_name, config in DOWNLOAD_PIPELINE_CONFIG.items():
+            if hasattr(config, '_original_enabled'):
+                config.enabled = config._original_enabled
+                logger.debug(f"已恢复接口 {interface_name} 的原始启用状态: {config._original_enabled}")
+                # 删除临时属性
+                delattr(config, '_original_enabled')
+
         return True
 
     except Exception as e:
         logger.error(f"❌ 系统执行失败: {e}")
         logger.error(f"📅 失败时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # 恢复被临时禁用的接口配置（即使在异常情况下）
+        from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
+        for interface_name, config in DOWNLOAD_PIPELINE_CONFIG.items():
+            if hasattr(config, '_original_enabled'):
+                config.enabled = config._original_enabled
+                logger.debug(f"已恢复接口 {interface_name} 的原始启用状态: {config._original_enabled}")
+                # 删除临时属性
+                delattr(config, '_original_enabled')
+
         return False
 
 
