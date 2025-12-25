@@ -38,6 +38,7 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 - **Configuration**: `app/config.py` - Environment variable loading and API limit configuration
 - **Enhanced Configuration**: `app/enhanced_download_config.py` - Advanced interface configuration with priority, retries, rate limits, and caching
 - **Configuration Adapter**: `app/config_adapter.py` - Maintains backward compatibility with old config format
+- **Task Queue Manager**: `app/task_queue_manager.py` - Task queue management with priority and status tracking
 - **Interface Modules**: `app/interfaces/` - Modularized API interfaces for different data types
 - **Utils**: `app/utils/` - Helper functions for date handling and other utilities
 
@@ -121,6 +122,12 @@ python app/main.py --start_date 20230101 --end_date 20231231 --tscode-historical
 # The --tscode-historical flag automatically handles ts_code-dependent interfaces like:
 # stk_rewards, top10_holders, pledge_detail, fina_audit, and pro_bar
 # These interfaces are automatically disabled during date-range downloads to prevent conflicts
+
+# Download with historical download tracking to avoid redundant processing
+python app/main.py --start_date 20230101 --end_date 20231231 --track-history
+
+# Force re-download of historically completed interfaces
+python app/main.py --start_date 20230101 --end_date 20231231 --force-redownload
 ```
 
 ### Development Tasks
@@ -181,6 +188,7 @@ aspipe_v4/
 │   ├── cache_key_generator.py # Cache key generation
 │   ├── cache_manager.py       # Cache management and preheating
 │   ├── cache_monitor.py       # Cache monitoring
+│   ├── task_queue_manager.py  # Task queue management with priority and status tracking
 │   ├── interfaces/        # Modular interface classes
 │   │   ├── base.py        # Base interface functionality
 │   │   ├── basic_data.py  # Basic data interface (stock_basic, etc.)

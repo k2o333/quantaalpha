@@ -287,7 +287,10 @@ def main():
             disable_tscode_dependent_interfaces_for_date_range()
 
         # 如果指定了holders_data或pro_bar_only参数，或只指定了tscode_historical参数，则只下载特定数据
-        if args.holders_data or args.pro_bar_only or (args.tscode_historical and not (args.holders_data or args.pro_bar_only)):
+        # 注意：pro_bar_only应该自动启用tscode_historical行为，因为它需要ts_code参数
+        effective_tscode_historical = args.tscode_historical or args.pro_bar_only
+
+        if args.holders_data or args.pro_bar_only or (effective_tscode_historical and not (args.holders_data or args.pro_bar_only)):
             logger.info("开始下载指定的全历史数据...")
             # 初始化TuShareDownloader
             from tushare_api import TuShareDownloader
@@ -296,8 +299,8 @@ def main():
             results = {}
 
             # 如果只指定了tscode_historical参数（没有指定holders_data或pro_bar_only），则默认下载所有5个接口
-            download_holders_data = args.holders_data or (args.tscode_historical and not (args.holders_data or args.pro_bar_only))
-            download_pro_bar_only = args.pro_bar_only or (args.tscode_historical and not (args.holders_data or args.pro_bar_only))
+            download_holders_data = args.holders_data or (effective_tscode_historical and not (args.holders_data or args.pro_bar_only))
+            download_pro_bar_only = args.pro_bar_only or (effective_tscode_historical and not (args.holders_data or args.pro_bar_only))
 
             if download_holders_data:
                 logger.info("下载股东相关全历史数据...")
@@ -351,7 +354,7 @@ def main():
 
             if download_pro_bar_only:
                 logger.info("下载pro_bar复权行情数据...")
-                if args.tscode_historical:
+                if effective_tscode_historical:
                     # 恢复临时禁用的接口以允许下载
                     from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
                     for interface_name in ['pro_bar']:

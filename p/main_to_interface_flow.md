@@ -308,7 +308,7 @@ flowchart TD
 - `config_adapter.py` provides interface configurations based on `DOWNLOAD_PIPELINE_CONFIG` with enhanced features
 - `enhanced_download_config.py` provides detailed interface configurations with priority, retry, rate limit, and caching settings
 - Score-based access control via `score_config.py` determines which interfaces are available to the user
-- `task_queue_manager.py` handles priority-based task scheduling with producer-consumer pattern (now in test/ directory)
+- `task_queue_manager.py` handles priority-based task scheduling with producer-consumer pattern
 - `global_rate_limiter.py` manages API call rate limiting using token bucket algorithm
 - `parallel_downloader.py` enables parallel downloads of multiple interfaces with concurrency controls
 - `storage_worker.py` implements consumer threads for asynchronous data storage
@@ -387,6 +387,7 @@ aspipe_v4/
 │   ├── cache_key_generator.py # Standardized cache key generation
 │   ├── cache_manager.py       # Cache management and preheating
 │   ├── cache_monitor.py       # Cache monitoring
+│   ├── task_queue_manager.py  # Task queue management with priority and status tracking
 │   ├── interfaces/        # Modular interface classes
 │   │   ├── base.py        # Base interface functionality
 │   │   ├── basic_data.py
@@ -401,7 +402,7 @@ aspipe_v4/
 │   │   └── research_data.py
 │   └── utils/             # Utility functions
 │       └── date_utils.py      # Date utility functions
-├── test/                  # Test scripts (including task_queue_manager.py and new cache functionality tests)
+├── test/                  # Test scripts (including new cache functionality tests)
 ├── data/                  # Output directory for downloaded data
 ├── log/                   # Log files
 ├── cache/                 # Temporary cache files
@@ -445,7 +446,7 @@ def __getattr__(self, name):
 This allows external code to call methods like `downloader.download_stock_basic()` which gets delegated to the appropriate submodule.
 
 #### 2. Producer-Consumer Pattern
-- **Files**: `app/download_scheduler.py`, `app/storage_worker.py`, `test/task_queue_manager.py`
+- **Files**: `app/download_scheduler.py`, `app/storage_worker.py`, `app/task_queue_manager.py`
 - **Implementation**: Download tasks produce data, storage workers consume for writing
 - **Benefits**: Decoupled processing, parallel execution, better resource utilization
 
@@ -490,7 +491,7 @@ if result is not None and not result.empty:
 - **Benefits**: Consistent parameter handling across different interfaces
 
 #### 7. Task Queue Management
-- **File**: `test/task_queue_manager.py`
+- **File**: `app/task_queue_manager.py`
 - **Implementation**: Priority-based task scheduling with dependency management
 - **Benefits**: Efficient resource management, controlled execution order
 
@@ -500,15 +501,32 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 - **Retry logic**: Failed tasks can be retried automatically
 - **Statistics tracking**: Monitor task execution metrics
 
-#### 8. Caching System
-- **Files**: `app/cache_key_generator.py`, `app/cache_manager.py`, `app/cache_monitor.py`
-- **Implementation**: Multi-layer caching with intelligent key generation
-- **Benefits**: Reduced API calls, improved performance, cache warming capabilities
 
-#### 9. Singleton Pattern
-- **File**: `app/stock_list_manager.py`
-- **Implementation**: Single instance of stock list management
-- **Benefits**: Prevents duplicate API calls, consistent data access
+#### 10. Historical Download Tracking
+- **Files**: `app/main.py`, `app/task_queue_manager.py`
+- **Implementation**: JSON-based marker system to track completed historical downloads
+- **Benefits**: Prevents redundant processing of full history downloads
+
+#### 11. Conditional Interface Management
+- **File**: `app/main.py`
+- **Implementation**: Automatically disables ts_code-dependent interfaces during date-range downloads
+- **Benefits**: Prevents parameter conflicts between different download modes
+
+#### 12. Parameter Validation Framework
+- **File**: `app/parameter_adapters.py`
+- **Implementation**: Comprehensive parameter validation and normalization for all interfaces
+- **Benefits**: Ensures consistent and valid API parameters
+
+#### 13. Cache Monitoring
+- **Files**: `app/cache_monitor.py`, `app/cache_manager.py`
+- **Implementation**: Real-time tracking of cache hit rates and performance metrics
+- **Benefits**: Provides insights into cache effectiveness and performance
+
+#### 14. Date Range Optimization
+- **File**: `app/download_scheduler.py`
+- **Implementation**: Smart date range handling with overlap detection and merging
+- **Benefits**: Optimizes date range processing for better performance
+
 
 ### Data Flow Architecture
 
@@ -540,7 +558,7 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 | `TuShareDownloader` | Facade | Unified API access, delegation to interface modules |
 | `DownloadScheduler` | Orchestrator | Task scheduling, producer-consumer coordination |
 | `StorageWorker` | Consumer | Asynchronous data storage processing |
-| `TaskQueueManager` | Manager | Priority-based task queue management (now in test/ directory) |
+| `TaskQueueManager` | Manager | Priority-based task queue management |
 | `DownloadStrategy` classes | Strategy | Data download approach selection per interface type |
 | `StrategyFactory` | Factory | Strategy creation and caching |
 | `ConfigAdapter` | Adapter | Unifies old and new configuration access |

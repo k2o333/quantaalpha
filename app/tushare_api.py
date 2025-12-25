@@ -5,6 +5,9 @@ import tushare as ts
 import time
 import random
 import logging
+import json
+import requests
+from functools import partial
 from typing import Optional
 try:
     from .config import TUSHARE_TOKEN, API_LIMITS, TUSHARE_POINTS, PRIMARY_TOKEN, SECONDARY_TOKEN, PROXY_URL
@@ -47,6 +50,52 @@ except ImportError:
     from interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
 
 
+class CustomDataApi:
+    """Custom DataApi class that allows setting a custom API endpoint"""
+
+    def __init__(self, token, timeout=30, api_url=None):
+        """
+        Parameters
+        ----------
+        token: str
+            API接口TOKEN，用于用户认证
+        timeout: int
+            请求超时时间
+        api_url: str
+            自定义API端点URL，如果为None则使用默认URL
+        """
+        self.__token = token
+        self.__timeout = timeout
+        # Use custom API URL if provided, otherwise use default
+        if api_url:
+            self.__http_url = api_url
+        else:
+            self.__http_url = 'http://api.waditu.com/dataapi'
+
+    def query(self, api_name, fields='', **kwargs):
+        req_params = {
+            'api_name': api_name,
+            'token': self.__token,
+            'params': kwargs,
+            'fields': fields
+        }
+
+        res = requests.post(f"{self.__http_url}/{api_name}", json=req_params, timeout=self.__timeout)
+        if res:
+            result = json.loads(res.text)
+            if result['code'] != 0:
+                raise Exception(result['msg'])
+            data = result['data']
+            columns = data['fields']
+            items = data['items']
+            return pd.DataFrame(items, columns=columns)
+        else:
+            return pd.DataFrame()
+
+    def __getattr__(self, name):
+        return partial(self.query, name)
+
+
 class TuShareDownloader:
     def __init__(self):
         """
@@ -59,14 +108,26 @@ class TuShareDownloader:
         self.current_points = TUSHARE_POINTS
         self.current_proxy = PROXY_URL
 
-        # Set proxy if available
-        if self.current_proxy:
-            import os
-            os.environ["HTTP_PROXY"] = self.current_proxy
-            os.environ["HTTPS_PROXY"] = self.current_proxy
+        # Use custom API endpoint if PROXY_URL is configured
+        if self.current_proxy and self.current_proxy.strip():
+            # If the proxy URL ends with a port like "http://tushare.xyz:5000", we need to format it properly
+            proxy_url = self.current_proxy.rstrip('/')
+            # Construct the API endpoint - assuming the proxy follows the same pattern as the original API
+            if proxy_url.endswith(':5000'):
+                api_url = f"{proxy_url}/dataapi"
+            else:
+                api_url = f"{proxy_url}/dataapi"  # Default pattern
+            # Initialize with custom API endpoint
+            self.pro = CustomDataApi(self.current_token, api_url=api_url)
+        else:
+            # Set proxy if available
+            if self.current_proxy:
+                import os
+                os.environ["HTTP_PROXY"] = self.current_proxy
+                os.environ["HTTPS_PROXY"] = self.current_proxy
 
-        # Initialize with current token
-        self.pro = ts.pro_api(self.current_token)
+            # Initialize with current token using default endpoint
+            self.pro = ts.pro_api(self.current_token)
 
         # Update API limits based on current user's points
         self.api_limits = get_api_limits_for_score(self.current_points)
@@ -117,7 +178,20 @@ class TuShareDownloader:
                     del __import__('os').environ["HTTPS_PROXY"]
 
             # Reinitialize the API with the new token
-            self.pro = ts.pro_api(self.current_token)
+            # Use custom API endpoint if PROXY_URL is configured
+            if self.current_proxy and self.current_proxy.strip():
+                # If the proxy URL ends with a port like "http://tushare.xyz:5000", we need to format it properly
+                proxy_url = self.current_proxy.rstrip('/')
+                # Construct the API endpoint - assuming the proxy follows the same pattern as the original API
+                if proxy_url.endswith(':5000'):
+                    api_url = f"{proxy_url}/dataapi"
+                else:
+                    api_url = f"{proxy_url}/dataapi"  # Default pattern
+                # Initialize with custom API endpoint
+                self.pro = CustomDataApi(self.current_token, api_url=api_url)
+            else:
+                self.pro = ts.pro_api(self.current_token)
+
             # Update API limits based on new points
             self.api_limits = get_api_limits_for_score(self.current_points)
         else:

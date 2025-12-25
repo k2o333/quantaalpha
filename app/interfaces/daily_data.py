@@ -26,7 +26,24 @@ class DailyDataDownloader:
         """
         Download data with retry mechanism and rate limiting
         """
-        api_name = api_func.__name__ if hasattr(api_func, '__name__') else 'unknown_api'
+        # Extract the correct API name by getting it from various attributes of the function
+        api_name = 'unknown_api'
+        if hasattr(api_func, '__name__'):
+            api_name = api_func.__name__
+        elif hasattr(api_func, '__func__') and hasattr(api_func.__func__, '__name__'):
+            api_name = api_func.__func__.__name__
+        elif hasattr(api_func, '__self__') and hasattr(api_func, '__name__'):
+            # For bound methods, try to get the method name
+            api_name = api_func.__name__
+        else:
+            # Handle TuShare dynamic API methods
+            api_name = str(api_func).split('.')[-1].replace('>', '').strip()
+
+        # Special handling for certain API names that might need adjustment
+        if 'pro_bar' in api_name.lower():
+            api_name = 'pro_bar'
+        elif 'adj_factor' in api_name.lower():
+            api_name = 'adj_factor'
 
         for attempt in range(max_retries + 1):
             try:
