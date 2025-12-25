@@ -17,7 +17,7 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 6. **Download Scheduling** (`app/download_scheduler.py`): Complete download scheduler implementing producer-consumer pattern with task prioritization
 7. **Parallel Downloader** (`app/parallel_downloader.py`): Parallel download framework supporting multiple concurrent interfaces with resource management
 8. **Global Rate Limiter** (`app/global_rate_limiter.py`): Token bucket algorithm implementation for API call rate limiting
-9. **Task Queue Manager** (`test/task_queue_manager.py`): Task queue management with priority and status tracking
+9. **Task Queue Manager** (`app/task_queue_manager.py`): Task queue management with priority and status tracking
 10. **Storage Worker** (`app/storage_worker.py`): Consumer logic for data storage with thread-safe writes and error handling
 11. **Strategy Factory** (`app/strategy_factory.py`): Strategy creation and management with caching mechanism
 12. **Download Strategies** (`app/download_strategies.py`): Strategy pattern implementation for different data download approaches
@@ -30,6 +30,8 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 19. **Cache Key Generator** (`app/cache_key_generator.py`): Standardized cache key and path generation for consistent caching
 20. **Cache Manager** (`app/cache_manager.py`): Cache management with preheating, cleanup, and monitoring capabilities
 21. **Cache Monitor** (`app/cache_monitor.py`): Cache performance monitoring with hit rate tracking
+22. **Download Strategies** (`app/download_strategies.py`): Strategy pattern implementation with DailyDataStrategy, FinancialDataStrategy, and StaticDataStrategy
+23. **Strategy Factory** (`app/strategy_factory.py`): Provides unified strategy creation and caching with registry management
 
 ### Key Modules
 - **Main Entry Point**: `app/main.py` - Unified entry point for all data downloads with fallback capability
@@ -41,6 +43,8 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 - **Task Queue Manager**: `app/task_queue_manager.py` - Task queue management with priority and status tracking
 - **Interface Modules**: `app/interfaces/` - Modularized API interfaces for different data types
 - **Utils**: `app/utils/` - Helper functions for date handling and other utilities
+- **Download Strategies**: `app/download_strategies.py` - Strategy pattern for different download approaches (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
+- **Strategy Factory**: `app/strategy_factory.py` - Centralized strategy creation and registration with caching
 
 ## Data Categories by Score Level
 
@@ -81,6 +85,9 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 27. **Configuration Backward Compatibility**: Seamless integration between old boolean config and new detailed interface config
 28. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing
 29. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date range downloads to prevent conflicts
+30. **Strategy Pattern Implementation**: Different download strategies for different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
+31. **Strategy Factory Pattern**: Centralized strategy creation and caching with registry management
+32. **Parameter Adaptation System**: Interface-specific parameter validation and standardization through adapter pattern
 
 ## Development Commands
 
@@ -165,27 +172,27 @@ python app/test_full_history_downloads.py
 ```
 aspipe_v4/
 ├── app/                    # Main application code
-│   ├── main.py            # Entry point for unified downloads with fallback capability
+│   ├── main.py            # Main entry point with fallback
 │   ├── enhanced_main_downloader.py  # Production-ready enhanced downloader with strategy pattern
-│   ├── score_based_downloader.py  # Download management based on user积分 levels
+│   ├── score_based_downloader.py  # Score-based download management
 │   ├── config.py          # Configuration and token management
 │   ├── score_config.py    # Score-based access control
-│   ├── tushare_api.py     # Main API integration class
-│   ├── date_range_downloader.py  # Date range download implementations
+│   ├── tushare_api.py     # Main API integration (Facade Pattern)
+│   ├── date_range_downloader.py  # Legacy date range downloader
 │   ├── download_config.py  # Original download configuration (backward compatibility)
 │   ├── enhanced_download_config.py  # Enhanced download configuration with advanced options
 │   ├── config_adapter.py  # Configuration adapter for backward compatibility
 │   ├── data_storage.py    # Data storage and caching
-│   ├── download_scheduler.py  # Producer-consumer download scheduler
+│   ├── download_scheduler.py  # Producer-consumer scheduler
 │   ├── parallel_downloader.py # Parallel download framework
 │   ├── storage_worker.py  # Data storage consumer logic
 │   ├── download_strategies.py # Strategy pattern for different download approaches
 │   ├── global_rate_limiter.py  # Global rate limiting with token bucket
-│   ├── strategy_factory.py    # Strategy factory for management
+│   ├── strategy_factory.py    # Strategy management with caching
 │   ├── parameter_adapters.py  # API parameter adaptation
-│   ├── error_handler.py      # Enhanced error handling with retry mechanisms
-│   ├── stock_list_manager.py # Stock list management to avoid duplicates
-│   ├── cache_key_generator.py # Cache key generation
+│   ├── error_handler.py   # Enhanced error handling with retry mechanisms
+│   ├── stock_list_manager.py  # Singleton stock list management
+│   ├── cache_key_generator.py # Standardized cache key generation
 │   ├── cache_manager.py       # Cache management and preheating
 │   ├── cache_monitor.py       # Cache monitoring
 │   ├── task_queue_manager.py  # Task queue management with priority and status tracking
@@ -203,13 +210,14 @@ aspipe_v4/
 │   │   └── research_data.py   # Research data interface
 │   └── utils/             # Utility functions
 │       └── date_utils.py      # Date utility functions
+├── test/                  # Test scripts (including new cache functionality tests)
 ├── data/                  # Output directory for downloaded data
 ├── log/                   # Log files
 ├── cache/                 # Temporary cache files
 ├── requirements.txt       # Dependencies
-├── .env                   # Environment variables (not committed)
-├── test/                  # 所有测试脚本都放在这里，别放在app/ (including task_queue_manager.py, cache functionality tests, and new cache implementation tests)
-└── p/                     # 所有生成的文档，除了 claude.md和readme.md 都放在这里
+├── .env                   # Environment variables
+├── test/                  # Test scripts
+└── p/                     # Documentation
 ```
 
 ## Development Notes
@@ -221,8 +229,8 @@ aspipe_v4/
 - Error messages include specific handling for common TuShare API responses
 - Data is automatically paginated for large result sets
 - New architecture uses producer-consumer pattern for efficient data pipeline
-- Strategy pattern enables flexible handling of different data types
-- Task queue management with priorities optimizes resource usage (task queue manager now in test/ directory)
+- Strategy pattern enables flexible handling of different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
+- Task queue management with priorities optimizes resource usage
 - Enhanced configuration system provides granular control over interface settings
 - Configuration adapter maintains backward compatibility while adding advanced features
 - Priority-based scheduling ensures critical data (like trade_cal) is downloaded first
@@ -243,3 +251,5 @@ aspipe_v4/
 - Dependency-aware task queue management tracks task relationships
 - Historical download tracking automatically marks interfaces as completed after full historical downloads
 - Conditional interface management automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
+- Strategy factory pattern provides centralized strategy creation and caching with registry management
+- Download strategies implement different approaches for different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)

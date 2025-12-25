@@ -1,4 +1,4 @@
-# Complete Call Flow from main.py to Interface Scripts with Enhanced Details
+# Complete Call Flow from main.py to Interface Scripts with Updated Architecture
 
 ```mermaid
 flowchart TD
