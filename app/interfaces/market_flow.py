@@ -14,6 +14,14 @@ try:
     from ..error_handler import ErrorHandler, retry_on_failure
 except ImportError:
     from error_handler import ErrorHandler, retry_on_failure
+try:
+    from ..cache_key_generator import CacheKeyGenerator
+except ImportError:
+    from cache_key_generator import CacheKeyGenerator
+try:
+    from ...data_storage import is_interface_data_cached, load_interface_cached_data, save_interface_data_to_cache
+except ImportError:
+    from data_storage import is_interface_data_cached, load_interface_cached_data, save_interface_data_to_cache
 
 
 class MarketFlowDownloader:
@@ -49,11 +57,19 @@ class MarketFlowDownloader:
     def download_moneyflow_range(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
         按日期范围下载资金流向数据
-        实现智能分批处理
+        实现智能分批处理，支持缓存
         """
         if TUSHARE_POINTS < 2000:
             self.logger.warning("moneyflow requires 2000+ points, skipping download")
             return pd.DataFrame()
+
+        cache_key = CacheKeyGenerator.generate_cache_key('moneyflow', start_date=start_date, end_date=end_date)
+
+        if is_interface_data_cached('moneyflow', start_date=start_date, end_date=end_date):
+            cached = load_interface_cached_data('moneyflow', start_date=start_date, end_date=end_date)
+            if not cached.empty:
+                self.logger.info(f"使用缓存: moneyflow {start_date} to {end_date}")
+                return cached
 
         try:
             result = self.download_with_retry(
@@ -61,6 +77,8 @@ class MarketFlowDownloader:
                 start_date=start_date,
                 end_date=end_date
             )
+            if not result.empty:
+                save_interface_data_to_cache(result, 'moneyflow', start_date=start_date, end_date=end_date)
             self.logger.info(f"Successfully downloaded money flow range {start_date} to {end_date}: {len(result)} records")
             return result
         except Exception as e:
@@ -85,11 +103,19 @@ class MarketFlowDownloader:
             self.logger.warning("moneyflow_ths requires 5000+ points, skipping download")
             return pd.DataFrame()
 
+        if is_interface_data_cached('moneyflow_ths', trade_date=trade_date):
+            cached = load_interface_cached_data('moneyflow_ths', trade_date=trade_date)
+            if not cached.empty:
+                self.logger.info(f"使用缓存: moneyflow_ths {trade_date}")
+                return cached
+
         try:
             result = self.download_with_retry(
                 self.pro.moneyflow_ths,
                 trade_date=trade_date
             )
+            if not result.empty:
+                save_interface_data_to_cache(result, 'moneyflow_ths', trade_date=trade_date)
             self.logger.info(f"Successfully downloaded moneyflow_ths: {len(result)} records")
             return result
         except Exception as e:
@@ -106,11 +132,19 @@ class MarketFlowDownloader:
             self.logger.warning("moneyflow_dc requires 5000+ points, skipping download")
             return pd.DataFrame()
 
+        if is_interface_data_cached('moneyflow_dc', trade_date=trade_date):
+            cached = load_interface_cached_data('moneyflow_dc', trade_date=trade_date)
+            if not cached.empty:
+                self.logger.info(f"使用缓存: moneyflow_dc {trade_date}")
+                return cached
+
         try:
             result = self.download_with_retry(
                 self.pro.moneyflow_dc,
                 trade_date=trade_date
             )
+            if not result.empty:
+                save_interface_data_to_cache(result, 'moneyflow_dc', trade_date=trade_date)
             self.logger.info(f"Successfully downloaded moneyflow_dc: {len(result)} records")
             return result
         except Exception as e:
@@ -127,11 +161,19 @@ class MarketFlowDownloader:
             self.logger.warning("moneyflow_ind_dc requires 5000+ points, skipping download")
             return pd.DataFrame()
 
+        if is_interface_data_cached('moneyflow_ind_dc', trade_date=trade_date):
+            cached = load_interface_cached_data('moneyflow_ind_dc', trade_date=trade_date)
+            if not cached.empty:
+                self.logger.info(f"使用缓存: moneyflow_ind_dc {trade_date}")
+                return cached
+
         try:
             result = self.download_with_retry(
                 self.pro.moneyflow_ind_dc,
                 trade_date=trade_date
             )
+            if not result.empty:
+                save_interface_data_to_cache(result, 'moneyflow_ind_dc', trade_date=trade_date)
             self.logger.info(f"Successfully downloaded moneyflow_ind_dc: {len(result)} records")
             return result
         except Exception as e:
@@ -148,11 +190,19 @@ class MarketFlowDownloader:
             self.logger.warning("moneyflow_mkt_dc requires 5000+ points, skipping download")
             return pd.DataFrame()
 
+        if is_interface_data_cached('moneyflow_mkt_dc', trade_date=trade_date):
+            cached = load_interface_cached_data('moneyflow_mkt_dc', trade_date=trade_date)
+            if not cached.empty:
+                self.logger.info(f"使用缓存: moneyflow_mkt_dc {trade_date}")
+                return cached
+
         try:
             result = self.download_with_retry(
                 self.pro.moneyflow_mkt_dc,
                 trade_date=trade_date
             )
+            if not result.empty:
+                save_interface_data_to_cache(result, 'moneyflow_mkt_dc', trade_date=trade_date)
             self.logger.info(f"Successfully downloaded moneyflow_mkt_dc: {len(result)} records")
             return result
         except Exception as e:
@@ -169,11 +219,19 @@ class MarketFlowDownloader:
             self.logger.warning("moneyflow_cnt_ths requires 5000+ points, skipping download")
             return pd.DataFrame()
 
+        if is_interface_data_cached('moneyflow_cnt_ths', trade_date=trade_date):
+            cached = load_interface_cached_data('moneyflow_cnt_ths', trade_date=trade_date)
+            if not cached.empty:
+                self.logger.info(f"使用缓存: moneyflow_cnt_ths {trade_date}")
+                return cached
+
         try:
             result = self.download_with_retry(
                 self.pro.moneyflow_cnt_ths,
                 trade_date=trade_date
             )
+            if not result.empty:
+                save_interface_data_to_cache(result, 'moneyflow_cnt_ths', trade_date=trade_date)
             self.logger.info(f"Successfully downloaded moneyflow_cnt_ths: {len(result)} records")
             return result
         except Exception as e:
@@ -190,11 +248,19 @@ class MarketFlowDownloader:
             self.logger.warning("moneyflow_ind_ths requires 5000+ points, skipping download")
             return pd.DataFrame()
 
+        if is_interface_data_cached('moneyflow_ind_ths', trade_date=trade_date):
+            cached = load_interface_cached_data('moneyflow_ind_ths', trade_date=trade_date)
+            if not cached.empty:
+                self.logger.info(f"使用缓存: moneyflow_ind_ths {trade_date}")
+                return cached
+
         try:
             result = self.download_with_retry(
                 self.pro.moneyflow_ind_ths,
                 trade_date=trade_date
             )
+            if not result.empty:
+                save_interface_data_to_cache(result, 'moneyflow_ind_ths', trade_date=trade_date)
             self.logger.info(f"Successfully downloaded moneyflow_ind_ths: {len(result)} records")
             return result
         except Exception as e:
