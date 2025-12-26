@@ -8,7 +8,7 @@ from enum import Enum
 import logging
 
 # 从原有配置中导入，保持向后兼容
-from download_config import DOWNLOAD_CONFIG as ORIGINAL_DOWNLOAD_CONFIG
+from app.download_config import DOWNLOAD_CONFIG as ORIGINAL_DOWNLOAD_CONFIG
 
 
 class DataTypePriority(Enum):
