@@ -41,6 +41,7 @@ class InterfaceConfig:
     api_params: Dict[str, Any] = field(default_factory=dict)  # 特定API参数
     cache_enabled: bool = True                   # 是否启用缓存
     cache_ttl_hours: int = 24                    # 缓存有效时间（小时）
+    requires_tscode: bool = False                # 是否需要ts_code参数
 
 
 # 增强配置结构，支持优先级、重试次数等功能
@@ -136,7 +137,8 @@ DOWNLOAD_PIPELINE_CONFIG = {
         max_retries=3,
         strategy=DownloadStrategy.PARALLEL,
         concurrency=4,
-        required_points=5000
+        required_points=5000,
+        requires_tscode=True
     ),
 
     # 芯片分布接口 - 低优先级（已暂时禁用）
@@ -249,7 +251,8 @@ DOWNLOAD_PIPELINE_CONFIG = {
         max_retries=2,
         strategy=DownloadStrategy.PAGINATED,
         batch_size=1000,
-        required_points=2000
+        required_points=2000,
+        requires_tscode=True
     ),
     'top10_floatholders': InterfaceConfig(
         enabled=ORIGINAL_DOWNLOAD_CONFIG.get('top10_floatholders', True),
@@ -273,7 +276,8 @@ DOWNLOAD_PIPELINE_CONFIG = {
         priority=DataTypePriority.LOW,
         max_retries=2,
         strategy=DownloadStrategy.SEQUENTIAL,
-        required_points=2000
+        required_points=2000,
+        requires_tscode=True
     ),
     'stk_managers': InterfaceConfig(
         enabled=ORIGINAL_DOWNLOAD_CONFIG.get('stk_managers', True),
@@ -295,7 +299,8 @@ DOWNLOAD_PIPELINE_CONFIG = {
         max_retries=2,
         strategy=DownloadStrategy.PAGINATED,
         batch_size=1000,
-        required_points=5000
+        required_points=5000,
+        requires_tscode=True
     ),
 
     # 东财资金流接口 - 低优先级（已禁用）
@@ -338,6 +343,14 @@ DOWNLOAD_PIPELINE_CONFIG = {
         max_retries=2,
         strategy=DownloadStrategy.SEQUENTIAL,
         required_points=600
+    ),
+    'fina_audit': InterfaceConfig(
+        enabled=ORIGINAL_DOWNLOAD_CONFIG.get('fina_audit', True),
+        priority=DataTypePriority.LOW,
+        max_retries=2,
+        strategy=DownloadStrategy.SEQUENTIAL,
+        required_points=500,
+        requires_tscode=True
     )
 }
 

@@ -304,76 +304,45 @@ def main():
 
             if download_holders_data:
                 logger.info("下载股东相关全历史数据...")
-                # 下载stk_rewards, top10_holders, pledge_detail, fina_audit数据
+                # 使用 DownloadScheduler（与日期范围模式完全相同的架构）
                 if args.tscode_historical:
-                    # 恢复临时禁用的接口以允许下载
-                    from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
-                    for interface_name in ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit']:
-                        if interface_name in DOWNLOAD_PIPELINE_CONFIG:
-                            config = DOWNLOAD_PIPELINE_CONFIG[interface_name]
-                            if hasattr(config, '_original_enabled'):
-                                config.enabled = config._original_enabled
-                                logger.info(f"恢复接口 {interface_name} 以执行历史下载")
+                    logger.info("使用 DownloadScheduler (tscode-historical 模式)")
 
-                    # 下载全历史数据
-                    # 先获取股票列表以提高性能
-                    from interfaces.basic_data import BasicDataDownloader
-                    basic_downloader = BasicDataDownloader(downloader.pro)
-                    stock_list = basic_downloader.download_stock_basic()
-
-                    # 创建全历史下载器实例
-                    from interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
-                    full_history_downloader = HoldersDataFullHistoryDownloader(downloader.pro, stock_list)
-
-                    logger.info("下载stk_rewards全历史数据...")
-                    results['stk_rewards_full'] = full_history_downloader.download_stk_rewards_full_history()
-
-                    logger.info("下载top10_holders全历史数据...")
-                    results['top10_holders_full'] = full_history_downloader.download_top10_holders_full_history()
-
+                    # 确定要下载的接口
+                    interfaces_to_download = ['stk_rewards', 'top10_holders']
                     if TUSHARE_POINTS >= 5000:
-                        logger.info("下载pledge_detail全历史数据...")
-                        results['pledge_detail_full'] = full_history_downloader.download_pledge_detail_full_history()
-
+                        interfaces_to_download.append('pledge_detail')
                     if TUSHARE_POINTS >= 500:
-                        logger.info("下载fina_audit全历史数据...")
-                        # 对于fina_audit，直接从FinancialDataDownloader调用
-                        from interfaces.financial_data import FinancialDataDownloader
-                        financial_downloader = FinancialDataDownloader(downloader.pro)
-                        results['fina_audit_full'] = financial_downloader.download_fina_audit_full_history()
+                        interfaces_to_download.append('fina_audit')
+
+                    # 使用新的调度器
+                    from download_scheduler import run_download_schedule
+                    results = run_download_schedule(
+                        start_date='20230101',  # tscode_historical 模式下忽略此参数
+                        end_date=datetime.now().strftime('%Y%m%d'),  # tscode_historical 模式下忽略此参数
+                        interfaces=interfaces_to_download,
+                        mode='tscode_historical'  # 指定为 tscode_historical 模式
+                    )
 
                     # 标记这些接口为已完成历史下载
-                    completed_historical_interfaces = ['stk_rewards', 'top10_holders']
-                    if TUSHARE_POINTS >= 5000:
-                        completed_historical_interfaces.append('pledge_detail')
-                    if TUSHARE_POINTS >= 500:
-                        completed_historical_interfaces.append('fina_audit')
-                    mark_interfaces_as_historical_downloaded(completed_historical_interfaces)
+                    mark_interfaces_as_historical_downloaded(interfaces_to_download)
                 else:
                     results = download_with_legacy_fallback(args.start_date, args.end_date)
 
             if download_pro_bar_only:
                 logger.info("下载pro_bar复权行情数据...")
                 if effective_tscode_historical:
-                    # 恢复临时禁用的接口以允许下载
-                    from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
-                    for interface_name in ['pro_bar']:
-                        if interface_name in DOWNLOAD_PIPELINE_CONFIG:
-                            config = DOWNLOAD_PIPELINE_CONFIG[interface_name]
-                            if hasattr(config, '_original_enabled'):
-                                config.enabled = config._original_enabled
-                                logger.info(f"恢复接口 {interface_name} 以执行历史下载")
+                    # 使用 DownloadScheduler（与日期范围模式完全相同的架构）
+                    logger.info("使用 DownloadScheduler (tscode-historical 模式)")
 
-                    # 下载全历史数据
-                    logger.info("下载pro_bar全历史数据...")
-                    # 传递股票列表以提高性能
-                    from interfaces.basic_data import BasicDataDownloader
-                    basic_downloader = BasicDataDownloader(downloader.pro)
-                    stock_list = basic_downloader.download_stock_basic()
-
-                    from interfaces.holders_data_downloader import HoldersDataFullHistoryDownloader
-                    full_history_downloader = HoldersDataFullHistoryDownloader(downloader.pro, stock_list)
-                    results['pro_bar_full'] = full_history_downloader.download_pro_bar_full_history_all_stocks()
+                    # 使用新的调度器
+                    from download_scheduler import run_download_schedule
+                    results['pro_bar_full'] = run_download_schedule(
+                        start_date='20230101',  # tscode_historical 模式下忽略此参数
+                        end_date=datetime.now().strftime('%Y%m%d'),  # tscode_historical 模式下忽略此参数
+                        interfaces=['pro_bar'],
+                        mode='tscode_historical'  # 指定为 tscode_historical 模式
+                    )
 
                     # 标记pro_bar为已完成历史下载
                     mark_interfaces_as_historical_downloaded(['pro_bar'])

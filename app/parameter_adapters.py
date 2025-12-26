@@ -410,6 +410,7 @@ class ParameterAdapterManager:
             'stk_factor_pro': TechnicalFactorParameterAdapter(),
             'cyq_perf': DailyDataParameterAdapter(),
             'cyq_chips': DailyDataParameterAdapter(),
+            'pro_bar': DailyDataParameterAdapter(),  # pro_bar使用日度数据适配器
             'income': FinancialDataParameterAdapter(),
             'balancesheet': FinancialDataParameterAdapter(),
             'cashflow': FinancialDataParameterAdapter(),

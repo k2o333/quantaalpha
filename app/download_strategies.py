@@ -288,6 +288,25 @@ class DailyDataStrategy(DownloadStrategy):
                     else:
                         self.logger.error("cyq_chips 接口需要 trade_date 参数")
                         return pd.DataFrame()
+                elif self.interface_name == 'pro_bar':
+                    # pro_bar 接口需要 ts_code 参数，也可以有 start_date 和 end_date
+                    ts_code = adapted_params.get('ts_code')
+                    start_date = adapted_params.get('start_date')
+                    end_date = adapted_params.get('end_date')
+                    adj = adapted_params.get('adj', 'qfq')
+                    freq = adapted_params.get('freq', 'D')
+
+                    if ts_code:
+                        result = self.downloader.download_pro_bar(
+                            ts_code=ts_code,
+                            start_date=start_date,
+                            end_date=end_date,
+                            adj=adj,
+                            freq=freq
+                        )
+                    else:
+                        self.logger.error("pro_bar 接口需要 ts_code 参数")
+                        return pd.DataFrame()
                 else:
                     self.logger.error(f"未知的日度数据接口: {self.interface_name}")
                     return pd.DataFrame()

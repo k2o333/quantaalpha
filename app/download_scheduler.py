@@ -131,12 +131,13 @@ class DownloadScheduler:
 
         return date_list
 
-    def schedule_download_tasks(self, interfaces: List[str] = None) -> List[str]:
+    def schedule_download_tasks(self, interfaces: List[str] = None, mode: str = 'date_range') -> List[str]:
         """
         为指定接口调度下载任务
 
         Args:
             interfaces: 要下载的接口列表，如果为None则下载所有可用接口
+            mode: 下载模式 ('date_range' 或 'tscode_historical')
 
         Returns:
             任务ID列表
@@ -152,30 +153,41 @@ class DownloadScheduler:
             from config_adapter import get_interface_priority as get_config_priority
             priority = get_config_priority(interface_name)
 
-            # 根据接口类型选择合适的调度策略
-            if interface_name in ['daily', 'daily_basic', 'moneyflow', 'moneyflow_dc', 'moneyflow_ths',
-                                 'moneyflow_ind_dc', 'moneyflow_mkt_dc', 'moneyflow_cnt_ths',
-                                 'moneyflow_ind_ths', 'stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips']:
-                # 日度数据接口，按日期分批调度
-                task_id = self._schedule_daily_interface(interface_name, priority)
-            elif interface_name in ['income', 'balancesheet', 'cashflow', 'fina_indicator',
-                                   'dividend', 'forecast', 'express', 'top10_holders',
-                                   'top10_floatholders', 'stk_surv']:
-                # 财务数据接口，按报告期调度
-                task_id = self._schedule_financial_interface(interface_name, priority)
-            elif interface_name in ['stock_basic', 'trade_cal', 'new_share', 'stock_company',
-                                   'stock_st', 'bak_basic', 'namechange', 'stk_rewards',
-                                   'stk_managers', 'broker_recommend']:
-                # 静态数据接口，单次调度
-                task_id = self._schedule_static_interface(interface_name, priority)
+            # 根据接口类型和下载模式选择合适的调度策略
+            if mode == 'tscode_historical':
+                # tscode-historical 模式：需要 ts_code 参数的接口
+                # 使用配置系统而不是硬编码接口列表
+                if self._is_tscode_interface(interface_name):
+                    task_id = self._schedule_tscode_interface(interface_name, priority)
+                    if task_id:
+                        task_ids.append(task_id)
+                else:
+                    self.logger.warning(f"接口 {interface_name} 不支持 tscode-historical 模式")
             else:
-                # 未知类型接口，按日度数据处理
-                task_id = self._schedule_daily_interface(interface_name, priority)
+                # 日期范围模式（原有逻辑）
+                if interface_name in ['daily', 'daily_basic', 'moneyflow', 'moneyflow_dc', 'moneyflow_ths',
+                                     'moneyflow_ind_dc', 'moneyflow_mkt_dc', 'moneyflow_cnt_ths',
+                                     'moneyflow_ind_ths', 'stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips']:
+                    # 日度数据接口，按日期分批调度
+                    task_id = self._schedule_daily_interface(interface_name, priority)
+                elif interface_name in ['income', 'balancesheet', 'cashflow', 'fina_indicator',
+                                       'dividend', 'forecast', 'express', 'top10_holders',
+                                       'top10_floatholders', 'stk_surv']:
+                    # 财务数据接口，按报告期调度
+                    task_id = self._schedule_financial_interface(interface_name, priority)
+                elif interface_name in ['stock_basic', 'trade_cal', 'new_share', 'stock_company',
+                                       'stock_st', 'bak_basic', 'namechange', 'stk_rewards',
+                                       'stk_managers', 'broker_recommend']:
+                    # 静态数据接口，单次调度
+                    task_id = self._schedule_static_interface(interface_name, priority)
+                else:
+                    # 未知类型接口，按日度数据处理
+                    task_id = self._schedule_daily_interface(interface_name, priority)
 
-            if task_id:
-                task_ids.append(task_id)
+                if task_id:
+                    task_ids.append(task_id)
 
-        self.logger.info(f"调度了 {len(task_ids)} 个下载任务")
+        self.logger.info(f"调度了 {len(task_ids)} 个下载任务 (模式: {mode})")
         return task_ids
 
     def _schedule_daily_interface(self, interface_name: str, priority: TaskPriority) -> str:
@@ -844,6 +856,183 @@ class DownloadScheduler:
         result = {**stats_copy, **task_stats, 'storage_stats': storage_stats}
         return result
 
+    def _get_stock_list(self) -> List[str]:
+        """
+        获取股票列表（带缓存，使用StockListManager避免重复代码）
+
+        Returns:
+            股票代码列表
+        """
+        # 检查缓存（使用线程锁保证线程安全）
+        with self._trading_days_lock:  # 复用现有的锁
+            if hasattr(self, '_stock_list_cache') and self._stock_list_cache is not None:
+                return self._stock_list_cache
+
+        try:
+            # 使用现有的StockListManager获取股票列表（避免重复代码）
+            from stock_list_manager import init_stock_manager
+            stock_manager = init_stock_manager(
+                self.downloader, "cache", max_cache_age_hours=24
+            )
+            stock_df = stock_manager.get_stock_basic()
+
+            if stock_df is None or stock_df.empty:
+                self.logger.warning("无法获取股票列表")
+                return []
+
+            stock_list = stock_df['ts_code'].tolist()
+
+            # 缓存结果（使用线程锁保证线程安全）
+            with self._trading_days_lock:  # 复用现有的锁
+                self._stock_list_cache = stock_list
+
+            self.logger.info(f"获取到 {len(stock_list)} 只股票")
+            return stock_list
+
+        except Exception as e:
+            self.logger.error(f"获取股票列表失败: {e}")
+            return []
+
+    def _is_tscode_interface(self, interface_name: str) -> bool:
+        """
+        检查是否是需要 ts_code 参数的接口（使用配置而非硬编码）
+
+        Args:
+            interface_name: 接口名称
+
+        Returns:
+            bool: 是否是需要ts_code参数的接口
+        """
+        # 使用现有的配置系统而不是硬编码接口列表
+        from enhanced_download_config import DOWNLOAD_PIPELINE_CONFIG
+        config = DOWNLOAD_PIPELINE_CONFIG.get(interface_name)
+        return config and getattr(config, 'requires_tscode', False)
+
+    def _schedule_tscode_interface(self, interface_name: str, priority: TaskPriority) -> str:
+        """
+        调度需要 ts_code 参数的接口下载任务
+
+        Args:
+            interface_name: 接口名称（如 'stk_rewards', 'top10_holders', 'pro_bar'）
+            priority: 任务优先级
+
+        Returns:
+            任务ID
+        """
+        # 获取股票列表（使用StockListManager避免重复代码）
+        stock_list = self._get_stock_list()
+
+        if not stock_list:
+            self.logger.warning(f"无法获取股票列表，跳过接口 {interface_name}")
+            return None
+
+        # 将股票列表分批，每批处理一定数量的股票
+        batch_size = 50  # 每批50只股票，可根据接口特性调整
+        task_ids = []
+
+        for i in range(0, len(stock_list), batch_size):
+            batch_stocks = stock_list[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            total_batches = (len(stock_list) - 1) // batch_size + 1
+
+            # 创建任务参数
+            task_params = {
+                'interface_name': interface_name,
+                'ts_codes': batch_stocks,
+                'batch_num': batch_num,
+                'total_batches': total_batches
+            }
+
+            # 提交任务
+            task_id = self.task_manager.add_task(
+                task_type='download',
+                target_func=self._execute_tscode_download,
+                priority=priority,
+                kwargs=task_params,
+                max_retries=3,
+                metadata={
+                    'interface': interface_name,
+                    'batch': f"{batch_num}/{total_batches}",
+                    'stock_count': len(batch_stocks)
+                }
+            )
+            if task_id:
+                task_ids.append(task_id)
+
+        # 返回第一个任务ID作为代表
+        return task_ids[0] if task_ids else None
+
+    def _execute_tscode_download(self, **kwargs) -> pd.DataFrame:
+        """
+        执行需要 ts_code 参数的接口下载
+        支持缓存检查、并行下载、异步存储
+
+        Args:
+            interface_name: 接口名称
+            ts_codes: 股票代码列表
+            batch_num: 批次号
+            total_batches: 总批次数
+
+        Returns:
+            下载的数据
+        """
+        interface_name = kwargs.get('interface_name')
+        ts_codes = kwargs.get('ts_codes', [])
+        batch_num = kwargs.get('batch_num', 1)
+        total_batches = kwargs.get('total_batches', 1)
+
+        self.logger.info(f"开始下载 {interface_name} (批次 {batch_num}/{total_batches})，股票数量: {len(ts_codes)}")
+
+        # 使用现有的ParallelDownloader进行并行处理（避免重复实现）
+        try:
+            # 为每个股票创建下载参数
+            download_params_list = []
+            for ts_code in ts_codes:
+                params = {'ts_code': ts_code}
+                download_params_list.append(params)
+
+            # 使用ParallelDownloader的批处理功能
+            batch_results = self.parallel_downloader.download_interface_batches(
+                interface_name=interface_name,
+                batch_params_list=download_params_list
+            )
+
+            # 合并所有批次的结果
+            all_data = []
+            for result_df in batch_results.values():
+                if result_df is not None and not result_df.empty:
+                    all_data.append(result_df)
+
+            if all_data:
+                result = pd.concat(all_data, ignore_index=True)
+
+                with self.stats_lock:
+                    self.stats['total_downloaded'] += len(result)
+
+                self.logger.info(f"完成下载 {interface_name} (批次 {batch_num}/{total_batches})，获得 {len(result)} 条记录")
+
+                # 提交异步存储任务（与日期范围模式完全相同）
+                filename = f"{interface_name}_batch_{batch_num:04d}"
+                subdir = f"tscode_historical/{interface_name}"
+
+                self.task_manager.add_storage_task(
+                    data=result,
+                    filename=filename,
+                    subdir=subdir,
+                    priority=TaskPriority.MEDIUM
+                )
+
+                return result
+            else:
+                self.logger.warning(f"批次 {batch_num}/{total_batches} 没有下载到任何数据")
+                return pd.DataFrame()
+
+        except Exception as e:
+            self.logger.error(f"执行tscode下载失败: {e}")
+            import traceback
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+            return pd.DataFrame()
+
     def shutdown(self):
         """
         关闭调度器
@@ -1007,14 +1196,15 @@ def create_enhanced_scheduler(start_date: str, end_date: str, max_workers: int =
     return EnhancedDownloadScheduler(start_date, end_date, max_workers)
 
 
-def run_download_schedule(start_date: str, end_date: str, interfaces: List[str] = None) -> Dict[str, Any]:
+def run_download_schedule(start_date: str, end_date: str, interfaces: List[str] = None, mode: str = 'date_range') -> Dict[str, Any]:
     """
     运行下载调度（便捷函数）
 
     Args:
-        start_date: 开始日期 (YYYYMMDD)
-        end_date: 结束日期 (YYYYMMDD)
+        start_date: 开始日期 (YYYYMMDD) - tscode_historical 模式下忽略
+        end_date: 结束日期 (YYYYMMDD) - tscode_historical 模式下忽略
         interfaces: 要下载的接口列表，如果为None则下载所有可用接口
+        mode: 下载模式 ('date_range' 或 'tscode_historical')
 
     Returns:
         下载统计结果
@@ -1022,14 +1212,14 @@ def run_download_schedule(start_date: str, end_date: str, interfaces: List[str] 
     import logging
     logger = logging.getLogger(__name__)
 
-    logger.info("创建下载调度器实例")
+    logger.info(f"创建下载调度器实例 (模式: {mode})")
     scheduler = create_download_scheduler(start_date, end_date)
     logger.info("下载调度器创建成功")
 
     try:
         logger.info("开始调度下载任务")
         # 调度下载任务
-        scheduler.schedule_download_tasks(interfaces)
+        scheduler.schedule_download_tasks(interfaces, mode=mode)
         logger.info("下载任务调度完成，等待执行")
 
         logger.info("开始执行调度的任务")

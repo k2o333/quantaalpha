@@ -37,6 +37,7 @@ class StrategyFactory:
             'stk_factor_pro': DailyDataStrategy,
             'cyq_perf': DailyDataStrategy,
             'cyq_chips': DailyDataStrategy,
+            'pro_bar': DailyDataStrategy,  # 添加 pro_bar 接口
             'income': FinancialDataStrategy,
             'balancesheet': FinancialDataStrategy,
             'cashflow': FinancialDataStrategy,
