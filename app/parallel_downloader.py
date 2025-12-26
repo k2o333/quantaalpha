@@ -74,7 +74,7 @@ class ParallelDownloader:
                 adapted_params = strategy.validate_and_adapt_params(task_params)
 
                 # 执行下载
-                result_df = strategy.download(**adapted_params)
+                result_df = strategy.download_with_cache(**adapted_params)
 
                 # 记录下载信息
                 record_count = len(result_df) if result_df is not None else 0

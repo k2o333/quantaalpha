@@ -260,26 +260,22 @@ class DownloadScheduler:
 
             # 根据接口类型执行不同的下载逻辑
             if interface_name in ['daily', 'daily_basic', 'moneyflow']:
-                # 对于支持日期范围的接口，直接下载
                 if interface_name == 'daily':
-                    result = strategy.download(start_date=start_date, end_date=end_date)
+                    result = strategy.download_with_cache(start_date=start_date, end_date=end_date)
                 elif interface_name == 'daily_basic':
-                    # daily_basic 按单日下载并合并
                     all_data = []
                     for trade_date in trading_days:
-                        day_result = strategy.download(trade_date=trade_date)
+                        day_result = strategy.download_with_cache(trade_date=trade_date)
                         if not day_result.empty:
                             all_data.append(day_result)
-                        # 应用速率限制
                         time.sleep(0.5)
                     result = pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
                 elif interface_name == 'moneyflow':
-                    result = strategy.download(start_date=start_date, end_date=end_date)
+                    result = strategy.download_with_cache(start_date=start_date, end_date=end_date)
                 else:
-                    result = strategy.download(start_date=start_date, end_date=end_date)
+                    result = strategy.download_with_cache(start_date=start_date, end_date=end_date)
             else:
-                # 对于其他接口，根据支持的参数类型下载
-                result = strategy.download(start_date=start_date, end_date=end_date)
+                result = strategy.download_with_cache(start_date=start_date, end_date=end_date)
 
             with self.stats_lock:
                 self.stats['total_downloaded'] += len(result) if result is not None else 0

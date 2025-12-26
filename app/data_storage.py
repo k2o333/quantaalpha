@@ -167,7 +167,7 @@ def get_interface_cache_path(data_type: str, **kwargs) -> str:
     Returns:
         缓存文件路径
     """
-    from app.cache_key_generator import CacheKeyGenerator
+    from cache_key_generator import CacheKeyGenerator
 
     # 使用统一的缓存键生成器
     return CacheKeyGenerator.generate_cache_path(data_type, **kwargs)
@@ -183,7 +183,7 @@ def is_interface_data_cached(data_type: str, cache_ttl_hours: int = 24, **kwargs
         cache_ttl_hours: 缓存有效时间（小时）
         **kwargs: 接口参数
     """
-    from app.cache_key_generator import CacheKeyGenerator
+    from cache_key_generator import CacheKeyGenerator
     from pathlib import Path
     from datetime import datetime
     import pandas as pd
@@ -236,7 +236,7 @@ def load_interface_cached_data(data_type: str, **kwargs) -> pd.DataFrame:
     Returns:
         DataFrame或空DataFrame
     """
-    from app.cache_key_generator import CacheKeyGenerator
+    from cache_key_generator import CacheKeyGenerator
     from pathlib import Path
     import pandas as pd
     import logging
@@ -294,7 +294,7 @@ def save_interface_data_to_cache(df: pd.DataFrame, data_type: str, **kwargs) -> 
     Returns:
         保存是否成功
     """
-    from app.cache_key_generator import CacheKeyGenerator
+    from cache_key_generator import CacheKeyGenerator
     from pathlib import Path
     import pandas as pd
     import logging

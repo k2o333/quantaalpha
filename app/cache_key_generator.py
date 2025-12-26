@@ -30,7 +30,8 @@ class CacheKeyGenerator:
         # 根据接口类型和参数生成路径
         if interface_name in ['daily', 'daily_basic', 'moneyflow', 'moneyflow_dc', 'moneyflow_ths',
                              'moneyflow_ind_dc', 'moneyflow_mkt_dc', 'moneyflow_cnt_ths',
-                             'moneyflow_ind_ths', 'stk_factor', 'stk_factor_pro', 'cyq_perf', 'cyq_chips']:
+                             'moneyflow_ind_ths', 'stk_factor', 'stk_factor_pro', 'cyq_perf',
+                             'cyq_chips', 'pro_bar']:
             # 日度数据接口
             return CacheKeyGenerator._generate_daily_cache_path(interface_name, **kwargs)
         elif interface_name in ['income', 'balancesheet', 'cashflow', 'fina_indicator',

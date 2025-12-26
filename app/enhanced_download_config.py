@@ -8,7 +8,7 @@ from enum import Enum
 import logging
 
 # 从原有配置中导入，保持向后兼容
-from app.download_config import DOWNLOAD_CONFIG as ORIGINAL_DOWNLOAD_CONFIG
+from download_config import DOWNLOAD_CONFIG as ORIGINAL_DOWNLOAD_CONFIG
 
 
 class DataTypePriority(Enum):
@@ -138,7 +138,9 @@ DOWNLOAD_PIPELINE_CONFIG = {
         strategy=DownloadStrategy.PARALLEL,
         concurrency=4,
         required_points=5000,
-        requires_tscode=True
+        requires_tscode=True,
+        cache_enabled=True,
+        cache_ttl_hours=168
     ),
 
     # 芯片分布接口 - 低优先级（已暂时禁用）

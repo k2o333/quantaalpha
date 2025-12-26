@@ -70,15 +70,11 @@ class MarketFlowDownloader:
 
     def download_moneyflow_dc_paginated(self, trade_date: str, limit_per_call: int = 6000) -> pd.DataFrame:
         """
-        分页下载moneyflow_dc数据
+        分页下载moneyflow_dc数据 - 通过策略系统以支持缓存
         """
-        from ..tushare_api import TuShareDownloader
-        return TuShareDownloader.download_with_pagination(
-            self,
-            lambda **kwargs: self.pro.moneyflow_dc(**kwargs),
-            limit_per_call=limit_per_call,
-            trade_date=trade_date
-        )
+        from ..download_strategies import get_strategy
+        strategy = get_strategy('moneyflow_dc', downloader=self)
+        return strategy.download_with_cache(trade_date=trade_date)
 
     def download_moneyflow_ths(self, trade_date: str = '20231201') -> pd.DataFrame:
         """
