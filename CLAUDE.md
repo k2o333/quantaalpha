@@ -32,6 +32,8 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 21. **Cache Monitor** (`app/cache_monitor.py`): Cache performance monitoring with hit rate tracking
 22. **Download Strategies** (`app/download_strategies.py`): Strategy pattern implementation with DailyDataStrategy, FinancialDataStrategy, and StaticDataStrategy
 23. **Strategy Factory** (`app/strategy_factory.py`): Provides unified strategy creation and caching with registry management
+24. **Parameter Adapters** (`app/parameter_adapters.py`): Standardized parameter validation and adaptation for all interfaces
+25. **Enhanced Main Downloader** (`app/enhanced_main_downloader.py`): Production-ready enhanced downloader with strategy pattern
 
 ### Key Modules
 - **Main Entry Point**: `app/main.py` - Unified entry point for all data downloads with fallback capability
@@ -45,6 +47,12 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 - **Utils**: `app/utils/` - Helper functions for date handling and other utilities
 - **Download Strategies**: `app/download_strategies.py` - Strategy pattern for different download approaches (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
 - **Strategy Factory**: `app/strategy_factory.py` - Centralized strategy creation and registration with caching
+- **Parameter Adapters**: `app/parameter_adapters.py` - Standardized parameter validation and adaptation for all interfaces
+- **Data Storage**: `app/data_storage.py` - Data storage and caching with intelligent cache matching
+- **Cache Key Generator**: `app/cache_key_generator.py` - Standardized cache key and path generation
+- **Cache Monitor**: `app/cache_monitor.py` - Cache performance monitoring with hit rate tracking
+- **Stock List Manager**: `app/stock_list_manager.py` - Singleton pattern implementation to prevent duplicate API calls
+- **Error Handler**: `app/error_handler.py` - Enhanced error handling with retry mechanisms and API-specific error handling
 
 ## Data Categories by Score Level
 
@@ -88,6 +96,9 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 30. **Strategy Pattern Implementation**: Different download strategies for different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
 31. **Strategy Factory Pattern**: Centralized strategy creation and caching with registry management
 32. **Parameter Adaptation System**: Interface-specific parameter validation and standardization through adapter pattern
+33. **Batch Processing for TSCODE interfaces**: Efficient batch processing of ts_code-dependent interfaces for better performance
+34. **Asynchronous Storage Operations**: Storage operations handled asynchronously to avoid blocking download threads
+35. **Enhanced Interface Configuration**: Detailed interface settings including cache settings, API parameters, and concurrency controls
 
 ## Development Commands
 
@@ -197,6 +208,7 @@ aspipe_v4/
 │   ├── cache_monitor.py       # Cache monitoring
 │   ├── task_queue_manager.py  # Task queue management with priority and status tracking
 │   ├── interfaces/        # Modular interface classes
+│   │   ├── __init__.py    # Package initialization file
 │   │   ├── base.py        # Base interface functionality
 │   │   ├── basic_data.py  # Basic data interface (stock_basic, etc.)
 │   │   ├── daily_data.py  # Daily data interface (daily, daily_basic, etc.)
@@ -206,9 +218,9 @@ aspipe_v4/
 │   │   ├── holders_data_downloader.py  # Full history holder data downloader
 │   │   ├── technical_factors.py  # Technical factors interface
 │   │   ├── cyq_chips.py       # CYQ chips data interface
-│   │   ├── market_structure.py # Market structure data interface
 │   │   └── research_data.py   # Research data interface
 │   └── utils/             # Utility functions
+│       ├── __init__.py    # Package initialization file
 │       └── date_utils.py      # Date utility functions
 ├── test/                  # Test scripts (including new cache functionality tests)
 ├── data/                  # Output directory for downloaded data
@@ -253,3 +265,7 @@ aspipe_v4/
 - Conditional interface management automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
 - Strategy factory pattern provides centralized strategy creation and caching with registry management
 - Download strategies implement different approaches for different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
+- Parameter adaptation system provides interface-specific parameter validation and standardization
+- Batch processing for ts_code-dependent interfaces improves performance by processing multiple stocks in parallel
+- Asynchronous storage operations prevent blocking of download threads
+- Enhanced interface configuration provides detailed settings for cache, API parameters, and concurrency

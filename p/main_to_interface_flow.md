@@ -137,6 +137,33 @@ flowchart TD
     A5 --> A6[Temporarily disable interfaces<br/>during date-range downloads]
     A6 --> A7[Save original interface state<br/>with _original_enabled attribute]
     A7 --> A8[Restore original interface states<br/>after download completion]
+    A8 --> A9[Historical Download Tracking<br/>to avoid redundant processing]
+
+    %% TSCODE Historical Mode Implementation
+    A --> A10[tscode_historical mode - Full History Downloads]
+    A10 --> A11[Uses DownloadScheduler with mode='tscode_historical']
+    A11 --> A12[_schedule_tscode_interface for batch processing by ts_code]
+    A12 --> A13[_execute_tscode_download for parallel processing]
+    A13 --> A14[ParallelDownloader.batch_download for efficiency]
+
+    %% New Cache Integration Features
+    O --> A15[Enhanced Cache System]
+    A15 --> A16[CacheKeyGenerator for standardized paths]
+    A15 --> A17[Cache Monitor for hit rate tracking]
+    A15 --> A18[Intelligent Cache Matching and extraction]
+    A15 --> A19[Cache Preheating capabilities]
+
+    %% New Configuration and Strategy Features
+    O --> A20[ConfigAdapter.get_interface_cache_settings]
+    O --> A21[ParameterAdapterManager integration]
+    O --> A22[Enhanced InterfaceConfig with detailed settings]
+
+    %% Download Scheduling with New Features
+    A --> A23[Enhanced Download Scheduler]
+    A23 --> A24[TaskQueueManager.add_storage_task]
+    A24 --> A25[StorageWorker.submit_data]
+    A25 --> A26[Asynchronous Storage Operations]
+    A26 --> A27[Batch Storage Worker (optional)]
 
     subgraph "Download Scheduling"
         B
@@ -233,6 +260,28 @@ flowchart TD
     subgraph "Utilities"
         BB
     end
+
+    subgraph "Historical Download System"
+        A4
+        A5
+        A6
+        A7
+        A8
+        A9
+        A10
+        A11
+        A12
+        A13
+        A14
+    end
+
+    subgraph "Enhanced Cache System"
+        A15
+        A16
+        A17
+        A18
+        A19
+    end
 ```
 
 ## Call Flow Description
@@ -263,7 +312,7 @@ flowchart TD
     - `HoldersDataDownloader` (holders_data.py)
     - `TechnicalFactorsDownloader` (technical_factors.py)
     - `CyqChipsDownloader` (cyq_chips.py)
-    - `MarketStructureDownloader` (market_structure.py)
+    - `MarketStructureDownloader` (market_structure.py) - 注意：文件存在但目录为空
     - `ResearchDataDownloader` (research_data.py)
     - `BaseDownloader` (base.py) - base functionality for all interfaces
     - `HoldersDataFullHistoryDownloader` (holders_data_downloader.py) - for ts_code-dependent interfaces requiring full history
@@ -289,6 +338,15 @@ flowchart TD
     - Storage tasks executed separately from download tasks, enabling parallel processing
 20. → Data saved as Parquet files via `data_storage.py`
 21. → Historical download completion: `mark_interfaces_as_historical_downloaded()` records completed interfaces
+
+### TSCODE Historical Mode Implementation:
+When using `--tscode-historical`, `--holders-data`, or `--pro-bar-only` flags, the system uses a specialized approach:
+1. `main.py` → `run_download_schedule()` with `mode='tscode_historical'`
+2. → `DownloadScheduler.schedule_download_tasks()` with `tscode_historical` mode
+3. → `_schedule_tscode_interface()` for batch processing by ts_code
+4. → `_execute_tscode_download()` for parallel processing of ts_code-dependent interfaces
+5. → `ParallelDownloader.batch_download()` for efficient processing of multiple ts_code values
+6. → Storage tasks submitted to `task_manager.add_storage_task()` with specific subdirectory structure for full history data
 
 ### Fallback Flow (Legacy System):
 1. `main.py` → `download_with_legacy_method()`
@@ -331,11 +389,13 @@ flowchart TD
 7. **Configuration Adapter Pattern**: New configuration system maintains compatibility with old format while adding advanced features
 8. **Rate Limiting with Token Bucket**: Global rate limiting prevents API throttling across all interfaces
 9. **Parameter Adapter Pattern**: Standardized parameter validation and adaptation per interface type
-10. **Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming
+10. **Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming capabilities
 11. **Singleton Pattern**: Stock list management uses singleton pattern to prevent duplicate API calls
 12. **Enhanced Error Handling**: Improved retry mechanisms with exponential backoff and adaptive rate limiting
 13. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing (JSON-based marker system)
 14. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
+15. **Intelligent Cache Matching**: Can extract specific data from more general caches (e.g., single stock data from all-stock cache)
+16. **Batch Operations**: For ts_code-dependent interfaces, processes multiple stocks in parallel batches
 
 ### New Enhanced Features:
 
@@ -353,9 +413,12 @@ flowchart TD
 12. **Cache Monitoring**: Real-time cache performance tracking with hit rate statistics
 13. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing using JSON-based marker files
 14. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
+15. **Intelligent Cache Matching**: Can extract specific data from more general caches (e.g., single stock data from all-stock cache)
+16. **Batch Processing**: For ts_code-dependent interfaces, processes multiple stocks in parallel batches for efficiency
 
 This enhanced architecture enables modular, extensible data download functionality with proper error handling, retry logic, rate limiting, caching, and asynchronous processing, all orchestrated through the entry point in main.py. The decoupled nature of download and storage operations allows for better resource utilization and system responsiveness. The new configuration system provides granular control over download behavior while maintaining backward compatibility with the original system structure.
-The integrated caching system with standardized cache key generation, parameter validation system with interface-specific adapters, error handling with API-specific logic, singleton stock list manager, historical download tracking, and conditional interface management all contribute to a more robust and efficient architecture.
+
+The integrated caching system with standardized cache key generation, parameter validation system with interface-specific adapters, error handling with API-specific logic, singleton stock list manager, historical download tracking, conditional interface management, intelligent cache matching, and batch processing all contribute to a more robust and efficient architecture.
 
 ## Application Structure and Key Components
 
@@ -389,6 +452,7 @@ aspipe_v4/
 │   ├── cache_monitor.py       # Cache monitoring
 │   ├── task_queue_manager.py  # Task queue management with priority and status tracking
 │   ├── interfaces/        # Modular interface classes
+│   │   ├── __init__.py    # Package initialization file
 │   │   ├── base.py        # Base interface functionality
 │   │   ├── basic_data.py
 │   │   ├── daily_data.py
@@ -398,9 +462,9 @@ aspipe_v4/
 │   │   ├── holders_data_downloader.py  # Full history holder data downloader
 │   │   ├── technical_factors.py
 │   │   ├── cyq_chips.py
-│   │   ├── market_structure.py
 │   │   └── research_data.py
 │   └── utils/             # Utility functions
+│       ├── __init__.py    # Package initialization file
 │       └── date_utils.py      # Date utility functions
 ├── test/                  # Test scripts (including new cache functionality tests)
 ├── data/                  # Output directory for downloaded data
@@ -436,7 +500,7 @@ def __getattr__(self, name):
         self.market_flow,
         self.holders_data,
         self.technical_factors,
-        self.market_structure,
+        # 注意：market_structure.py 作为独立文件存在但对应的目录为空
         self.research_data
     ]:
         if hasattr(module, name):
@@ -501,7 +565,6 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 - **Retry logic**: Failed tasks can be retried automatically
 - **Statistics tracking**: Monitor task execution metrics
 
-
 #### 10. Historical Download Tracking
 - **Files**: `app/main.py`, `app/task_queue_manager.py`
 - **Implementation**: JSON-based marker system to track completed historical downloads
@@ -527,6 +590,15 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 - **Implementation**: Smart date range handling with overlap detection and merging
 - **Benefits**: Optimizes date range processing for better performance
 
+#### 15. Intelligent Cache Matching
+- **Files**: `app/data_storage.py`, `app/cache_key_generator.py`
+- **Implementation**: Can extract specific data from more general caches
+- **Benefits**: Reduces redundant downloads by leveraging existing cached data
+
+#### 16. Batch Processing for TSCODE interfaces
+- **Files**: `app/download_scheduler.py`, `app/parallel_downloader.py`
+- **Implementation**: Efficient batch processing of ts_code-dependent interfaces
+- **Benefits**: Reduces API calls by processing multiple stock codes in parallel
 
 ### Data Flow Architecture
 
@@ -551,6 +623,19 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 3. **Facade Use** → `TuShareDownloader` delegation still applies
 4. **Immediate Storage** → Direct `save_to_parquet()` calls
 
+### TSCODE Historical Mode Flow:
+1. **Main Entry** → `main.py` with `--tscode-historical` flag
+2. **Task Scheduling** → `DownloadScheduler.schedule_download_tasks(mode='tscode_historical')`
+3. **Batch Scheduling** → `_schedule_tscode_interface()` for batch processing
+4. **Parallel Execution** → `_execute_tscode_download()` with batch processing
+5. **Strategy Selection** → Specialized processing for ts_code-dependent interfaces
+6. **Facade Delegation** → `TuShareDownloader.__getattr__()` → Interface modules
+7. **Error Handling** → `error_handler.py` with retry mechanisms
+8. **API Calling** → Individual interface modules with ts_code parameter
+9. **Storage Task Creation** → `task_manager.add_storage_task()` with specific subdirectory
+10. **Storage Processing** → `StorageWorker` consumer threads
+11. **Data Storage** → `data_storage.save_to_parquet()` with specific path structure
+
 ### Key Classes and Responsibilities
 
 | Class | Pattern | Responsibility |
@@ -568,3 +653,6 @@ The `TaskQueueManager` uses priority queues to manage both download and storage 
 | `ErrorHandler` | Handler | Error handling and retry mechanisms |
 | `InterfaceConfig` | Configuration | Enhanced interface settings with priority, retries, etc. |
 | Interface modules | Implementation | Specific data interface implementations |
+| `CacheKeyGenerator` | Generator | Standardized cache key and path generation |
+| `CacheMonitor` | Monitor | Cache hit rate tracking and performance metrics |
+| `ParallelDownloader` | Processor | Batch processing of multiple ts_code values |
