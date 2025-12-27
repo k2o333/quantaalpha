@@ -158,7 +158,7 @@ DownloadScheduler
 4. **代码精简**：移除冗余代码，引入稳妥回退机制
 5. **向后兼容**：确保现有工作流不受影响
 6. **高内聚低耦合**：采用六边形架构，实现组件可替换
-7. **功能等价**：在app2目录完全重新构建，不依赖app目录任何代码
+7. **功能等价**：在app3目录完全重新构建，不依赖app目录任何代码
 
 ### 2.2 具体指标
 
@@ -185,7 +185,7 @@ DownloadScheduler
 **新配置结构**：
 
 ```python
-# app2/config/settings.py
+# app3/config/settings.py
 
 from dataclasses import dataclass
 from typing import Dict, Optional
@@ -264,13 +264,13 @@ class ConfigLoader:
 #### 3.1.3 依赖注入容器
 
 ```python
-# app2/container/container.py
+# app3/container/container.py
 
-from app2.config.settings import AppConfig
-from app2.infrastructure.tushare.client import TuShareClient
-from app2.infrastructure.storage.parquet_storage import ParquetStorage
-from app2.infrastructure.cache.cache_manager import CacheManager
-from app2.application.download_service import DownloadService
+from app3.config.settings import AppConfig
+from app3.infrastructure.tushare.client import TuShareClient
+from app3.infrastructure.storage.parquet_storage import ParquetStorage
+from app3.infrastructure.cache.cache_manager import CacheManager
+from app3.application.download_service import DownloadService
 
 class Container:
     """依赖注入容器 - 管理单例和对象创建"""
@@ -297,7 +297,7 @@ class Container:
 #### 3.2.2 六边形架构设计
 
 ```
-aspipe_v4/app2/
+aspipe_v4/app3/
 ├── main.py                         # [接口适配器] 唯一入口，负责组装组件
 ├── __init__.py
 ├── container/                      # [依赖注入容器]
@@ -335,7 +335,7 @@ aspipe_v4/app2/
 #### 3.2.3 领域层接口定义
 
 ```python
-# app2/domain/interfaces.py
+# app3/domain/interfaces.py
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
@@ -370,10 +370,10 @@ class ICacheManager(ABC):
 #### 3.2.4 应用服务层
 
 ```python
-# app2/application/download_service.py
+# app3/application/download_service.py
 
-from app2.domain.interfaces import IDataDownloader, IStorage, ICacheManager
-from app2.config.settings import AppConfig
+from app3.domain.interfaces import IDataDownloader, IStorage, ICacheManager
+from app3.config.settings import AppConfig
 from typing import Dict, Any
 
 class DownloadService:
@@ -454,7 +454,7 @@ class DownloadService:
 #### 3.3.1 TuShare客户端实现
 
 ```python
-# app2/infrastructure/tushare/client.py
+# app3/infrastructure/tushare/client.py
 
 import tushare as ts
 import time
@@ -487,7 +487,7 @@ class TuShareClient:
 #### 3.3.2 缓存管理器实现
 
 ```python
-# app2/infrastructure/cache/cache_manager.py
+# app3/infrastructure/cache/cache_manager.py
 
 import hashlib
 import json
@@ -534,13 +534,13 @@ class CacheManager:
 ### 3.4 第四阶段：主入口实现
 
 ```python
-# app2/main.py
+# app3/main.py
 
 import argparse
 import logging
 from datetime import datetime
-from app2.container.container import Container
-from app2.config.loader import ConfigLoader
+from app3.container.container import Container
+from app3.config.loader import ConfigLoader
 
 def main():
     """主函数 - 精简入口逻辑，代码<300行"""
@@ -601,7 +601,7 @@ if __name__ == "__main__":
 
 | 任务 | 负责人 | 工时 | 验收标准 |
 |------|--------|------|----------|
-| 创建app2目录结构 | - | 1天 | 目录结构完成 |
+| 创建app3目录结构 | - | 1天 | 目录结构完成 |
 | 实现Config类 | - | 2天 | 配置加载正常 |
 | 实现ConfigLoader | - | 2天 | 支持多种配置源 |
 | 实现Container | - | 2天 | 依赖注入正常 |
@@ -646,7 +646,7 @@ if __name__ == "__main__":
 
 ### 5.2 稳妥机制
 
-1. **功能等价**：确保app2与app功能完全等价
+1. **功能等价**：确保app3与app功能完全等价
 2. **渐进式开发**：逐步实现功能，持续测试
 3. **模块化设计**：高内聚低耦合，便于测试和维护
 
@@ -664,13 +664,13 @@ if __name__ == "__main__":
 ### 6.2 验证用例
 
 ```python
-# tests/test_app2_refactor.py
+# tests/test_app3_refactor.py
 
 import pytest
 import subprocess
-from app2.main import main
-from app2.container.container import Container
-from app2.config.loader import ConfigLoader
+from app3.main import main
+from app3.container.container import Container
+from app3.config.loader import ConfigLoader
 
 class TestCLIParameters:
     """CLI参数测试"""
@@ -678,7 +678,7 @@ class TestCLIParameters:
     def test_start_date(self):
         """测试start_date参数"""
         result = subprocess.run([
-            'python', 'app2/main.py',
+            'python', 'app3/main.py',
             '--start_date', '20240101',
             '--dry_run', 'true'
         ], capture_output=True, text=True)
@@ -687,7 +687,7 @@ class TestCLIParameters:
     def test_end_date(self):
         """测试end_date参数"""
         result = subprocess.run([
-            'python', 'app2/main.py',
+            'python', 'app3/main.py',
             '--start_date', '20240101',
             '--end_date', '20240131'
         ], capture_output=True, text=True)
@@ -696,7 +696,7 @@ class TestCLIParameters:
     def test_holders_data(self):
         """测试holders_data参数"""
         result = subprocess.run([
-            'python', 'app2/main.py',
+            'python', 'app3/main.py',
             '--holders-data'
         ], capture_output=True, text=True)
         assert result.returncode == 0
@@ -704,7 +704,7 @@ class TestCLIParameters:
     def test_tscode_historical(self):
         """测试tscode_historical参数"""
         result = subprocess.run([
-            'python', 'app2/main.py',
+            'python', 'app3/main.py',
             '--tscode-historical'
         ], capture_output=True, text=True)
         assert result.returncode == 0
@@ -748,7 +748,7 @@ class TestConfigMigration:
 
 ```
 Week 1-2: 配置统一化与依赖注入
-  ├── Day 1: 创建app2目录结构
+  ├── Day 1: 创建app3目录结构
   ├── Day 2-3: 实现Config类
   ├── Day 4-5: 实现ConfigLoader
   └── Day 6-7: 实现Container
@@ -809,12 +809,12 @@ Week 8-9: 主入口与测试
 
 ## 九、总结
 
-本融合重构方案结合了两个方案的优点，采用在app2目录完全重新构建的策略：
+本融合重构方案结合了两个方案的优点，采用在app3目录完全重新构建的策略：
 
 1. **功能等价**：确保新系统与原系统功能完全等价
 2. **架构现代化**：采用六边形架构，实现模块化、低耦合、高内聚、原子化
 3. **代码精简**：消除冗余，简化逻辑，主文件<300行
-4. **完全独立**：app2目录与app目录完全隔离，不依赖任何原有代码
+4. **完全独立**：app3目录与app目录完全隔离，不依赖任何原有代码
 5. **稳妥演进**：通过功能等价确保系统稳定性
 
 通过此方案，我们能够在保持所有现有功能的前提下，实现代码架构的现代化和可维护性提升，同时确保代码精简和架构清晰。
