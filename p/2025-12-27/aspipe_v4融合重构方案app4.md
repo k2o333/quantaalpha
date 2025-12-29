@@ -1,6 +1,6 @@
-# aspipe_v4 融合重构方案
+# aspipe_v4 融合重构方案 (App4) - 配置驱动架构
 
-## 一、项目现状分析
+## 一、 项目现状分析
 
 ### 1.1 代码结构概览
 
@@ -59,762 +59,358 @@ aspipe_v4/app/
 | `--pro-bar-only` | 仅pro_bar下载 | pro_bar接口 | **必须保留** |
 | `--tscode-historical` | 全历史数据下载 | DownloadScheduler(tscode_historical模式) | **必须保留** |
 
-### 1.3 现有问题汇总
+### 1.3 现有问题汇总（从配置驱动角度）
 
-#### 问题1：配置系统碎片化
+#### 问题1：接口逻辑硬编码
 
-**现状**：存在4套独立配置
-- `config.py`：基础配置（token、积分、代理）
-- `download_config.py`：简单布尔开关
-- `enhanced_download_config.py`：详细配置（优先级、重试、限流）
-- `config_adapter.py`：配置适配层（已实现新旧配置兼容）
+**现状**：每个Tushare接口都有独立的Python类，接口特定逻辑（参数、分页、URL路径、主键等）散布在代码中。
 
-**影响**：
-- 配置分散，维护困难
-- 容易出现不一致
-- 新开发者难以理解
+**影响**：新增接口困难，维护成本高。
 
-#### 问题2：入口点过多
+#### 问题2：配置系统碎片化
 
-**现状**：3个独立入口
-- `main.py`：主入口
-- `enhanced_main_downloader.py`：功能重复
-- `score_based_downloader.py`：功能重复
+**现状**：存在4套独立配置（`config.py`, `download_config.py`, `enhanced_download_config.py`, `score_config.py`）。
 
-**影响**：
-- 代码重复
-- 功能重叠
-- CLI调用混乱
+**影响**：配置分散，维护困难。
 
 #### 问题3：Facade模式过度使用
 
-**现状**：`TuShareDownloader`使用`__getattr__`动态委托到12个接口模块，但已部分实现显式接口
+**现状**：`TuShareDownloader`使用`__getattr__`动态委托到12个接口模块。
 
-```python
-class TuShareDownloader:
-    def __init__(self):
-        # 已初始化各接口模块
-        self.basic_data = BasicDataDownloader(self.pro)
-        self.daily_data = DailyDataDownloader(self.pro)
-        self.financial_data = FinancialDataDownloader(self.pro)
-        # ... 其他接口
-
-    def __getattr__(self, name):
-        # 动态委托到各接口模块（作为兼容性层）
-        # basic_data、daily_data、financial_data等
-```
-
-**影响**：
-- IDE无法追踪方法调用
-- 类型推断困难
-- 调试复杂
-- 类型检查工具失效
+**影响**：IDE无法追踪，类型不安全。
 
 #### 问题4：策略模式复杂
 
-**现状**：两套策略系统
-- `download_strategies.py`：下载策略实现
-- `strategy_factory.py`：策略工厂（带缓存机制）
+**现状**：`download_strategies.py` 和 `strategy_factory.py` 增加了复杂度。
 
-**依赖链**：
-```
-DownloadScheduler
-  → download_strategies.get_strategy
-    → strategy_factory.get_strategy
-```
+**影响**：策略逻辑与接口逻辑耦合。
 
-#### 问题5：遗留系统维护
+#### 问题5：参数适配器冗余
 
-**现状**：
-- `date_range_downloader.py`：传统下载方式
-- `download_with_legacy_method`：遗留函数
-- `download_with_legacy_fallback`：回退逻辑
+**现状**：`parameter_adapters.py`包含多个适配器。
 
-#### 问题6：缓存系统过度设计
+**影响**：每个接口都需要独立的适配器。
 
-**现状**：3个缓存组件
-- `cache_manager.py`：缓存管理
-- `cache_key_generator.py`：缓存键生成
-- `cache_monitor.py`：缓存监控
+#### 问题6：接口分组硬编码
 
-**问题**：功能重叠、配置复杂
+**现状**：接口分组硬编码在`main.py`中。
 
-#### 问题7：多层适配器嵌套
+**影响**：无法灵活调整分组。
 
-**现状**：`parameter_adapters.py`包含多个适配器
-- DailyDataParameterAdapter
-- FinancialDataParameterAdapter
-- ...
-
-**问题**：增加调用开销，维护复杂
-
-## 二、融合重构目标
+## 二、 融合重构目标
 
 ### 2.1 总体目标
 
-1. **配置统一化**：合并为单一配置源，采用显式依赖注入
-2. **入口单一化**：统一CLI入口，保留所有功能
-3. **架构清晰化**：简化Facade模式，采用接口隔离
-4. **代码精简**：移除冗余代码，引入稳妥回退机制
-5. **向后兼容**：确保现有工作流不受影响
-6. **高内聚低耦合**：采用六边形架构，实现组件可替换
-7. **功能等价**：在app3目录完全重新构建，不依赖app目录任何代码
+1.  **全配置化接口**：新增接口只需编写YAML文件。
+2.  **配置即代码**：剥离Python代码中的接口特定逻辑。
+3.  **统一下载引擎**：`GenericDownloader` 根据YAML指令运行。
+4.  **灵活控制**：YAML中控制分页、代理、限流。
+5.  **标准化处理**：YAML定义输出字段、类型、主键。
+6.  **极简维护**：维护者无需深入了解类结构。
+7.  **完全兼容**：保持CLI参数兼容性。
 
-### 2.2 具体指标
+## 三、 背景与目标
 
-| 指标 | 当前 | 目标 |
-|------|------|------|
-| 配置文件数量 | 4 | 1 |
-| 入口点数量 | 3 | 1 |
-| 主文件代码行数 | 532 | <300 |
-| 缓存组件数量 | 3 | 1-2 |
-| 策略组件数量 | 2 | 1 |
-| 依赖注入 | 全局导入 | 构造函数注入 |
-| 代码重复度 | 高 | 低 |
+此方案 (`App4`) 旨在解决**接口扩展性**和**配置灵活性**问题。核心是**“配置即代码”**。
 
-## 三、融合重构方案
+### 3.1 核心目标
 
-### 3.1 第一阶段：配置统一化与依赖注入
+1.  **全配置化接口**：接口逻辑全在YAML。
+2.  **统一的下载引擎**：`GenericDownloader` 为通用执行器。
+3.  **灵活的代理与分页**：YAML精细控制请求细节。
+4.  **标准化数据处理**：YAML定义数据清洗规则。
 
-#### 3.1.1 目标
+## 四、 架构设计
 
-合并4套配置为1套统一的配置系统，采用显式依赖注入
-
-#### 3.1.2 方案设计
-
-**新配置结构**：
-
-```python
-# app3/config/settings.py
-
-from dataclasses import dataclass
-from typing import Dict, Optional
-from enum import Enum
-import os
-import json
-
-class Priority(Enum):
-    HIGH = 1
-    MEDIUM = 2
-    LOW = 3
-
-@dataclass
-class InterfaceConfig:
-    enabled: bool = True
-    priority: Priority = Priority.MEDIUM
-    required_points: int = 2000
-    max_retries: int = 3
-    rate_limit: float = 2.0
-    strategy: str = "default"
-    batch_size: int = 100
-    cache_enabled: bool = True
-    cache_ttl_hours: int = 24
-
-@dataclass
-class CacheConfig:
-    enabled: bool = True
-    dir: str = "cache"
-    max_size_gb: float = 10.0
-    default_ttl: int = 3600
-
-@dataclass
-class AppConfig:
-    """统一配置类"""
-    token: str
-    points: int = 2000
-    cache: CacheConfig = None
-    interfaces: Dict[str, InterfaceConfig] = None
-
-    def __post_init__(self):
-        if self.cache is None:
-            self.cache = CacheConfig()
-        if self.interfaces is None:
-            self.interfaces = self._get_default_interfaces()
-
-    def _get_default_interfaces(self) -> Dict[str, InterfaceConfig]:
-        """获取默认接口配置"""
-        return {
-            'daily': InterfaceConfig(enabled=True, priority=Priority.HIGH, required_points=2000),
-            'daily_basic': InterfaceConfig(enabled=True, priority=Priority.HIGH, required_points=2000),
-            'moneyflow': InterfaceConfig(enabled=True, priority=Priority.MEDIUM, required_points=2000),
-            'stock_basic': InterfaceConfig(enabled=True, priority=Priority.HIGH, required_points=2000),
-            # ... 其他接口
-        }
-
-class ConfigLoader:
-    """配置加载器 - 实现显式依赖注入"""
-
-    @staticmethod
-    def load_from_env() -> AppConfig:
-        token = os.getenv('tushare_token') or os.getenv('tushare2_token')
-        points = int(os.getenv('tushare_points', '120'))
-
-        return AppConfig(
-            token=token,
-            points=points,
-            cache=CacheConfig(
-                enabled=True,
-                dir='cache',
-                max_size_gb=10.0,
-                default_ttl=3600
-            )
-        )
-```
-
-#### 3.1.3 依赖注入容器
-
-```python
-# app3/container/container.py
-
-from app3.config.settings import AppConfig
-from app3.infrastructure.tushare.client import TuShareClient
-from app3.infrastructure.storage.parquet_storage import ParquetStorage
-from app3.infrastructure.cache.cache_manager import CacheManager
-from app3.application.download_service import DownloadService
-
-class Container:
-    """依赖注入容器 - 管理单例和对象创建"""
-
-    def __init__(self, config: AppConfig):
-        self.config = config
-        self.tushare_client = TuShareClient(config.token)
-        self.storage = ParquetStorage()
-        self.cache_manager = CacheManager(config.cache)
-        self.download_service = DownloadService(
-            downloader=self.tushare_client,
-            storage=self.storage,
-            cache=self.cache_manager,
-            config=config
-        )
-```
-
-### 3.2 第二阶段：六边形架构设计
-
-#### 3.2.1 目标
-
-采用六边形架构，实现模块化、低耦合、高内聚、原子化的架构
-
-#### 3.2.2 六边形架构设计
+### 4.1 目录结构
 
 ```
-aspipe_v4/app3/
-├── main.py                         # [接口适配器] 唯一入口，负责组装组件
-├── __init__.py
-├── container/                      # [依赖注入容器]
+aspipe_v4/app4/
+├── config/
+│   ├── settings.yaml          # 全局配置（Token, 默认重试次数, 全局代理root等）
+│   └── interfaces/            # 接口定义目录
+│       ├── daily.yaml         # 日线行情配置
+│       ├── pro_bar.yaml       # 复权行情配置
+│       ├── stock_basic.yaml   # 股票列表配置
+│       └── ... (其他接口)
+├── core/
 │   ├── __init__.py
-│   └── container.py                # 依赖注入容器
-├── config/                         # [配置]
-│   ├── __init__.py
-│   ├── settings.py                 # 定义强类型的配置类 (dataclass)
-│   └── loader.py                   # 负责从 env/cli 加载配置
-├── domain/                         # [领域层] 核心接口定义
-│   ├── __init__.py
-│   ├── interfaces.py               # 定义 IDataSource, IStorage 等抽象基类
-│   └── models.py                   # 数据模型定义
-├── infrastructure/                 # [基础设施层] 具体技术实现
-│   ├── __init__.py
-│   ├── tushare/                    # TuShare 具体实现
-│   │   ├── __init__.py
-│   │   ├── client.py               # 封装 tushare pro_api
-│   │   └── adapters.py             # 接口适配器
-│   ├── storage/                    # 存储实现
-│   │   ├── __init__.py
-│   │   └── parquet_storage.py      # Parquet 文件存储实现
-│   └── cache/                      # 缓存实现
-│       ├── __init__.py
-│       └── cache_manager.py        # 缓存管理器
-└── application/                    # [应用服务层] 业务逻辑
-    ├── __init__.py
-    ├── download_service.py         # 下载服务
-    └── strategies/                 # 下载策略
-        ├── __init__.py
-        ├── base.py
-        └── factory.py
+│   ├── config_loader.py       # 配置加载器
+│   ├── downloader.py          # 通用下载器
+│   ├── processor.py           # 数据处理器
+│   ├── storage.py             # 存储管理器
+│   ├── cache_manager.py       # 缓存管理器
+│   └── scheduler.py           # 任务调度器
+├── main.py                    # 统一CLI入口
+└── utils/
+    └── logger.py
 ```
 
-#### 3.2.3 领域层接口定义
+### 4.2 YAML 配置规范
 
-```python
-# app3/domain/interfaces.py
+每个接口的 YAML 配置文件必须包含以下 **6 大类核心信息**：
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
-import pandas as pd
+1.  **基础元数据 (Metadata)**: 标识接口身份。
+2.  **权限与限制 (Permissions)**: 积分要求与流控。
+3.  **请求配置 (Request)**: 代理路径、HTTP 方法等。
+4.  **输入参数 (Parameters)**: 字段定义与校验。
+5.  **分页策略 (Pagination)**: 定义如何切分任务。
+6.  **输出配置 (Output)**: 主键定义与字段类型清洗。
 
-class IDataDownloader(ABC):
-    """数据下载接口 - 实现接口隔离"""
+#### 示例：`pro_bar.yaml` (完整版)
 
-    @abstractmethod
-    def download(self, interface_name: str, **kwargs) -> pd.DataFrame:
-        pass
+```yaml
+# 1. 基础元数据
+name: pro_bar
+api_name: pro_bar
+description: "A股复权行情"
 
-class IStorage(ABC):
-    """存储接口 - 实现接口隔离"""
+# 2. 权限与限制
+permissions:
+  min_points: 0    # 最低积分要求
+  rate_limit: 60   # 每分钟请求限制
+  query_limit: 5000 # 单次请求最大返回行数
 
-    @abstractmethod
-    def save(self, data: pd.DataFrame, filename: str, subdir: str = None) -> bool:
-        pass
+# 3. 请求配置
+request:
+  method: POST
+  # 关键配置：接口的额外地址（用于代理服务器场景）
+  extra_path: "/api/pro_bar" 
+  timeout: 60
 
-class ICacheManager(ABC):
-    """缓存管理接口 - 实现接口隔离"""
+# 4. 输入参数定义
+parameters:
+  ts_code:
+    type: string
+    required: true
+    description: "证券代码"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+  adj:
+    type: string
+    required: false
+    default: "qfq"
+    options: ["qfq", "hfq", null]
+    description: "复权类型"
+  freq:
+    type: string
+    required: false
+    default: "D"
+    description: "数据频度"
+  asset:
+    type: string
+    required: false
+    default: "E"
+    description: "资产类别"
+  ma:
+    type: list
+    required: false
+    description: "均线"
 
-    @abstractmethod
-    def get(self, key: str) -> pd.DataFrame:
-        pass
-
-    @abstractmethod
-    def set(self, key: str, data: pd.DataFrame, ttl: int = 3600) -> bool:
-        pass
+# 5. 分页与循环策略
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 3650
+  
+# 6. 输出与存储配置
+output:
+  primary_key: 
+    - ts_code
+    - trade_date
+    - adj
+    
+  sort_by: ["trade_date"]
+  
+  columns:
+    ts_code:
+      type: string
+      required: true
+    trade_date:
+      type: date
+      format: "%Y%m%d"
+      required: true
+    open:
+      type: float
+    close:
+      type: float
+    high:
+      type: float
+    low:
+      type: float
+    vol:
+      type: float
+    amount:
+      type: float
 ```
 
-#### 3.2.4 应用服务层
+#### 示例：`stock_basic.yaml` (简略版)
 
-```python
-# app3/application/download_service.py
+```yaml
+name: stock_basic
+api_name: stock_basic
+description: "股票列表"
 
-from app3.domain.interfaces import IDataDownloader, IStorage, ICacheManager
-from app3.config.settings import AppConfig
-from typing import Dict, Any
+permissions:
+  min_points: 2000
 
-class DownloadService:
-    """下载服务 - 高内聚：专注于下载存储流程"""
+request:
+  extra_path: "" 
 
-    def __init__(
-        self,
-        downloader: IDataDownloader,
-        storage: IStorage,
-        cache: ICacheManager,
-        config: AppConfig
-    ):
-        self.downloader = downloader
-        self.storage = storage
-        self.cache = cache
-        self.config = config
+parameters:
+  exchange:
+    type: string
+  list_status:
+    type: string
+    default: "L"
 
-    def download_and_store(
-        self,
-        interface_name: str,
-        cache_enabled: bool = True,
-        **kwargs
-    ) -> bool:
-        """下载并存储数据 - 原子化操作：组合多个基础操作"""
+pagination:
+  enabled: true
+  mode: "offset"
+  limit_key: "limit"
+  offset_key: "offset"
+  default_limit: 5000
 
-        # 1. 检查接口是否启用
-        if not self._is_interface_enabled(interface_name):
-            return False
-
-        # 2. 检查缓存
-        if cache_enabled:
-            cache_key = self._generate_cache_key(interface_name, **kwargs)
-            cached_data = self.cache.get(cache_key)
-            if cached_data is not None:
-                filename = f"{interface_name}_cached_{self._get_date_suffix(**kwargs)}"
-                return self.storage.save(cached_data, filename)
-
-        # 3. 执行下载
-        data = self.downloader.download(interface_name, **kwargs)
-
-        # 4. 存储数据
-        if data is not None and not data.empty:
-            filename = f"{interface_name}_{self._get_date_suffix(**kwargs)}"
-            success = self.storage.save(data, filename)
-
-            # 5. 更新缓存
-            if success and cache_enabled:
-                self.cache.set(cache_key, data)
-
-            return success
-
-        return False
-
-    def _is_interface_enabled(self, interface_name: str) -> bool:
-        """检查接口是否启用 - 支持主功能的私有方法"""
-        if interface_name in self.config.interfaces:
-            interface_config = self.config.interfaces[interface_name]
-            return interface_config.enabled and self.config.points >= interface_config.required_points
-        return False
-
-    def _generate_cache_key(self, interface_name: str, **kwargs) -> str:
-        """生成缓存键 - 支持主功能的私有方法"""
-        import hashlib
-        import json
-        sorted_params = sorted(kwargs.items())
-        param_str = json.dumps(sorted_params, sort_keys=True)
-        return f"{interface_name}_{hashlib.md5(param_str.encode()).hexdigest()}"
-
-    def _get_date_suffix(self, **kwargs) -> str:
-        """生成日期后缀 - 支持主功能的私有方法"""
-        start_date = kwargs.get('start_date', 'unknown')
-        end_date = kwargs.get('end_date', 'unknown')
-        return f"{start_date}_to_{end_date}"
+output:
+  primary_key: ["ts_code"]
+  columns:
+    ts_code: {type: string}
+    name: {type: string}
+    list_date: {type: date}
 ```
 
-### 3.3 第三阶段：基础设施层实现
-
-#### 3.3.1 TuShare客户端实现
-
-```python
-# app3/infrastructure/tushare/client.py
-
-import tushare as ts
-import time
-from typing import Dict, Any
-import pandas as pd
-
-class TuShareClient:
-    """TuShare客户端 - 高内聚：专门处理TuShare API交互"""
-
-    def __init__(self, token: str):
-        self.pro = ts.pro_api(token)
-        self._last_call_times = {}
-
-    def download(self, interface_name: str, **kwargs) -> pd.DataFrame:
-        """下载指定接口数据 - 原子化操作：单一职责"""
-        self._rate_limit(interface_name)
-        api_func = getattr(self.pro, interface_name)
-        return api_func(**kwargs)
-
-    def _rate_limit(self, api_name: str):
-        """速率限制 - 支持主功能的私有方法"""
-        current_time = time.time()
-        if api_name in self._last_call_times:
-            elapsed = current_time - self._last_call_times[api_name]
-            if elapsed < 0.1:  # 100ms 间隔
-                time.sleep(0.1 - elapsed)
-        self._last_call_times[api_name] = time.time()
-```
-
-#### 3.3.2 缓存管理器实现
-
-```python
-# app3/infrastructure/cache/cache_manager.py
-
-import hashlib
-import json
-from pathlib import Path
-import time
-import pandas as pd
-
-class CacheManager:
-    """缓存管理器 - 高内聚：专门处理缓存操作"""
-
-    def __init__(self, cache_config):
-        self.cache_config = cache_config
-        self.cache_dir = Path(cache_config.dir)
-        self.cache_dir.mkdir(exist_ok=True)
-
-    def get(self, key: str) -> pd.DataFrame:
-        """获取缓存数据 - 原子化操作：单一职责"""
-        file_path = self._get_file_path(key)
-        if file_path.exists() and not self._is_expired(file_path):
-            try:
-                return pd.read_parquet(file_path)
-            except:
-                pass  # 缓存损坏，返回None
-        return None
-
-    def set(self, key: str, data: pd.DataFrame, ttl: int = 3600) -> bool:
-        """设置缓存数据 - 原子化操作：单一职责"""
-        file_path = self._get_file_path(key)
-        try:
-            data.to_parquet(file_path)
-            return True
-        except:
-            return False
-
-    def _get_file_path(self, key: str) -> Path:
-        """获取文件路径 - 支持主功能的私有方法"""
-        return self.cache_dir / f"{key}.parquet"
-
-    def _is_expired(self, file_path: Path) -> bool:
-        """检查是否过期 - 支持主功能的私有方法"""
-        return time.time() - file_path.stat().st_mtime > self.cache_config.default_ttl
-```
-
-### 3.4 第四阶段：主入口实现
-
-```python
-# app3/main.py
-
-import argparse
-import logging
-from datetime import datetime
-from app3.container.container import Container
-from app3.config.loader import ConfigLoader
-
-def main():
-    """主函数 - 精简入口逻辑，代码<300行"""
-    args = _parse_args()
-    config = ConfigLoader.load_from_args(args)
-    container = Container(config)
-
-    # 根据参数执行不同操作
-    if args.tscode_historical:
-        _download_historical(container, args)
-    elif args.holders_data or args.pro_bar_only:
-        _download_specific(container, args)
-    else:
-        _download_date_range(container, args)
-
-def _parse_args():
-    """解析参数 - 精简参数处理"""
-    parser = argparse.ArgumentParser(description='统一数据下载系统（重构版）')
-    parser.add_argument('--start_date', type=str, default='20230101',
-                        help='起始日期 (YYYYMMDD格式，默认: 20230101)')
-    parser.add_argument('--end_date', type=str, default=None,
-                        help='结束日期 (YYYYMMDD格式，默认: 今天)')
-    parser.add_argument('--use_legacy', action='store_true',
-                        help='使用传统下载方式（跳过新调度器）')
-    parser.add_argument('--holders-data', dest='holders_data', action='store_true',
-                        help='启用stk_rewards, top10_holders, pledge_detail, fina_audit等股东数据下载')
-    parser.add_argument('--pro-bar-only', dest='pro_bar_only', action='store_true',
-                        help='仅启用pro_bar复权行情下载')
-    parser.add_argument('--tscode-historical', dest='tscode_historical', action='store_true',
-                        help='下载全历史数据而非指定日期范围（仅适用于指定接口）')
-    return parser.parse_args()
-
-def _download_date_range(container, args):
-    """日期范围下载 - 简化下载逻辑"""
-    service = container.download_service
-    success = service.download_and_store('daily',
-                                       start_date=args.start_date,
-                                       end_date=args.end_date)
-    print(f"日期范围下载{'成功' if success else '失败'}")
-
-def _download_historical(container, args):
-    """历史下载 - 简化历史下载逻辑"""
-    # 实现历史下载逻辑
-    print("执行历史下载...")
-
-def _download_specific(container, args):
-    """特定数据下载 - 简化特定下载逻辑"""
-    # 实现特定下载逻辑
-    print("执行特定数据下载...")
-
-if __name__ == "__main__":
-    main()
-```
-
-## 四、详细实施计划
-
-### 4.1 阶段一：配置统一化与依赖注入（第1-2周）
-
-| 任务 | 负责人 | 工时 | 验收标准 |
-|------|--------|------|----------|
-| 创建app3目录结构 | - | 1天 | 目录结构完成 |
-| 实现Config类 | - | 2天 | 配置加载正常 |
-| 实现ConfigLoader | - | 2天 | 支持多种配置源 |
-| 实现Container | - | 2天 | 依赖注入正常 |
-
-### 4.2 阶段二：领域层与基础设施层（第3-5周）
-
-| 任务 | 负责人 | 工时 | 验收标准 |
-|------|--------|------|----------|
-| 创建domain/目录结构 | - | 1天 | 接口定义完成 |
-| 创建infrastructure/目录结构 | - | 1天 | 基础实现完成 |
-| 实现TuShareClient | - | 3天 | API调用正常 |
-| 实现CacheManager | - | 2天 | 缓存功能正常 |
-| 实现ParquetStorage | - | 2天 | 存储功能正常 |
-
-### 4.3 阶段三：应用服务层（第6-7周）
-
-| 任务 | 负责人 | 工时 | 验收标准 |
-|------|--------|------|----------|
-| 实现DownloadService | - | 3天 | 下载服务正常 |
-| 实现策略系统 | - | 2天 | 策略执行正常 |
-| 集成各组件 | - | 2天 | 整体功能正常 |
-
-### 4.4 阶段四：主入口与测试（第8-9周）
-
-| 任务 | 负责人 | 工时 | 验收标准 |
-|------|--------|------|----------|
-| 实现main.py | - | 2天 | 代码<300行 |
-| 测试所有参数 | - | 3天 | 参数功能正常 |
-| 性能测试 | - | 2天 | 性能不下降 |
-
-## 五、风险评估与稳妥机制
-
-### 5.1 风险清单
-
-| 风险 | 可能性 | 影响 | 应对措施 |
-|------|--------|------|----------|
-| 配置迁移导致数据丢失 | 低 | 高 | 备份旧配置，逐步迁移 |
-| CLI参数不兼容 | 中 | 高 | 保留所有参数，功能等价 |
-| 性能下降 | 中 | 中 | 性能测试，基准对比 |
-| 测试覆盖不足 | 高 | 中 | 增加集成测试 |
-| 代码质量不达标 | 中 | 中 | 代码审查，重构优化 |
-
-### 5.2 稳妥机制
-
-1. **功能等价**：确保app3与app功能完全等价
-2. **渐进式开发**：逐步实现功能，持续测试
-3. **模块化设计**：高内聚低耦合，便于测试和维护
-
-## 六、验证方案
-
-### 6.1 测试类型
-
-| 测试类型 | 覆盖范围 | 工具 |
-|----------|----------|------|
-| 单元测试 | 核心函数 | pytest |
-| 集成测试 | CLI参数 | pytest + subprocess |
-| 性能测试 | 下载速度 | timeit |
-| 功能测试 | 现有功能 | pytest |
-
-### 6.2 验证用例
-
-```python
-# tests/test_app3_refactor.py
-
-import pytest
-import subprocess
-from app3.main import main
-from app3.container.container import Container
-from app3.config.loader import ConfigLoader
-
-class TestCLIParameters:
-    """CLI参数测试"""
-
-    def test_start_date(self):
-        """测试start_date参数"""
-        result = subprocess.run([
-            'python', 'app3/main.py',
-            '--start_date', '20240101',
-            '--dry_run', 'true'
-        ], capture_output=True, text=True)
-        assert result.returncode == 0
-
-    def test_end_date(self):
-        """测试end_date参数"""
-        result = subprocess.run([
-            'python', 'app3/main.py',
-            '--start_date', '20240101',
-            '--end_date', '20240131'
-        ], capture_output=True, text=True)
-        assert result.returncode == 0
-
-    def test_holders_data(self):
-        """测试holders_data参数"""
-        result = subprocess.run([
-            'python', 'app3/main.py',
-            '--holders-data'
-        ], capture_output=True, text=True)
-        assert result.returncode == 0
-
-    def test_tscode_historical(self):
-        """测试tscode_historical参数"""
-        result = subprocess.run([
-            'python', 'app3/main.py',
-            '--tscode-historical'
-        ], capture_output=True, text=True)
-        assert result.returncode == 0
-
-
-class TestConfigMigration:
-    """配置迁移测试"""
-
-    def test_config_loading(self):
-        """测试配置加载"""
-        config = ConfigLoader.load_from_env()
-        assert config.token is not None
-
-    def test_container_injection(self):
-        """测试依赖注入"""
-        config = ConfigLoader.load_from_env()
-        container = Container(config)
-        assert container.download_service is not None
-```
-
-### 6.3 验收标准
-
-1. **功能验收**：
-   - 所有CLI参数正常工作
-   - 下载功能正常
-   - 缓存功能正常
-   - 存储功能正常
-
-2. **性能验收**：
-   - 下载速度不降低（基准测试）
-   - 内存使用不增加（基准测试）
-
-3. **代码质量验收**：
-   - 配置文件从4个减少到1个
-   - 入口从3个减少到1个
-   - 主文件代码行数<300行
-   - 依赖注入实现
-   - 模块化、低耦合、高内聚、原子化架构
-
-## 七、时间线
-
-```
-Week 1-2: 配置统一化与依赖注入
-  ├── Day 1: 创建app3目录结构
-  ├── Day 2-3: 实现Config类
-  ├── Day 4-5: 实现ConfigLoader
-  └── Day 6-7: 实现Container
-
-Week 3-5: 领域层与基础设施层
-  ├── Day 8-9: 创建domain/目录结构
-  ├── Day 10-11: 创建infrastructure/目录结构
-  ├── Day 12-14: 实现TuShareClient
-  ├── Day 15-16: 实现CacheManager
-  └── Day 17-18: 实现ParquetStorage
-
-Week 6-7: 应用服务层
-  ├── Day 19-21: 实现DownloadService
-  ├── Day 22-23: 实现策略系统
-  └── Day 24-25: 集成各组件
-
-Week 8-9: 主入口与测试
-  ├── Day 26-27: 实现main.py
-  ├── Day 28-30: 测试所有参数
-  └── Day 31-35: 性能测试和文档
-```
-
-**总工时**：35个工作日
-
-## 八、保留与移除清单
-
-### 8.1 保留功能清单
-
-| 功能 | 关联文件 | 状态 |
-|------|----------|------|
-| CLI参数 | main.py | 保留（功能等价） |
-| 日期范围下载 | download_scheduler.py | 保留（重构） |
-| 全历史下载 | download_scheduler.py (tscode_historical模式) | 保留（重构） |
-| 股东数据下载 | holders_data.py | 保留（重构） |
-| pro_bar下载 | daily_data.py (pro_bar) | 保留（重构） |
-| 缓存功能 | cache_manager.py | 保留（重构） |
-| 限流功能 | global_rate_limiter.py | 保留（重构） |
-| 错误处理 | error_handler.py | 保留（重构） |
-| 依赖注入 | container.py | 新增 |
-| 接口隔离 | domain/interfaces.py | 新增 |
-| 模块化架构 | 六边形架构 | 新增 |
-
-### 8.2 移除功能清单
-
-| 功能 | 关联文件 | 移除原因 |
-|------|----------|----------|
-| enhanced_main_downloader.py | 独立入口 | 功能重复main.py |
-| score_based_downloader.py | 独立入口 | 功能重复main.py |
-| date_range_downloader.py | 遗留下载器 | 被download_scheduler替代 |
-| download_with_legacy_method | 遗留函数 | 被download_scheduler替代 |
-| download_with_legacy_fallback | 遗留函数 | 被download_scheduler替代 |
-| cache_key_generator.py | 缓存组件 | 功能合并到cache_manager |
-| cache_monitor.py | 缓存组件 | 功能合并到cache_manager |
-| config_adapter.py | 配置适配器 | 功能合并到统一配置 |
-| download_config.py | 配置文件 | 功能合并到统一配置 |
-| enhanced_download_config.py | 配置文件 | 功能合并到统一配置 |
-| parameter_adapters.py | 参数适配器 | 功能简化 |
-
-## 九、总结
-
-本融合重构方案结合了两个方案的优点，采用在app3目录完全重新构建的策略：
-
-1. **功能等价**：确保新系统与原系统功能完全等价
-2. **架构现代化**：采用六边形架构，实现模块化、低耦合、高内聚、原子化
-3. **代码精简**：消除冗余，简化逻辑，主文件<300行
-4. **完全独立**：app3目录与app目录完全隔离，不依赖任何原有代码
-5. **稳妥演进**：通过功能等价确保系统稳定性
-
-通过此方案，我们能够在保持所有现有功能的前提下，实现代码架构的现代化和可维护性提升，同时确保代码精简和架构清晰。
+### 4.3 核心组件逻辑
+
+#### 1. ConfigLoader (配置加载器)
+- **职责**：启动时加载 `config/interfaces/*.yaml`。
+- **功能**：校验 YAML 格式，构建内存中的配置字典。
+
+#### 2. CacheManager (缓存管理器) - 优雅的缓存策略
+- **位置**：`app4/core/cache_manager.py`
+- **实现方式**：
+    - **配置驱动**：读取 `settings.yaml` 全局缓存策略及接口特定 YAML 配置。
+    - **透明集成**：`GenericDownloader` 在请求前自动查询缓存。
+    - **键值生成**：基于 YAML `parameters` 生成唯一哈希键 (e.g., `pro_bar_..._qfq`)。
+    - **生命周期**：提供过期清理和完整性校验。
+
+#### 3. TaskScheduler & Concurrency (任务调度与并发) - 高效的异步模型
+- **位置**：`app4/core/scheduler.py`
+- **实现方式**：
+    - **全局并发**：`settings.yaml` 控制 `max_workers`。
+    - **精细限流**：根据 YAML `permissions.rate_limit` 使用令牌桶/信号量限流。
+    - **解耦执行**：调度器负责并发管理，`GenericDownloader` 专注单一任务。
+    - **异步/多线程**：使用 `ThreadPoolExecutor` 执行任务。
+
+#### 4. GenericDownloader (通用下载器) - 原子化的执行引擎
+- **位置**：`app4/core/downloader.py`
+- **职责**：
+    - 接收接口名和参数。
+    - 检查缓存。
+    - 校验参数。
+    - 执行分页/循环逻辑。
+    - 发起请求。
+    - 写入缓存。
+
+#### 5. StorageManager (存储管理器) - 异步持久化
+- **位置**：`app4/core/storage.py`
+- **实现方式**：
+    - **生产-消费**：下载数据推送到队列，异步写入。
+    - **批量优化**：利用 `Processor` 定义的主键去重，批量写入 Parquet。
+
+#### 6. Processor (处理器)
+- **职责**：类型转换，主键检查，数据去重。
+
+### 4.4 CLI 参数映射与兼容性
+
+| 原有参数 | App4 对应策略 | 说明 |
+| :--- | :--- | :--- |
+| `--start_date` | 传递给 `GenericDownloader` | 通用查询参数。 |
+| `--end_date` | 传递给 `GenericDownloader` | 同上。 |
+| `--use_legacy` | **移除/忽略** | App4 为新架构。 |
+| `--holders-data` | **接口组** | 映射到 `settings.yaml` 中的 `holders` 组。 |
+| `--pro-bar-only` | **接口别名** | 等同于 `--interface pro_bar`。 |
+| `--tscode-historical`| **下载模式** | 触发 `stock_loop` 或特定接口模式。 |
+
+#### 新增通用参数
+- `--interface <name>`: 指定接口。
+- `--group <name>`: 指定接口组。
+- `--concurrency <int>`: 覆盖并发数。
+
+### 2.6 核心功能增强说明 (Core Features)
+
+在 App4 中，缓存、并发下载和并发存储不仅仅是底层实现细节，而是通过配置系统直接暴露给用户的核心能力。
+
+#### 1. 智能缓存系统 (Smart Caching)
+- **功能定义**：自动管理本地数据生命周期，减少重复网络请求，加速回测和分析。
+- **核心能力**：
+    - **自动命中 (Auto-Hit)**：下载器在发起网络请求前，根据 YAML 生成的唯一 Key（如 `pro_bar_000001.SZ_qfq`）自动检查本地缓存。
+    - **智能预热 (Smart Warming)**：支持配置“常用数据”，系统启动时自动在后台静默更新这些数据的缓存（如最近30天的日线）。
+    - **生命周期管理 (TTL)**：支持按接口配置过期时间（如 `daily` 缓存24小时，`balance_sheet` 缓存30天），并自动清理过期文件。
+    - **完整性校验**：定期扫描 Parquet 文件，自动剔除损坏或不完整的缓存文件。
+
+#### 2. 异步并发下载 (Async Concurrent Downloading)
+- **功能定义**：通过多线程和非阻塞 I/O 最大化利用网络带宽和 API 额度。
+- **核心能力**：
+    - **接口级隔离**：使用信号量 (Semaphore) 为每个接口独立控制并发数（如 `daily` 允许 4 并发，`pro_bar` 允许 8 并发）。
+    - **精准限流**：内置令牌桶算法，严格遵守 YAML 中定义的 `rate_limit`（如 60次/分钟），避免触发 Tushare 封控。
+    - **批量处理**：支持将大量小请求（如单只股票的历史数据）自动打包成批处理任务，通过线程池并行执行。
+    - **任务调度**：支持优先级队列，高优先级任务（如实时行情）可抢占执行资源。
+
+#### 3. 异步并发存储 (Async Concurrent Storage)
+- **功能定义**：解耦下载与存储过程，消除 I/O 瓶颈，确保数据写入的高可靠性。
+- **核心能力**：
+    - **生产-消费模型**：下载器仅负责将数据推入内存队列，存储 Worker 在后台异步消费队列，实现“下载不等待写入”。
+    - **批量写入 (Batch Write)**：支持积攒一定数量的数据块（如 10 个 DataFrames）后一次性触发磁盘写入，减少文件句柄开销。
+    - **自动重试与容错**：写入失败时自动进入重试队列（指数退避策略），多次失败后自动记录错误日志并触发回调。
+    - **非阻塞回调**：存储完成后通过回调函数通知主线程（如更新进度条或触发后续处理），不阻塞主下载流程。
+
+## 三、 实施优势
+
+1.  **极简维护**：维护者不需要懂 Python 类继承结构，只需修改 YAML 文本。
+2.  **解耦**：下载逻辑与业务逻辑完全分离。
+3.  **适应性强**：`pro_bar` 这种需要特殊处理的接口（如特殊的代理路径、参数组合）完全可以通过 YAML 配置描述，而无需硬编码 `if interface == 'pro_bar': ...`。
+4.  **功能完备**：保留并增强了原有的缓存和并发能力，但将其配置化，更易于调整和优化。
+5.  **文档化**：YAML 文件本身就是最好的接口文档。
+6.  **完全兼容**：通过参数映射层，老用户可以继续使用熟悉的 CLI 参数，同时享受新架构的稳定性。
+7.  **高性能**：通过全链路异步化（下载->处理->存储）和智能缓存，显著提升大数据量下的吞吐能力。
+
+## 四、 迁移路线图
+
+
+## 五、 实施优势
+
+1.  **高内聚**：所有接口特定逻辑集中在 YAML，通用逻辑集中在 Core 组件。
+2.  **低耦合**：下载器不依赖具体接口类，只依赖配置。
+3.  **原子化**：下载、缓存、存储操作分离，可独立测试。
+4.  **优雅简洁**：Python 代码量大幅减少，逻辑清晰。
+5.  **完全兼容**：无缝迁移现有工作流。
+
+## 六、 迁移路线图
+
+### 阶段 1：基础框架搭建 (2天)
+- 创建目录结构。
+- 实现 `ConfigLoader`, `GenericDownloader` 原型。
+- 移植 `CacheManager`。
+
+### 阶段 2：并发与调度实现 (2天)
+- 实现 `TaskScheduler` (线程池, 限流)。
+- 编写 `settings.yaml`。
+
+### 阶段 3：核心接口迁移 (2天)
+- 编写 `stock_basic`, `daily`, `pro_bar` YAML。
+- 调试下载全流程。
+
+### 阶段 4：全量接口迁移与CLI (3天)
+- 转化剩余接口 YAML。
+- 实现 `main.py` 及参数映射。
+
+### 阶段 5：测试与文档 (1天)
+- 验证配置正确性。
+- 压力与缓存测试。
+- 更新文档。
