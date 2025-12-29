@@ -1,0 +1,45 @@
+name: new_share
+api_name: new_share
+description: "IPO新股列表"
+
+permissions:
+  min_points: 120
+  rate_limit: 60
+  query_limit: 2000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  start_date:
+    type: string
+    required: false
+    description: "上网发行开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "上网发行结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code"]
+  sort_by: ["ipo_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    sub_code: {type: string, required: true}
+    name: {type: string, required: true}
+    ipo_date: {type: date, format: "%Y%m%d", required: true}
+    issue_date: {type: date, format: "%Y%m%d"}
+    amount: {type: float}
+    market_amount: {type: float}
+    price: {type: float}
+    pe: {type: float}
+    limit_amount: {type: float}
+    funds: {type: float}
+    ballot: {type: float}

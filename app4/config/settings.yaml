@@ -1,0 +1,97 @@
+# 全局配置
+app:
+  name: "aspipe_v4"
+  version: "4.0.0"
+
+# TuShare API 配置
+tushare:
+  token: "${TUSHARE_TOKEN}"  # 从环境变量读取
+  api_url: "http://api.tushare.pro"
+  points_threshold: 2000
+
+# 并发配置
+concurrency:
+  max_workers: 8
+  max_queue_size: 1000
+
+# 缓存配置
+cache:
+  enabled: true
+  base_dir: "../cache"
+  default_ttl: 86400  # 24小时（秒）
+  max_size_gb: 10
+  cleanup_interval: 3600  # 清理间隔（秒）
+
+# 存储配置
+storage:
+  base_dir: "../data"
+  format: "parquet"
+  batch_size: 100
+  async_write: true
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "../log/aspipe_v4.log"
+  max_size_mb: 100
+  backup_count: 5
+
+# 接口组定义
+groups:
+  holders:
+    - top10_holders
+    - top10_floatholders
+    - stk_holdertrade
+    - pledge_detail
+    - pledge_stat
+    - share_float
+    - stk_rewards
+    - stk_managers
+    - stk_surv
+
+  daily:
+    - daily
+    - daily_basic
+    - pro_bar
+    - trade_cal
+    - block_trade
+    - bak_daily
+    - bak_basic
+    - suspend_d
+
+  financial:
+    - income
+    - balancesheet
+    - cashflow
+    - fina_indicator
+    - fina_mainbz
+    - fina_audit
+    - forecast
+    - express
+    - disclosure_date
+    - report_rc
+
+  market_data:
+    - stock_basic
+    - stock_company
+    - stock_st
+    - namechange
+    - new_share
+    - moneyflow
+    - moneyflow_dc
+    - moneyflow_ths
+    - moneyflow_ind_dc
+    - moneyflow_ind_ths
+    - moneyflow_cnt_ths
+    - moneyflow_mkt_dc
+
+  analysis_factors:
+    - stk_factor
+    - stk_factor_pro
+    - cyq_chips
+    - cyq_perf
+    - broker_recommend
+
+  corporate_actions:
+    - repurchase
+    - dividend

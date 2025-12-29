@@ -1,0 +1,644 @@
+# 为缺失的接口创建YAML配置
+
+## 2.27 bak_basic.yaml - 备用基础数据
+
+```yaml
+name: bak_basic
+api_name: bak_basic
+description: "备用基础数据"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters: {}
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    name: {type: string}
+    industry: {type: string}
+    area: {type: string}
+    pe: {type: float}
+    float_share: {type: float}
+    total_share: {type: float}
+    total_assets: {type: float}
+    liquid_assets: {type: float}
+    fixed_assets: {type: float}
+    reserved: {type: float}
+    reserved_pershare: {type: float}
+    eps: {type: float}
+    bvps: {type: float}
+    pb: {type: float}
+    list_date: {type: date, format: "%Y%m%d"}
+```
+
+## 2.28 stock_st.yaml - ST股票列表
+
+```yaml
+name: stock_st
+api_name: stock_st
+description: "ST股票列表"
+
+permissions:
+  min_points: 3000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    name: {type: string}
+    in_date: {type: date, format: "%Y%m%d"}
+    out_date: {type: date, format: "%Y%m%d"}
+    reason: {type: string}
+```
+
+## 2.29 stk_holdertrade.yaml - 股东增减持
+
+```yaml
+name: stk_holdertrade
+api_name: stk_holdertrade
+description: "股东增减持"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  start_date:
+    type: string
+    required: false
+    default: "20230101"
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    default: "20231231"
+    description: "结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "ann_date", "holder_name"]
+  sort_by: ["ann_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d", required: true}
+    holder_name: {type: string, required: true}
+    holder_type: {type: string}
+    in_de: {type: string}
+    change_vol: {type: float}
+    change_ratio: {type: float}
+    after_share: {type: float}
+    after_ratio: {type: float}
+    avg_price: {type: float}
+    total_share: {type: float}
+```
+
+## 2.30 forecast.yaml - 业绩预告
+
+```yaml
+name: forecast
+api_name: forecast
+description: "业绩预告"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  period:
+    type: string
+    required: false
+    default: "20231231"
+    description: "报告期 YYYYMMDD"
+  ts_code:
+    type: string
+    required: false
+    description: "证券代码"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "end_date"]
+  sort_by: ["end_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    eps_min: {type: float}
+    eps_max: {type: float}
+    revenue_min: {type: float}
+    revenue_max: {type: float}
+    profit_min: {type: float}
+    profit_max: {type: float}
+    profit_ratio_min: {type: float}
+    profit_ratio_max: {type: float}
+    content: {type: string}
+    type: {type: string}
+```
+
+## 2.31 express.yaml - 业绩快报
+
+```yaml
+name: express
+api_name: express
+description: "业绩快报"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  period:
+    type: string
+    required: false
+    default: "20231231"
+    description: "报告期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "end_date"]
+  sort_by: ["end_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    revenue: {type: float}
+    operate_profit: {type: float}
+    total_profit: {type: float}
+    net_profit: {type: float}
+    eps: {type: float}
+    bps: {type: float}
+    roe: {type: float}
+    yoy_net_profit: {type: float}
+    bps_yoy: {type: float}
+    revenue_yoy: {type: float}
+    sales_yoy: {type: float}
+    total_assets: {type: float}
+    total_hldr_eqy: {type: float}
+    cmpy_name: {type: string}
+    guo: {type: string}
+```
+
+## 2.32 fina_audit.yaml - 财务审计意见
+
+```yaml
+name: fina_audit
+api_name: fina_audit
+description: "财务审计意见"
+
+permissions:
+  min_points: 500
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  period:
+    type: string
+    required: false
+    default: "20231231"
+    description: "报告期 YYYYMMDD"
+  ts_code:
+    type: string
+    required: false
+    description: "证券代码"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "end_date"]
+  sort_by: ["end_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    audit_firm: {type: string}
+    audit_sign: {type: string}
+    audit_agency: {type: string}
+    audit_cost: {type: float}
+    audit_status: {type: string}
+```
+
+## 2.33 fina_mainbz.yaml - 主营业务构成
+
+```yaml
+name: fina_mainbz
+api_name: fina_mainbz
+description: "主营业务构成"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  period:
+    type: string
+    required: false
+    default: "20231231"
+    description: "报告期 YYYYMMDD"
+  ts_code:
+    type: string
+    required: false
+    description: "证券代码"
+  type:
+    type: string
+    required: false
+    default: "P"
+    options: ["P", "B"]
+    description: "类型：P按产品，B按地区"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "end_date", "bz_item"]
+  sort_by: ["bz_sales"]
+  columns:
+    ts_code: {type: string, required: true}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    bz_item: {type: string, required: true}
+    bz_code: {type: string}
+    parent_code: {type: string}
+    bz_sales: {type: float}
+    bz_profit: {type: float}
+    bz_cost: {type: float}
+    curr_type: {type: string}
+    update_flag: {type: string}
+```
+
+## 2.34 disclosure_date.yaml - 财报披露日程
+
+```yaml
+name: disclosure_date
+api_name: disclosure_date
+description: "财报披露日程"
+
+permissions:
+  min_points: 500
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ann_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "公告日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "end_date", "ann_date"]
+  sort_by: ["ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d", required: true}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    actual_date: {type: date, format: "%Y%m%d"}
+```
+
+## 2.35 moneyflow_ths.yaml - 个股资金流向(同花顺)
+
+```yaml
+name: moneyflow_ths
+api_name: moneyflow_ths
+description: "个股资金流向(同花顺)"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    buy_elg_vol: {type: float}
+    sell_elg_vol: {type: float}
+    buy_elg_amount: {type: float}
+    sell_elg_amount: {type: float}
+    buy_lg_vol: {type: float}
+    sell_lg_vol: {type: float}
+    buy_lg_amount: {type: float}
+    sell_lg_amount: {type: float}
+    buy_md_vol: {type: float}
+    sell_md_vol: {type: float}
+    buy_md_amount: {type: float}
+    sell_md_amount: {type: float}
+    buy_sm_vol: {type: float}
+    sell_sm_vol: {type: float}
+    buy_sm_amount: {type: float}
+    sell_sm_amount: {type: float}
+```
+
+## 2.36 moneyflow_dc.yaml - 个股资金流向(东方财富)
+
+```yaml
+name: moneyflow_dc
+api_name: moneyflow_dc
+description: "个股资金流向(东方财富)"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    buy_sm_vol: {type: float}
+    buy_sm_amount: {type: float}
+    sell_sm_vol: {type: float}
+    sell_sm_amount: {type: float}
+    buy_md_vol: {type: float}
+    buy_md_amount: {type: float}
+    sell_md_vol: {type: float}
+    sell_md_amount: {type: float}
+    buy_lg_vol: {type: float}
+    buy_lg_amount: {type: float}
+    sell_lg_vol: {type: float}
+    sell_lg_amount: {type: float}
+    buy_elg_vol: {type: float}
+    buy_elg_amount: {type: float}
+    sell_elg_vol: {type: float}
+    sell_elg_amount: {type: float}
+```
+
+## 2.37 moneyflow_ind_dc.yaml - 行业概念资金流向(东方财富)
+
+```yaml
+name: moneyflow_ind_dc
+api_name: moneyflow_ind_dc
+description: "行业概念资金流向(东方财富)"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["index_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    index_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    name: {type: string}
+    proc_rate: {type: float}
+    market_amount: {type: float}
+    buy_amount: {type: float}
+    buy_volume: {type: float}
+    sell_amount: {type: float}
+    sell_volume: {type: float}
+```
+
+## 2.38 moneyflow_mkt_dc.yaml - 市场资金流向(东方财富)
+
+```yaml
+name: moneyflow_mkt_dc
+api_name: moneyflow_mkt_dc
+description: "市场资金流向(东方财富)"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["trade_date"]
+  columns:
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    sh_m_amount: {type: float}
+    sh_b_amount: {type: float}
+    sh_s_amount: {type: float}
+    sz_m_amount: {type: float}
+    sz_b_amount: {type: float}
+    sz_s_amount: {type: float}
+    cy_m_amount: {type: float}
+    cy_b_amount: {type: float}
+    cy_s_amount: {type: float}
+    zx_m_amount: {type: float}
+    zx_b_amount: {type: float}
+    zx_s_amount: {type: float}
+```
+
+## 2.39 moneyflow_cnt_ths.yaml - 概念资金流向(同花顺)
+
+```yaml
+name: moneyflow_cnt_ths
+api_name: moneyflow_cnt_ths
+description: "概念资金流向(同花顺)"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["index_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    index_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    name: {type: string}
+    proc_rate: {type: float}
+    market_amount: {type: float}
+    buy_amount: {type: float}
+    buy_volume: {type: float}
+    sell_amount: {type: float}
+    sell_volume: {type: float}
+```
+
+## 2.40 moneyflow_ind_ths.yaml - 行业资金流向(同花顺)
+
+```yaml
+name: moneyflow_ind_ths
+api_name: moneyflow_ind_ths
+description: "行业资金流向(同花顺)"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["index_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    index_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    name: {type: string}
+    proc_rate: {type: float}
+    market_amount: {type: float}
+    buy_amount: {type: float}
+    buy_volume: {type: float}
+    sell_amount: {type: float}
+    sell_volume: {type: float}
+```

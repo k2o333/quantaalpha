@@ -1,0 +1,49 @@
+name: suspend_d
+api_name: suspend_d
+description: "每日停复牌信息"
+
+permissions:
+  min_points: 0
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "停复牌查询开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "停复牌查询结束日期 YYYYMMDD"
+  suspend_type:
+    type: string
+    required: false
+    description: "停复牌类型：S-停牌,R-复牌"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    suspend_timing: {type: string}
+    suspend_type: {type: string}

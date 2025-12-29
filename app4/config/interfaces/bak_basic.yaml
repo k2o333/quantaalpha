@@ -1,0 +1,58 @@
+name: bak_basic
+api_name: bak_basic
+description: "备用基础数据"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 7000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  trade_date:
+    type: string
+    required: false
+    default: "20231201"
+    description: "交易日期 YYYYMMDD"
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["trade_date", "ts_code"]
+  sort_by: ["trade_date"]
+  columns:
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    ts_code: {type: string, required: true}
+    name: {type: string}
+    industry: {type: string}
+    area: {type: string}
+    pe: {type: float}
+    float_share: {type: float}
+    total_share: {type: float}
+    total_assets: {type: float}
+    liquid_assets: {type: float}
+    fixed_assets: {type: float}
+    reserved: {type: float}
+    reserved_pershare: {type: float}
+    eps: {type: float}
+    bvps: {type: float}
+    pb: {type: float}
+    list_date: {type: date, format: "%Y%m%d"}
+    undp: {type: float}
+    per_undp: {type: float}
+    rev_yoy: {type: float}
+    profit_yoy: {type: float}
+    gpr: {type: float}
+    npr: {type: float}
+    holder_num: {type: int}

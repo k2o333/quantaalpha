@@ -1,0 +1,51 @@
+name: stk_surv
+api_name: stk_surv
+description: "机构调研表"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 100
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  trade_date:
+    type: string
+    required: false
+    description: "调研日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "调研开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "调研结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "surv_date", "fund_visitors"]
+  sort_by: ["surv_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    name: {type: string, required: true}
+    surv_date: {type: date, format: "%Y%m%d", required: true}
+    fund_visitors: {type: string}
+    rece_place: {type: string}
+    rece_mode: {type: string}
+    rece_org: {type: string}
+    org_type: {type: string}
+    comp_rece: {type: string}
+    content: {type: string}

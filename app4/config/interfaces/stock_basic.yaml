@@ -1,0 +1,51 @@
+name: stock_basic
+api_name: stock_basic
+description: "股票列表"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  exchange:
+    type: string
+    required: false
+    description: "交易所 SSE上交所 SZSE深交所"
+  list_status:
+    type: string
+    required: false
+    default: "L"
+    options: ["L", "D", "P", "S"]
+    description: "上市状态 L上市 D退市 P暂停上市 S终止上市"
+
+pagination:
+  enabled: true
+  mode: "offset"
+  limit_key: "limit"
+  offset_key: "offset"
+  default_limit: 5000
+
+output:
+  primary_key: ["ts_code"]
+  sort_by: ["ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    symbol: {type: string}
+    name: {type: string}
+    area: {type: string}
+    industry: {type: string}
+    fullname: {type: string}
+    enname: {type: string}
+    market: {type: string}
+    exchange: {type: string}
+    curr_type: {type: string}
+    list_status: {type: string}
+    list_date: {type: date, format: "%Y%m%d"}
+    delist_date: {type: date, format: "%Y%m%d"}
+    is_hs: {type: string}

@@ -1,0 +1,51 @@
+name: stk_managers
+api_name: stk_managers
+description: "上市公司管理层"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "公告开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "公告结束日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "name", "ann_date"]
+  sort_by: ["ann_date", "ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    name: {type: string, required: true}
+    gender: {type: string}
+    lev: {type: string}
+    title: {type: string}
+    edu: {type: string}
+    national: {type: string}
+    birthday: {type: date, format: "%Y%m%d"}
+    begin_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d"}
+    resume: {type: string}

@@ -1,0 +1,53 @@
+name: stock_company
+api_name: stock_company
+description: "上市公司基本信息"
+
+permissions:
+  min_points: 120
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  exchange:
+    type: string
+    required: false
+    description: "交易所代码 SSE上交所 SZSE深交所 BSE北交所"
+
+pagination:
+  enabled: true
+  mode: "offset"
+  limit_key: "limit"
+  offset_key: "offset"
+  default_limit: 5000
+
+output:
+  primary_key: ["ts_code"]
+  sort_by: ["ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    com_name: {type: string, required: true}
+    com_id: {type: string}
+    exchange: {type: string}
+    chairman: {type: string}
+    manager: {type: string}
+    secretary: {type: string}
+    reg_capital: {type: float}
+    setup_date: {type: date, format: "%Y%m%d"}
+    province: {type: string}
+    city: {type: string}
+    introduction: {type: string}
+    website: {type: string}
+    email: {type: string}
+    office: {type: string}
+    employees: {type: int}
+    main_business: {type: string}
+    business_scope: {type: string}

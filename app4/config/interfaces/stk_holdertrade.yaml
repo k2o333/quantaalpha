@@ -1,0 +1,62 @@
+name: stk_holdertrade
+api_name: stk_holdertrade
+description: "股东增减持"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 3000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "TS股票代码"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "公告开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "公告结束日期 YYYYMMDD"
+  trade_type:
+    type: string
+    required: false
+    description: "交易类型IN增持DE减持"
+  holder_type:
+    type: string
+    required: false
+    description: "股东类型C公司P个人G高管"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "ann_date", "holder_name"]
+  sort_by: ["ann_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d", required: true}
+    holder_name: {type: string, required: true}
+    holder_type: {type: string}
+    in_de: {type: string}
+    change_vol: {type: float}
+    change_ratio: {type: float}
+    after_share: {type: float}
+    after_ratio: {type: float}
+    avg_price: {type: float}
+    total_share: {type: float}
+    begin_date: {type: date, format: "%Y%m%d"}
+    close_date: {type: date, format: "%Y%m%d"}

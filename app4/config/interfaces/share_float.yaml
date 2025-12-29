@@ -1,0 +1,52 @@
+name: share_float
+api_name: share_float
+description: "限售股解禁"
+
+permissions:
+  min_points: 120
+  rate_limit: 60
+  query_limit: 6000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "TS股票代码"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  float_date:
+    type: string
+    required: false
+    description: "解禁日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "解禁开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "解禁结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "ann_date", "float_date", "holder_name"]
+  sort_by: ["float_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    float_date: {type: date, format: "%Y%m%d", required: true}
+    float_share: {type: float}
+    float_ratio: {type: float}
+    holder_name: {type: string, required: true}
+    share_type: {type: string}

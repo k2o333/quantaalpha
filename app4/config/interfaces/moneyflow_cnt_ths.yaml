@@ -1,0 +1,53 @@
+name: moneyflow_cnt_ths
+api_name: moneyflow_cnt_ths
+description: "概念板块资金流向（同花顺）"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["trade_date", "ts_code"]
+  sort_by: ["trade_date"]
+  columns:
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    ts_code: {type: string, required: true}
+    name: {type: string, required: true}
+    lead_stock: {type: string}
+    close_price: {type: float}
+    pct_change: {type: float}
+    industry_index: {type: float}
+    company_num: {type: int}
+    pct_change_stock: {type: float}
+    net_buy_amount: {type: float}
+    net_sell_amount: {type: float}
+    net_amount: {type: float}

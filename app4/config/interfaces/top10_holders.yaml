@@ -1,0 +1,38 @@
+name: top10_holders
+api_name: top10_holders
+description: "前十大股东"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "证券代码"
+  period:
+    type: string
+    required: false
+    default: "20231231"
+    description: "报告期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "period", "holder_name"]
+  sort_by: ["period", "ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d"}
+    holder_name: {type: string, required: true}
+    holder_amount: {type: float}
+    holder_rank: {type: int}

@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""
+aspipe_v4 融合重构版 (App4) - 配置驱动架构
+统一CLI入口，保持与原版的参数兼容性
+"""
+import argparse
+import logging
+import os
+import sys
+from datetime import datetime
+from typing import Dict, Any, List
+
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 加载环境变量
+from dotenv import load_dotenv
+import os
+# 使用相对路径加载.env文件
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+load_dotenv(env_path)
+
+from core.config_loader import ConfigLoader
+from core.downloader import GenericDownloader
+from core.cache_manager import CacheManager
+from core.scheduler import TaskScheduler, RateLimiter
+from core.storage import StorageManager
+from core.processor import DataProcessor
+
+
+def setup_logging(log_level: str = "INFO", log_file: str = "../log/aspipe_v4.log"):
+    """设置日志配置"""
+    # 确保日志目录存在
+    log_dir = os.path.dirname(log_file)
+    os.makedirs(log_dir, exist_ok=True)
+
+    # 创建日志格式器
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    # 创建文件处理器
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(getattr(logging, log_level))
+    file_handler.setFormatter(formatter)
+
+    # 创建控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(getattr(logging, log_level))
+    console_handler.setFormatter(formatter)
+
+    # 配置根日志记录器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(getattr(logging, log_level))
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="aspipe_v4 融合重构版 - 配置驱动架构")
+
+    # 保持与原版的参数兼容性
+    parser.add_argument('--start_date', type=str, default='20230101',
+                        help='起始日期 (YYYYMMDD)')
+    parser.add_argument('--end_date', type=str, default=None,
+                        help='结束日期 (YYYYMMDD)')
+    parser.add_argument('--use_legacy', action='store_true',
+                        help='传统下载方式 (已移除，保留向后兼容)')
+    parser.add_argument('--holders-data', action='store_true',
+                        help='下载股东数据')
+    parser.add_argument('--pro-bar-only', action='store_true',
+                        help='仅下载pro_bar数据')
+    parser.add_argument('--tscode-historical', action='store_true',
+                        help='全历史数据下载')
+
+    # 新增通用参数
+    parser.add_argument('--interface', type=str,
+                        help='指定接口名称')
+    parser.add_argument('--group', type=str,
+                        help='指定接口组名称')
+    parser.add_argument('--concurrency', type=int, default=8,
+                        help='并发数')
+    parser.add_argument('--log-level', type=str, default='INFO',
+                        help='日志级别')
+
+    args = parser.parse_args()
+
+    # 设置日志
+    log_config = {
+        'log_level': args.log_level,
+        'log_file': '../log/aspipe_v4.log'
+    }
+    setup_logging(**log_config)
+
+    logger = logging.getLogger(__name__)
+    logger.info("Starting aspipe_v4 App4 - Configuration-driven architecture")
+
+    # 初始化配置加载器
+    import os
+    config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
+    config_loader = ConfigLoader(config_dir=config_dir_path)
+
+
+    # 验证配置
+    if not config_loader.validate_config():
+        logger.error("Configuration validation failed")
+        return 1
+
+    # 初始化其他组件
+    cache_manager = CacheManager(
+        cache_dir=config_loader.global_config.get('cache', {}).get('base_dir', '../cache'),
+        default_ttl=config_loader.global_config.get('cache', {}).get('default_ttl', 86400)
+    )
+
+    scheduler = TaskScheduler(
+        max_workers=config_loader.global_config.get('concurrency', {}).get('max_workers', 8),
+        max_queue_size=config_loader.global_config.get('concurrency', {}).get('max_queue_size', 1000)
+    )
+
+    storage_manager = StorageManager(
+        storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
+        format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
+        batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 100)
+    )
+
+    processor = DataProcessor()
+    downloader = GenericDownloader(config_loader, cache_manager)
+
+    # 启动各组件
+    scheduler.start()
+    storage_manager.start_writer()
+
+    # 确定要执行的接口
+    interfaces_to_run = []
+
+    # 参数映射逻辑
+    if args.pro_bar_only:
+        interfaces_to_run = ['pro_bar']
+    elif args.holders_data:
+        holders_group = config_loader.global_config.get('groups', {}).get('holders', [])
+        interfaces_to_run = holders_group
+    elif args.interface:
+        interfaces_to_run = [args.interface]
+    elif args.group:
+        groups = config_loader.global_config.get('groups', {})
+        if args.group in groups:
+            interfaces_to_run = groups[args.group]
+        else:
+            logger.error(f"Group '{args.group}' not found")
+            return 1
+    else:
+        # 默认运行所有可用接口（可根据积分限制过滤）
+        available_interfaces = config_loader.get_available_interfaces()
+        # 过滤掉ts_code依赖的接口，如果是日期范围下载模式
+        if not args.tscode_historical:
+            interfaces_to_run = [iface for iface in available_interfaces if iface not in ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit']]
+        else:
+            interfaces_to_run = available_interfaces
+
+    logger.info(f"Interfaces to run: {interfaces_to_run}")
+
+    # 执行下载任务
+    for interface_name in interfaces_to_run:
+        try:
+            # 获取接口配置
+            interface_config = config_loader.get_interface_config(interface_name)
+
+            # 检查积分要求
+            min_points = interface_config.get('permissions', {}).get('min_points', 0)
+            if min_points > 5000:  # 这里应该从环境变量中读取实际积分
+                import os
+                actual_points = int(os.getenv('tushare_points', '120'))
+                if min_points > actual_points:
+                    logger.warning(f"Insufficient points for interface {interface_name} (required: {min_points}, available: {actual_points})")
+                    continue
+
+            # 准备请求参数
+            params = {
+                'start_date': args.start_date,
+                'end_date': args.end_date or datetime.now().strftime('%Y%m%d')
+            }
+
+            # 对于需要ts_code的接口，根据下载模式处理
+            if args.tscode_historical and 'ts_code' in interface_config.get('parameters', {}):
+                logger.info(f"Running historical download for {interface_name}")
+                # 这里可以实现获取股票列表并逐个下载的逻辑
+            else:
+                logger.info(f"Downloading data for {interface_name}")
+
+                # 获取速率限制器
+                rate_limit = interface_config.get('permissions', {}).get('rate_limit', 60)
+                rate_limiter = RateLimiter(rate_limit)
+
+                # 等待获取令牌
+                rate_limiter.wait_for_tokens(1)
+
+                # 下载数据
+                data = downloader.download(interface_name, params)
+
+                if data:
+                    logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
+
+                    # 处理数据
+                    df = processor.process_data(data, interface_config)
+                    validation_result = processor.validate_data(df, interface_config)
+
+                    # 保存数据
+                    storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
+
+                    logger.info(f"Saved {len(df)} processed records for {interface_name}")
+                    if validation_result['duplicate_records'] > 0:
+                        logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+                else:
+                    logger.warning(f"No data downloaded for {interface_name}")
+
+        except Exception as e:
+            logger.error(f"Error processing interface {interface_name}: {str(e)}")
+
+    # 等待异步任务完成
+    scheduler.stop()
+    storage_manager.stop_writer()
+
+    logger.info("aspipe_v4 App4 execution completed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

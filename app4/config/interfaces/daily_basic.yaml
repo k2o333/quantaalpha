@@ -1,0 +1,59 @@
+name: daily_basic
+api_name: daily_basic
+description: "每日指标"
+
+permissions:
+  min_points: 2000
+  rate_limit: 120
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    close: {type: float}
+    turnover_rate: {type: float}
+    turnover_rate_f: {type: float}
+    volume_ratio: {type: float}
+    pe: {type: float}
+    pe_ttm: {type: float}
+    pb: {type: float}
+    ps: {type: float}
+    ps_ttm: {type: float}
+    dv_ratio: {type: float}
+    dv_ttm: {type: float}
+    total_share: {type: float}
+    float_share: {type: float}
+    free_share: {type: float}
+    total_mv: {type: float}
+    circ_mv: {type: float}

@@ -1,0 +1,61 @@
+name: moneyflow
+api_name: moneyflow
+description: "个股资金流向"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 6000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    buy_sm_vol: {type: int}
+    buy_sm_amount: {type: float}
+    sell_sm_vol: {type: int}
+    sell_sm_amount: {type: float}
+    buy_md_vol: {type: int}
+    buy_md_amount: {type: float}
+    sell_md_vol: {type: int}
+    sell_md_amount: {type: float}
+    buy_lg_vol: {type: int}
+    buy_lg_amount: {type: float}
+    sell_lg_vol: {type: int}
+    sell_lg_amount: {type: float}
+    buy_elg_vol: {type: int}
+    buy_elg_amount: {type: float}
+    sell_elg_vol: {type: int}
+    sell_elg_amount: {type: float}
+    net_mf_vol: {type: int}
+    net_mf_amount: {type: float}

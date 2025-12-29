@@ -1,0 +1,211 @@
+name: balancesheet
+api_name: balancesheet
+description: "资产负债表"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "公告开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "公告结束日期 YYYYMMDD"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+  report_type:
+    type: string
+    required: false
+    description: "报告类型"
+  comp_type:
+    type: string
+    required: false
+    description: "公司类型"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "ann_date", "end_date"]
+  sort_by: ["ann_date", "end_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    f_ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    report_type: {type: string}
+    comp_type: {type: string}
+    end_type: {type: string}
+    total_share: {type: float}
+    cap_rese: {type: float}
+    undistr_porfit: {type: float}
+    surplus_rese: {type: float}
+    special_rese: {type: float}
+    money_cap: {type: float}
+    trad_asset: {type: float}
+    notes_receiv: {type: float}
+    accounts_receiv: {type: float}
+    oth_receiv: {type: float}
+    prepayment: {type: float}
+    div_receiv: {type: float}
+    int_receiv: {type: float}
+    inventories: {type: float}
+    amor_exp: {type: float}
+    nca_within_1y: {type: float}
+    sett_rsrv: {type: float}
+    loanto_oth_bank_fi: {type: float}
+    premium_receiv: {type: float}
+    reinsur_receiv: {type: float}
+    reinsur_res_receiv: {type: float}
+    pur_resale_fa: {type: float}
+    oth_cur_assets: {type: float}
+    total_cur_assets: {type: float}
+    fa_avail_for_sale: {type: float}
+    htm_invest: {type: float}
+    lt_eqt_invest: {type: float}
+    invest_real_estate: {type: float}
+    time_deposits: {type: float}
+    oth_assets: {type: float}
+    lt_rec: {type: float}
+    fix_assets: {type: float}
+    cip: {type: float}
+    const_materials: {type: float}
+    fixed_assets_disp: {type: float}
+    produc_bio_assets: {type: float}
+    oil_and_gas_assets: {type: float}
+    intan_assets: {type: float}
+    r_and_d: {type: float}
+    goodwill: {type: float}
+    lt_amor_exp: {type: float}
+    defer_tax_assets: {type: float}
+    decr_in_disbur: {type: float}
+    oth_nca: {type: float}
+    total_nca: {type: float}
+    cash_reser_cb: {type: float}
+    depos_in_oth_bfi: {type: float}
+    prec_metals: {type: float}
+    deriv_assets: {type: float}
+    rr_reins_une_prem: {type: float}
+    rr_reins_outstd_cla: {type: float}
+    rr_reins_lins_liab: {type: float}
+    rr_reins_lthins_liab: {type: float}
+    refund_depos: {type: float}
+    ph_pledge_loans: {type: float}
+    refund_cap_depos: {type: float}
+    indep_acct_assets: {type: float}
+    client_depos: {type: float}
+    client_prov: {type: float}
+    transac_seat_fee: {type: float}
+    invest_as_receiv: {type: float}
+    total_assets: {type: float}
+    lt_borr: {type: float}
+    st_borr: {type: float}
+    cb_borr: {type: float}
+    depos_ib_deposits: {type: float}
+    loan_oth_bank: {type: float}
+    trading_fl: {type: float}
+    notes_payable: {type: float}
+    acct_payable: {type: float}
+    adv_receipts: {type: float}
+    sold_for_repur_fa: {type: float}
+    comm_payable: {type: float}
+    payroll_payable: {type: float}
+    taxes_payable: {type: float}
+    int_payable: {type: float}
+    div_payable: {type: float}
+    oth_payable: {type: float}
+    acc_exp: {type: float}
+    deferred_inc: {type: float}
+    st_bonds_payable: {type: float}
+    payable_to_reinsurer: {type: float}
+    rsrv_insur_cont: {type: float}
+    acting_trading_sec: {type: float}
+    acting_uw_sec: {type: float}
+    non_cur_liab_due_1y: {type: float}
+    oth_cur_liab: {type: float}
+    total_cur_liab: {type: float}
+    bond_payable: {type: float}
+    lt_payable: {type: float}
+    specific_payables: {type: float}
+    estimated_liab: {type: float}
+    defer_tax_liab: {type: float}
+    defer_inc_non_cur_liab: {type: float}
+    oth_ncl: {type: float}
+    total_ncl: {type: float}
+    depos_oth_bfi: {type: float}
+    deriv_liab: {type: float}
+    depos: {type: float}
+    agency_bus_liab: {type: float}
+    oth_liab: {type: float}
+    prem_receiv_adva: {type: float}
+    depos_received: {type: float}
+    ph_invest: {type: float}
+    reser_une_prem: {type: float}
+    reser_outstd_claims: {type: float}
+    reser_lins_liab: {type: float}
+    reser_lthins_liab: {type: float}
+    indept_acc_liab: {type: float}
+    pledge_borr: {type: float}
+    indem_payable: {type: float}
+    policy_div_payable: {type: float}
+    total_liab: {type: float}
+    treasury_share: {type: float}
+    ordin_risk_reser: {type: float}
+    forex_differ: {type: float}
+    invest_loss_unconf: {type: float}
+    minority_int: {type: float}
+    total_hldr_eqy_exc_min_int: {type: float}
+    total_hldr_eqy_inc_min_int: {type: float}
+    total_liab_hldr_eqy: {type: float}
+    lt_payroll_payable: {type: float}
+    oth_comp_income: {type: float}
+    oth_eqt_tools: {type: float}
+    oth_eqt_tools_p_shr: {type: float}
+    lending_funds: {type: float}
+    acc_receivable: {type: float}
+    st_fin_payable: {type: float}
+    payables: {type: float}
+    hfs_assets: {type: float}
+    hfs_sales: {type: float}
+    cost_fin_assets: {type: float}
+    fair_value_fin_assets: {type: float}
+    cip_total: {type: float}
+    oth_pay_total: {type: float}
+    long_pay_total: {type: float}
+    debt_invest: {type: float}
+    oth_debt_invest: {type: float}
+    oth_eq_invest: {type: float}
+    oth_illiq_fin_assets: {type: float}
+    oth_eq_ppbond: {type: float}
+    receiv_financing: {type: float}
+    use_right_assets: {type: float}
+    lease_liab: {type: float}
+    contract_assets: {type: float}
+    contract_liab: {type: float}
+    accounts_receiv_bill: {type: float}
+    accounts_pay: {type: float}
+    oth_rcv_total: {type: float}
+    fix_assets_total: {type: float}
+    update_flag: {type: string}

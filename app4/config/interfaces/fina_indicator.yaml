@@ -1,0 +1,212 @@
+name: fina_indicator
+api_name: fina_indicator
+description: "财务指标数据"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 100
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "TS股票代码"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "报告期开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "报告期结束日期 YYYYMMDD"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "ann_date", "end_date"]
+  sort_by: ["ann_date", "end_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    eps: {type: float}
+    dt_eps: {type: float}
+    total_revenue_ps: {type: float}
+    revenue_ps: {type: float}
+    capital_rese_ps: {type: float}
+    surplus_rese_ps: {type: float}
+    undist_profit_ps: {type: float}
+    extra_item: {type: float}
+    profit_dedt: {type: float}
+    gross_margin: {type: float}
+    current_ratio: {type: float}
+    quick_ratio: {type: float}
+    cash_ratio: {type: float}
+    invturn_days: {type: float}
+    arturn_days: {type: float}
+    inv_turn: {type: float}
+    ar_turn: {type: float}
+    ca_turn: {type: float}
+    fa_turn: {type: float}
+    assets_turn: {type: float}
+    op_income: {type: float}
+    valuechange_income: {type: float}
+    interst_income: {type: float}
+    daa: {type: float}
+    ebit: {type: float}
+    ebitda: {type: float}
+    fcff: {type: float}
+    fcfe: {type: float}
+    current_exint: {type: float}
+    noncurrent_exint: {type: float}
+    interestdebt: {type: float}
+    netdebt: {type: float}
+    tangible_asset: {type: float}
+    working_capital: {type: float}
+    networking_capital: {type: float}
+    invest_capital: {type: float}
+    retained_earnings: {type: float}
+    diluted2_eps: {type: float}
+    bps: {type: float}
+    ocfps: {type: float}
+    retainedps: {type: float}
+    cfps: {type: float}
+    ebit_ps: {type: float}
+    fcff_ps: {type: float}
+    fcfe_ps: {type: float}
+    netprofit_margin: {type: float}
+    grossprofit_margin: {type: float}
+    cogs_of_sales: {type: float}
+    expense_of_sales: {type: float}
+    profit_to_gr: {type: float}
+    saleexp_to_gr: {type: float}
+    adminexp_of_gr: {type: float}
+    finaexp_of_gr: {type: float}
+    impai_ttm: {type: float}
+    gc_of_gr: {type: float}
+    op_of_gr: {type: float}
+    ebit_of_gr: {type: float}
+    roe: {type: float}
+    roe_waa: {type: float}
+    roe_dt: {type: float}
+    roa: {type: float}
+    npta: {type: float}
+    roic: {type: float}
+    roe_yearly: {type: float}
+    roa2_yearly: {type: float}
+    roe_avg: {type: float}
+    opincome_of_ebt: {type: float}
+    investincome_of_ebt: {type: float}
+    n_op_profit_of_ebt: {type: float}
+    tax_to_ebt: {type: float}
+    dtprofit_to_profit: {type: float}
+    salescash_to_or: {type: float}
+    ocf_to_or: {type: float}
+    ocf_to_opincome: {type: float}
+    capitalized_to_da: {type: float}
+    debt_to_assets: {type: float}
+    assets_to_eqt: {type: float}
+    dp_assets_to_eqt: {type: float}
+    ca_to_assets: {type: float}
+    nca_to_assets: {type: float}
+    tbassets_to_totalassets: {type: float}
+    int_to_talcap: {type: float}
+    eqt_to_talcapital: {type: float}
+    currentdebt_to_debt: {type: float}
+    longdeb_to_debt: {type: float}
+    ocf_to_shortdebt: {type: float}
+    debt_to_eqt: {type: float}
+    eqt_to_debt: {type: float}
+    eqt_to_interestdebt: {type: float}
+    tangibleasset_to_debt: {type: float}
+    tangasset_to_intdebt: {type: float}
+    tangibleasset_to_netdebt: {type: float}
+    ocf_to_debt: {type: float}
+    ocf_to_interestdebt: {type: float}
+    ocf_to_netdebt: {type: float}
+    ebit_to_interest: {type: float}
+    longdebt_to_workingcapital: {type: float}
+    ebitda_to_debt: {type: float}
+    turn_days: {type: float}
+    roa_yearly: {type: float}
+    roa_dp: {type: float}
+    fixed_assets: {type: float}
+    profit_prefin_exp: {type: float}
+    non_op_profit: {type: float}
+    op_to_ebt: {type: float}
+    nop_to_ebt: {type: float}
+    ocf_to_profit: {type: float}
+    cash_to_liqdebt: {type: float}
+    cash_to_liqdebt_withinterest: {type: float}
+    op_to_liqdebt: {type: float}
+    op_to_debt: {type: float}
+    roic_yearly: {type: float}
+    total_fa_trun: {type: float}
+    profit_to_op: {type: float}
+    q_opincome: {type: float}
+    q_investincome: {type: float}
+    q_dtprofit: {type: float}
+    q_eps: {type: float}
+    q_netprofit_margin: {type: float}
+    q_gsprofit_margin: {type: float}
+    q_exp_to_sales: {type: float}
+    q_profit_to_gr: {type: float}
+    q_saleexp_to_gr: {type: float}
+    q_adminexp_to_gr: {type: float}
+    q_finaexp_to_gr: {type: float}
+    q_impair_to_gr_ttm: {type: float}
+    q_gc_to_gr: {type: float}
+    q_op_to_gr: {type: float}
+    q_roe: {type: float}
+    q_dt_roe: {type: float}
+    q_npta: {type: float}
+    q_opincome_to_ebt: {type: float}
+    q_investincome_to_ebt: {type: float}
+    q_dtprofit_to_profit: {type: float}
+    q_salescash_to_or: {type: float}
+    q_ocf_to_sales: {type: float}
+    q_ocf_to_or: {type: float}
+    basic_eps_yoy: {type: float}
+    dt_eps_yoy: {type: float}
+    cfps_yoy: {type: float}
+    op_yoy: {type: float}
+    ebt_yoy: {type: float}
+    netprofit_yoy: {type: float}
+    dt_netprofit_yoy: {type: float}
+    ocf_yoy: {type: float}
+    roe_yoy: {type: float}
+    bps_yoy: {type: float}
+    assets_yoy: {type: float}
+    eqt_yoy: {type: float}
+    tr_yoy: {type: float}
+    or_yoy: {type: float}
+    q_gr_yoy: {type: float}
+    q_gr_qoq: {type: float}
+    q_sales_yoy: {type: float}
+    q_sales_qoq: {type: float}
+    q_op_yoy: {type: float}
+    q_op_qoq: {type: float}
+    q_profit_yoy: {type: float}
+    q_profit_qoq: {type: float}
+    q_netprofit_yoy: {type: float}
+    q_netprofit_qoq: {type: float}
+    equity_yoy: {type: float}
+    rd_exp: {type: float}
+    update_flag: {type: string}

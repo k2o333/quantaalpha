@@ -1,0 +1,41 @@
+name: pledge_detail
+api_name: pledge_detail
+description: "股权质押明细"
+
+permissions:
+  min_points: 500
+  rate_limit: 60
+  query_limit: 1000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: true
+    description: "股票代码"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "ann_date", "holder_name", "start_date"]
+  sort_by: ["ann_date", "ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    holder_name: {type: string, required: true}
+    pledge_amount: {type: float}
+    start_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d"}
+    is_release: {type: string}
+    release_date: {type: date, format: "%Y%m%d"}
+    pledgor: {type: string}
+    holding_amount: {type: float}
+    pledged_amount: {type: float}
+    p_total_ratio: {type: float}
+    h_total_ratio: {type: float}
+    is_buyback: {type: string}

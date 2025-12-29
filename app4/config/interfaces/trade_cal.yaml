@@ -1,0 +1,42 @@
+name: trade_cal
+api_name: trade_cal
+description: "交易日历"
+
+permissions:
+  min_points: 2000
+  rate_limit: 120
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  exchange:
+    type: string
+    required: false
+    default: "SSE"
+    description: "交易所 SSE上交所 SZSE深交所"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["cal_date", "exchange"]
+  sort_by: ["cal_date"]
+  columns:
+    cal_date: {type: date, format: "%Y%m%d", required: true}
+    exchange: {type: string, required: true}
+    is_open: {type: int, required: true}
+    pretrade_date: {type: date, format: "%Y%m%d"}
