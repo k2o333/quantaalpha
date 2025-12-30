@@ -2,6 +2,7 @@ import os
 import threading
 import queue
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from typing import List, Dict, Any
@@ -103,29 +104,12 @@ class StorageManager:
                 logger.debug(f"First record keys: {list(data[0].keys()) if data else 'No data'}")
                 logger.debug(f"First record sample: {data[0] if data else 'No data'}")
 
-            # 转换为 DataFrame
-            df = pd.DataFrame(data)
+            # 转换为 Polars DataFrame
+            df = pl.DataFrame(data)
 
             # 更多调试信息
             logger.debug(f"DataFrame shape: {df.shape}")
-            logger.debug(f"DataFrame columns: {list(df.columns)}")
-            logger.debug(f"DataFrame column types: {[type(col) for col in df.columns]}")
-            if not df.empty:
-                logger.debug(f"DataFrame dtypes: {df.dtypes.to_dict()}")
-
-            # 确保列名是字符串类型，避免PyArrow的FieldRef问题
-            original_columns = df.columns.tolist()
-            df.columns = df.columns.astype(str)
-            new_columns = df.columns.tolist()
-            if original_columns != new_columns:
-                logger.debug(f"Column names changed: {original_columns} -> {new_columns}")
-
-            # 确保没有重复的列名
-            duplicated_cols = df.columns[df.columns.duplicated()].tolist()
-            if duplicated_cols:
-                logger.debug(f"Duplicated columns found: {duplicated_cols}")
-            df = df.loc[:, ~df.columns.duplicated()]
-            logger.debug(f"DataFrame columns after deduplication: {list(df.columns)}")
+            logger.debug(f"DataFrame columns: {df.columns}")
 
             # 生成文件路径
             file_path = os.path.join(self.storage_dir, f"{interface_name}.{self.format}")
@@ -138,107 +122,26 @@ class StorageManager:
                 logger.debug(f"Reading existing data from: {file_path}")
                 try:
                     # 读取现有数据
-                    existing_df = pd.read_parquet(file_path)
-
-                    # 确保列名是字符串类型（防止整数列名被误处理）
-                    existing_df.columns = [str(col) for col in existing_df.columns]
+                    existing_df = pl.read_parquet(file_path)
 
                     # 合并数据（去重）
-                    combined_df = pd.concat([existing_df, df]).drop_duplicates()
+                    # Polars的垂直连接方式
+                    combined_df = pl.concat([existing_df, df], how="vertical_relaxed").unique()
 
-                    # 确保合并后的数据也进行类型处理
-                    combined_df.columns = [str(col) for col in combined_df.columns]
-                    for col in combined_df.columns:
-                        if combined_df[col].dtype == 'object':
-                            combined_df[col] = combined_df[col].astype(str)
-                        elif combined_df[col].dtype == 'int64':
-                            if combined_df[col].isna().any():
-                                combined_df[col] = combined_df[col].astype('float64')
-
-                    # 使用PyArrow创建表并写入，以获得更好的类型控制
-                    import pyarrow as pa
-                    from pyarrow import parquet as pq
-
-                    # 创建明确的schema
-                    schema_fields = []
-                    for col in combined_df.columns:
-                        col_dtype = combined_df[col].dtype
-                        if col_dtype in ['object', 'string']:
-                            schema_fields.append((col, pa.string()))
-                        elif col_dtype in ['int64', 'int32']:
-                            schema_fields.append((col, pa.int64()))
-                        elif col_dtype in ['float64', 'float32']:
-                            schema_fields.append((col, pa.float64()))
-                        else:
-                            schema_fields.append((col, pa.string()))
-
-                    schema = pa.schema(schema_fields)
-                    table = pa.Table.from_pandas(combined_df, schema=schema, preserve_index=False)
-                    pq.write_table(table, file_path)
+                    # 写入合并后的数据
+                    combined_df.write_parquet(file_path)
                 except Exception as read_error:
                     logger.warning(f"Error reading existing file {file_path}: {str(read_error)}")
                     logger.warning("Creating new file instead of appending")
                     # 如果读取失败，创建新的文件
-                    import pyarrow as pa
-                    from pyarrow import parquet as pq
-
-                    # 创建明确的schema
-                    schema_fields = []
-                    for col in df.columns:
-                        col_dtype = df[col].dtype
-                        if col_dtype in ['object', 'string']:
-                            schema_fields.append((col, pa.string()))
-                        elif col_dtype in ['int64', 'int32']:
-                            schema_fields.append((col, pa.int64()))
-                        elif col_dtype in ['float64', 'float32']:
-                            schema_fields.append((col, pa.float64()))
-                        else:
-                            schema_fields.append((col, pa.string()))
-
-                    schema = pa.schema(schema_fields)
-                    table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
-                    pq.write_table(table, file_path)
+                    df.write_parquet(file_path)
             else:
                 # 直接写入新文件
                 if self.format == "parquet":
-                    # 确保列名是字符串类型
-                    df.columns = df.columns.astype(str)
-                    # 确保没有重复的列名
-                    df = df.loc[:, ~df.columns.duplicated()]
-
-                    # 清理数据类型以避免PyArrow的FieldRef问题
-                    for col in df.columns:
-                        if df[col].dtype == 'object':
-                            # 对于object类型，尝试转换为一致的字符串类型
-                            df[col] = df[col].astype(str)
-                        elif df[col].dtype == 'int64':
-                            # 确保整数列没有NaN值
-                            if df[col].isna().any():
-                                df[col] = df[col].astype('float64')
-
-                    # 使用PyArrow创建表并写入，以获得更好的类型控制
-                    import pyarrow as pa
-                    from pyarrow import parquet as pq
-
-                    # 创建明确的schema
-                    schema_fields = []
-                    for col in df.columns:
-                        col_dtype = df[col].dtype
-                        if col_dtype in ['object', 'string']:
-                            schema_fields.append((col, pa.string()))
-                        elif col_dtype in ['int64', 'int32']:
-                            schema_fields.append((col, pa.int64()))
-                        elif col_dtype in ['float64', 'float32']:
-                            schema_fields.append((col, pa.float64()))
-                        else:
-                            schema_fields.append((col, pa.string()))
-
-                    schema = pa.schema(schema_fields)
-                    table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
-                    pq.write_table(table, file_path)
+                    df.write_parquet(file_path)
                 else:
                     # 默认使用 CSV 格式
-                    df.to_csv(file_path, index=False)
+                    df.write_csv(file_path)
 
             logger.info(f"Written {len(data)} records to {file_path}")
 

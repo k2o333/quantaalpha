@@ -7,6 +7,7 @@ import logging
 import pyarrow.parquet as pq
 import pyarrow as pa
 import pandas as pd
+import polars as pl
 
 logger = logging.getLogger(__name__)
 
@@ -45,18 +46,10 @@ class CacheManager:
             return None
 
         try:
-            # 读取 Parquet 文件
-            table = pq.read_table(cache_path)
-            df = table.to_pandas()
-
-            # 确保列名是字符串类型
-            df.columns = df.columns.astype(str)
-
-            # 确保没有重复的列名
-            df = df.loc[:, ~df.columns.duplicated()]
-
+            # 读取 Parquet 文件使用Polars
+            df = pl.read_parquet(cache_path)
             logger.debug(f"Cache hit for key: {key}")
-            return df.to_dict('records')
+            return df.to_dicts()
         except Exception as e:
             logger.warning(f"Error reading cache for key {key}: {str(e)}")
             return None
@@ -69,13 +62,17 @@ class CacheManager:
         cache_path = self._get_cache_path(key)
 
         try:
-            # 将数据转换为 DataFrame 以便保存为 Parquet
+            # 将数据转换为 Polars DataFrame 以便保存为 Parquet
             if isinstance(data, list) and len(data) > 0:
-                df = pd.DataFrame(data)
-                table = pa.Table.from_pandas(df)
-                pq.write_table(table, cache_path)
+                df = pl.DataFrame(data)
+                df.write_parquet(cache_path)
             elif isinstance(data, pd.DataFrame):
-                pq.write_table(pa.Table.from_pandas(data), cache_path)
+                # 如果是pandas DataFrame，转换为Polars
+                df = pl.from_pandas(data)
+                df.write_parquet(cache_path)
+            elif isinstance(data, pl.DataFrame):
+                # 如果已经是Polars DataFrame
+                data.write_parquet(cache_path)
             else:
                 # 如果数据不能转换为 DataFrame，我们仍然需要处理
                 logger.warning(f"Cannot cache data of type {type(data)} for key {key}")
