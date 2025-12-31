@@ -325,29 +325,39 @@ def main():
         # 确定要执行的接口
         interfaces_to_run = []
 
-        # 参数映射逻辑
+        # 参数映射逻辑（改为累加模式）
+        if args.tscode_historical:
+            # tscode-historical 模式：只下载那4个需要 ts_code 的接口
+            interfaces_to_run.extend(['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit'])
+
         if args.pro_bar_only:
-            interfaces_to_run = ['pro_bar']
-        elif args.holders_data:
+            # pro_bar_only 模式：添加 pro_bar 接口
+            interfaces_to_run.append('pro_bar')
+
+        if args.holders_data:
+            # holders_data 模式：添加 holders 组
             holders_group = config_loader.global_config.get('groups', {}).get('holders', [])
-            interfaces_to_run = holders_group
-        elif args.interface:
-            interfaces_to_run = [args.interface]
-        elif args.group:
+            interfaces_to_run.extend(holders_group)
+
+        if args.interface:
+            # 指定接口
+            interfaces_to_run.append(args.interface)
+
+        if args.group:
+            # 指定组
             groups = config_loader.global_config.get('groups', {})
             if args.group in groups:
-                interfaces_to_run = groups[args.group]
+                interfaces_to_run.extend(groups[args.group])
             else:
                 logger.error(f"Group '{args.group}' not found")
                 return 1
-        else:
+
+        # 如果没有指定任何参数，使用默认行为
+        if not interfaces_to_run:
             # 默认运行所有可用接口（可根据积分限制过滤）
             available_interfaces = config_loader.get_available_interfaces()
-            # 过滤掉ts_code依赖的接口，如果是日期范围下载模式
-            if not args.tscode_historical:
-                interfaces_to_run = [iface for iface in available_interfaces if iface not in ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit']]
-            else:
-                interfaces_to_run = available_interfaces
+            # 过滤掉ts_code依赖的接口和pro_bar
+            interfaces_to_run = [iface for iface in available_interfaces if iface not in ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit', 'pro_bar']]
 
         logger.info(f"Interfaces to run: {interfaces_to_run}")
 
