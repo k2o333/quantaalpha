@@ -126,16 +126,16 @@ def main():
     processor = DataProcessor()
     downloader = GenericDownloader(config_loader, cache_manager)
 
+    # 创建全局速率限制器（优先使用接口配置，否则使用全局默认）
+    global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
+    global_rate_limiter = RateLimiter(global_rate_limit)
+
     # 启动各组件
     scheduler.start()
     storage_manager.start_writer()
 
-    def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list):
+    def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter):
         """运行并发股票下载"""
-        # [新增] 获取速率限制器
-        rate_limit = interface_config.get('permissions', {}).get('rate_limit', 60)
-        rate_limiter = RateLimiter(rate_limit)
-
         logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
 
         # 创建包装函数，包含限流逻辑
@@ -284,7 +284,7 @@ def main():
                             logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
 
                         # 使用并发下载
-                        all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list)
+                        all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter)
 
                         if all_data:
                             logger.info(f"Successfully downloaded {len(all_data)} total records for {interface_name}")
@@ -303,12 +303,12 @@ def main():
                             logger.warning(f"No data downloaded for {interface_name}")
                     else:
                         # 普通模式，使用同步下载
-                        # 获取速率限制器
-                        rate_limit = interface_config.get('permissions', {}).get('rate_limit', 60)
-                        rate_limiter = RateLimiter(rate_limit)
+                        # 使用接口配置的 rate_limit，如果没有则使用全局默认
+                        interface_rate_limit = interface_config.get('permissions', {}).get('rate_limit', global_rate_limit)
+                        interface_rate_limiter = RateLimiter(interface_rate_limit)
 
                         # 等待获取令牌
-                        rate_limiter.wait_for_tokens(1)
+                        interface_rate_limiter.wait_for_tokens(1)
 
                         # 下载数据
                         data = downloader.download(interface_name, params)

@@ -153,8 +153,6 @@ class GenericDownloader:
                 break
 
             offset += default_limit
-            # 添加延迟避免触发限流
-            time.sleep(0.1)
 
         return all_data
 
@@ -275,10 +273,6 @@ class GenericDownloader:
             # 只在特定间隔输出日志
             if (idx + 1) % log_interval == 0 or idx == 0:
                 logger.info(f"Processed stock {stock['ts_code']} ({idx+1}/{total_stocks}), got {len(stock_data)} records")
-
-            # 添加延迟避免触发限流
-            import time
-            time.sleep(0.1)  # 可根据API限制调整
 
         return all_data
 
