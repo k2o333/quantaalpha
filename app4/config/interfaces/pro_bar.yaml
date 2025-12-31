@@ -6,7 +6,7 @@ description: "A股复权行情"
 # 2. 权限与限制
 permissions:
   min_points: 0    # 最低积分要求
-  rate_limit: 30   # [修改] 从 60 降至 30
+  rate_limit: 200   # [修改] 从 60 降至 30
   query_limit: 6000 # 单次请求最大返回行数
 
 # 3. 请求配置

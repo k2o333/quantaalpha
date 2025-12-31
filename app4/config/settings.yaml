@@ -21,7 +21,7 @@ request:
   retry_backoff: 2    # 指数退避因子
   jitter_min: 0.1     # 请求前随机延迟最小值(秒)
   jitter_max: 0.5     # 请求前随机延迟最大值(秒)
-  rate_limit: 60      # 全局默认每分钟最大请求数（当接口未配置时使用）
+  rate_limit: 500     # 全局默认每分钟最大请求数（当接口未配置时使用）
 
 # 缓存配置
 cache:

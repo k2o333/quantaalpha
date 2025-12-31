@@ -28,8 +28,17 @@ from core.storage import StorageManager
 from core.processor import DataProcessor
 
 
-def setup_logging(log_level: str = "INFO", log_file: str = "../log/aspipe_v4.log"):
-    """设置日志配置"""
+def setup_logging(log_config: dict):
+    """设置日志配置
+
+    Args:
+        log_config: 日志配置字典，包含 level, file, max_size_mb, backup_count
+    """
+    log_level = log_config.get('level', 'INFO')
+    log_file = log_config.get('file', '../log/aspipe_v4.log')
+    max_size_mb = log_config.get('max_size_mb', 100)
+    backup_count = log_config.get('backup_count', 5)
+
     # 确保日志目录存在
     log_dir = os.path.dirname(log_file)
     os.makedirs(log_dir, exist_ok=True)
@@ -39,8 +48,14 @@ def setup_logging(log_level: str = "INFO", log_file: str = "../log/aspipe_v4.log
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    # 创建文件处理器
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    # 创建文件处理器（支持轮转）
+    from logging.handlers import RotatingFileHandler
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_size_mb * 1024 * 1024,
+        backupCount=backup_count,
+        encoding='utf-8'
+    )
     file_handler.setLevel(getattr(logging, log_level))
     file_handler.setFormatter(formatter)
 
@@ -85,26 +100,25 @@ def main():
 
     args = parser.parse_args()
 
-    # 设置日志
-    log_config = {
-        'log_level': args.log_level,
-        'log_file': '../log/aspipe_v4.log'
-    }
-    setup_logging(**log_config)
-
-    logger = logging.getLogger(__name__)
-    logger.info("Starting aspipe_v4 App4 - Configuration-driven architecture")
-
-    # 初始化配置加载器
+    # 初始化配置加载器（需要在设置日志之前）
     import os
     config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
     config_loader = ConfigLoader(config_dir=config_dir_path)
 
-
     # 验证配置
     if not config_loader.validate_config():
-        logger.error("Configuration validation failed")
+        print("Configuration validation failed")
         return 1
+
+    # 设置日志 - 从 settings.yaml 读取配置
+    logging_config = config_loader.global_config.get('logging', {})
+    # 如果命令行指定了日志级别，则覆盖配置文件中的设置
+    if args.log_level:
+        logging_config['level'] = args.log_level
+    setup_logging(logging_config)
+
+    logger = logging.getLogger(__name__)
+    logger.info("Starting aspipe_v4 App4 - Configuration-driven architecture")
 
     # 初始化其他组件
     cache_manager = CacheManager(
@@ -133,6 +147,36 @@ def main():
     # 启动各组件
     scheduler.start()
     storage_manager.start_writer()
+
+    def process_and_save_data(data, interface_name, interface_config, processor, storage_manager):
+        """处理并保存数据的通用函数
+
+        Args:
+            data: 原始数据列表
+            interface_name: 接口名称
+            interface_config: 接口配置
+            processor: 数据处理器
+            storage_manager: 存储管理器
+
+        Returns:
+            处理后的 DataFrame，如果处理失败则返回 None
+        """
+        if not data:
+            logger.warning(f"No data to process for {interface_name}")
+            return None
+
+        # 处理数据
+        df = processor.process_data(data, interface_config)
+        validation_result = processor.validate_data(df, interface_config)
+
+        # 保存数据
+        storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
+
+        logger.info(f"Saved {len(df)} processed records for {interface_name}")
+        if validation_result['duplicate_records'] > 0:
+            logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+
+        return df
 
     def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter):
         """运行并发股票下载"""
@@ -288,17 +332,7 @@ def main():
 
                         if all_data:
                             logger.info(f"Successfully downloaded {len(all_data)} total records for {interface_name}")
-
-                            # 处理数据
-                            df = processor.process_data(all_data, interface_config)
-                            validation_result = processor.validate_data(df, interface_config)
-
-                            # 保存数据
-                            storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
-
-                            logger.info(f"Saved {len(df)} processed records for {interface_name}")
-                            if validation_result['duplicate_records'] > 0:
-                                logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+                            process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
                         else:
                             logger.warning(f"No data downloaded for {interface_name}")
                     else:
@@ -315,17 +349,7 @@ def main():
 
                         if data:
                             logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
-
-                            # 处理数据
-                            df = processor.process_data(data, interface_config)
-                            validation_result = processor.validate_data(df, interface_config)
-
-                            # 保存数据
-                            storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
-
-                            logger.info(f"Saved {len(df)} processed records for {interface_name}")
-                            if validation_result['duplicate_records'] > 0:
-                                logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+                            process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
                         else:
                             logger.warning(f"No data downloaded for {interface_name}")
 

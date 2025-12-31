@@ -58,8 +58,8 @@ class ConfigLoader:
                         # 检查环境变量是否真的存在
                         logger.debug("  Checking if env vars are loaded:")
                         import os
-                        logger.debug("  os.getenv('tushare_token'): %s", os.getenv('tushare_token', 'NOT FOUND')[:10] if os.getenv('tushare_token') else 'NOT FOUND')
-                        logger.debug("  os.getenv('TUSHARE_TOKEN'): %s", os.getenv('TUSHARE_TOKEN', 'NOT FOUND')[:10] if os.getenv('TUSHARE_TOKEN') else 'NOT FOUND')
+                        token = os.getenv('TUSHARE_TOKEN', '')
+                        logger.debug("  TUSHARE_TOKEN: %s", token[:10] if token else 'NOT FOUND')
 
                         # 尝试直接查找环境变量
                         env_value = os.getenv(env_var)

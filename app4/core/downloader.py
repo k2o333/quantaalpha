@@ -358,7 +358,7 @@ class GenericDownloader:
                 # 添加 token
                 token_placeholder = tushare_config.get('token', '')
                 if '${TUSHARE_TOKEN}' in token_placeholder:
-                    token = os.getenv('tushare_token', '')  # 注意这里使用小写
+                    token = os.getenv('TUSHARE_TOKEN', '')
                 else:
                     token = token_placeholder
 
