@@ -38,10 +38,13 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 ### Key Modules
 - **Main Entry Point**: `app/main.py` - Unified entry point for all data downloads with fallback capability
 - **Enhanced Main Downloader**: `app/enhanced_main_downloader.py` - Production-ready enhanced downloader with strategy pattern
+- **App4 Main Module**: `app4/main.py` - Configuration-driven architecture with enhanced optimizations
 - **Score-Based Downloader**: `app/score_based_downloader.py` - Download management based on user积分 levels
 - **Configuration**: `app/config.py` - Environment variable loading and API limit configuration
+- **App4 Config Loader**: `app4/core/config_loader.py` - Configuration-driven approach with global and interface-specific settings
 - **Enhanced Configuration**: `app/enhanced_download_config.py` - Advanced interface configuration with priority, retries, rate limits, and caching
 - **Configuration Adapter**: `app/config_adapter.py` - Maintains backward compatibility with old config format
+- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor
 - **Task Queue Manager**: `app/task_queue_manager.py` - Task queue management with priority and status tracking
 - **Interface Modules**: `app/interfaces/` - Modularized API interfaces for different data types
 - **Utils**: `app/utils/` - Helper functions for date handling and other utilities
@@ -49,9 +52,12 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 - **Strategy Factory**: `app/strategy_factory.py` - Centralized strategy creation and registration with caching
 - **Parameter Adapters**: `app/parameter_adapters.py` - Standardized parameter validation and adaptation for all interfaces
 - **Data Storage**: `app/data_storage.py` - Data storage and caching with intelligent cache matching
+- **App4 Storage Manager**: `app4/core/storage.py` - Enhanced storage management with async operations and batch processing
 - **Cache Key Generator**: `app/cache_key_generator.py` - Standardized cache key and path generation
+- **App4 Cache Manager**: `app4/core/cache_manager.py` - Enhanced caching with atomic writes, derivation strategy, and performance optimization
 - **Cache Monitor**: `app/cache_monitor.py` - Cache performance monitoring with hit rate tracking
 - **Stock List Manager**: `app/stock_list_manager.py` - Singleton pattern implementation to prevent duplicate API calls
+- **App4 Generic Downloader**: `app4/core/downloader.py` - Enhanced downloader with data validation, network retry optimization, and performance monitoring
 - **Error Handler**: `app/error_handler.py` - Enhanced error handling with retry mechanisms and API-specific error handling
 
 ## Data Categories by Score Level
@@ -99,6 +105,13 @@ aspipe_v4 is a comprehensive financial data pipeline system that downloads stock
 33. **Batch Processing for TSCODE interfaces**: Efficient batch processing of ts_code-dependent interfaces for better performance
 34. **Asynchronous Storage Operations**: Storage operations handled asynchronously to avoid blocking download threads
 35. **Enhanced Interface Configuration**: Detailed interface settings including cache settings, API parameters, and concurrency controls
+36. **App4 Configuration-Driven Architecture**: New architecture in app4/ using configuration files for interface definitions, global settings, and performance parameters
+37. **Advanced Data Validation**: Comprehensive data validation and deduplication with automatic detection and removal of duplicate records using (ts_code, trade_date) as unique keys
+38. **Enhanced Network Retry Mechanism**: Smart retry strategy using HTTPAdapter with connection pooling, exponential backoff, and status-specific error handling (429, 500, 502, 503, 504)
+39. **Optimized Cache Strategy**: Intelligent cache derivation system that preloads global trade calendars and derives date-range subsets to improve cache hit rates significantly
+40. **Performance Monitoring System**: Built-in performance metrics collection with monitoring of request times, data sizes, retry counts, and alert thresholds
+41. **Thread-Safe Operations**: Thread-safe cache operations with atomic writes to prevent data corruption during concurrent access
+42. **Enhanced Error Handling**: Comprehensive error handling with graceful degradation and isolated failure handling for individual stock downloads
 
 ## Development Commands
 
@@ -121,6 +134,9 @@ python app/main.py --start_date 20230101 --end_date 20231231
 
 # Default start date is 20230101, end date is today
 python app/main.py
+
+# For enhanced download using production ready features (app4)
+python app4/main.py --start_date 20230101 --end_date 20231231
 
 # For enhanced download using production ready features
 python app/enhanced_main_downloader.py --start_date 20230101 --end_date 20231231
@@ -146,6 +162,12 @@ python app/main.py --start_date 20230101 --end_date 20231231 --track-history
 
 # Force re-download of historically completed interfaces
 python app/main.py --start_date 20230101 --end_date 20231231 --force-redownload
+
+# App4 specific commands with enhanced optimizations:
+python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily  # Download specific interface
+python app4/main.py --start_date 20230101 --end_date 20231231 --group daily     # Download interface group
+python app4/main.py --concurrency 8                                            # Set concurrency level
+python app4/main.py --log-level DEBUG                                         # Set log level
 ```
 
 ### Development Tasks
@@ -222,6 +244,20 @@ aspipe_v4/
 │   └── utils/             # Utility functions
 │       ├── __init__.py    # Package initialization file
 │       └── date_utils.py      # Date utility functions
+├── app4/                  # New configuration-driven architecture (App4)
+│   ├── main.py            # New main entry point with enhanced optimizations
+│   ├── core/              # Core components with enhanced features
+│   │   ├── __init__.py    # Package initialization
+│   │   ├── config_loader.py  # Configuration loader with global and interface configs
+│   │   ├── downloader.py     # Enhanced downloader with data validation and performance monitoring
+│   │   ├── cache_manager.py  # Optimized cache manager with derivation strategy
+│   │   ├── scheduler.py      # Task scheduler with concurrency controls
+│   │   ├── storage.py        # Enhanced storage manager with async operations
+│   │   └── processor.py      # Data processor with validation and transformation
+│   ├── config/            # Configuration files for interfaces and global settings
+│   │   ├── interfaces/    # Interface-specific configuration files
+│   │   │   └── *.yaml     # YAML files for each interface
+│   │   └── settings.yaml     # Global settings and defaults
 ├── test/                  # Test scripts (including new cache functionality tests)
 ├── data/                  # Output directory for downloaded data
 ├── log/                   # Log files

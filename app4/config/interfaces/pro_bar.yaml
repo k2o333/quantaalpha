@@ -61,7 +61,7 @@ pagination:
   enabled: true
   mode: "stock_loop"
   date_pagination: true
-  window_size_days: 6000
+  window_size_days: 5000
   limit_key: "limit"
   offset_key: "offset"
   default_limit: 6000

@@ -105,9 +105,36 @@ class CacheManager:
         self.set("stock_list", stock_list, ttl=86400)  # 24小时缓存
 
     def get_trade_calendar(self, start_date, end_date):
-        """获取交易日历缓存"""
+        """优化的交易日历获取方法 - 优先使用预加载的完整日历进行派生"""
+        # 首先尝试精确缓存
         cache_key = f"calendar_{start_date}_{end_date}"
-        return self.get(cache_key)
+        cached = self.get(cache_key)
+        if cached:
+            logger.debug(f"Cache hit for trade calendar {start_date}-{end_date}")
+            return cached
+
+        logger.debug(f"Cache miss for trade calendar {start_date}-{end_date}, trying to derive from full calendar")
+
+        # 从预加载的完整日历中派生 (使用 main.py 中默认的广泛范围)
+        full_calendar_key = "calendar_19900101_20251231"
+        full_calendar = self.get(full_calendar_key)
+
+        if full_calendar:
+            # 从完整日历中过滤出指定范围
+            filtered_calendar = [
+                day for day in full_calendar
+                if start_date <= day.get('cal_date', '') <= end_date
+                and day.get('is_open', 0) == 1  # 只保留交易日
+            ]
+
+            if filtered_calendar:
+                # 缓存派生的子集以供后续使用
+                self.set(cache_key, filtered_calendar)
+                logger.debug(f"Derived and cached {len(filtered_calendar)} trade days for {start_date}-{end_date}")
+                return filtered_calendar
+
+        logger.debug(f"Full calendar not available or no overlap, returning None for API fetch")
+        return None
 
     def set_trade_calendar(self, start_date, end_date, calendar):
         """设置交易日历缓存"""

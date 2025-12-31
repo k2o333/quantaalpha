@@ -140,26 +140,23 @@ def main():
     processor = DataProcessor()
     downloader = GenericDownloader(config_loader, cache_manager)
 
-    # [新增] 预加载全局交易日历，避免每只股票重复请求
+    from core.downloader import performance_monitor
+
+    # [新增] 预加载全局交易日历，并优化缓存策略
     def preload_global_trade_calendar(downloader, start_date='19900101', end_date=None):
-        """预加载全局交易日历，避免每只股票重复请求
-
-        Args:
-            downloader: GenericDownloader 实例
-            start_date: 起始日期，默认 1990-01-01
-            end_date: 结束日期，默认为当前日期
-
-        Returns:
-            交易日历列表，如果失败则返回 None
-        """
+        """预加载全局交易日历，并预缓存常用子范围以提高命中率"""
         if end_date is None:
             from datetime import datetime
             end_date = datetime.now().strftime('%Y%m%d')
 
         logger.info(f"Preloading global trade calendar: {start_date} - {end_date}")
 
-        # 先查缓存
-        trade_calendar = downloader.cache_manager.get_trade_calendar(start_date, end_date)
+        # 使用最广泛的日期范围
+        full_range_key = f"calendar_{start_date}_{end_date}"
+        # 也可以使用硬编码的固定大范围键，配合 CacheManager 中的逻辑
+        full_calendar_key = "calendar_19900101_20251231"
+        
+        trade_calendar = downloader.cache_manager.get(full_calendar_key)
         if trade_calendar is not None:
             logger.info(f"Global trade calendar already cached: {len(trade_calendar)} trade days")
             return trade_calendar
@@ -180,12 +177,58 @@ def main():
             # 过滤出交易日并缓存
             trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
             trade_days = sorted(trade_days, key=lambda x: x['cal_date'])
-            downloader.cache_manager.set_trade_calendar(start_date, end_date, trade_days)
-            logger.info(f"Preloaded {len(trade_days)} trade days")
+            
+            # 缓存完整范围
+            downloader.cache_manager.set(full_calendar_key, trade_days)
+            downloader.cache_manager.set(full_range_key, trade_days)
+
+            # 预缓存一些常见的子范围以提高后续请求的命中率
+            common_sub_ranges = [
+                ('20050101', '20251231'),
+                ('20100101', '20251231'),
+                ('20150101', '20251231'),
+                ('20200101', '20251231'),
+            ]
+
+            for sub_start, sub_end in common_sub_ranges:
+                if sub_start >= start_date and sub_end <= end_date:
+                    sub_calendar = [
+                        day for day in trade_days
+                        if sub_start <= day['cal_date'] <= sub_end
+                    ]
+                    if sub_calendar:
+                        sub_key = f"calendar_{sub_start}_{sub_end}"
+                        downloader.cache_manager.set(sub_key, sub_calendar)
+                        logger.debug(f"Pre-cached common range {sub_start}-{sub_end}")
+
+            logger.info(f"Preloaded {len(trade_days)} trade days with enhanced caching")
             return trade_days
         else:
             logger.warning("Failed to preload trade calendar")
             return None
+
+    def print_performance_report():
+        """打印性能监控报告"""
+        print("\n" + "="*30)
+        print("      性能监控报告")
+        print("="*30)
+        
+        avg_request_time = performance_monitor.get_average_metric('request_time')
+        avg_data_size = performance_monitor.get_average_metric('data_size')
+        avg_retry_count = performance_monitor.get_average_metric('retry_count')
+
+        print(f"平均请求时间: {avg_request_time:.2f}s")
+        print(f"平均单窗口条数: {avg_data_size:.2f} 条")
+        print(f"平均重试次数: {avg_retry_count:.2f} 次")
+
+        if avg_request_time > 30:
+            print("⚠️ 警告: 平均请求时间过长")
+        if avg_retry_count > 0.5:
+            print("⚠️ 警告: 重试频率较高，请检查 API 限制或网络状况")
+        if avg_data_size >= 5800:
+            print("⚠️ 警告: 数据量接近 API 限制，建议减小窗口大小")
+        print("="*30 + "\n")
+
 
     # 预加载全局交易日历
     global_trade_calendar = preload_global_trade_calendar(downloader)
@@ -419,6 +462,10 @@ def main():
 
         logger.info("正在关闭存储写入...")
         if 'storage_manager' in locals(): storage_manager.stop_writer()
+
+        # 打印性能报告
+        if 'print_performance_report' in locals():
+            print_performance_report()
 
         logger.info("资源清理完毕，程序退出。")
 

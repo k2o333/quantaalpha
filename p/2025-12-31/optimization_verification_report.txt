@@ -1,0 +1,23 @@
+关于 downloader-optimization-guide.md 的验证结论：
+
+经过对 app4 源代码和运行日志的深入分析，我认为该优化指南提出的结论是非常准确且切中要害的。
+
+1. 数据验证（Data Validation）：
+   结论正确。目前的 GenericDownloader 仅对数据量和重复项进行了简单的日志警告（WARNING），并未在逻辑层实现自动去重或数据质量校验（如 _validate_and_deduplicate_data 方法）。
+
+2. 网络重试机制（Network Retry）：
+   结论正确。当前实现使用的是基础的 try-except 循环和简单的 sleep，缺乏利用 requests.adapters.HTTPAdapter 进行连接池管理以及针对特定状态码（如 502/503/504）的结构化重试策略。
+
+3. 交易日历缓存优化（Trade Calendar Cache）：
+   结论正确。CacheManager 目前仅支持基于 start_date 和 end_date 的精确键值匹配。日志显示，由于每只股票的上市日期（start_date）不同，导致预加载的全局交易日历几乎无法被命中，从而引发了大量重复的 trade_cal API 调用。
+
+4. 性能监控（Performance Monitoring）：
+   结论正确。在目前的 app4 代码库中完全没有发现 PerformanceMonitor 类或任何用于记录请求耗时、数据规模和重试频率的监控机制。
+
+看过的文件列表：
+1. /home/quan/testdata/aspipe_v4/p/2025-12-31/downloader-optimization-guide.md (优化建议原文)
+2. /home/quan/testdata/aspipe_v4/app4/core/downloader.py (下载器核心逻辑)
+3. /home/quan/testdata/aspipe_v4/app4/core/cache_manager.py (缓存管理逻辑)
+4. /home/quan/testdata/aspipe_v4/app4/main.py (程序入口与预加载逻辑)
+5. /home/quan/testdata/aspipe_v4/log/aspipe_v4.log (运行日志分析)
+6. /home/quan/testdata/aspipe_v4/app4/ (项目结构目录)

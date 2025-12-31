@@ -1,4 +1,6 @@
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import json
 import time
 import logging
@@ -6,10 +8,58 @@ import random
 import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List
+from collections import defaultdict, deque
 from .config_loader import ConfigLoader
 from .cache_manager import CacheManager
 
 logger = logging.getLogger(__name__)
+
+class PerformanceMonitor:
+    """
+    性能监控器，用于跟踪关键指标
+    """
+    def __init__(self):
+        self._metrics = defaultdict(lambda: deque(maxlen=100))  # 保留最近100个指标
+        self._lock = threading.Lock()
+        self._alert_thresholds = {
+            'request_time': 30.0,  # 请求时间超过30秒告警
+            'data_size': 6000,     # 单次请求数据量超过6000条告警
+            'retry_count': 2       # 重试次数超过2次告警
+        }
+
+    def record_metric(self, metric_name: str, value: float, context: Dict[str, Any] = None):
+        """
+        记录性能指标
+        """
+        with self._lock:
+            self._metrics[metric_name].append({
+                'value': value,
+                'timestamp': time.time(),
+                'context': context or {}
+            })
+
+    def get_average_metric(self, metric_name: str) -> float:
+        """
+        获取指标的平均值
+        """
+        with self._lock:
+            if not self._metrics[metric_name]:
+                return 0.0
+            values = [item['value'] for item in self._metrics[metric_name]]
+            return sum(values) / len(values)
+
+    def check_alerts(self, metric_name: str, value: float, context: Dict[str, Any] = None):
+        """
+        检查是否超过告警阈值
+        """
+        threshold = self._alert_thresholds.get(metric_name)
+        if threshold and value > threshold:
+            logger.warning(f"ALERT: {metric_name} exceeded threshold: {value} > {threshold} for {context or {}}")
+            return True
+        return False
+
+# 全局性能监控器实例
+performance_monitor = PerformanceMonitor()
 
 class GenericDownloader:
     """通用下载器 - 原子化的执行引擎"""
@@ -18,12 +68,72 @@ class GenericDownloader:
         self.config_loader = config_loader
         self.cache_manager = cache_manager
         self.global_config = config_loader.get_global_config()
-        self.session = requests.Session()
+        
+        # 创建具有重试策略的会话
+        self.session = self._create_session_with_retries()
+
+    def _create_session_with_retries(self):
+        """创建配置了重试策略的 Session"""
+        session = requests.Session()
+
+        # 配置重试策略
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=2,  # 指数退避
+            status_forcelist=[429, 500, 502, 503, 504],  # 需要重试的状态码
+            allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]  # 允许重试的HTTP方法
+        )
+
+        # 配置连接池
+        adapter = HTTPAdapter(
+            pool_connections=10,      # 增加连接池大小
+            pool_maxsize=20,         # 最大连接数
+            max_retries=retry_strategy
+        )
+
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
         # 设置默认请求头
-        self.session.headers.update({
+        session.headers.update({
             'Content-Type': 'application/json',
             'User-Agent': 'aspipe_v4/4.0.0'
         })
+
+        return session
+
+    def _validate_and_deduplicate_data(self, data: List[Dict[str, Any]], ts_code: str) -> List[Dict[str, Any]]:
+        """
+        验证数据完整性并去除重复记录
+        """
+        if not data:
+            return data
+
+        # 检查重复数据
+        seen_keys = set()
+        unique_data = []
+        duplicates = 0
+
+        for record in data:
+            date = record.get('trade_date')
+            key = (ts_code, date)  # 使用 ts_code 和 trade_date 作为唯一标识
+
+            if key in seen_keys:
+                logger.debug(f"Duplicate record found for {ts_code} on {date}")
+                duplicates += 1
+            else:
+                seen_keys.add(key)
+                unique_data.append(record)
+
+        if duplicates > 0:
+            logger.warning(f"Found {duplicates} duplicate records for {ts_code}, removed from {len(data)} to {len(unique_data)} records")
+
+        # 检查数据质量
+        unique_dates = set(record.get('trade_date') for record in unique_data)
+        if len(unique_dates) != len(unique_data):
+            logger.error(f"Inconsistent data for {ts_code}: {len(unique_data)} records but {len(unique_dates)} unique dates")
+
+        return unique_data
 
     def download(self, interface_name: str, params: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
         """
@@ -232,25 +342,51 @@ class GenericDownloader:
             window_params['start_date'] = window_start
             window_params['end_date'] = window_end
 
+            # 记录开始时间
+            start_time = time.time()
+
             logger.info(f"Downloading data for window {i//window_size + 1}: {window_start} - {window_end}")
 
             # 下载该窗口的数据
             window_data = self._make_request(interface_config, window_params)
+
+            # 记录并检查性能指标
+            elapsed_time = time.time() - start_time
+            performance_monitor.record_metric('request_time', elapsed_time, {
+                'interface': interface_config['api_name'],
+                'window': f"{window_start}-{window_end}",
+                'ts_code': params.get('ts_code', 'unknown')
+            })
+            performance_monitor.check_alerts('request_time', elapsed_time, {
+                'interface': interface_config['api_name'],
+                'window': f"{window_start}-{window_end}",
+                'ts_code': params.get('ts_code', 'unknown')
+            })
+
             if window_data:
-                # [新增] 检查数据完整性
+                # 检查数据完整性
                 query_limit = interface_config.get('permissions', {}).get('query_limit', 6000)
+                
+                # 记录数据量指标
+                performance_monitor.record_metric('data_size', len(window_data), {
+                    'interface': interface_config['api_name'],
+                    'window': f"{window_start}-{window_end}",
+                    'ts_code': params.get('ts_code', 'unknown')
+                })
+
                 if len(window_data) >= query_limit:
                     logger.warning(f"Window {window_start}-{window_end} returned {len(window_data)} records, which may be truncated (API limit: {query_limit})")
+                    performance_monitor.check_alerts('data_size', len(window_data), {
+                        'interface': interface_config['api_name'],
+                        'window': f"{window_start}-{window_end}",
+                        'ts_code': params.get('ts_code', 'unknown')
+                    })
 
-                # [新增] 检查数据是否有重复
-                if len(window_data) > 0:
-                    ts_code = params.get('ts_code', 'unknown')
-                    unique_dates = set(record.get('trade_date') for record in window_data)
-                    if len(unique_dates) < len(window_data):
-                        logger.warning(f"Window {window_start}-{window_end} for {ts_code} has duplicate dates: {len(window_data)} records, {len(unique_dates)} unique dates")
+                # [修改] 检查数据质量并去重
+                window_data = self._validate_and_deduplicate_data(window_data, params.get('ts_code', 'unknown'))
 
                 all_data.extend(window_data)
-                logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end}")
+                logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end} (after deduplication)")
             else:
                 logger.warning(f"No data returned for window {window_start}-{window_end}")
 
@@ -342,7 +478,7 @@ class GenericDownloader:
             return []  # 返回空列表，让其他股票继续下载
 
     def _make_request(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """发起实际的 API 请求"""
+        """发起实际的 API 请求 - 优化版"""
         api_name = interface_config['api_name']
 
         # 读取重试配置
@@ -360,7 +496,9 @@ class GenericDownloader:
             try:
                 request_config = interface_config.get('request', {})
                 method = request_config.get('method', 'POST')
-                timeout = request_config.get('timeout', 30)
+                # 增加默认超时时间，(连接超时, 读取超时)
+                timeout_val = request_config.get('timeout', 60)
+                timeout = (10, timeout_val)
 
                 # 获取 API URL，优先使用代理 URL
                 import os
@@ -394,33 +532,33 @@ class GenericDownloader:
                 else:
                     token = token_placeholder
 
-                # 调试信息
-                logger.info(f"API URL: {api_url}")
-                logger.info(f"Request timeout: {timeout}s")
-
                 # 根据TuShare API格式构建请求体
                 req_params = {
                     'api_name': interface_config['api_name'],
                     'token': token,
                     'params': params,
-                    # 如果有字段需要，可以在这里添加fields参数
-                    'fields': ''  # 可以从配置中读取，这里暂时为空
+                    'fields': ''  # 可以从配置中读取
                 }
 
-                # 创建新的params字典用于请求（保持api_name等参数）
-                params = req_params
+                # 记录重试次数指标
+                if attempt > 0:
+                    performance_monitor.record_metric('retry_count', attempt, {
+                        'interface': api_name,
+                        'attempt': attempt
+                    })
+                    performance_monitor.check_alerts('retry_count', attempt, {
+                        'interface': api_name
+                    })
 
-                logger.info(f"Making {method} request to {api_url} with api_name: {interface_config['api_name']}")
-                logger.info(f"Starting request to {api_url}...")
+                logger.debug(f"Making {method} request to {api_url} for {api_name} (attempt {attempt+1})")
+                
                 if method.upper() == 'POST':
-                    response = self.session.post(api_url, json=params, timeout=timeout)
+                    response = self.session.post(api_url, json=req_params, timeout=timeout)
                 else:
-                    response = self.session.get(api_url, params=params, timeout=timeout)
+                    response = self.session.get(api_url, json=req_params, timeout=timeout)
 
-                logger.info(f"Response status: {response.status_code}")
                 response.raise_for_status()
                 result = response.json()
-                logger.debug(f"API response received, code: {result.get('code', 'unknown')}")
 
                 # 检查 API 返回是否成功
                 if result.get('code') != 0:
@@ -430,61 +568,46 @@ class GenericDownloader:
                         if attempt < max_retries:
                             base_delay = (req_config.get('retry_delay', 2) *
                                          (req_config.get('retry_backoff', 2) ** attempt))
-                            random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
-                            logger.warning(f"Rate limit hit. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})...")
+                            random_delay = base_delay + random.uniform(0, 2)
+                            logger.warning(f"Rate limit hit for {api_name}. Retrying in {random_delay:.2f}s...")
                             time.sleep(random_delay)
                             continue
-                    # 其他错误直接返回空
-                    logger.error(f"API error: {msg}")
+                    
+                    logger.error(f"API error for {api_name}: {msg}")
                     return []
 
-                # 将TuShare的字段/数据分离格式转换为字典列表格式
+                # 数据转换逻辑
                 fields = result.get('data', {}).get('fields', [])
                 items = result.get('data', {}).get('items', [])
-
-                # 将二维数组转换为字典列表
+                
                 converted_data = []
                 for item in items:
                     row_dict = {}
                     for i, field_name in enumerate(fields):
                         if i < len(item):
-                            # 确保字段名是字符串类型
                             field_name = str(field_name) if field_name is not None else f"field_{i}"
-                            row_value = item[i]
-                            row_dict[field_name] = row_value
+                            row_dict[field_name] = item[i]
                     converted_data.append(row_dict)
 
                 return converted_data
 
-            except requests.RequestException as e:
-                logger.error(f"Request error: {str(e)}")
+            except (requests.RequestException, json.JSONDecodeError) as e:
+                logger.error(f"Request error for {api_name}: {str(e)}")
                 if attempt < max_retries:
-                    # [修改] 添加随机性，避免惊群效应
-                    base_delay = 2 ** attempt
-                    random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
-                    logger.warning(f"Network error: {e}. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(random_delay)
-                    continue
-                return []
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error: {str(e)}")
-                if attempt < max_retries:
-                    # [修改] 添加随机性，避免惊群效应
-                    base_delay = 2 ** attempt
-                    random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
-                    logger.warning(f"JSON decode error: {e}. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    base_delay = (req_config.get('retry_delay', 2) *
+                                 (req_config.get('retry_backoff', 2) ** attempt))
+                    random_delay = base_delay + random.uniform(0, 2)
+                    logger.warning(f"Retrying {api_name} in {random_delay:.2f}s due to: {type(e).__name__}")
                     time.sleep(random_delay)
                     continue
                 return []
             except Exception as e:
-                logger.error(f"Unexpected error: {str(e)}")
+                logger.error(f"Unexpected error for {api_name}: {str(e)}")
                 if attempt < max_retries:
-                    # [修改] 添加随机性，避免惊群效应
-                    base_delay = 2 ** attempt
-                    random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
-                    logger.warning(f"Unexpected error: {e}. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(random_delay)
+                    time.sleep(2 ** attempt)
                     continue
                 return []
+
+        return []
 
         return []

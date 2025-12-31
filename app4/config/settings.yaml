@@ -12,7 +12,7 @@ tushare:
 # 并发配置
 concurrency:
   max_workers: 4      # [修改] 从 8 降至 4
-  max_queue_size: 1000
+  max_queue_size: 50
 
 # [新增] 请求重试与限流配置
 request:
@@ -20,7 +20,7 @@ request:
   retry_delay: 2      # 基础等待时间(秒)
   retry_backoff: 2    # 指数退避因子
   jitter_min: 0.05  # 请求前随机延迟最小值(秒)
-  jitter_max: 0.05  # 请求前随机延迟最大值(秒)
+  jitter_max: 0.1  # 请求前随机延迟最大值(秒)
   rate_limit: 500     # 全局默认每分钟最大请求数（当接口未配置时使用）
 
 # 缓存配置
@@ -35,7 +35,7 @@ cache:
 storage:
   base_dir: "./data"
   format: "parquet"
-  batch_size: 100
+  batch_size: 20
   async_write: true
 
 # 日志配置
