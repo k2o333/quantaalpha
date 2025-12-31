@@ -2,6 +2,7 @@ import os
 import pickle
 import hashlib
 import time
+import threading
 from typing import Any, Optional
 import logging
 import pyarrow.parquet as pq
@@ -60,29 +61,58 @@ class CacheManager:
             ttl = self.default_ttl
 
         cache_path = self._get_cache_path(key)
+        # 使用临时文件确保写入原子性，防止并发写入导致文件损坏
+        temp_path = cache_path + f".tmp.{os.getpid()}.{threading.get_ident()}"
 
         try:
             # 将数据转换为 Polars DataFrame 以便保存为 Parquet
             if isinstance(data, list) and len(data) > 0:
                 df = pl.DataFrame(data)
-                df.write_parquet(cache_path)
+                df.write_parquet(temp_path)
             elif isinstance(data, pd.DataFrame):
                 # 如果是pandas DataFrame，转换为Polars
                 df = pl.from_pandas(data)
-                df.write_parquet(cache_path)
+                df.write_parquet(temp_path)
             elif isinstance(data, pl.DataFrame):
                 # 如果已经是Polars DataFrame
-                data.write_parquet(cache_path)
+                data.write_parquet(temp_path)
             else:
                 # 如果数据不能转换为 DataFrame，我们仍然需要处理
                 logger.warning(f"Cannot cache data of type {type(data)} for key {key}")
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
                 return False
 
+            # 原子重命名
+            os.replace(temp_path, cache_path)
             logger.debug(f"Cache set for key: {key}")
             return True
         except Exception as e:
             logger.error(f"Error setting cache for key {key}: {str(e)}")
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
             return False
+
+    def get_stock_list(self):
+        """获取股票列表缓存"""
+        return self.get("stock_list")
+
+    def set_stock_list(self, stock_list):
+        """设置股票列表缓存"""
+        self.set("stock_list", stock_list, ttl=86400)  # 24小时缓存
+
+    def get_trade_calendar(self, start_date, end_date):
+        """获取交易日历缓存"""
+        cache_key = f"calendar_{start_date}_{end_date}"
+        return self.get(cache_key)
+
+    def set_trade_calendar(self, start_date, end_date, calendar):
+        """设置交易日历缓存"""
+        cache_key = f"calendar_{start_date}_{end_date}"
+        self.set(cache_key, calendar, ttl=86400)  # 24小时缓存
 
     def delete(self, key: str) -> bool:
         """删除缓存"""

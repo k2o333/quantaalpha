@@ -159,6 +159,49 @@ def main():
 
     logger.info(f"Interfaces to run: {interfaces_to_run}")
 
+    def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list):
+        """运行并发股票下载"""
+        logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
+
+        # 构建任务列表
+        tasks = []
+        for stock in stock_list:
+            task = {
+                'func': downloader.download_single_stock,
+                'args': (interface_config, stock, base_params),
+                'kwargs': {}
+            }
+            tasks.append(task)
+
+            # 每批提交一定数量的任务，避免内存溢出
+            if len(tasks) >= 100:
+                logger.info(f"Submitting batch of {len(tasks)} tasks")
+                results = scheduler.submit_tasks(tasks)
+
+                # 收集结果
+                all_data = []
+                for result in results:
+                    if result:
+                        all_data.extend(result)
+
+                logger.info(f"Completed batch, got {len(all_data)} records")
+                tasks = []
+
+        # 提交剩余任务
+        if tasks:
+            logger.info(f"Submitting final batch of {len(tasks)} tasks")
+            results = scheduler.submit_tasks(tasks)
+
+            all_data = []
+            for result in results:
+                if result:
+                    all_data.extend(result)
+
+            logger.info(f"Completed final batch, got {len(all_data)} records")
+            return all_data
+
+        return []
+
     # 执行下载任务
     for interface_name in interfaces_to_run:
         try:
@@ -185,33 +228,94 @@ def main():
                 logger.info(f"Running historical download for {interface_name}")
                 # 这里可以实现获取股票列表并逐个下载的逻辑
             else:
-                logger.info(f"Downloading data for {interface_name}")
+                # 对于pro_bar接口特殊处理
+                if interface_name == 'pro_bar' and args.pro_bar_only:
+                    # pro_bar接口：如果用户没有指定日期参数，则不设置任何日期范围，让系统在股票循环中处理每个股票的完整历史
+                    if args.start_date == '20230101' and args.end_date is None:
+                        # 用户使用默认参数，不设置日期范围，让系统在股票循环中根据每只股票的上市日期自动处理
+                        logger.info("Downloading pro_bar full history for all stocks (from each stock's list date)")
+                        params = {}  # 清空日期参数，让系统自动处理
+                    else:
+                        # 用户指定了日期参数，使用用户指定的范围
+                        if args.end_date is None:
+                            params['end_date'] = datetime.now().strftime('%Y%m%d')
+                        logger.info(f"Downloading pro_bar data with date range: {params['start_date']} to {params['end_date']}")
 
-                # 获取速率限制器
-                rate_limit = interface_config.get('permissions', {}).get('rate_limit', 60)
-                rate_limiter = RateLimiter(rate_limit)
+                # 检查分页模式
+                pagination_config = interface_config.get('pagination', {})
+                pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
 
-                # 等待获取令牌
-                rate_limiter.wait_for_tokens(1)
+                logger.info(f"Downloading data for {interface_name}, pagination mode: {pagination_mode}")
 
-                # 下载数据
-                data = downloader.download(interface_name, params)
+                # 如果是股票循环模式，使用并发下载
+                if pagination_mode == 'stock_loop':
+                    logger.info(f"Using concurrent download for stock_loop mode")
 
-                if data:
-                    logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
+                    # 获取股票列表
+                    stock_list = cache_manager.get_stock_list()
+                    if stock_list is None:
+                        logger.info("缓存中未找到股票列表，正在从API获取...")
+                        stock_params = {'list_status': 'L'}
+                        stock_list = downloader.download('stock_basic', stock_params)
+                        if stock_list:
+                            logger.info(f"从API获取到 {len(stock_list)} 只股票")
+                            cache_manager.set_stock_list(stock_list)
+                        else:
+                            logger.warning("未能从API获取股票列表")
+                            continue
 
-                    # 处理数据
-                    df = processor.process_data(data, interface_config)
-                    validation_result = processor.validate_data(df, interface_config)
+                    # 为测试目的，可以限制股票数量
+                    # 如果参数中指定了股票代码，则只下载该股票
+                    if 'ts_code' in params:
+                        target_code = params['ts_code']
+                        stock_list = [stock for stock in stock_list if stock['ts_code'] == target_code]
+                        logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
 
-                    # 保存数据
-                    storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
+                    # 使用并发下载
+                    all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list)
 
-                    logger.info(f"Saved {len(df)} processed records for {interface_name}")
-                    if validation_result['duplicate_records'] > 0:
-                        logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+                    if all_data:
+                        logger.info(f"Successfully downloaded {len(all_data)} total records for {interface_name}")
+
+                        # 处理数据
+                        df = processor.process_data(all_data, interface_config)
+                        validation_result = processor.validate_data(df, interface_config)
+
+                        # 保存数据
+                        storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
+
+                        logger.info(f"Saved {len(df)} processed records for {interface_name}")
+                        if validation_result['duplicate_records'] > 0:
+                            logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+                    else:
+                        logger.warning(f"No data downloaded for {interface_name}")
                 else:
-                    logger.warning(f"No data downloaded for {interface_name}")
+                    # 普通模式，使用同步下载
+                    # 获取速率限制器
+                    rate_limit = interface_config.get('permissions', {}).get('rate_limit', 60)
+                    rate_limiter = RateLimiter(rate_limit)
+
+                    # 等待获取令牌
+                    rate_limiter.wait_for_tokens(1)
+
+                    # 下载数据
+                    data = downloader.download(interface_name, params)
+
+                    if data:
+                        logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
+
+                        # 处理数据
+                        df = processor.process_data(data, interface_config)
+                        validation_result = processor.validate_data(df, interface_config)
+
+                        # 保存数据
+                        storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
+
+                        logger.info(f"Saved {len(df)} processed records for {interface_name}")
+                        if validation_result['duplicate_records'] > 0:
+                            logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+                    else:
+                        logger.warning(f"No data downloaded for {interface_name}")
 
         except Exception as e:
             logger.error(f"Error processing interface {interface_name}: {str(e)}")

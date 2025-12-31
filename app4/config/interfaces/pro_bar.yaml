@@ -20,7 +20,7 @@ request:
 parameters:
   ts_code:
     type: string
-    required: true
+    required: false
     description: "证券代码"
   start_date:
     type: string
@@ -59,8 +59,12 @@ parameters:
 # 5. 分页与循环策略
 pagination:
   enabled: true
-  mode: "date_range"
-  window_size_days: 3650
+  mode: "stock_loop"
+  date_pagination: true
+  window_size_days: 6000
+  limit_key: "limit"
+  offset_key: "offset"
+  default_limit: 6000
 
 # 6. 输出与存储配置
 output:
@@ -69,6 +73,10 @@ output:
     - trade_date
 
   sort_by: ["trade_date"]
+
+  cache:
+    enabled: true
+    ttl: 86400
 
   columns:
     ts_code:
