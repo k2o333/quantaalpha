@@ -2,6 +2,7 @@ import requests
 import json
 import time
 import logging
+import random
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .config_loader import ConfigLoader
@@ -317,97 +318,137 @@ class GenericDownloader:
     def _make_request(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """发起实际的 API 请求"""
         api_name = interface_config['api_name']
-        request_config = interface_config.get('request', {})
-        method = request_config.get('method', 'POST')
-        timeout = request_config.get('timeout', 30)
 
-        # 获取 API URL，优先使用代理 URL
-        import os
-        proxy_url = os.getenv('PROXY_URL', '')
-        tushare_config = self.global_config.get('tushare', {})
-        if proxy_url:
-            api_url = proxy_url
-        else:
-            api_url = tushare_config.get('api_url', 'http://api.tushare.pro/api')
+        # 读取重试配置
+        req_config = self.global_config.get('request', {})
+        max_retries = req_config.get('retries', 3)
 
-        # 在没有指定额外路径的情况下，使用 /api 作为默认路径
-        if api_url.endswith('/api') or api_url.endswith('/dataapi'):
-            pass  # URL 已经正确
-        elif not request_config.get('extra_path', ''):
-            # 如果没有额外路径，且 URL 不以 /api 或 /dataapi 结尾，则添加 /api
-            if not api_url.endswith('/api') and not api_url.endswith('/dataapi'):
-                if api_url.endswith('/'):
-                    api_url += 'api'
+        # 随机延迟，错开多个线程的请求时刻
+        time.sleep(random.uniform(
+            req_config.get('jitter_min', 0.1),
+            req_config.get('jitter_max', 0.5)
+        ))
+
+        # 重试循环
+        for attempt in range(max_retries + 1):
+            try:
+                request_config = interface_config.get('request', {})
+                method = request_config.get('method', 'POST')
+                timeout = request_config.get('timeout', 30)
+
+                # 获取 API URL，优先使用代理 URL
+                import os
+                proxy_url = os.getenv('PROXY_URL', '')
+                tushare_config = self.global_config.get('tushare', {})
+                if proxy_url:
+                    api_url = proxy_url
                 else:
-                    api_url += '/api'
+                    api_url = tushare_config.get('api_url', 'http://api.tushare.pro/api')
 
-        # 添加额外路径（如果有）
-        extra_path = request_config.get('extra_path', '')
-        if extra_path:
-            api_url += extra_path
+                # 在没有指定额外路径的情况下，使用 /api 作为默认路径
+                if api_url.endswith('/api') or api_url.endswith('/dataapi'):
+                    pass  # URL 已经正确
+                elif not request_config.get('extra_path', ''):
+                    # 如果没有额外路径，且 URL 不以 /api 或 /dataapi 结尾，则添加 /api
+                    if not api_url.endswith('/api') and not api_url.endswith('/dataapi'):
+                        if api_url.endswith('/'):
+                            api_url += 'api'
+                        else:
+                            api_url += '/api'
 
-        # 添加 token
-        token_placeholder = tushare_config.get('token', '')
-        if '${TUSHARE_TOKEN}' in token_placeholder:
-            token = os.getenv('tushare_token', '')  # 注意这里使用小写
-        else:
-            token = token_placeholder
+                # 添加额外路径（如果有）
+                extra_path = request_config.get('extra_path', '')
+                if extra_path:
+                    api_url += extra_path
 
-        # 调试信息
-        logger.info(f"API URL: {api_url}")
-        logger.info(f"Request timeout: {timeout}s")
+                # 添加 token
+                token_placeholder = tushare_config.get('token', '')
+                if '${TUSHARE_TOKEN}' in token_placeholder:
+                    token = os.getenv('tushare_token', '')  # 注意这里使用小写
+                else:
+                    token = token_placeholder
 
-        # 根据TuShare API格式构建请求体
-        req_params = {
-            'api_name': interface_config['api_name'],
-            'token': token,
-            'params': params,
-            # 如果有字段需要，可以在这里添加fields参数
-            'fields': ''  # 可以从配置中读取，这里暂时为空
-        }
+                # 调试信息
+                logger.info(f"API URL: {api_url}")
+                logger.info(f"Request timeout: {timeout}s")
 
-        # 创建新的params字典用于请求（保持api_name等参数）
-        params = req_params
+                # 根据TuShare API格式构建请求体
+                req_params = {
+                    'api_name': interface_config['api_name'],
+                    'token': token,
+                    'params': params,
+                    # 如果有字段需要，可以在这里添加fields参数
+                    'fields': ''  # 可以从配置中读取，这里暂时为空
+                }
 
-        logger.info(f"Making {method} request to {api_url} with api_name: {interface_config['api_name']}")
-        try:
-            logger.info(f"Starting request to {api_url}...")
-            if method.upper() == 'POST':
-                response = self.session.post(api_url, json=params, timeout=timeout)
-            else:
-                response = self.session.get(api_url, params=params, timeout=timeout)
+                # 创建新的params字典用于请求（保持api_name等参数）
+                params = req_params
 
-            logger.info(f"Response status: {response.status_code}")
-            response.raise_for_status()
-            result = response.json()
-            logger.debug(f"API response received, code: {result.get('code', 'unknown')}")
+                logger.info(f"Making {method} request to {api_url} with api_name: {interface_config['api_name']}")
+                logger.info(f"Starting request to {api_url}...")
+                if method.upper() == 'POST':
+                    response = self.session.post(api_url, json=params, timeout=timeout)
+                else:
+                    response = self.session.get(api_url, params=params, timeout=timeout)
 
-            # 检查 API 返回是否成功
-            if result.get('code') != 0:
-                logger.error(f"API error: {result.get('msg', 'Unknown error')}")
+                logger.info(f"Response status: {response.status_code}")
+                response.raise_for_status()
+                result = response.json()
+                logger.debug(f"API response received, code: {result.get('code', 'unknown')}")
+
+                # 检查 API 返回是否成功
+                if result.get('code') != 0:
+                    msg = result.get('msg', '')
+                    # 如果是频率限制，执行退避重试
+                    if '频繁' in msg or 'limit' in msg.lower():
+                        if attempt < max_retries:
+                            sleep_time = (req_config.get('retry_delay', 2) *
+                                         (req_config.get('retry_backoff', 2) ** attempt))
+                            logger.warning(f"Rate limit hit. Retrying in {sleep_time}s (attempt {attempt + 1}/{max_retries})...")
+                            time.sleep(sleep_time)
+                            continue
+                    # 其他错误直接返回空
+                    logger.error(f"API error: {msg}")
+                    return []
+
+                # 将TuShare的字段/数据分离格式转换为字典列表格式
+                fields = result.get('data', {}).get('fields', [])
+                items = result.get('data', {}).get('items', [])
+
+                # 将二维数组转换为字典列表
+                converted_data = []
+                for item in items:
+                    row_dict = {}
+                    for i, field_name in enumerate(fields):
+                        if i < len(item):
+                            # 确保字段名是字符串类型
+                            field_name = str(field_name) if field_name is not None else f"field_{i}"
+                            row_value = item[i]
+                            row_dict[field_name] = row_value
+                    converted_data.append(row_dict)
+
+                return converted_data
+
+            except requests.RequestException as e:
+                logger.error(f"Request error: {str(e)}")
+                if attempt < max_retries:
+                    logger.warning(f"Network error: {e}. Retrying... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(2 ** attempt)
+                    continue
+                return []
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error: {str(e)}")
+                if attempt < max_retries:
+                    logger.warning(f"JSON decode error: {e}. Retrying... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(2 ** attempt)
+                    continue
+                return []
+            except Exception as e:
+                logger.error(f"Unexpected error: {str(e)}")
+                if attempt < max_retries:
+                    logger.warning(f"Unexpected error: {e}. Retrying... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(2 ** attempt)
+                    continue
                 return []
 
-            # 将TuShare的字段/数据分离格式转换为字典列表格式
-            fields = result.get('data', {}).get('fields', [])
-            items = result.get('data', {}).get('items', [])
-
-            # 将二维数组转换为字典列表
-            converted_data = []
-            for item in items:
-                row_dict = {}
-                for i, field_name in enumerate(fields):
-                    if i < len(item):
-                        # 确保字段名是字符串类型
-                        field_name = str(field_name) if field_name is not None else f"field_{i}"
-                        row_value = item[i]
-                        row_dict[field_name] = row_value
-                converted_data.append(row_dict)
-
-            return converted_data
-
-        except requests.RequestException as e:
-            logger.error(f"Request error: {str(e)}")
-            return []
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {str(e)}")
-            return []
+        return []

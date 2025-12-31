@@ -11,8 +11,16 @@ tushare:
 
 # 并发配置
 concurrency:
-  max_workers: 8
+  max_workers: 4      # [修改] 从 8 降至 4
   max_queue_size: 1000
+
+# [新增] 请求重试与限流配置
+request:
+  retries: 3          # 最大重试次数
+  retry_delay: 2      # 基础等待时间(秒)
+  retry_backoff: 2    # 指数退避因子
+  jitter_min: 0.1     # 请求前随机延迟最小值(秒)
+  jitter_max: 0.5     # 请求前随机延迟最大值(秒)
 
 # 缓存配置
 cache:
