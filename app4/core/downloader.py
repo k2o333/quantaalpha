@@ -3,6 +3,7 @@ import json
 import time
 import logging
 import random
+import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from .config_loader import ConfigLoader
@@ -169,22 +170,34 @@ class GenericDownloader:
         start_date = params.get('start_date', '20050101')
         end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
 
-        logger.info(f"[DEBUG] _execute_date_range_pagination called with params: {params}")
-        logger.info(f"[DEBUG] start_date: {start_date}, end_date: {end_date}")
-        logger.info(f"[DEBUG] ts_code in params: {params.get('ts_code', 'N/A')}")
+        # [新增] 获取线程 ID 和任务 ID
+        thread_id = threading.get_ident()
+        task_id = params.get('ts_code', 'unknown')
+
+        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] _execute_date_range_pagination called with params: {params}")
+        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] start_date: {start_date}, end_date: {end_date}")
+        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] ts_code in params: {params.get('ts_code', 'N/A')}")
 
         logger.info(f"Fetching trade calendar for date range: {start_date} - {end_date}")
 
-        # 获取交易日历
-        calendar_params = {
-            'start_date': start_date,
-            'end_date': end_date,
-            'exchange': 'SSE'
-        }
-        trade_calendar = self._make_request(
-            self.config_loader.get_interface_config('trade_cal'),
-            calendar_params
-        )
+        # [修改] 先查缓存，缓存未命中才请求 API
+        trade_calendar = self.cache_manager.get_trade_calendar(start_date, end_date)
+        if trade_calendar is None:
+            logger.info(f"Cache miss for trade calendar {start_date}-{end_date}, fetching from API")
+            calendar_params = {
+                'start_date': start_date,
+                'end_date': end_date,
+                'exchange': 'SSE'
+            }
+            trade_calendar = self._make_request(
+                self.config_loader.get_interface_config('trade_cal'),
+                calendar_params
+            )
+            if trade_calendar:
+                self.cache_manager.set_trade_calendar(start_date, end_date, trade_calendar)
+                logger.info(f"Cached trade calendar for {start_date}-{end_date}")
+        else:
+            logger.info(f"Cache hit for trade calendar {start_date}-{end_date}")
 
         # 如果获取交易日历失败，使用默认的日期范围分页
         if not trade_calendar:
@@ -224,6 +237,18 @@ class GenericDownloader:
             # 下载该窗口的数据
             window_data = self._make_request(interface_config, window_params)
             if window_data:
+                # [新增] 检查数据完整性
+                query_limit = interface_config.get('permissions', {}).get('query_limit', 6000)
+                if len(window_data) >= query_limit:
+                    logger.warning(f"Window {window_start}-{window_end} returned {len(window_data)} records, which may be truncated (API limit: {query_limit})")
+
+                # [新增] 检查数据是否有重复
+                if len(window_data) > 0:
+                    ts_code = params.get('ts_code', 'unknown')
+                    unique_dates = set(record.get('trade_date') for record in window_data)
+                    if len(unique_dates) < len(window_data):
+                        logger.warning(f"Window {window_start}-{window_end} for {ts_code} has duplicate dates: {len(window_data)} records, {len(unique_dates)} unique dates")
+
                 all_data.extend(window_data)
                 logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end}")
             else:
@@ -285,29 +310,36 @@ class GenericDownloader:
             params: 基础请求参数
 
         Returns:
-            该股票的数据列表
+            该股票的数据列表，如果出错则返回空列表
         """
-        stock_params = params.copy()
-        stock_params['ts_code'] = stock['ts_code']
+        try:
+            stock_params = params.copy()
+            stock_params['ts_code'] = stock['ts_code']
 
-        # 设置日期范围
-        if 'start_date' not in stock_params:
-            # 如果没有指定起始日期，使用该股票的上市日期
-            list_date = stock.get('list_date', '20050101')
-            stock_params['start_date'] = list_date
-        if 'end_date' not in stock_params:
-            from datetime import datetime
-            stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
+            # 设置日期范围
+            if 'start_date' not in stock_params:
+                # 如果没有指定起始日期，使用该股票的上市日期
+                list_date = stock.get('list_date', '20050101')
+                stock_params['start_date'] = list_date
+            if 'end_date' not in stock_params:
+                from datetime import datetime
+                stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
 
-        logger.info(f"Downloading data for stock {stock['ts_code']}, date range: {stock_params.get('start_date')} - {stock_params.get('end_date')}")
+            logger.info(f"Downloading data for stock {stock['ts_code']}, date range: {stock_params.get('start_date')} - {stock_params.get('end_date')}")
 
-        # 执行日期范围分页下载
-        stock_data = self._execute_date_range_pagination(interface_config, stock_params)
+            # 执行日期范围分页下载
+            stock_data = self._execute_date_range_pagination(interface_config, stock_params)
 
-        if stock_data:
-            logger.info(f"Downloaded {len(stock_data)} records for {stock['ts_code']}")
+            if stock_data:
+                logger.info(f"Downloaded {len(stock_data)} records for {stock['ts_code']}")
 
-        return stock_data or []
+            return stock_data or []
+        except Exception as e:
+            # [新增] 捕获异常，避免影响其他股票
+            logger.error(f"Error downloading stock {stock['ts_code']}: {str(e)}")
+            import traceback
+            logger.debug(f"Full traceback: {traceback.format_exc()}")
+            return []  # 返回空列表，让其他股票继续下载
 
     def _make_request(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """发起实际的 API 请求"""
@@ -396,10 +428,11 @@ class GenericDownloader:
                     # 如果是频率限制，执行退避重试
                     if '频繁' in msg or 'limit' in msg.lower():
                         if attempt < max_retries:
-                            sleep_time = (req_config.get('retry_delay', 2) *
+                            base_delay = (req_config.get('retry_delay', 2) *
                                          (req_config.get('retry_backoff', 2) ** attempt))
-                            logger.warning(f"Rate limit hit. Retrying in {sleep_time}s (attempt {attempt + 1}/{max_retries})...")
-                            time.sleep(sleep_time)
+                            random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
+                            logger.warning(f"Rate limit hit. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})...")
+                            time.sleep(random_delay)
                             continue
                     # 其他错误直接返回空
                     logger.error(f"API error: {msg}")
@@ -426,22 +459,31 @@ class GenericDownloader:
             except requests.RequestException as e:
                 logger.error(f"Request error: {str(e)}")
                 if attempt < max_retries:
-                    logger.warning(f"Network error: {e}. Retrying... (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(2 ** attempt)
+                    # [修改] 添加随机性，避免惊群效应
+                    base_delay = 2 ** attempt
+                    random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
+                    logger.warning(f"Network error: {e}. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(random_delay)
                     continue
                 return []
             except json.JSONDecodeError as e:
                 logger.error(f"JSON decode error: {str(e)}")
                 if attempt < max_retries:
-                    logger.warning(f"JSON decode error: {e}. Retrying... (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(2 ** attempt)
+                    # [修改] 添加随机性，避免惊群效应
+                    base_delay = 2 ** attempt
+                    random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
+                    logger.warning(f"JSON decode error: {e}. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(random_delay)
                     continue
                 return []
             except Exception as e:
                 logger.error(f"Unexpected error: {str(e)}")
                 if attempt < max_retries:
-                    logger.warning(f"Unexpected error: {e}. Retrying... (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(2 ** attempt)
+                    # [修改] 添加随机性，避免惊群效应
+                    base_delay = 2 ** attempt
+                    random_delay = base_delay + random.uniform(0, 1)  # 添加 0-1 秒的随机延迟
+                    logger.warning(f"Unexpected error: {e}. Retrying in {random_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(random_delay)
                     continue
                 return []
 

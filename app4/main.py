@@ -140,6 +140,56 @@ def main():
     processor = DataProcessor()
     downloader = GenericDownloader(config_loader, cache_manager)
 
+    # [新增] 预加载全局交易日历，避免每只股票重复请求
+    def preload_global_trade_calendar(downloader, start_date='19900101', end_date=None):
+        """预加载全局交易日历，避免每只股票重复请求
+
+        Args:
+            downloader: GenericDownloader 实例
+            start_date: 起始日期，默认 1990-01-01
+            end_date: 结束日期，默认为当前日期
+
+        Returns:
+            交易日历列表，如果失败则返回 None
+        """
+        if end_date is None:
+            from datetime import datetime
+            end_date = datetime.now().strftime('%Y%m%d')
+
+        logger.info(f"Preloading global trade calendar: {start_date} - {end_date}")
+
+        # 先查缓存
+        trade_calendar = downloader.cache_manager.get_trade_calendar(start_date, end_date)
+        if trade_calendar is not None:
+            logger.info(f"Global trade calendar already cached: {len(trade_calendar)} trade days")
+            return trade_calendar
+
+        # 缓存未命中，请求 API
+        calendar_params = {
+            'start_date': start_date,
+            'end_date': end_date,
+            'exchange': 'SSE'
+        }
+
+        trade_calendar = downloader._make_request(
+            downloader.config_loader.get_interface_config('trade_cal'),
+            calendar_params
+        )
+
+        if trade_calendar:
+            # 过滤出交易日并缓存
+            trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
+            trade_days = sorted(trade_days, key=lambda x: x['cal_date'])
+            downloader.cache_manager.set_trade_calendar(start_date, end_date, trade_days)
+            logger.info(f"Preloaded {len(trade_days)} trade days")
+            return trade_days
+        else:
+            logger.warning("Failed to preload trade calendar")
+            return None
+
+    # 预加载全局交易日历
+    global_trade_calendar = preload_global_trade_calendar(downloader)
+
     # 创建全局速率限制器（优先使用接口配置，否则使用全局默认）
     global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
     global_rate_limiter = RateLimiter(global_rate_limit)

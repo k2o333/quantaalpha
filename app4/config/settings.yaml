@@ -19,8 +19,8 @@ request:
   retries: 3          # 最大重试次数
   retry_delay: 2      # 基础等待时间(秒)
   retry_backoff: 2    # 指数退避因子
-  jitter_min: 0     # 请求前随机延迟最小值(秒)
-  jitter_max: 0     # 请求前随机延迟最大值(秒)
+  jitter_min: 0.05  # 请求前随机延迟最小值(秒)
+  jitter_max: 0.05  # 请求前随机延迟最大值(秒)
   rate_limit: 500     # 全局默认每分钟最大请求数（当接口未配置时使用）
 
 # 缓存配置
@@ -33,7 +33,7 @@ cache:
 
 # 存储配置
 storage:
-  base_dir: "../data"
+  base_dir: "./data"
   format: "parquet"
   batch_size: 100
   async_write: true
@@ -41,7 +41,7 @@ storage:
 # 日志配置
 logging:
   level: "INFO"
-  file: "../log/aspipe_v4.log"
+  file: "./log/aspipe_v4.log"
   max_size_mb: 100
   backup_count: 5
 

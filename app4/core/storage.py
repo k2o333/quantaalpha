@@ -95,6 +95,22 @@ class StorageManager:
         except Exception as e:
             logger.error(f"Error writing batch data: {str(e)}")
 
+    def _get_interface_config(self, interface_name: str) -> Dict[str, Any]:
+        """获取接口配置
+
+        Args:
+            interface_name: 接口名称
+
+        Returns:
+            接口配置字典
+        """
+        import yaml
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'interfaces', f'{interface_name}.yaml')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f)
+        return {}
+
     def _write_interface_data(self, interface_name: str, data: List[Dict[str, Any]]):
         """写入特定接口的数据"""
         try:
@@ -114,6 +130,10 @@ class StorageManager:
             # 生成文件路径
             file_path = os.path.join(self.storage_dir, f"{interface_name}.{self.format}")
 
+            # [新增] 获取接口配置以确定主键
+            interface_config = self._get_interface_config(interface_name)
+            primary_key = interface_config.get('output', {}).get('primary_key', [])
+
             # 如果文件已存在，追加数据
             logger.debug(f"Checking file path: {file_path}")
             logger.debug(f"File exists: {os.path.exists(file_path)}")
@@ -124,12 +144,21 @@ class StorageManager:
                     # 读取现有数据
                     existing_df = pl.read_parquet(file_path)
 
-                    # 合并数据（去重）
-                    # Polars的垂直连接方式
-                    combined_df = pl.concat([existing_df, df], how="vertical_relaxed").unique()
+                    # [修改] 基于主键去重
+                    if primary_key:
+                        # 合并数据
+                        combined_df = pl.concat([existing_df, df], how="vertical_relaxed")
+                        # 基于主键去重（保留最新的记录）
+                        combined_df = combined_df.unique(subset=primary_key, keep='last')
+                        logger.info(f"Deduplicated based on primary key: {primary_key}")
+                    else:
+                        # 如果没有指定主键，使用所有列去重
+                        combined_df = pl.concat([existing_df, df], how="vertical_relaxed").unique()
+                        logger.warning(f"No primary key defined for {interface_name}, using all columns for deduplication")
 
                     # 写入合并后的数据
                     combined_df.write_parquet(file_path)
+                    logger.info(f"Written {len(df)} new records, total {len(combined_df)} records after deduplication")
                 except Exception as read_error:
                     logger.warning(f"Error reading existing file {file_path}: {str(read_error)}")
                     logger.warning("Creating new file instead of appending")

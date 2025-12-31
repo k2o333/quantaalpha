@@ -132,6 +132,9 @@ class RateLimiter:
         Args:
             tokens: 需要的令牌数
         """
+        import random
         while not self.acquire(tokens):
+            # [修改] 添加随机性，避免所有线程同时唤醒
             sleep_time = self.time_window / self.rate_limit
-            time.sleep(sleep_time)
+            random_jitter = random.uniform(0, sleep_time * 0.1)  # 添加 0-10% 的随机延迟
+            time.sleep(sleep_time + random_jitter)
