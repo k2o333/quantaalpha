@@ -34,10 +34,10 @@ def setup_logging(log_config: dict):
     Args:
         log_config: 日志配置字典，包含 level, file, max_size_mb, backup_count
     """
-    log_level = log_config.get('level', 'INFO')
-    log_file = log_config.get('file', '../log/aspipe_v4.log')
-    max_size_mb = log_config.get('max_size_mb', 100)
-    backup_count = log_config.get('backup_count', 5)
+    log_level = log_config.get('level')
+    log_file = log_config.get('file')
+    max_size_mb = log_config.get('max_size_mb')
+    backup_count = log_config.get('backup_count')
 
     # 确保日志目录存在
     log_dir = os.path.dirname(log_file)
@@ -97,6 +97,8 @@ def main():
                         help='并发数')
     parser.add_argument('--log-level', type=str, default='INFO',
                         help='日志级别')
+    parser.add_argument('--ts_code', type=str,
+                        help='指定股票代码 (如: 000001.SZ)')
 
     args = parser.parse_args()
 
@@ -381,6 +383,10 @@ def main():
                     'start_date': args.start_date,
                     'end_date': args.end_date or datetime.now().strftime('%Y%m%d')
                 }
+
+                # 如果指定了股票代码，添加到参数中
+                if args.ts_code:
+                    params['ts_code'] = args.ts_code
 
                 # 对于需要ts_code的接口，根据下载模式处理
                 if args.tscode_historical and 'ts_code' in interface_config.get('parameters', {}):
