@@ -1,13 +1,11 @@
-name: express
-api_name: express
-description: "业绩快报 (已禁用，请使用 express_vip)"
-enabled: false
+name: express_vip
+api_name: express_vip
+description: "业绩快报(VIP) - 按季度获取全部上市公司数据"
 
 permissions:
-  min_points: 2000
+  min_points: 5000
   rate_limit: 60
   query_limit: 10000
-  note: "此接口已禁用，如需获取全部股票数据，请使用 express_vip 接口（需5000积分）"
 
 request:
   method: POST
@@ -17,8 +15,8 @@ request:
 parameters:
   ts_code:
     type: string
-    required: true
-    description: "股票代码"
+    required: false
+    description: "股票代码(可选，不填则获取全部股票)"
   ann_date:
     type: string
     required: false

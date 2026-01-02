@@ -1,13 +1,11 @@
-name: cashflow
-api_name: cashflow
-description: "现金流量表 (已禁用，请使用 cashflow_vip)"
-enabled: false
+name: cashflow_vip
+api_name: cashflow_vip
+description: "现金流量表(VIP) - 按季度获取全部上市公司数据"
 
 permissions:
-  min_points: 2000
+  min_points: 5000
   rate_limit: 60
   query_limit: 10000
-  note: "此接口已禁用，如需获取全部股票数据，请使用 cashflow_vip 接口（需5000积分）"
 
 request:
   method: POST
@@ -18,7 +16,7 @@ parameters:
   ts_code:
     type: string
     required: false
-    description: "股票代码"
+    description: "股票代码(可选，不填则获取全部股票)"
   ann_date:
     type: string
     required: false

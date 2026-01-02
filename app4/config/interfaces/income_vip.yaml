@@ -1,13 +1,11 @@
-name: income
-api_name: income
-description: "利润表 (已禁用，请使用 income_vip)"
-enabled: false
+name: income_vip
+api_name: income_vip
+description: "利润表(VIP) - 按季度获取全部上市公司数据"
 
 permissions:
-  min_points: 2000
+  min_points: 5000
   rate_limit: 60
   query_limit: 10000
-  note: "此接口已禁用，如需获取全部股票数据，请使用 income_vip 接口（需5000积分）"
 
 request:
   method: POST
@@ -18,7 +16,7 @@ parameters:
   ts_code:
     type: string
     required: false
-    description: "证券代码"
+    description: "股票代码(可选，不填则获取全部股票)"
   ann_date:
     type: string
     required: false
@@ -39,6 +37,14 @@ parameters:
     type: string
     required: false
     description: "报告期 YYYYMMDD"
+  report_type:
+    type: string
+    required: false
+    description: "报告类型"
+  comp_type:
+    type: string
+    required: false
+    description: "公司类型"
 
 pagination:
   enabled: true

@@ -1,0 +1,48 @@
+name: stk_premarket
+api_name: stk_premarket
+description: "每日开盘前获取当日股票的股本情况"
+
+permissions:
+  min_points: 0
+  rate_limit: 120
+  query_limit: 8000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日期(YYYYMMDD格式)"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date", "ts_code"]
+  columns:
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    ts_code: {type: string, required: true}
+    total_share: {type: float}
+    float_share: {type: float}
+    pre_close: {type: float}
+    up_limit: {type: float}
+    down_limit: {type: float}
