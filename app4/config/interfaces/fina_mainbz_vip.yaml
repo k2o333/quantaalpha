@@ -1,9 +1,9 @@
-name: fina_mainbz
-api_name: fina_mainbz
-description: "主营业务构成"
+name: fina_mainbz_vip
+api_name: fina_mainbz_vip
+description: "主营业务构成(VIP) - 按季度获取全部上市公司数据"
 
 permissions:
-  min_points: 2000
+  min_points: 5000
   rate_limit: 60
   query_limit: 100
 
@@ -16,11 +16,11 @@ parameters:
   ts_code:
     type: string
     required: false
-    description: "股票代码"
+    description: "股票代码(可选，不填则获取全部股票)"
   period:
     type: string
     required: false
-    description: "报告期 YYYYMMDD"
+    description: "报告期(每个季度最后一天的日期,比如20171231表示年报)"
   type:
     type: string
     required: false

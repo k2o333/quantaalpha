@@ -38,6 +38,7 @@ pagination:
   enabled: true
   mode: "date_range"
   window_size_days: 365
+  date_field: "float_date"
 
 output:
   primary_key: ["ts_code", "ann_date", "float_date", "holder_name"]

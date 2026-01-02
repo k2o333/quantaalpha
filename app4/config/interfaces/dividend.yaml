@@ -35,9 +35,7 @@ parameters:
     description: "实施公告日 YYYYMMDD"
 
 pagination:
-  enabled: true
-  mode: "date_range"
-  window_size_days: 365
+  enabled: false
 
 output:
   primary_key: ["ts_code", "end_date", "ann_date"]

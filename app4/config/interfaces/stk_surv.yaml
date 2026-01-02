@@ -34,6 +34,7 @@ pagination:
   enabled: true
   mode: "date_range"
   window_size_days: 365
+  date_field: "trade_date"
 
 output:
   primary_key: ["ts_code", "surv_date", "fund_visitors"]

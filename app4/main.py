@@ -28,6 +28,23 @@ from core.storage import StorageManager
 from core.processor import DataProcessor
 
 
+def validate_and_adjust_date(start_date, end_date):
+    """
+    验证并调整日期，确保不使用未来日期
+    """
+    today = datetime.now().strftime('%Y%m%d')
+
+    if end_date > today:
+        print(f"警告: 结束日期 {end_date} 超过当前日期，已调整为 {today}")
+        end_date = today
+
+    if start_date > today:
+        print(f"警告: 开始日期 {start_date} 超过当前日期，已调整为 {today}")
+        start_date = today
+
+    return start_date, end_date
+
+
 def setup_logging(log_config: dict):
     """设置日志配置
 
@@ -371,17 +388,21 @@ def main():
 
                 # 检查积分要求
                 min_points = interface_config.get('permissions', {}).get('min_points', 0)
-                if min_points > 5000:  # 这里应该从环境变量中读取实际积分
-                    import os
-                    actual_points = int(os.getenv('tushare_points', '120'))
-                    if min_points > actual_points:
-                        logger.warning(f"Insufficient points for interface {interface_name} (required: {min_points}, available: {actual_points})")
-                        continue
+                import os
+                actual_points = int(os.getenv('tushare_points', '120'))
+                if min_points > actual_points:  # 直接比较实际积分要求
+                    logger.warning(f"Insufficient points for interface {interface_name} (required: {min_points}, available: {actual_points})")
+                    continue
 
                 # 准备请求参数
+                args.start_date, args.end_date = validate_and_adjust_date(
+                    args.start_date,
+                    args.end_date or datetime.now().strftime('%Y%m%d')
+                )
+
                 params = {
                     'start_date': args.start_date,
-                    'end_date': args.end_date or datetime.now().strftime('%Y%m%d')
+                    'end_date': args.end_date
                 }
 
                 # 如果指定了股票代码，添加到参数中
@@ -446,6 +467,32 @@ def main():
                             logger.warning(f"No data downloaded for {interface_name}")
                     else:
                         # 普通模式，使用同步下载
+                        # 特殊接口处理：broker_recommend需要month参数
+                        if interface_name == 'broker_recommend':
+                            import pandas as pd
+                            # 转换日期范围为月份列表，循环调用
+                            months = pd.date_range(
+                                params['start_date'],
+                                params['end_date'],
+                                freq='M'
+                            ).strftime('%Y%m').tolist()
+
+                            all_data = []
+                            for month in months:
+                                month_params = {'month': month}
+                                if 'ts_code' in params:
+                                    month_params['ts_code'] = params['ts_code']
+                                data = downloader.download(interface_name, month_params)
+                                if data:
+                                    all_data.extend(data)
+
+                            if all_data:
+                                logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
+                                process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
+                            else:
+                                logger.warning(f"No data downloaded for {interface_name}")
+                            continue  # 跳过普通下载逻辑
+
                         # 使用接口配置的 rate_limit，如果没有则使用全局默认
                         interface_rate_limit = interface_config.get('permissions', {}).get('rate_limit', global_rate_limit)
                         interface_rate_limiter = RateLimiter(interface_rate_limit)

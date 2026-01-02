@@ -17,6 +17,10 @@ parameters:
     type: string
     required: false
     description: "TS代码"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
   start_date:
     type: string
     required: false
@@ -27,9 +31,7 @@ parameters:
     description: "公告结束日期 YYYYMMDD"
 
 pagination:
-  enabled: true
-  mode: "date_range"
-  window_size_days: 365
+  enabled: false
 
 output:
   primary_key: ["ts_code", "ann_date", "start_date"]
