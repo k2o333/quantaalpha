@@ -282,7 +282,7 @@ def main():
         validation_result = processor.validate_data(df, interface_config)
 
         # 保存数据
-        storage_manager.save_data(interface_name, df.to_dict('records'), async_write=True)
+        storage_manager.save_data(interface_name, df.to_dicts(), async_write=True)
 
         logger.info(f"Saved {len(df)} processed records for {interface_name}")
         if validation_result['duplicate_records'] > 0:
@@ -469,13 +469,12 @@ def main():
                         # 普通模式，使用同步下载
                         # 特殊接口处理：broker_recommend需要month参数
                         if interface_name == 'broker_recommend':
-                            import pandas as pd
+                            import polars as pl
+                            from datetime import datetime
                             # 转换日期范围为月份列表，循环调用
-                            months = pd.date_range(
-                                params['start_date'],
-                                params['end_date'],
-                                freq='M'
-                            ).strftime('%Y%m').tolist()
+                            start = datetime.strptime(params['start_date'], '%Y%m%d')
+                            end = datetime.strptime(params['end_date'], '%Y%m%d')
+                            months = pl.date_range(start, end, '1mo', eager=True).dt.strftime('%Y%m').to_list()
 
                             all_data = []
                             for month in months:

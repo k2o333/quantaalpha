@@ -7,7 +7,6 @@ from typing import Any, Optional
 import logging
 import pyarrow.parquet as pq
 import pyarrow as pa
-import pandas as pd
 import polars as pl
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ class CacheManager:
         return (time.time() - mtime) > ttl
 
     def get(self, key: str, ttl: Optional[int] = None) -> Optional[Any]:
-        """获取缓存数据"""
+        """获取缓存数据 - 优化版，支持pickle和parquet格式"""
         if ttl is None:
             ttl = self.default_ttl
 
@@ -47,16 +46,24 @@ class CacheManager:
             return None
 
         try:
-            # 读取 Parquet 文件使用Polars
-            df = pl.read_parquet(cache_path)
-            logger.debug(f"Cache hit for key: {key}")
-            return df.to_dicts()
-        except Exception as e:
-            logger.warning(f"Error reading cache for key {key}: {str(e)}")
-            return None
+            # 首先尝试作为pickle文件读取（原始数据格式）
+            import pickle
+            with open(cache_path, 'rb') as f:
+                data = pickle.load(f)
+            logger.debug(f"Cache hit for key: {key} (pickle format)")
+            return data
+        except:
+            # 如果pickle读取失败，尝试作为parquet读取（向后兼容）
+            try:
+                df = pl.read_parquet(cache_path)
+                logger.debug(f"Cache hit for key: {key} (parquet format)")
+                return df.to_dicts()
+            except Exception as e:
+                logger.warning(f"Error reading cache for key {key}: {str(e)}")
+                return None
 
     def set(self, key: str, data: Any, ttl: Optional[int] = None) -> bool:
-        """设置缓存数据"""
+        """设置缓存数据 - 优化版，支持延迟转换"""
         if ttl is None:
             ttl = self.default_ttl
 
@@ -65,16 +72,14 @@ class CacheManager:
         temp_path = cache_path + f".tmp.{os.getpid()}.{threading.get_ident()}"
 
         try:
-            # 将数据转换为 Polars DataFrame 以便保存为 Parquet
+            # 优化：延迟转换为Polars DataFrame，先保存为原始格式
             if isinstance(data, list) and len(data) > 0:
-                df = pl.DataFrame(data)
-                df.write_parquet(temp_path)
-            elif isinstance(data, pd.DataFrame):
-                # 如果是pandas DataFrame，转换为Polars
-                df = pl.from_pandas(data)
-                df.write_parquet(temp_path)
+                # 对于列表数据，使用pickle保存原始数据，避免polars类型推断开销
+                import pickle
+                with open(temp_path, 'wb') as f:
+                    pickle.dump(data, f)
             elif isinstance(data, pl.DataFrame):
-                # 如果已经是Polars DataFrame
+                # 如果已经是Polars DataFrame，直接保存
                 data.write_parquet(temp_path)
             else:
                 # 如果数据不能转换为 DataFrame，我们仍然需要处理

@@ -1,7 +1,6 @@
 import os
 import threading
 import queue
-import pandas as pd
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -144,21 +143,12 @@ class StorageManager:
                     # 读取现有数据
                     existing_df = pl.read_parquet(file_path)
 
-                    # [修改] 基于主键去重
-                    if primary_key:
-                        # 合并数据
-                        combined_df = pl.concat([existing_df, df], how="vertical_relaxed")
-                        # 基于主键去重（保留最新的记录）
-                        combined_df = combined_df.unique(subset=primary_key, keep='last')
-                        logger.info(f"Deduplicated based on primary key: {primary_key}")
-                    else:
-                        # 如果没有指定主键，使用所有列去重
-                        combined_df = pl.concat([existing_df, df], how="vertical_relaxed").unique()
-                        logger.warning(f"No primary key defined for {interface_name}, using all columns for deduplication")
+                    # 合并数据 - 不执行去重
+                    combined_df = pl.concat([existing_df, df], how="vertical_relaxed")
 
                     # 写入合并后的数据
                     combined_df.write_parquet(file_path)
-                    logger.info(f"Written {len(df)} new records, total {len(combined_df)} records after deduplication")
+                    logger.info(f"Written {len(df)} new records, total {len(combined_df)} records")
                 except Exception as read_error:
                     logger.warning(f"Error reading existing file {file_path}: {str(read_error)}")
                     logger.warning("Creating new file instead of appending")

@@ -236,7 +236,7 @@ class GenericDownloader:
 
     def _execute_date_range_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any],
                                       pagination_config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """执行日期范围分页"""
+        """执行日期范围分页 - 支持内部offset分页"""
         # 如果没有提供分页配置，从接口配置中获取
         if pagination_config is None:
             pagination_config = interface_config.get('pagination', {})
@@ -279,7 +279,12 @@ class GenericDownloader:
         # 如果获取交易日历失败，使用默认的日期范围分页
         if not trade_calendar:
             logger.warning("Failed to get trade calendar, using default date range pagination")
-            return self._make_request(interface_config, params)
+            # 检查是否配置了内部offset分页
+            offset_config = interface_config.get('offset_pagination', {})
+            if offset_config.get('enabled', False):
+                return self._execute_offset_pagination(interface_config, params, offset_config)
+            else:
+                return self._make_request(interface_config, params)
 
         # 过滤出交易日
         trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
@@ -314,8 +319,15 @@ class GenericDownloader:
 
             logger.info(f"Downloading data for window {i//window_size + 1}: {window_start} - {window_end}")
 
-            # 下载该窗口的数据
-            window_data = self._make_request(interface_config, window_params)
+            # 检查是否配置了内部offset分页
+            offset_config = interface_config.get('offset_pagination', {})
+            if offset_config.get('enabled', False):
+                # 使用内部offset分页下载窗口数据
+                logger.info(f"Using internal offset pagination for window {window_start}-{window_end}")
+                window_data = self._execute_offset_pagination(interface_config, window_params, offset_config)
+            else:
+                # 直接下载窗口数据
+                window_data = self._make_request(interface_config, window_params)
 
             # 记录并检查性能指标
             elapsed_time = time.time() - start_time
@@ -333,7 +345,7 @@ class GenericDownloader:
             if window_data:
                 # 检查数据完整性
                 query_limit = interface_config.get('permissions', {}).get('query_limit', 6000)
-                
+
                 # 记录数据量指标
                 performance_monitor.record_metric('data_size', len(window_data), {
                     'interface': interface_config['api_name'],
