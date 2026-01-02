@@ -102,39 +102,6 @@ class GenericDownloader:
 
         return session
 
-    def _validate_and_deduplicate_data(self, data: List[Dict[str, Any]], ts_code: str) -> List[Dict[str, Any]]:
-        """
-        验证数据完整性并去除重复记录
-        """
-        if not data:
-            return data
-
-        # 检查重复数据
-        seen_keys = set()
-        unique_data = []
-        duplicates = 0
-
-        for record in data:
-            date = record.get('trade_date')
-            key = (ts_code, date)  # 使用 ts_code 和 trade_date 作为唯一标识
-
-            if key in seen_keys:
-                logger.debug(f"Duplicate record found for {ts_code} on {date}")
-                duplicates += 1
-            else:
-                seen_keys.add(key)
-                unique_data.append(record)
-
-        if duplicates > 0:
-            logger.warning(f"Found {duplicates} duplicate records for {ts_code}, removed from {len(data)} to {len(unique_data)} records")
-
-        # 检查数据质量
-        unique_dates = set(record.get('trade_date') for record in unique_data)
-        if len(unique_dates) != len(unique_data):
-            logger.error(f"Inconsistent data for {ts_code}: {len(unique_data)} records but {len(unique_dates)} unique dates")
-
-        return unique_data
-
     def download(self, interface_name: str, params: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
         """
         下载指定接口的数据
@@ -382,11 +349,8 @@ class GenericDownloader:
                         'ts_code': params.get('ts_code', 'unknown')
                     })
 
-                # [修改] 检查数据质量并去重
-                window_data = self._validate_and_deduplicate_data(window_data, params.get('ts_code', 'unknown'))
-
                 all_data.extend(window_data)
-                logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end} (after deduplication)")
+                logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end}")
             else:
                 logger.warning(f"No data returned for window {window_start}-{window_end}")
 
