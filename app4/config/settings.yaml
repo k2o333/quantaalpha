@@ -11,7 +11,7 @@ tushare:
 
 # 并发配置
 concurrency:
-  max_workers: 4      # [修改] 从 8 降至 4
+  max_workers: 1      # [修改] 使用单worker
   max_queue_size: 50
 
 # [新增] 请求重试与限流配置
@@ -27,7 +27,7 @@ request:
 cache:
   enabled: true
   base_dir: "./cache"
-  default_ttl: 86400  # 24小时（秒）
+  default_ttl: 0  # 24小时（秒）
   max_size_gb: 10
   cleanup_interval: 3600  # 清理间隔（秒）
 

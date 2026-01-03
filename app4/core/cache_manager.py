@@ -30,6 +30,10 @@ class CacheManager:
         if not os.path.exists(file_path):
             return True
 
+        # 如果 TTL 为 0 或负数，表示缓存永不过期
+        if ttl <= 0:
+            return False
+
         # 检查修改时间
         mtime = os.path.getmtime(file_path)
         return (time.time() - mtime) > ttl

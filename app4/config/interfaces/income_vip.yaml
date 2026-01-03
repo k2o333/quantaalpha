@@ -5,7 +5,7 @@ description: "利润表(VIP) - 按季度获取全部上市公司数据"
 permissions:
   min_points: 5000
   rate_limit: 60
-  query_limit: 10000
+  query_limit: 8800
 
 request:
   method: POST

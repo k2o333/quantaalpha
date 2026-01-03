@@ -32,6 +32,7 @@ def validate_and_adjust_date(start_date, end_date):
     """
     验证并调整日期，确保不使用未来日期
     """
+    from datetime import datetime
     today = datetime.now().strftime('%Y%m%d')
 
     if end_date > today:
