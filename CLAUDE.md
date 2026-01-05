@@ -4,44 +4,360 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-aspipe_v4 is a comprehensive financial data pipeline system that downloads stock market data from TuShare API and stores it in Parquet format. The system is designed to work with different TuShare account tiers (积分/points) and automatically adapts its data access based on the user's account level. The system features enhanced configuration with priority-based scheduling, advanced caching, and improved error handling.
+aspipe_v4 is a comprehensive financial data pipeline system that downloads stock market data from TuShare API and stores it in Parquet format. The system features two parallel architectures:
 
-## Architecture
+1. **Legacy Architecture (app/)**: Traditional code-driven approach with modular interface classes
+2. **App4 Architecture (app4/)**: Modern configuration-driven approach with zero-code interface addition capability
+
+The App4 architecture represents a paradigm shift from code-driven to configuration-driven data downloading, offering higher flexibility, stronger performance, and better maintainability.
+
+## Architecture Comparison
+
+### Legacy Architecture (app/) - Traditional Code-Driven
+- Modular interface classes for each data category
+- Strategy pattern implementation for different download approaches
+- Producer-consumer pattern with task prioritization
+- Advanced caching and error handling mechanisms
+
+### App4 Architecture (app4/) - Modern Configuration-Driven
+- **Zero-code interface addition**: Add new interfaces by creating YAML configuration files
+- **Universal downloader**: Single generic downloader handles all interfaces based on configuration
+- **Multi-strategy pagination**: Supports offset, date_range, stock_loop, and period_range pagination modes
+- **Asynchronous architecture**: Producer-consumer pattern with non-blocking I/O
+- **High-performance processing**: Uses Polars for data processing and validation
+
+## App4 Configuration-Driven Architecture
 
 ### Core Components
-1. **TuShare API Integration** (`app/tushare_api.py`): Handles API authentication, rate limiting, retry mechanisms, and token switching between primary/secondary tokens
-2. **Score-Based Access Control** (`app/score_config.py`): Maps TuShare积分 to available data interfaces and API limits
-3. **Modular Interface System** (`app/interfaces/`): Separate modules for different data categories (basic, daily, financial, market flow, etc.)
-4. **Data Storage** (`app/data_storage.py`): Manages saving/loading data in Parquet format with caching support
-5. **Error Handling** (`app/error_handler.py`): Centralized error handling with retry mechanisms and rate limit management
-6. **Download Scheduling** (`app/download_scheduler.py`): Complete download scheduler implementing producer-consumer pattern with task prioritization
-7. **Parallel Downloader** (`app/parallel_downloader.py`): Parallel download framework supporting multiple concurrent interfaces with resource management
-8. **Global Rate Limiter** (`app/global_rate_limiter.py`): Token bucket algorithm implementation for API call rate limiting
-9. **Task Queue Manager** (`app/task_queue_manager.py`): Task queue management with priority and status tracking
-10. **Storage Worker** (`app/storage_worker.py`): Consumer logic for data storage with thread-safe writes and error handling
-11. **Strategy Factory** (`app/strategy_factory.py`): Strategy creation and management with caching mechanism
-12. **Download Strategies** (`app/download_strategies.py`): Strategy pattern implementation for different data download approaches
-13. **Config Adapter** (`app/config_adapter.py`): Adapter pattern for unified access to old and new configuration formats
-14. **Enhanced Config** (`app/enhanced_download_config.py`): Advanced configuration options with priorities, retry settings, rate limits, caching, and API parameters
-15. **Parameter Adapters** (`app/parameter_adapters.py`): Interface for adapting API parameters across different data interfaces
-16. **Configuration Adapter** (`app/config_adapter.py`): Unifies old and new config access while maintaining backward compatibility
-17. **Enhanced Download Config** (`app/enhanced_download_config.py`): Supports priority-based scheduling and advanced interface settings
-18. **Stock List Manager** (`app/stock_list_manager.py`): Singleton pattern implementation to prevent duplicate stock_basic API calls
-19. **Cache Key Generator** (`app/cache_key_generator.py`): Standardized cache key and path generation for consistent caching
-20. **Cache Manager** (`app/cache_manager.py`): Cache management with preheating, cleanup, and monitoring capabilities
-21. **Cache Monitor** (`app/cache_monitor.py`): Cache performance monitoring with hit rate tracking
-22. **Download Strategies** (`app/download_strategies.py`): Strategy pattern implementation with DailyDataStrategy, FinancialDataStrategy, and StaticDataStrategy
-23. **Strategy Factory** (`app/strategy_factory.py`): Provides unified strategy creation and caching with registry management
-24. **Parameter Adapters** (`app/parameter_adapters.py`): Standardized parameter validation and adaptation for all interfaces
-25. **Enhanced Main Downloader** (`app/enhanced_main_downloader.py`): Production-ready enhanced downloader with strategy pattern
+
+1. **Configuration Loader** (`app4/core/config_loader.py`)
+   - Loads global settings and interface configurations from YAML files
+   - Supports environment variable substitution with `${VAR}` syntax
+   - Performs configuration validation and integrity checks
+
+2. **Generic Downloader** (`app4/core/downloader.py`)
+   - Universal download engine that processes any interface based on configuration
+   - Implements multiple pagination strategies (offset, date_range, stock_loop, period_range)
+   - Features intelligent caching with trade calendar derivation strategy
+   - Monitors performance metrics (request time, data size, retry count)
+
+3. **Task Scheduler** (`app4/core/scheduler.py`)
+   - Manages thread pool for concurrent task execution
+   - Implements token bucket algorithm for API rate limiting
+   - Supports batch task submission with randomized delays
+
+4. **Cache Manager** (`app4/core/cache_manager.py`)
+   - TTL-based data caching with hash-based filenames
+   - Supports pickle and parquet storage formats
+   - Atomic write operations prevent concurrent file corruption
+   - Smart trade calendar derivation for optimized cache hits
+
+5. **Storage Manager** (`app4/core/storage.py`)
+   - Asynchronous data persistence using producer-consumer pattern
+   - Batch processing and append operations to existing parquet files
+   - Thread-safe operations with queue management
+
+6. **Data Processor** (`app4/core/processor.py`)
+   - High-performance data validation and transformation using Polars
+   - Primary key processing and deduplication
+   - Data quality checks and type conversion
+
+7. **Schema Manager** (`app4/core/schema_manager.py`)
+   - Pre-defined data type schemas to avoid runtime inference overhead
+   - Optimized schemas for high-frequency financial data interfaces
+
+### Configuration Structure
+
+#### Global Configuration (`app4/config/settings.yaml`)
+```yaml
+app:
+  name: "aspipe_v4"
+  version: "4.0.0"
+
+tushare:
+  token: "${TUSHARE_TOKEN}"
+  base_url: "http://api.tushare.pro"
+  points_thresholds: # 积分权限映射
+    basic: 120
+    standard: 2000
+    advanced: 5000
+    professional: 8000
+
+concurrency:
+  max_workers: 8
+  queue_size: 1000
+
+request:
+  max_retries: 3
+  retry_delay: 1.0
+  timeout: 30
+
+cache:
+  directory: "cache"
+  ttl_hours: 24
+  max_size_gb: 10
+
+storage:
+  directory: "data"
+  format: "parquet"
+  batch_size: 1000
+```
+
+#### Interface Configuration (`app4/config/interfaces/*.yaml`)
+Each interface has its own YAML configuration defining:
+- API metadata (name, description, permissions)
+- Request parameters and validation rules
+- Pagination strategy and parameters
+- Output schema and primary keys
+- Rate limiting and caching settings
+
+Example interface configuration:
+```yaml
+name: daily
+api_name: daily
+description: "日线行情"
+
+permissions:
+  min_points: 0
+  rate_limit: 120
+  query_limit: 10000
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "证券代码"
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+```
+
+### Key Features
+
+1. **Zero-Code Interface Addition**: New interfaces can be added by simply creating YAML configuration files
+2. **Declarative Configuration**: All interface behavior defined in configuration files
+3. **Flexible Pagination**: Multiple pagination modes to handle different API behaviors
+4. **Asynchronous Storage**: Non-blocking I/O operations for improved throughput
+5. **Intelligent Caching**: Trade calendar derivation strategy for optimal cache utilization
+6. **Performance Monitoring**: Real-time tracking of key metrics with alerting
+7. **Backward Compatibility**: Maintains compatibility with legacy CLI parameters
+8. **High Concurrency**: Thread-pool based concurrent processing
+9. **Rate Limit Protection**: Token bucket algorithm prevents API throttling
+10. **Type Safety**: Comprehensive parameter validation and type checking
+
+### Interface Groups
+
+App4 organizes interfaces into logical groups for easier management:
+- **daily**: Daily market data (daily, daily_basic, adj_factor)
+- **financial**: Financial statements (income, balancesheet, cashflow)
+- **holders**: Shareholder data (top10_holders, stk_rewards, pledge_detail)
+- **market**: Market indicators (moneyflow, cyq_chips, stk_factor)
+- **basic**: Basic information (stock_basic, trade_cal, namechange)
+
+## Legacy Architecture (app/) - Reference
+
+For reference, the legacy architecture includes:
+- **TuShare API Integration**: Handles authentication and rate limiting
+- **Modular Interface System**: Separate modules for different data categories
+- **Download Strategies**: Strategy pattern for different data types
+- **Advanced Caching**: Multi-layer caching with intelligent matching
+- **Task Queue Management**: Priority-based task scheduling
+
+See the original file structure and components in the appendix below.
 
 ### Key Modules
 - **Main Entry Point**: `app/main.py` - Unified entry point for all data downloads with fallback capability
 - **Enhanced Main Downloader**: `app/enhanced_main_downloader.py` - Production-ready enhanced downloader with strategy pattern
 - **App4 Main Module**: `app4/main.py` - Configuration-driven architecture with enhanced optimizations
-- **Score-Based Downloader**: `app/score_based_downloader.py` - Download management based on user积分 levels
-- **Configuration**: `app/config.py` - Environment variable loading and API limit configuration
 - **App4 Config Loader**: `app4/core/config_loader.py` - Configuration-driven approach with global and interface-specific settings
+- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor
+- **App4 Storage Manager**: `app4/core/storage.py` - Enhanced storage management with async operations and batch processing
+- **App4 Cache Manager**: `app4/core/cache_manager.py` - Enhanced caching with atomic writes, derivation strategy, and performance optimization
+- **App4 Generic Downloader**: `app4/core/downloader.py` - Enhanced downloader with data validation, network retry optimization, and performance monitoring
+
+## Development Commands
+
+### Environment Setup
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment variables in .env file:
+# tushare_token=your_token
+# tushare_points=your_points
+# tushare2_token=secondary_token (optional)
+# tushare2_points=secondary_points (optional)
+```
+
+### Running the System
+
+#### App4 (Recommended - Configuration-Driven)
+```bash
+# Basic usage - download all available interfaces
+python app4/main.py --start_date 20230101 --end_date 20231231
+
+# Download specific interface
+python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily
+
+# Download interface group
+python app4/main.py --start_date 20230101 --end_date 20231231 --group financial
+
+# Set concurrency level
+python app4/main.py --concurrency 8
+
+# Set log level
+python app4/main.py --log-level DEBUG
+
+# List available interfaces
+python app4/main.py --list-interfaces
+
+# Check interface configuration
+python app4/main.py --show-config daily
+```
+
+#### Legacy Architecture (app/)
+```bash
+# Run from the project root (not app directory)
+python app/main.py --start_date 20230101 --end_date 20231231
+
+# Default start date is 20230101, end date is today
+python app/main.py
+
+# For enhanced download using production ready features
+python app/enhanced_main_downloader.py --start_date 20230101 --end_date 20231231
+
+# Use legacy mode (skip new scheduler)
+python app/main.py --start_date 20230101 --end_date 20231231 --use_legacy
+
+# Enable download of stk_rewards, top10_holders, pledge_detail, fina_audit shareholder data
+python app/main.py --start_date 20230101 --end_date 20231231 --holders-data
+
+# Download only pro_bar adjusted price data
+python app/main.py --start_date 20230101 --end_date 20231231 --pro-bar-only
+
+# Download full historical data instead of date-range data (for specific interfaces that require ts_code)
+python app/main.py --start_date 20230101 --end_date 20231231 --tscode-historical
+
+# Download with historical download tracking to avoid redundant processing
+python app/main.py --start_date 20230101 --end_date 20231231 --track-history
+
+# Force re-download of historically completed interfaces
+python app/main.py --start_date 20230101 --end_date 20231231 --force-redownload
+```
+
+### Development Tasks
+```bash
+# To check available interfaces for your score level:
+python -c "from score_config import get_available_data_types; from config import TUSHARE_POINTS; print(get_available_data_types(TUSHARE_POINTS))"
+
+# Quick interface verification scripts for validating all API endpoints
+python app/test_interface_verification.py
+
+# Cache functionality tests demonstrating the enhanced caching system
+python app/test_cache_functionality.py
+
+# New comprehensive cache tests (moved to test/ directory)
+python -m pytest test/test_cache_functions.py
+python -m pytest test/test_cache_integration.py
+python -m pytest test/test_cache_verification.py
+python -m pytest test/test_cache_verification_clean.py
+python -m pytest test/test_cache_holder_data.py
+python -m pytest test/test_new_cache_implementation.py
+python -m pytest test/test_imports.py
+
+# Full history download tests for ts_code-dependent interfaces
+python app/test_full_history_downloads.py
+
+# App4 specific tests
+python -m pytest test/test_app4_config_loader.py
+python -m pytest test/test_app4_downloader.py
+python -m pytest test/test_app4_integration.py
+```
+
+## File Structure
+
+```
+aspipe_v4/
+├── app4/                  # Modern configuration-driven architecture (Recommended)
+│   ├── README.md          # Detailed App4 design documentation
+│   ├── main.py            # CLI entry point with enhanced features
+│   ├── core/              # Core components
+│   │   ├── __init__.py
+│   │   ├── config_loader.py    # YAML configuration loader
+│   │   ├── downloader.py       # Universal download engine
+│   │   ├── processor.py        # Data processing with Polars
+│   │   ├── storage.py          # Asynchronous storage manager
+│   │   ├── cache_manager.py    # Intelligent cache management
+│   │   ├── scheduler.py        # Task scheduler with rate limiting
+│   │   └── schema_manager.py   # Pre-defined data schemas
+│   ├── config/            # Configuration files
+│   │   ├── settings.yaml  # Global settings and defaults
+│   │   └── interfaces/    # Interface definitions (80+ YAML files)
+│   │       ├── daily.yaml
+│   │       ├── stock_basic.yaml
+│   │       ├── income.yaml
+│   │       └── ... (80+ more interfaces)
+│   └── requirements.txt   # App4 specific dependencies
+├── app/                   # Legacy code-driven architecture
+│   ├── main.py            # Main entry point
+│   ├── enhanced_main_downloader.py  # Enhanced downloader
+│   ├── interfaces/        # Modular interface classes
+│   └── ... (other legacy modules)
+├── test/                  # Test scripts
+├── data/                  # Output directory for downloaded data
+├── cache/                 # Temporary cache files
+├── log/                   # Log files
+├── requirements.txt       # Main dependencies
+├── .env                   # Environment variables
+└── p/                     # Documentation
+```
+
+## Data Categories by Score Level
+
+- **120+ points**: Basic info (trade_cal) - now with HIGH priority and batch download strategy
+- **2000+ points**: Stock basics, daily data, financial statements, holders, events, moneyflow - HIGH priority interfaces
+- **3000+ points**: ST stock lists and additional holder data - MEDIUM priority interfaces
+- **5000+ points**: Advanced data (cyq_chips, cyq_perf, stk_factor), advanced funds flow, and all financial VIP APIs - MEDIUM to LOW priority
+- **8000+ points**: Advanced research data - LOW priority interfaces
+
+## Development Notes
+
+### App4 Architecture Benefits
+- **Zero-code extensibility**: Add interfaces without writing code
+- **Declarative configuration**: All behavior defined in YAML files
+- **Type safety**: Comprehensive parameter validation
+- **High performance**: Polars for data processing, async I/O
+- **Intelligent caching**: Trade calendar derivation strategy
+- **Production ready**: Comprehensive error handling and monitoring
+
+### Legacy Architecture Notes
+- All logging is in Chinese for better readability
+- The system uses pandas for data processing and pyarrow for Parquet storage
+- Rate limiting includes randomization to avoid API detection
+- Multiple token support allows for increased data access
+- Error messages include specific handling for common TuShare API responses
+
+## Migration Guide
+
+When migrating from legacy (app/) to App4 architecture:
+
+1. **Configuration Migration**: Legacy boolean flags are automatically converted to App4 configurations
+2. **CLI Compatibility**: App4 maintains backward compatibility with most legacy CLI arguments
+3. **Data Format**: Both architectures produce identical parquet file formats
+4. **Performance**: App4 offers 2-5x performance improvement through async processing and Polars
+
+## Appendix: Legacy Architecture Details
+
+For detailed information about the legacy architecture components, refer to the Git history or contact the development team.
 - **Enhanced Configuration**: `app/enhanced_download_config.py` - Advanced interface configuration with priority, retries, rate limits, and caching
 - **Configuration Adapter**: `app/config_adapter.py` - Maintains backward compatibility with old config format
 - **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor
