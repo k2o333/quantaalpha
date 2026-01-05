@@ -198,6 +198,9 @@ class GenericDownloader:
             all_data = self._execute_date_range_pagination(interface_config, params, pagination_config)
         elif mode == 'stock_loop':
             all_data = self._execute_stock_loop_pagination(interface_config, params)
+        elif mode == 'period_range':
+            # 新增：报告期范围分页
+            all_data = self._execute_period_range_pagination(interface_config, params, pagination_config)
         else:
             # 默认不分页
             all_data = self._make_request(interface_config, params)
@@ -413,6 +416,146 @@ class GenericDownloader:
 
         return all_data
 
+    def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:
+        """
+        生成日期范围内的所有季度末日期
+
+        Args:
+            start_date: 起始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+
+        Returns:
+            季度末日期列表，格式为 YYYYMMDD
+        """
+        from datetime import datetime, timedelta
+
+        # 解析日期
+        start_dt = datetime.strptime(start_date, '%Y%m%d')
+        end_dt = datetime.strptime(end_date, '%Y%m%d')
+
+        # 季度末月份和日期
+        quarter_ends = [
+            (3, 31),   # Q1
+            (6, 30),   # Q2
+            (9, 30),   # Q3
+            (12, 31)   # Q4
+        ]
+
+        periods = []
+
+        # 从起始日期的下一个季度末开始
+        current_year = start_dt.year
+        current_quarter_idx = 0
+
+        # 找到 start_date 之后的第一个季度末
+        for q_idx, (month, day) in enumerate(quarter_ends):
+            quarter_end = datetime(current_year, month, day)
+            if quarter_end >= start_dt:
+                current_quarter_idx = q_idx
+                break
+        else:
+            # 如果当前年份没有找到，从下一年第一季度开始
+            current_year += 1
+            current_quarter_idx = 0
+
+        # 生成所有在范围内的季度末日期
+        while True:
+            month, day = quarter_ends[current_quarter_idx]
+            quarter_end = datetime(current_year, month, day)
+
+            if quarter_end > end_dt:
+                break
+
+            periods.append(quarter_end.strftime('%Y%m%d'))
+
+            # 移动到下一个季度
+            current_quarter_idx += 1
+            if current_quarter_idx >= len(quarter_ends):
+                current_quarter_idx = 0
+                current_year += 1
+
+        return periods
+
+    def _execute_period_range_pagination(self, interface_config: Dict[str, Any],
+                                        params: Dict[str, Any],
+                                        pagination_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        执行报告期范围分页
+
+        当 date_parameter_type 为 "report_period" 时，将 start_date/end_date
+        转换为多个 period 参数请求
+        """
+        all_data = []
+
+        # 获取日期范围
+        start_date = params.get('start_date', '20050101')
+        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+
+        logger.info(f"Generating report periods for range: {start_date} - {end_date}")
+
+        # 生成季度末日期列表
+        periods = self._generate_quarter_end_dates(start_date, end_date)
+
+        if not periods:
+            logger.warning(f"No valid report periods found in range {start_date} - {end_date}")
+            return []
+
+        logger.info(f"Generated {len(periods)} report periods: {periods}")
+
+        # 为每个 period 发起请求
+        for idx, period in enumerate(periods):
+            period_params = params.copy()
+
+            # 移除 start_date 和 end_date，使用 period 参数
+            period_params.pop('start_date', None)
+            period_params.pop('end_date', None)
+            period_params['period'] = period
+
+            logger.info(f"Fetching data for period {period} ({idx+1}/{len(periods)})")
+
+            # 记录开始时间
+            start_time = time.time()
+            
+            # 发起请求
+            period_data = self._make_request(interface_config, period_params)
+            
+            # 计算请求耗时
+            elapsed_time = time.time() - start_time
+
+            # 记录性能指标
+            logger.debug(f"Recording request_time metric: {elapsed_time:.2f}s for period {period}")
+            performance_monitor.record_metric('request_time', elapsed_time, {
+                'interface': interface_config['api_name'],
+                'period': period,
+                'ts_code': params.get('ts_code', 'unknown')
+            })
+            performance_monitor.check_alerts('request_time', elapsed_time, {
+                'interface': interface_config['api_name'],
+                'period': period,
+                'ts_code': params.get('ts_code', 'unknown')
+            })
+            
+            if period_data:
+                all_data.extend(period_data)
+                logger.info(f"Downloaded {len(period_data)} records for period {period}")
+                
+                # 记录数据量指标
+                logger.debug(f"Recording data_size metric: {len(period_data)} records for period {period}")
+                performance_monitor.record_metric('data_size', len(period_data), {
+                    'interface': interface_config['api_name'],
+                    'period': period,
+                    'ts_code': params.get('ts_code', 'unknown')
+                })
+                performance_monitor.check_alerts('data_size', len(period_data), {
+                    'interface': interface_config['api_name'],
+                    'period': period,
+                    'ts_code': params.get('ts_code', 'unknown')
+                })
+            else:
+                logger.warning(f"No data returned for period {period}")
+
+        return all_data
+
     def download_single_stock(self, interface_config: Dict[str, Any], stock: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """下载单只股票的数据 - 原子化方法供调度器调用
 
@@ -583,7 +726,5 @@ class GenericDownloader:
                     time.sleep(2 ** attempt)
                     continue
                 return []
-
-        return []
 
         return []

@@ -48,8 +48,11 @@ parameters:
 
 pagination:
   enabled: true
-  mode: "date_range"  # 先按日期窗口分割
-  window_size_days: 180  # 减小窗口，避免单次请求过载
+  mode: "period_range"  # 新增模式：报告期范围分页
+  date_parameter_type: "report_period"  # 新增：指定日期参数类型
+  # 可选值：
+  # - "announcement": start_date/end_date 控制公告日期（默认）
+  # - "report_period": start_date/end_date 控制报告期，转换为多个 period 请求
 
 output:
   primary_key: ["ts_code", "ann_date", "end_date"]

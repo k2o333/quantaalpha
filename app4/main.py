@@ -233,6 +233,10 @@ def main():
         print("      性能监控报告")
         print("="*30)
         
+        # 添加调试信息
+        import sys
+        print(f"Debug: performance_monitor id: {id(performance_monitor)}", file=sys.stderr)
+        
         avg_request_time = performance_monitor.get_average_metric('request_time')
         avg_data_size = performance_monitor.get_average_metric('data_size')
         avg_retry_count = performance_monitor.get_average_metric('retry_count')
@@ -240,6 +244,10 @@ def main():
         print(f"平均请求时间: {avg_request_time:.2f}s")
         print(f"平均单窗口条数: {avg_data_size:.2f} 条")
         print(f"平均重试次数: {avg_retry_count:.2f} 次")
+        
+        # 打印更详细的指标信息
+        print(f"Debug: request_time指标数量: {len(performance_monitor._metrics['request_time']) if 'request_time' in performance_monitor._metrics else 0}", file=sys.stderr)
+        print(f"Debug: data_size指标数量: {len(performance_monitor._metrics['data_size']) if 'data_size' in performance_monitor._metrics else 0}", file=sys.stderr)
 
         if avg_request_time > 30:
             print("⚠️ 警告: 平均请求时间过长")
