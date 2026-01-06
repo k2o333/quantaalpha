@@ -8,9 +8,7 @@
 
 ## 目标
 
-彻底去掉 cache 方案，采用 **Parquet Dataset (文件夹存储)** 模式，实现 **Append-Only (追加写)** 高效存储。
-每次下载的数据直接写入新的分片文件，文件名携带日期元数据以优化读取。
-**读取时自动根据日期过滤文件，并基于时间戳进行确定性去重**。此方案解决了单文件追加导致的损坏风险，同时提升读写性能。
+彻底去掉 cache 方案，采用 **Parquet Dataset (文件夹存储)** 模式，实现 **Append-Only (追加写)** 高效存储。每次下载的数据直接写入新的分片文件，**读取时自动合并并根据主键去重**。此方案解决了单文件追加导致的损坏风险，同时提升写入性能。
 
 ---
 
@@ -25,26 +23,23 @@
 - 修改 `Downloader` 不再依赖 Cache
 - 清理缓存相关配置
 
-### 2. 存储性能与一致性修复 (Critical) ⚠️
+### 2. 存储性能瓶颈修复（已修正）⚠️
 
-**原方案缺陷**: 
-- 原 `core/storage.py` 存在 Parquet 追加写损坏风险。
-- 读取全目录性能随文件数线性恶化。
-- `keep='last'` 去重依赖文件系统顺序，不可靠。
+**原方案缺陷**: 忽略了 `core/storage.py` 现有的严重性能隐患，并引入了**Parquet追加写错误**。
 
 **优化方案**:
-- **Dataset 模式**: 接口数据存储为目录，采用扁平结构。
-- **文件名元数据**: 文件名包含数据日期范围 (`{interface}_{start}_{end}_{uuid}.parquet`)，实现读取时的 **Predicate Pushdown (谓词下推)**。
-- **确定性去重**: 写入时增加 `_update_time`，读取时按此字段排序去重。
-- **原子写入**: 写入 `.tmp` 后重命名，防止脏读。
+- 采用 **Parquet Dataset 模式**（方案 A）
+- 每个接口数据存储为目录（如 `data/daily/`），而非单个文件
+- 每次写入生成独立分片文件，实现真正的 O(1) 追加性能
+- 读取时自动合并目录下所有文件，并执行去重
 
 ### 3. 内存与并发风险修复
 
-**原方案缺陷**: 小 batch_size 导致小文件爆炸和 IO 瓶颈。
+**原方案缺陷**: `stock_loop` 模式下内存压力大。
 
 **优化方案**:
-- **Micro-batching**: 增大 `batch_size` 至 10,000 条，减少文件数量。
-- **分批处理**: 内存中积攒一定量后再一次性刷盘。
+- 实现分批处理，每收集一定数量数据就立即处理和保存
+- 减少内存占用
 
 ### 4. 代码逻辑冲突修复
 
@@ -56,10 +51,10 @@
 
 ### 5. 依赖管理修复
 
-**新增修复**: 锁定 `polars` 版本以保证 API 稳定性。
+**新增修复**: 确保 `polars` 库在依赖清单中。
 
 **优化方案**:
-- 更新 `requirements.txt`，锁定 `polars==0.20.31`
+- 更新 `requirements.txt`，添加 `polars` 依赖
 
 ---
 
@@ -67,7 +62,7 @@
 
 ### 1. `core/storage.py` - 优化写入与读取逻辑（修正后）
 
-采用带元数据的文件名，原子写入，以及基于时间戳的去重：
+采用 Parquet Dataset 模式，并实现读取时去重：
 
 ```python
 def _write_interface_data(self, interface_name: str, data: List[Dict[str, Any]]):
@@ -75,37 +70,31 @@ def _write_interface_data(self, interface_name: str, data: List[Dict[str, Any]])
     写入接口数据 - Parquet Dataset 模式
     """
     import uuid
-    import time
     
+    # 接口数据存储目录
     dir_path = os.path.join(self.storage_dir, interface_name)
     os.makedirs(dir_path, exist_ok=True)
     
     try:
         if not data:
+            logger.warning(f"No data to write for {interface_name}")
             return
             
-        # [优化] 增加写入时间戳，用于确定性去重
-        current_time = int(time.time() * 1000)
-        for item in data:
-            item['_update_time'] = current_time
-
+        # 获取接口配置
+        interface_config = self._get_interface_config(interface_name)
+        # 注意：Dataset 模式写入时不检查主键，仅负责快速写入
+        
+        # 创建 DataFrame
         df = pl.DataFrame(data)
         
-        # [优化] 从数据中提取日期范围用于文件名元数据
-        date_col = 'trade_date' if 'trade_date' in df.columns else ('cal_date' if 'cal_date' in df.columns else None)
-        if date_col:
-            min_date = df[date_col].min()
-            max_date = df[date_col].max()
-            date_range_str = f"{min_date}_{max_date}"
-        else:
-            date_range_str = "nodate"
-
-        # 生成带元数据的文件名: {interface}_{start}_{end}_{timestamp}_{uuid}.parquet
+        # 生成唯一文件名: part-{timestamp}-{uuid}.parquet
+        timestamp = int(time.time() * 1000)
         unique_id = uuid.uuid4().hex[:8]
-        file_name = f"{interface_name}_{date_range_str}_{current_time}_{unique_id}.parquet"
+        file_name = f"part-{timestamp}-{unique_id}.parquet"
         file_path = os.path.join(dir_path, file_name)
         
-        # [优化] 原子写入
+        # [修改] 原子写入：先写临时文件，再原子重命名
+        # 避免写入中断导致产生损坏的 Parquet 文件
         temp_file_path = file_path + ".tmp"
         df.write_parquet(temp_file_path, compression='snappy')
         os.rename(temp_file_path, file_path)
@@ -116,55 +105,33 @@ def _write_interface_data(self, interface_name: str, data: List[Dict[str, Any]])
         logger.error(f"Error writing interface data for {interface_name}: {str(e)}")
         raise
 
-def read_interface_data(self, interface_name: str, start_date: str = None, end_date: str = None, columns: Optional[List[str]] = None) -> pl.DataFrame:
+def read_interface_data(self, interface_name: str, columns: Optional[List[str]] = None) -> pl.DataFrame:
     """
-    读取接口数据 - 支持文件名过滤和确定性去重
+    读取接口数据 - 支持 Dataset 目录读取并自动去重
     """
     dir_path = os.path.join(self.storage_dir, interface_name)
     
     if not os.path.exists(dir_path):
+        logger.warning(f"No data found for {interface_name}")
         return pl.DataFrame()
     
     try:
-        # [优化] 文件名过滤 (Predicate Pushdown 模拟)
-        files_to_read = []
-        all_files = os.listdir(dir_path)
+        # 读取整个目录（自动合并所有分片）
+        df = pl.read_parquet(dir_path, columns=columns)
         
-        for f in all_files:
-            if not f.endswith('.parquet'): continue # 忽略 .tmp
-            
-            # 简单过滤：如果提供了日期范围，且文件名包含日期信息，则进行过滤
-            # 文件名格式: name_start_end_ts_uuid.parquet
-            parts = f.split('_')
-            if len(parts) >= 4 and start_date and end_date:
-                # 这是一个简化的过滤逻辑，实际可能需要更健壮的解析
-                # 假设 parts[1] 是 min_date, parts[2] 是 max_date
-                f_min, f_max = parts[1], parts[2]
-                if f_min != "nodate":
-                    # 检查范围重叠
-                    if f_max < start_date or f_min > end_date:
-                        continue 
-            
-            files_to_read.append(os.path.join(dir_path, f))
-            
-        if not files_to_read:
-            return pl.DataFrame()
-
-        # 读取所有符合条件的文件
-        df = pl.read_parquet(files_to_read, columns=columns)
-        
-        # [优化] 确定性去重
+        # [读取时去重]
         interface_config = self._get_interface_config(interface_name)
         primary_keys = interface_config.get('output', {}).get('primary_key', [])
         
         if primary_keys and not df.is_empty():
+            # 确保主键列存在于 DataFrame 中
             existing_keys = [k for k in primary_keys if k in df.columns]
             if existing_keys:
-                # 按 _update_time 排序，确保保留最新写入的数据
-                if '_update_time' in df.columns:
-                    df = df.sort('_update_time', descending=False)
-                
+                before = len(df)
                 df = df.unique(subset=existing_keys, keep='last')
+                after = len(df)
+                if before > after:
+                    logger.debug(f"Read-time deduplication removed {before - after} records")
         
         return df
     except Exception as e:
@@ -174,43 +141,120 @@ def read_interface_data(self, interface_name: str, start_date: str = None, end_d
 
 ### 2. `core/processor.py` - 完善去重逻辑
 
-重写 `_remove_duplicates` 方法（批次内去重）:
+重写 `_remove_duplicates` 方法（保持不变，逻辑有效）:
 
 ```python
 def _remove_duplicates(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-    # 逻辑保持不变，用于写入前的批次内去重
-    # ...
+    """
+    移除重复数据 - 启用版
+    """
+    if df.is_empty():
+        return df
+        
+    output_config = interface_config.get('output', {})
+    primary_keys = output_config.get('primary_key', [])
+    
+    if not primary_keys:
+        logger.warning(f"No primary keys defined for deduplication")
+        return df
+        
+    existing_key_fields = [key for key in primary_keys if key in df.columns]
+    
+    if not existing_key_fields:
+        logger.warning(f"Primary keys not found in DataFrame columns")
+        return df
+        
+    before_dedup = len(df)
+    df = df.unique(subset=existing_key_fields, keep='last')
+    after_dedup = len(df)
+    
+    if before_dedup > after_dedup:
+        logger.info(f"Removed {before_dedup - after_dedup} duplicates")
+        
     return df
 ```
 
-### 3. `main.py` - 优化分批策略
+### 3. `main.py` - 实现分批处理
 
-修改 `run_concurrent_stock_download` 函数:
+修改 `run_concurrent_stock_download` 函数（保持不变）:
 
 ```python
 def run_concurrent_stock_download(downloader, storage_manager, processor, interfaces_to_run, params):
-    # ...
-    # [优化] 增大 batch_size 避免小文件爆炸
-    batch_size = 10000 
+    """
+    并发下载股票数据 - 分批处理版
+    """
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+    all_data = []
+    batch_size = 5000  # 每 5000 条数据处理一次
     
-    # ...
+    async def download_stock(stock_code):
+        async with semaphore:
+            try:
+                params['stock_code'] = stock_code
+                data = await downloader.async_download(interface_name, params)
+                return data
+            except Exception as e:
+                logger.error(f"Error downloading {stock_code}: {str(e)}")
+                return []
+    
+    # 并发下载
+    tasks = [download_stock(stock_code) for stock_code in stock_codes]
+    results = await asyncio.gather(*tasks)
+    
+    # 分批处理
+    for i, data in enumerate(results):
+        if data:
+            all_data.extend(data)
+            
             # 每 batch_size 条数据处理一次
             if len(all_data) >= batch_size:
                 process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
-                all_data = [] # 注意：这里建议改用 deque 或其他方式优化内存，如果数据量确实很大
-    # ...
+                all_data = []
+    
+    # 处理剩余数据
+    if all_data:
+        process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
 ```
 
-### 4. `main.py` - 移除 CacheManager (同前)
+### 4. `main.py` - 移除 CacheManager
 
-### 5. `config/settings.yaml` - 清理配置 (同前)
+删除 `CacheManager` 相关代码（保持不变）:
 
-### 6. `app4/requirements.txt` - 锁定版本
+```python
+# 删除以下代码：
+# from cache.cache_manager import CacheManager
+# cache_manager = CacheManager()
+# downloader = GenericDownloader(cache_manager=cache_manager)
+```
+
+修改为：
+
+```python
+# 新的 Downloader 初始化（不依赖 Cache）
+downloader = GenericDownloader()
+```
+
+### 5. `config/settings.yaml` - 清理配置
+
+删除缓存相关配置（保持不变）:
+
+```yaml
+# 删除以下配置：
+# cache:
+#   type: redis
+#   host: localhost
+#   port: 6379
+```
+
+### 6. `app4/requirements.txt` - 更新依赖
+
+添加缺失的 `polars` 依赖：
 
 ```txt
 # 数据处理和存储
-polars==0.20.31
-# ...
+polars>=0.19.0
+# 原有的 pandas 可根据实际情况保留或移除
+# pandas>=1.5.0
 ```
 
 ### 7. 关键冲突解决 (Critical Conflict Resolution)
