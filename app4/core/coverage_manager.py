@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 class CoverageManager:
     """覆盖率管理器 - 实现重复数据检测功能"""
-    
-    def __init__(self, storage_manager: StorageManager, config_loader: ConfigLoader):
+
+    def __init__(self, storage_manager: StorageManager, config_loader: ConfigLoader, downloader=None):
         self.storage_manager = storage_manager
         self.config_loader = config_loader
+        self.downloader = downloader  # 添加downloader引用用于API请求
         # 简单的内存缓存 {(interface, key): result}
         self._cache = {}
         self._coverage_cache = {}  # 用于缓存覆盖率检测结果
@@ -253,7 +254,7 @@ class CoverageManager:
     def _make_request_to_trade_cal(self, params: Dict[str, Any]) -> Optional[list]:
         """
         内部方法：请求交易日历数据
-        这里我们直接从storage读取，如果不存在则返回None
+        优先从本地存储读取，如果不存在则从API获取并缓存
         """
         try:
             # 尝试从storage读取交易日历 - 不使用日期过滤，因为文件名可能不包含日期范围
@@ -266,7 +267,35 @@ class CoverageManager:
                     (pl.col('exchange') == params['exchange'])
                 )
                 if not filtered_df.is_empty():
+                    logger.info(f"Loaded {len(filtered_df)} trade days from local storage for range {params['start_date']}-{params['end_date']}")
                     return filtered_df.to_dicts()
+
+            logger.info(f"No trade calendar data found in local storage for range {params['start_date']}-{params['end_date']}, fetching from API...")
+
+            # 如果本地没有数据，尝试从API获取
+            # 从downloader获取trade_cal接口配置
+            try:
+                trade_cal_config = self.config_loader.get_interface_config('trade_cal')
+
+                # 创建下载器实例来获取数据（但需要避免循环依赖）
+                # 这里我们直接使用storage_manager的downloader引用（如果存在）
+                if hasattr(self, 'downloader') and self.downloader:
+                    # 通过downloader请求API
+                    calendar_params = {
+                        'start_date': params['start_date'],
+                        'end_date': params['end_date'],
+                        'exchange': params['exchange']
+                    }
+                    trade_calendar = self.downloader._make_request(trade_cal_config, calendar_params)
+
+                    if trade_calendar:
+                        # 将新获取的数据保存到存储中以供后续使用
+                        self.storage_manager.save_data('trade_cal', trade_calendar, async_write=True)
+                        logger.info(f"Fetched and cached {len(trade_calendar)} trade days from API for range {params['start_date']}-{params['end_date']}")
+                        return trade_calendar
+            except Exception as api_error:
+                logger.warning(f"Failed to fetch trade calendar from API: {api_error}")
+
             return None
         except Exception as e:
             # 如果读取失败，返回None，外部会处理

@@ -157,3 +157,4 @@ output:
     continued_net_profit: {type: float}
     end_net_profit: {type: float}
     update_flag: {type: string}
+    period: {type: string, required: false}

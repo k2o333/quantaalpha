@@ -134,11 +134,44 @@ class StorageManager:
             df = pl.DataFrame(data)
 
             # [优化] 从数据中提取日期范围用于文件名元数据
-            date_col = 'trade_date' if 'trade_date' in df.columns else ('cal_date' if 'cal_date' in df.columns else None)
+            # 优先级：对于不同接口，优先使用最相关的日期字段
+            # 对于income_vip等period_range接口，优先使用period字段
+            # 对于daily等date_range接口，使用trade_date
+            date_col = None
+
+            # 如果接口名包含特定关键词，优先使用相应的日期字段
+            if 'income' in interface_name or 'balance' in interface_name or 'cashflow' in interface_name:
+                # 财务数据接口，优先使用period字段
+                priority_cols = ['period', 'end_date', 'ann_date', 'trade_date', 'cal_date']
+            else:
+                # 其他接口，优先使用交易日期字段
+                priority_cols = ['trade_date', 'cal_date', 'ann_date', 'end_date', 'period']
+
+            for col in priority_cols:
+                if col in df.columns:
+                    date_col = col
+                    break
+
             if date_col:
-                min_date = df[date_col].min()
-                max_date = df[date_col].max()
-                date_range_str = f"{min_date}_{max_date}"
+                # 获取日期范围
+                min_val = df[date_col].min()
+                max_val = df[date_col].max()
+
+                # 处理不同类型的日期值
+                if isinstance(min_val, (str, int)):
+                    # 如果是字符串或整数格式（如'20230630'或20230630）
+                    min_date_str = str(min_val)
+                    max_date_str = str(max_val)
+                elif hasattr(min_val, 'strftime'):
+                    # 如果是日期/时间对象
+                    min_date_str = min_val.strftime('%Y%m%d')
+                    max_date_str = max_val.strftime('%Y%m%d')
+                else:
+                    # 其他类型转换为字符串
+                    min_date_str = str(min_val)
+                    max_date_str = str(max_val)
+
+                date_range_str = f"{min_date_str}_{max_date_str}"
             else:
                 date_range_str = "nodate"
 
@@ -193,7 +226,28 @@ class StorageManager:
                 return pl.DataFrame()
 
             # 读取所有符合条件的文件
-            df = pl.read_parquet(files_to_read, columns=columns)
+            if columns:
+                # 如果指定了列，先读取所有列，然后选择需要的列
+                try:
+                    df_full = pl.read_parquet(files_to_read)
+                    available_cols = [col for col in columns if col in df_full.columns]
+                    df = df_full.select(available_cols)
+                except Exception as e:
+                    # 如果类型不匹配或其他错误，使用更兼容的方法
+                    # 先读取所有文件的schema，然后统一处理
+                    df = pl.DataFrame()
+                    for file_path in files_to_read:
+                        try:
+                            # 读取单个文件，只取需要的列
+                            temp_df = pl.read_parquet(file_path)
+                            available_cols = [col for col in columns if col in temp_df.columns]
+                            temp_df = temp_df.select(available_cols)
+                            df = df.vstack(temp_df) if not df.is_empty() else temp_df
+                        except Exception:
+                            # 如果单个文件有问题，跳过它
+                            continue
+            else:
+                df = pl.read_parquet(files_to_read)
 
             # [优化] 确定性去重
             interface_config = self._get_interface_config(interface_name)

@@ -85,7 +85,7 @@ class GenericDownloader:
 
         # [新增] 覆盖率管理器
         if storage_manager:
-            self.coverage_manager = CoverageManager(storage_manager, config_loader)
+            self.coverage_manager = CoverageManager(storage_manager, config_loader, downloader=self)
         else:
             self.coverage_manager = None
 
@@ -615,6 +615,11 @@ class GenericDownloader:
 
             # 发起请求
             period_data = self._make_request(interface_config, period_params)
+
+            # 对于period_range模式，将period参数添加到每条记录中
+            if period_data and 'period' in period_params:
+                for record in period_data:
+                    record['period'] = period_params['period']
 
             # 计算请求耗时
             elapsed_time = time.time() - start_time
