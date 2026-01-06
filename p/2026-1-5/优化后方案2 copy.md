@@ -93,12 +93,8 @@ def _write_interface_data(self, interface_name: str, data: List[Dict[str, Any]])
         file_name = f"part-{timestamp}-{unique_id}.parquet"
         file_path = os.path.join(dir_path, file_name)
         
-        # [修改] 原子写入：先写临时文件，再原子重命名
-        # 避免写入中断导致产生损坏的 Parquet 文件
-        temp_file_path = file_path + ".tmp"
-        df.write_parquet(temp_file_path, compression='snappy')
-        os.rename(temp_file_path, file_path)
-        
+        # 直接写入新文件（无需读取旧数据）
+        df.write_parquet(file_path, compression='snappy')
         logger.info(f"Wrote {len(df)} records to {file_path}")
             
     except Exception as e:
@@ -255,86 +251,6 @@ downloader = GenericDownloader()
 polars>=0.19.0
 # 原有的 pandas 可根据实际情况保留或移除
 # pandas>=1.5.0
-```
-
-### 7. 关键冲突解决 (Critical Conflict Resolution)
-
-针对 `CacheManager` 移除后产生的代码冲突，采取以下替代方案：
-
-#### A. 交易日历预加载 (`main.py` & `downloader.py`)
-- **冲突**: `main.py` 的 `preload_global_trade_calendar` 和 `downloader.py` 的 `_execute_date_range_pagination` 深度依赖 `CacheManager` 来获取/存储交易日历。
-- **解决方案**: **以 Data 目录为单一真值来源 (Source of Truth)**。
-    1. **Downloader 修改**:
-        - 移除 `__init__` 中的 `cache_manager` 参数。
-        - 内部维护一个简单的内存字典 `self._memory_cache` (用于本次运行的 `trade_cal` 和 `stock_list`)。
-        - 修改 `_get_trade_calendar` 逻辑：
-            - 1. 查内存 `self._memory_cache`。
-            - 2. (新增) 查 Data 目录 (`data/trade_cal/`)。使用 `pl.read_parquet` 读取并合并，如果有覆盖所需日期范围的数据，则使用。
-            - 3. 查 API (TuShare)。
-    2. **Main 修改**:
-        - 重写 `preload_global_trade_calendar`，不再调用 `cache_manager`，而是直接调用 `downloader.download('trade_cal', ...)` (如果 Data 目录已有则会自动利用，或者直接强制下载并保存到 Data 目录)。
-
-#### B. Downloader 构造函数
-- **冲突**: `GenericDownloader` 强制要求 `CacheManager` 实例。
-- **解决方案**: 修改 `core/downloader.py` 的 `__init__` 方法，删除 `cache_manager` 参数，并清理所有 `self.cache_manager` 的调用。
-
-#### C. 配置清理
-- **冲突**: `settings.yaml` 中移除 `cache` 字段可能导致 `ConfigLoader` 或 `main.py` 读取配置时报错。
-- **解决方案**: 确保代码中使用 `.get('cache', {})` 安全读取，或在 `ConfigLoader` 中设置默认空值，防止 KeyError。
-
-#### D. 详细实现逻辑 (Implementation Details)
-
-**1. 股票列表缓存处理**
-- **问题**: `downloader.py` 中 `stock_loop` 分页模式依赖 `cache_manager.get_stock_list()`。
-- **解决**: 同样采用 Data 目录作为持久化存储 (`data/stock_basic/`)，运行时使用 `self._memory_cache` 加速。
-
-**2. 内存缓存机制设计**
-```python
-class GenericDownloader:
-    def __init__(self, config_loader):
-        # ... 其他初始化 ...
-        # 运行时简易缓存，替代原有的 CacheManager
-        self._memory_cache = {
-            'trade_cal': {},      # Key: ('start_date', 'end_date'), Value: list[dict]
-            'stock_list': None    # Value: list[dict]
-        }
-        self._cache_lock = threading.RLock()  # 确保线程安全
-```
-
-**3. Data 目录查询逻辑示例**
-```python
-def _get_trade_calendar_from_data_dir(self, start_date, end_date):
-    """从 Data 目录查询交易日历 (Source of Truth)"""
-    # 假设存储目录为 data/trade_cal/
-    dir_path = os.path.join(self.global_config.get('storage', {}).get('base_dir', '../data'), 'trade_cal')
-    
-    if not os.path.exists(dir_path):
-        return None
-
-    try:
-        # 读取目录下所有 parquet 文件 (Dataset 模式)
-        # 注意: 如果文件很多，这一步可能会慢，后续可考虑优化为只读取特定分区
-        df = pl.read_parquet(dir_path)
-        
-        if df.is_empty():
-            return None
-
-        # 过滤日期范围并去重
-        # 必须去重，因为 Dataset 模式下可能有重复数据
-        filtered_df = df.filter(
-            (pl.col('cal_date') >= start_date) &
-            (pl.col('cal_date') <= end_date) &
-            (pl.col('is_open') == 1)
-        ).unique(subset=['cal_date'], keep='last').sort('cal_date')
-        
-        if filtered_df.is_empty():
-            return None
-
-        return filtered_df.to_dicts()
-        
-    except Exception as e:
-        logger.warning(f"Failed to read trade calendar from Data dir: {e}")
-        return None
 ```
 
 ---
