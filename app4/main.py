@@ -22,7 +22,6 @@ load_dotenv(env_path)
 
 from core.config_loader import ConfigLoader
 from core.downloader import GenericDownloader
-from core.cache_manager import CacheManager
 from core.scheduler import TaskScheduler, RateLimiter
 from core.storage import StorageManager
 from core.processor import DataProcessor
@@ -141,11 +140,6 @@ def main():
     logger.info("Starting aspipe_v4 App4 - Configuration-driven architecture")
 
     # 初始化其他组件
-    cache_manager = CacheManager(
-        cache_dir=config_loader.global_config.get('cache', {}).get('base_dir', '../cache'),
-        default_ttl=config_loader.global_config.get('cache', {}).get('default_ttl', 86400)
-    )
-
     scheduler = TaskScheduler(
         max_workers=config_loader.global_config.get('concurrency', {}).get('max_workers', 4),
         max_queue_size=config_loader.global_config.get('concurrency', {}).get('max_queue_size', 1000)
@@ -154,34 +148,30 @@ def main():
     storage_manager = StorageManager(
         storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
         format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
-        batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 100)
+        batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)  # [优化] 增大 batch_size
     )
 
     processor = DataProcessor()
-    downloader = GenericDownloader(config_loader, cache_manager)
+    downloader = GenericDownloader(config_loader)
 
     from core.downloader import performance_monitor
 
-    # [新增] 预加载全局交易日历，并优化缓存策略
+    # [修改] 预加载全局交易日历 - 不再依赖 CacheManager
     def preload_global_trade_calendar(downloader, start_date='19900101', end_date=None):
-        """预加载全局交易日历，并预缓存常用子范围以提高命中率"""
+        """预加载全局交易日历，直接从API获取或从Data目录读取"""
         if end_date is None:
             from datetime import datetime
             end_date = datetime.now().strftime('%Y%m%d')
 
         logger.info(f"Preloading global trade calendar: {start_date} - {end_date}")
 
-        # 使用最广泛的日期范围
-        full_range_key = f"calendar_{start_date}_{end_date}"
-        # 也可以使用硬编码的固定大范围键，配合 CacheManager 中的逻辑
-        full_calendar_key = "calendar_19900101_20251231"
-        
-        trade_calendar = downloader.cache_manager.get(full_calendar_key)
+        # 首先尝试从Data目录读取
+        trade_calendar = downloader._get_trade_calendar_from_data_dir(start_date, end_date)
         if trade_calendar is not None:
-            logger.info(f"Global trade calendar already cached: {len(trade_calendar)} trade days")
+            logger.info(f"Global trade calendar loaded from data directory: {len(trade_calendar)} trade days")
             return trade_calendar
 
-        # 缓存未命中，请求 API
+        # Data目录未命中，请求 API
         calendar_params = {
             'start_date': start_date,
             'end_date': end_date,
@@ -194,34 +184,11 @@ def main():
         )
 
         if trade_calendar:
-            # 过滤出交易日并缓存
+            # 过滤出交易日
             trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
             trade_days = sorted(trade_days, key=lambda x: x['cal_date'])
-            
-            # 缓存完整范围
-            downloader.cache_manager.set(full_calendar_key, trade_days)
-            downloader.cache_manager.set(full_range_key, trade_days)
 
-            # 预缓存一些常见的子范围以提高后续请求的命中率
-            common_sub_ranges = [
-                ('20050101', '20251231'),
-                ('20100101', '20251231'),
-                ('20150101', '20251231'),
-                ('20200101', '20251231'),
-            ]
-
-            for sub_start, sub_end in common_sub_ranges:
-                if sub_start >= start_date and sub_end <= end_date:
-                    sub_calendar = [
-                        day for day in trade_days
-                        if sub_start <= day['cal_date'] <= sub_end
-                    ]
-                    if sub_calendar:
-                        sub_key = f"calendar_{sub_start}_{sub_end}"
-                        downloader.cache_manager.set(sub_key, sub_calendar)
-                        logger.debug(f"Pre-cached common range {sub_start}-{sub_end}")
-
-            logger.info(f"Preloaded {len(trade_days)} trade days with enhanced caching")
+            logger.info(f"Preloaded {len(trade_days)} trade days from API")
             return trade_days
         else:
             logger.warning("Failed to preload trade calendar")
@@ -299,8 +266,8 @@ def main():
 
         return df
 
-    def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter):
-        """运行并发股票下载"""
+    def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter, storage_manager, processor):
+        """运行并发股票下载 - 优化批处理"""
         logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
 
         # 创建包装函数，包含限流逻辑
@@ -308,6 +275,10 @@ def main():
             # 在工作线程中等待令牌
             rate_limiter.wait_for_tokens(1)
             return downloader.download_single_stock(interface_config, stock, params)
+
+        # [优化] 增大 batch_size 避免小文件爆炸
+        batch_size = 10000
+        all_data = []
 
         # 构建任务列表
         tasks = []
@@ -325,12 +296,17 @@ def main():
                 results = scheduler.submit_tasks(tasks)
 
                 # 收集结果
-                all_data = []
                 for result in results:
                     if result:
                         all_data.extend(result)
 
                 logger.info(f"Completed batch, got {len(all_data)} records")
+
+                # [优化] 每 batch_size 条数据处理一次
+                if len(all_data) >= batch_size:
+                    process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
+                    all_data = []
+
                 tasks = []
 
         # 提交剩余任务
@@ -338,15 +314,17 @@ def main():
             logger.info(f"Submitting final batch of {len(tasks)} tasks")
             results = scheduler.submit_tasks(tasks)
 
-            all_data = []
             for result in results:
                 if result:
                     all_data.extend(result)
 
             logger.info(f"Completed final batch, got {len(all_data)} records")
-            return all_data
 
-        return []
+        # 处理剩余数据
+        if all_data:
+            process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
+
+        return all_data
 
     # [新增] try...finally 结构
     try:
@@ -446,15 +424,16 @@ def main():
                     if pagination_mode == 'stock_loop':
                         logger.info(f"Using concurrent download for stock_loop mode")
 
-                        # 获取股票列表
-                        stock_list = cache_manager.get_stock_list()
+                        # 获取股票列表 - 从Data目录或API获取
+                        stock_list = downloader._get_stock_list_from_data_dir()
                         if stock_list is None:
-                            logger.info("缓存中未找到股票列表，正在从API获取...")
+                            logger.info("Data目录中未找到股票列表，正在从API获取...")
                             stock_params = {'list_status': 'L'}
                             stock_list = downloader.download('stock_basic', stock_params)
                             if stock_list:
                                 logger.info(f"从API获取到 {len(stock_list)} 只股票")
-                                cache_manager.set_stock_list(stock_list)
+                                # 保存到Data目录
+                                storage_manager.save_data('stock_basic', stock_list, async_write=False)
                             else:
                                 logger.warning("未能从API获取股票列表")
                                 continue
@@ -467,7 +446,7 @@ def main():
                             logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
 
                         # 使用并发下载
-                        all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter)
+                        all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)
 
                         if all_data:
                             logger.info(f"Successfully downloaded {len(all_data)} total records for {interface_name}")

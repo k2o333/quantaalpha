@@ -71,41 +71,20 @@ output:
     int_income: {type: float}
     prem_earned: {type: float}
     comm_income: {type: float}
-    n_commis_income: {type: float}
+    n_comm_income: {type: float}
     n_oth_income: {type: float}
     n_oth_b_income: {type: float}
-    prem_income: {type: float}
-    out_prem: {type: float}
-    une_prem_reser: {type: float}
-    reins_income: {type: float}
-    n_sec_tb_income: {type: float}
-    n_sec_uw_income: {type: float}
-    n_asset_mg_income: {type: float}
-    oth_b_income: {type: float}
-    fv_value_chg_gain: {type: float}
-    invest_income: {type: float}
-    ass_invest_income: {type: float}
-    forex_gain: {type: float}
     total_cogs: {type: float}
-    oper_cost: {type: float}
-    int_exp: {type: float}
-    comm_exp: {type: float}
-    biz_tax_surchg: {type: float}
-    sell_exp: {type: float}
+    oper_exp: {type: float}
     admin_exp: {type: float}
     fin_exp: {type: float}
-    assets_impair_loss: {type: float}
-    prem_refund: {type: float}
-    compens_payout: {type: float}
-    reser_insur_liab: {type: float}
-    div_payt: {type: float}
-    reins_exp: {type: float}
-    oper_exp: {type: float}
-    compens_payout_refu: {type: float}
-    insur_reser_refu: {type: float}
-    reins_cost_refund: {type: float}
-    other_bus_cost: {type: float}
-    operate_profit: {type: float}
+    impa_taxes: {type: float}
+    disp_ral: {type: float}
+    credit_impair: {type: float}
+    assets_impair: {type: float}
+    invest_income: {type: float}
+    ass_invest_income: {type: float}
+    oper_profit: {type: float}
     non_oper_income: {type: float}
     non_oper_exp: {type: float}
     nca_disploss: {type: float}
@@ -118,36 +97,3 @@ output:
     t_compr_income: {type: float}
     compr_inc_attr_p: {type: float}
     compr_inc_attr_m_s: {type: float}
-    ebit: {type: float}
-    ebitda: {type: float}
-    insurance_exp: {type: float}
-    undist_profit: {type: float}
-    distable_profit: {type: float}
-    rd_exp: {type: float}
-    fin_exp_int_exp: {type: float}
-    fin_exp_int_inc: {type: float}
-    transfer_surplus_rese: {type: float}
-    transfer_housing_imprest: {type: float}
-    transfer_oth: {type: float}
-    adj_lossgain: {type: float}
-    withdra_legal_surplus: {type: float}
-    withdra_legal_pubfund: {type: float}
-    withdra_biz_devfund: {type: float}
-    withdra_rese_fund: {type: float}
-    withdra_oth_ersu: {type: float}
-    workers_welfare: {type: float}
-    distr_profit_shrhder: {type: float}
-    prfshare_payable_dvd: {type: float}
-    comshare_payable_dvd: {type: float}
-    capit_comstock_div: {type: float}
-    net_after_nr_lp_correct: {type: float}
-    credit_impa_loss: {type: float}
-    net_expo_hedging_benefits: {type: float}
-    oth_impair_loss_assets: {type: float}
-    total_opcost: {type: float}
-    amodcost_fin_assets: {type: float}
-    oth_income: {type: float}
-    asset_disp_income: {type: float}
-    continued_net_profit: {type: float}
-    end_net_profit: {type: float}
-    update_flag: {type: string}

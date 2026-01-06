@@ -6,11 +6,12 @@ import time
 import logging
 import random
 import threading
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from collections import defaultdict, deque
 from .config_loader import ConfigLoader
-from .cache_manager import CacheManager
+import polars as pl
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +65,19 @@ performance_monitor = PerformanceMonitor()
 class GenericDownloader:
     """通用下载器 - 原子化的执行引擎"""
 
-    def __init__(self, config_loader: ConfigLoader, cache_manager: CacheManager):
+    def __init__(self, config_loader: ConfigLoader):
         self.config_loader = config_loader
-        self.cache_manager = cache_manager
         self.global_config = config_loader.get_global_config()
-        
+
         # 创建具有重试策略的会话
         self.session = self._create_session_with_retries()
+
+        # [新增] 运行时简易缓存，替代原有的 CacheManager
+        self._memory_cache = {
+            'trade_cal': {},      # Key: ('start_date', 'end_date'), Value: list[dict]
+            'stock_list': None    # Value: list[dict]
+        }
+        self._cache_lock = threading.RLock()  # 确保线程安全
 
     def _create_session_with_retries(self):
         """创建配置了重试策略的 Session"""
@@ -117,27 +124,11 @@ class GenericDownloader:
             # 1. 获取接口配置
             interface_config = self.config_loader.get_interface_config(interface_name)
 
-            # 2. 检查缓存
-            cache_key = self._generate_cache_key(interface_name, params)
-            cached_data = self.cache_manager.get(cache_key)
-            if cached_data is not None:
-                logger.info(f"Cache hit for {interface_name} with key: {cache_key}")
-                return cached_data
-            else:
-                logger.info(f"Cache miss for {interface_name} with key: {cache_key}, will fetch from API")
-
-            # 3. 校验参数
+            # 2. 校验参数
             validated_params = self._validate_parameters(interface_config, params)
 
-            # 4. 执行分页/循环逻辑
+            # 3. 执行分页/循环逻辑
             all_data = self._execute_pagination(interface_config, validated_params)
-
-            # 5. 写入缓存
-            if all_data:
-                self.cache_manager.set(cache_key, all_data)
-                logger.info(f"Cache set for {interface_name} with key: {cache_key}, {len(all_data)} records")
-            else:
-                logger.info(f"No data to cache for {interface_name} with key: {cache_key}")
 
             return all_data
 
@@ -260,10 +251,18 @@ class GenericDownloader:
 
         logger.info(f"Fetching trade calendar for date range: {start_date} - {end_date}")
 
-        # [修改] 先查缓存，缓存未命中才请求 API
-        trade_calendar = self.cache_manager.get_trade_calendar(start_date, end_date)
+        # [修改] 先查内存缓存，再查Data目录，最后请求 API
+        with self._cache_lock:
+            cache_key = (start_date, end_date)
+            trade_calendar = self._memory_cache['trade_cal'].get(cache_key)
+
+        # 如果内存缓存未命中，查询Data目录
         if trade_calendar is None:
-            logger.info(f"Cache miss for trade calendar {start_date}-{end_date}, fetching from API")
+            trade_calendar = self._get_trade_calendar_from_data_dir(start_date, end_date)
+
+        # 如果Data目录未命中，请求 API
+        if trade_calendar is None:
+            logger.info(f"Trade calendar not found in memory cache or data directory, fetching from API")
             calendar_params = {
                 'start_date': start_date,
                 'end_date': end_date,
@@ -273,11 +272,12 @@ class GenericDownloader:
                 self.config_loader.get_interface_config('trade_cal'),
                 calendar_params
             )
+            # 更新内存缓存
             if trade_calendar:
-                self.cache_manager.set_trade_calendar(start_date, end_date, trade_calendar)
-                logger.info(f"Cached trade calendar for {start_date}-{end_date}")
+                with self._cache_lock:
+                    self._memory_cache['trade_cal'][cache_key] = trade_calendar
         else:
-            logger.info(f"Cache hit for trade calendar {start_date}-{end_date}")
+            logger.info(f"Trade calendar loaded from data directory: {start_date}-{end_date}")
 
         # 如果获取交易日历失败，使用默认的日期范围分页
         if not trade_calendar:
@@ -375,12 +375,16 @@ class GenericDownloader:
         """执行股票循环分页 - 串行版本"""
         all_data = []
 
-        # 获取股票列表（使用增强的缓存方法）
+        # 获取股票列表（从内存缓存或API获取）
         logger.info("正在获取股票列表...")
-        stock_list = self.cache_manager.get_stock_list()
+        stock_list = self._get_stock_list_from_memory_cache()
 
         if stock_list is None:
-            logger.info("缓存中未找到股票列表，正在从API获取...")
+            logger.info("内存中未找到股票列表，正在从Data目录获取...")
+            stock_list = self._get_stock_list_from_data_dir()
+
+        if stock_list is None:
+            logger.info("Data目录中未找到股票列表，正在从API获取...")
             stock_params = {'list_status': 'L'}
             stock_list = self._make_request(
                 self.config_loader.get_interface_config('stock_basic'),
@@ -388,11 +392,13 @@ class GenericDownloader:
             )
             if stock_list:
                 logger.info(f"从API获取到 {len(stock_list)} 只股票")
-                self.cache_manager.set_stock_list(stock_list)
+                # 更新内存缓存
+                with self._cache_lock:
+                    self._memory_cache['stock_list'] = stock_list
             else:
                 logger.warning("未能从API获取股票列表")
         else:
-            logger.info(f"从缓存获取到 {len(stock_list)} 只股票")
+            logger.info(f"从内存缓存或Data目录获取到 {len(stock_list)} 只股票")
 
         if not stock_list:
             logger.error("Failed to get stock list for stock loop pagination")
@@ -415,6 +421,65 @@ class GenericDownloader:
                 logger.info(f"Processed stock {stock['ts_code']} ({idx+1}/{total_stocks}), got {len(stock_data)} records")
 
         return all_data
+
+    def _get_stock_list_from_memory_cache(self) -> Optional[List[Dict[str, Any]]]:
+        """从内存缓存获取股票列表"""
+        with self._cache_lock:
+            return self._memory_cache['stock_list']
+
+    def _get_stock_list_from_data_dir(self) -> Optional[List[Dict[str, Any]]]:
+        """从Data目录获取股票列表"""
+        try:
+            storage_dir = self.global_config.get('storage', {}).get('base_dir', '../data')
+            dir_path = os.path.join(storage_dir, 'stock_basic')
+
+            if not os.path.exists(dir_path):
+                return None
+
+            # 读取目录下所有 parquet 文件
+            df = pl.read_parquet(dir_path)
+
+            if df.is_empty():
+                return None
+
+            return df.to_dicts()
+
+        except Exception as e:
+            logger.warning(f"Failed to read stock list from Data dir: {e}")
+            return None
+
+    def _get_trade_calendar_from_data_dir(self, start_date, end_date):
+        """从 Data 目录查询交易日历 (Source of Truth)"""
+        # 假设存储目录为 data/trade_cal/
+        storage_dir = self.global_config.get('storage', {}).get('base_dir', '../data')
+        dir_path = os.path.join(storage_dir, 'trade_cal')
+
+        if not os.path.exists(dir_path):
+            return None
+
+        try:
+            # 读取目录下所有 parquet 文件 (Dataset 模式)
+            df = pl.read_parquet(dir_path)
+
+            if df.is_empty():
+                return None
+
+            # 过滤日期范围并去重
+            # 必须去重，因为 Dataset 模式下可能有重复数据
+            filtered_df = df.filter(
+                (pl.col('cal_date') >= start_date) &
+                (pl.col('cal_date') <= end_date) &
+                (pl.col('is_open') == 1)
+            ).unique(subset=['cal_date'], keep='last').sort('cal_date')
+
+            if filtered_df.is_empty():
+                return None
+
+            return filtered_df.to_dicts()
+
+        except Exception as e:
+            logger.warning(f"Failed to read trade calendar from Data dir: {e}")
+            return None
 
     def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:
         """
@@ -651,13 +716,31 @@ class GenericDownloader:
                 else:
                     token = token_placeholder
 
+                # 从配置中读取字段列表
+                output_config = interface_config.get('output', {})
+                columns_config = output_config.get('columns', {})
+
+                # 构建fields参数：排除内部字段（以_开头的）
+                if columns_config:
+                    fields_list = [col for col in columns_config.keys() if not col.startswith('_')]
+                    fields_str = ','.join(fields_list)
+                else:
+                    fields_str = ''
+
                 # 根据TuShare API格式构建请求体
                 req_params = {
                     'api_name': interface_config['api_name'],
                     'token': token,
                     'params': params,
-                    'fields': ''  # 可以从配置中读取
+                    'fields': fields_str
                 }
+
+                # 调试日志：记录发送的fields参数
+                logger.debug(f"Sending request to {api_name} with {len(fields_str.split(',')) if fields_str else 0} fields")
+                if fields_str and len(fields_str) < 200:
+                    logger.debug(f"Fields: {fields_str}")
+                else:
+                    logger.debug(f"Fields length: {len(fields_str)} chars, preview: {fields_str[:200]}...{fields_str[-200:]}")
 
                 # 记录重试次数指标
                 if attempt > 0:
@@ -698,7 +781,15 @@ class GenericDownloader:
                 # 数据转换逻辑
                 fields = result.get('data', {}).get('fields', [])
                 items = result.get('data', {}).get('items', [])
-                
+
+                # 调试日志：记录API实际返回的字段
+                logger.info(f"API returned {len(fields)} fields for {api_name}")
+                if len(fields) < 50:  # 如果字段少，全部显示
+                    logger.info(f"Returned fields: {fields}")
+                else:
+                    logger.info(f"First 10 fields: {fields[:10]}")
+                    logger.info(f"Last 10 fields: {fields[-10:]}")
+
                 converted_data = []
                 for item in items:
                     row_dict = {}

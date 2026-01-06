@@ -155,16 +155,24 @@ class DataProcessor:
         return df
 
     def _remove_duplicates(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-        """保持重复数据 - 不执行去重"""
+        """批次内去重逻辑 - 根据主键去重，保留最后记录"""
         output_config = interface_config.get('output', {})
-        sort_by = output_config.get('sort_by', [])
+        primary_keys = output_config.get('primary_key', [])
 
-        # 不执行去重操作，保留所有数据
-        # if existing_keys:
-        #     # 根据主键去重，保留最后一条记录
-        #     df = df.unique(subset=existing_keys, keep='last')
+        # 找出存在于DataFrame中的主键
+        existing_keys = [key for key in primary_keys if key in df.columns]
+
+        if existing_keys:
+            # 如果有更新时间字段，按此字段排序以便保留最新记录
+            if '_update_time' in df.columns:
+                df = df.sort('_update_time', descending=False)
+                df = df.unique(subset=existing_keys, keep='last')
+            else:
+                # 按主键去重，保留最后一条记录
+                df = df.unique(subset=existing_keys, keep='last')
 
         # 如果指定了排序字段，则进行排序
+        sort_by = output_config.get('sort_by', [])
         existing_sort_fields = [field for field in sort_by if field in df.columns]
         if existing_sort_fields:
             df = df.sort(by=existing_sort_fields)

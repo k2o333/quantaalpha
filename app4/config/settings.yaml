@@ -23,13 +23,6 @@ request:
   jitter_max: 0.1  # 请求前随机延迟最大值(秒)
   rate_limit: 500     # 全局默认每分钟最大请求数（当接口未配置时使用）
 
-# 缓存配置
-cache:
-  enabled: true
-  base_dir: "./cache"
-  default_ttl: 0  # 24小时（秒）
-  max_size_gb: 10
-  cleanup_interval: 3600  # 清理间隔（秒）
 
 # 存储配置
 storage:

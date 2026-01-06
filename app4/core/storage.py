@@ -4,13 +4,15 @@ import queue
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
-from typing import List, Dict, Any
+import uuid
+import time
+from typing import List, Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 class StorageManager:
-    """存储管理器 - 异步持久化"""
+    """存储管理器 - 异步持久化 - Dataset 模式"""
 
     def __init__(self, storage_dir: str = "../data", format: str = "parquet", batch_size: int = 100):
         self.storage_dir = storage_dir
@@ -111,63 +113,105 @@ class StorageManager:
         return {}
 
     def _write_interface_data(self, interface_name: str, data: List[Dict[str, Any]]):
-        """写入特定接口的数据"""
-        try:
-            # 调试信息
-            logger.debug(f"Writing data for {interface_name}, data length: {len(data)}")
-            if data and len(data) > 0:
-                logger.debug(f"First record keys: {list(data[0].keys()) if data else 'No data'}")
-                logger.debug(f"First record sample: {data[0] if data else 'No data'}")
+        """
+        写入接口数据 - Parquet Dataset 模式
+        """
+        import uuid
+        import time
 
-            # 转换为 Polars DataFrame
+        dir_path = os.path.join(self.storage_dir, interface_name)
+        os.makedirs(dir_path, exist_ok=True)
+
+        try:
+            if not data:
+                return
+
+            # [优化] 增加写入时间戳，用于确定性去重
+            current_time = int(time.time() * 1000)
+            for item in data:
+                item['_update_time'] = current_time
+
             df = pl.DataFrame(data)
 
-            # 更多调试信息
-            logger.debug(f"DataFrame shape: {df.shape}")
-            logger.debug(f"DataFrame columns: {df.columns}")
-
-            # 生成文件路径
-            file_path = os.path.join(self.storage_dir, f"{interface_name}.{self.format}")
-
-            # [新增] 获取接口配置以确定主键
-            interface_config = self._get_interface_config(interface_name)
-            primary_key = interface_config.get('output', {}).get('primary_key', [])
-
-            # 如果文件已存在，追加数据
-            logger.debug(f"Checking file path: {file_path}")
-            logger.debug(f"File exists: {os.path.exists(file_path)}")
-            logger.debug(f"Format: {self.format}")
-            if os.path.exists(file_path) and self.format == "parquet":
-                logger.debug(f"Reading existing data from: {file_path}")
-                try:
-                    # 读取现有数据
-                    existing_df = pl.read_parquet(file_path)
-
-                    # 合并数据 - 不执行去重
-                    combined_df = pl.concat([existing_df, df], how="vertical_relaxed")
-
-                    # 写入合并后的数据
-                    combined_df.write_parquet(file_path)
-                    logger.info(f"Written {len(df)} new records, total {len(combined_df)} records")
-                except Exception as read_error:
-                    logger.warning(f"Error reading existing file {file_path}: {str(read_error)}")
-                    logger.warning("Creating new file instead of appending")
-                    # 如果读取失败，创建新的文件
-                    df.write_parquet(file_path)
+            # [优化] 从数据中提取日期范围用于文件名元数据
+            date_col = 'trade_date' if 'trade_date' in df.columns else ('cal_date' if 'cal_date' in df.columns else None)
+            if date_col:
+                min_date = df[date_col].min()
+                max_date = df[date_col].max()
+                date_range_str = f"{min_date}_{max_date}"
             else:
-                # 直接写入新文件
-                if self.format == "parquet":
-                    df.write_parquet(file_path)
-                else:
-                    # 默认使用 CSV 格式
-                    df.write_csv(file_path)
+                date_range_str = "nodate"
 
-            logger.info(f"Written {len(data)} records to {file_path}")
+            # 生成带元数据的文件名: {interface}_{start}_{end}_{timestamp}_{uuid}.parquet
+            unique_id = uuid.uuid4().hex[:8]
+            file_name = f"{interface_name}_{date_range_str}_{current_time}_{unique_id}.parquet"
+            file_path = os.path.join(dir_path, file_name)
+
+            # [优化] 原子写入
+            temp_file_path = file_path + ".tmp"
+            df.write_parquet(temp_file_path, compression='snappy')
+            os.rename(temp_file_path, file_path)
+
+            logger.info(f"Wrote {len(df)} records to {file_path}")
 
         except Exception as e:
-            import traceback
-            logger.error(f"Error writing data for interface {interface_name}: {str(e)}")
-            logger.error(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"Error writing interface data for {interface_name}: {str(e)}")
+            raise
+
+    def read_interface_data(self, interface_name: str, start_date: str = None, end_date: str = None, columns: Optional[List[str]] = None) -> pl.DataFrame:
+        """
+        读取接口数据 - 支持文件名过滤和确定性去重
+        """
+        dir_path = os.path.join(self.storage_dir, interface_name)
+
+        if not os.path.exists(dir_path):
+            return pl.DataFrame()
+
+        try:
+            # [优化] 文件名过滤 (Predicate Pushdown 模拟)
+            files_to_read = []
+            all_files = os.listdir(dir_path)
+
+            for f in all_files:
+                if not f.endswith('.parquet'): continue # 忽略 .tmp
+
+                # 简单过滤：如果提供了日期范围，且文件名包含日期信息，则进行过滤
+                # 文件名格式: name_start_end_ts_uuid.parquet
+                parts = f.split('_')
+                if len(parts) >= 4 and start_date and end_date:
+                    # 这是一个简化的过滤逻辑，实际可能需要更健壮的解析
+                    # 假设 parts[1] 是 min_date, parts[2] 是 max_date
+                    f_min, f_max = parts[1], parts[2]
+                    if f_min != "nodate":
+                        # 检查范围重叠
+                        if f_max < start_date or f_min > end_date:
+                            continue
+
+                files_to_read.append(os.path.join(dir_path, f))
+
+            if not files_to_read:
+                return pl.DataFrame()
+
+            # 读取所有符合条件的文件
+            df = pl.read_parquet(files_to_read, columns=columns)
+
+            # [优化] 确定性去重
+            interface_config = self._get_interface_config(interface_name)
+            primary_keys = interface_config.get('output', {}).get('primary_key', [])
+
+            if primary_keys and not df.is_empty():
+                existing_keys = [k for k in primary_keys if k in df.columns]
+                if existing_keys:
+                    # 按 _update_time 排序，确保保留最新写入的数据
+                    if '_update_time' in df.columns:
+                        df = df.sort('_update_time', descending=False)
+
+                    df = df.unique(subset=existing_keys, keep='last')
+
+            return df
+        except Exception as e:
+            logger.error(f"Error reading interface data for {interface_name}: {str(e)}")
+            raise
 
     def save_data(self, interface_name: str, data: List[Dict[str, Any]], async_write: bool = True):
         """
