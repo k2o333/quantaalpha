@@ -158,7 +158,7 @@ def main():
 
     # [修改] 预加载全局交易日历 - 不再依赖 CacheManager
     def preload_global_trade_calendar(downloader, start_date='19900101', end_date=None):
-        """预加载全局交易日历，直接从API获取或从Data目录读取"""
+        """预加载全局交易日历，优先从Data目录读取，然后从API获取"""
         if end_date is None:
             from datetime import datetime
             end_date = datetime.now().strftime('%Y%m%d')
