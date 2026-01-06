@@ -35,6 +35,13 @@ pagination:
   mode: "date_range"
   window_size_days: 365
 
+# 重复数据检测配置
+duplicate_detection:
+  enabled: true          # 默认为 true
+  mode: "range"          # 可选: range (默认), set, exact
+  date_column: trade_date
+  threshold: 0.95        # 覆盖率阈值
+
 output:
   primary_key: ["ts_code", "trade_date"]
   sort_by: ["trade_date"]

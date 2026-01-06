@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from collections import defaultdict, deque
 from .config_loader import ConfigLoader
+from .coverage_manager import CoverageManager
 import polars as pl
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,12 @@ performance_monitor = PerformanceMonitor()
 class GenericDownloader:
     """通用下载器 - 原子化的执行引擎"""
 
-    def __init__(self, config_loader: ConfigLoader):
+    def __init__(self, config_loader: ConfigLoader, storage_manager=None):
         self.config_loader = config_loader
         self.global_config = config_loader.get_global_config()
+
+        # 存储管理器（外部传入）
+        self.storage_manager = storage_manager
 
         # 创建具有重试策略的会话
         self.session = self._create_session_with_retries()
@@ -78,6 +82,12 @@ class GenericDownloader:
             'stock_list': None    # Value: list[dict]
         }
         self._cache_lock = threading.RLock()  # 确保线程安全
+
+        # [新增] 覆盖率管理器
+        if storage_manager:
+            self.coverage_manager = CoverageManager(storage_manager, config_loader)
+        else:
+            self.coverage_manager = None
 
     def _create_session_with_retries(self):
         """创建配置了重试策略的 Session"""
@@ -316,6 +326,17 @@ class GenericDownloader:
             window_params = params.copy()
             window_params['start_date'] = window_start
             window_params['end_date'] = window_end
+
+            # [新增] 检查覆盖率，如果已覆盖则跳过
+            if self.coverage_manager:
+                should_skip = self.coverage_manager.should_skip(
+                    interface_config['api_name'],
+                    window_params,
+                    strategy='date_range'
+                )
+                if should_skip:
+                    logger.info(f"Skipping window {window_start} - {window_end} for {interface_config['api_name']} (already covered)")
+                    continue
 
             # 记录开始时间
             start_time = time.time()
@@ -576,14 +597,25 @@ class GenericDownloader:
             period_params.pop('end_date', None)
             period_params['period'] = period
 
+            # [新增] 检查覆盖率，如果已存在则跳过
+            if self.coverage_manager:
+                should_skip = self.coverage_manager.should_skip(
+                    interface_config['api_name'],
+                    period_params,
+                    strategy='period'
+                )
+                if should_skip:
+                    logger.info(f"Skipping period {period} for {interface_config['api_name']} (already exists)")
+                    continue
+
             logger.info(f"Fetching data for period {period} ({idx+1}/{len(periods)})")
 
             # 记录开始时间
             start_time = time.time()
-            
+
             # 发起请求
             period_data = self._make_request(interface_config, period_params)
-            
+
             # 计算请求耗时
             elapsed_time = time.time() - start_time
 
@@ -599,11 +631,11 @@ class GenericDownloader:
                 'period': period,
                 'ts_code': params.get('ts_code', 'unknown')
             })
-            
+
             if period_data:
                 all_data.extend(period_data)
                 logger.info(f"Downloaded {len(period_data)} records for period {period}")
-                
+
                 # 记录数据量指标
                 logger.debug(f"Recording data_size metric: {len(period_data)} records for period {period}")
                 performance_monitor.record_metric('data_size', len(period_data), {
@@ -644,6 +676,17 @@ class GenericDownloader:
             if 'end_date' not in stock_params:
                 from datetime import datetime
                 stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
+
+            # [新增] 检查覆盖率，如果已存在则跳过
+            if self.coverage_manager:
+                should_skip = self.coverage_manager.should_skip(
+                    interface_config['api_name'],
+                    stock_params,
+                    strategy='stock'
+                )
+                if should_skip:
+                    logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (already exists)")
+                    return []
 
             logger.info(f"Downloading data for stock {stock['ts_code']}, date range: {stock_params.get('start_date')} - {stock_params.get('end_date')}")
 

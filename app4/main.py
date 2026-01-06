@@ -152,7 +152,7 @@ def main():
     )
 
     processor = DataProcessor()
-    downloader = GenericDownloader(config_loader)
+    downloader = GenericDownloader(config_loader, storage_manager)
 
     from core.downloader import performance_monitor
 
