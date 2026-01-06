@@ -716,31 +716,16 @@ class GenericDownloader:
                 else:
                     token = token_placeholder
 
-                # 从配置中读取字段列表
-                output_config = interface_config.get('output', {})
-                columns_config = output_config.get('columns', {})
-
-                # 构建fields参数：排除内部字段（以_开头的）
-                if columns_config:
-                    fields_list = [col for col in columns_config.keys() if not col.startswith('_')]
-                    fields_str = ','.join(fields_list)
-                else:
-                    fields_str = ''
+                # 不传递fields参数，让API返回所有字段
+                # 因为API默认返回所有字段，不需要显式指定
 
                 # 根据TuShare API格式构建请求体
                 req_params = {
                     'api_name': interface_config['api_name'],
                     'token': token,
                     'params': params,
-                    'fields': fields_str
+                    'fields': ''  # 空字符串表示不指定字段，API返回所有字段
                 }
-
-                # 调试日志：记录发送的fields参数
-                logger.debug(f"Sending request to {api_name} with {len(fields_str.split(',')) if fields_str else 0} fields")
-                if fields_str and len(fields_str) < 200:
-                    logger.debug(f"Fields: {fields_str}")
-                else:
-                    logger.debug(f"Fields length: {len(fields_str)} chars, preview: {fields_str[:200]}...{fields_str[-200:]}")
 
                 # 记录重试次数指标
                 if attempt > 0:

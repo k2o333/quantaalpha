@@ -10,7 +10,7 @@ permissions:
 request:
   method: POST
   extra_path: ""
-  timeout: 30
+  timeout: 50
 
 parameters:
   ts_code:
