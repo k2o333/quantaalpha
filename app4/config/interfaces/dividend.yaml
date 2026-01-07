@@ -35,7 +35,8 @@ parameters:
     description: "实施公告日 YYYYMMDD"
 
 pagination:
-  enabled: false
+  enabled: true          # 启用分页
+  mode: quarterly_range  # 使用季度范围分页模式
 
 output:
   primary_key: ["ts_code", "end_date", "ann_date"]

@@ -202,6 +202,9 @@ class GenericDownloader:
         elif mode == 'period_range':
             # 新增：报告期范围分页
             all_data = self._execute_period_range_pagination(interface_config, params, pagination_config)
+        elif mode == 'quarterly_range':
+            # 新增：季度范围分页
+            all_data = self._execute_quarterly_pagination(interface_config, params, pagination_config)
         else:
             # 默认不分页
             all_data = self._make_request(interface_config, params)
@@ -657,6 +660,108 @@ class GenericDownloader:
                 logger.warning(f"No data returned for period {period}")
 
         return all_data
+
+    def _execute_quarterly_pagination(self, interface_config: Dict[str, Any],
+                                     params: Dict[str, Any],
+                                     pagination_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        执行季度周期分页
+        将日期范围按季度分割，确保每个季度的数据独立请求
+        例如：3月1日到5月1日 -> [3月1日-3月31日, 4月1日-5月1日]
+        """
+        all_data = []
+
+        # 获取日期范围
+        start_date = params.get('start_date', '20050101')
+        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+
+        # 生成季度分割范围
+        quarterly_ranges = self._generate_quarterly_ranges(start_date, end_date)
+
+        # 为每个季度范围发起请求
+        for idx, (range_start, range_end) in enumerate(quarterly_ranges):
+            range_params = params.copy()
+            range_params['start_date'] = range_start
+            range_params['end_date'] = range_end
+
+            logger.info(f"Downloading dividend data for quarterly range {idx+1}/{len(quarterly_ranges)}: {range_start} - {range_end}")
+
+            # 发起请求
+            range_data = self._make_request(interface_config, range_params)
+
+            if range_data:
+                all_data.extend(range_data)
+                logger.info(f"Downloaded {len(range_data)} records for quarterly range {range_start}-{range_end}")
+            else:
+                logger.warning(f"No data returned for quarterly range {range_start}-{range_end}")
+
+        return all_data
+
+    def _generate_quarterly_ranges(self, start_date: str, end_date: str) -> List[tuple]:
+        """
+        生成季度分割范围
+        将日期范围按季度边界分割
+        Q1: 1月1日 - 3月31日
+        Q2: 4月1日 - 6月30日
+        Q3: 7月1日 - 9月30日
+        Q4: 10月1日 - 12月31日
+        """
+        from datetime import datetime
+
+        start_dt = datetime.strptime(start_date, '%Y%m%d')
+        end_dt = datetime.strptime(end_date, '%Y%m%d')
+
+        quarterly_ranges = []
+
+        current = start_dt
+        while current <= end_dt:
+            # 确定当前季度的结束日期
+            if current.month <= 3:
+                # Q1: 1-3月
+                quarter_end = datetime(current.year, 3, 31)
+            elif current.month <= 6:
+                # Q2: 4-6月
+                quarter_end = datetime(current.year, 6, 30)
+            elif current.month <= 9:
+                # Q3: 7-9月
+                quarter_end = datetime(current.year, 9, 30)
+            else:
+                # Q4: 10-12月
+                quarter_end = datetime(current.year, 12, 31)
+
+            # 如果季度结束日期超过总结束日期，则使用总结束日期
+            if quarter_end > end_dt:
+                quarter_end = end_dt
+
+            # 确定范围开始日期（如果是季度开始，则从当前日期，否则从季度开始）
+            if current.month in [1, 4, 7, 10] and current.day == 1:
+                # 如果已经在季度开始，使用当前日期
+                range_start = current.strftime('%Y%m%d')
+            else:
+                # 否则从当前季度开始
+                if current.month <= 3:
+                    range_start = datetime(current.year, 1, 1).strftime('%Y%m%d')
+                elif current.month <= 6:
+                    range_start = datetime(current.year, 4, 1).strftime('%Y%m%d')
+                elif current.month <= 9:
+                    range_start = datetime(current.year, 7, 1).strftime('%Y%m%d')
+                else:
+                    range_start = datetime(current.year, 10, 1).strftime('%Y%m%d')
+
+            range_end = quarter_end.strftime('%Y%m%d')
+            quarterly_ranges.append((range_start, range_end))
+
+            # 移动到下一个季度
+            if quarter_end.month == 3:
+                current = datetime(quarter_end.year, 4, 1)
+            elif quarter_end.month == 6:
+                current = datetime(quarter_end.year, 7, 1)
+            elif quarter_end.month == 9:
+                current = datetime(quarter_end.year, 10, 1)
+            else:
+                current = datetime(quarter_end.year + 1, 1, 1)
+
+        return quarterly_ranges
 
     def download_single_stock(self, interface_config: Dict[str, Any], stock: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """下载单只股票的数据 - 原子化方法供调度器调用
