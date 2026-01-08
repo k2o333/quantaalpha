@@ -205,6 +205,9 @@ class GenericDownloader:
         elif mode == 'quarterly_range':
             # 新增：季度范围分页
             all_data = self._execute_quarterly_pagination(interface_config, params, pagination_config)
+        elif mode == 'periodic_range':
+            # 新增：周期性时间范围分页
+            all_data = self._execute_periodic_pagination(interface_config, params, pagination_config)
         else:
             # 默认不分页
             all_data = self._make_request(interface_config, params)
@@ -762,6 +765,127 @@ class GenericDownloader:
                 current = datetime(quarter_end.year + 1, 1, 1)
 
         return quarterly_ranges
+
+    def _execute_periodic_pagination(self, interface_config: Dict[str, Any],
+                                    params: Dict[str, Any],
+                                    pagination_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        执行周期性时间范围分页
+        根据配置的时间周期类型（周/月/季度/年）分割日期范围
+        """
+        all_data = []
+
+        # 获取日期范围
+        start_date = params.get('start_date', '20050101')
+        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+
+        # 获取周期类型，默认为月
+        period_type = pagination_config.get('period_type', 'month')
+
+        # 生成时间分割范围
+        time_ranges = self._generate_time_ranges(start_date, end_date, period_type)
+
+        # 为每个时间范围发起请求
+        for idx, (range_start, range_end) in enumerate(time_ranges):
+            range_params = params.copy()
+            range_params['start_date'] = range_start
+            range_params['end_date'] = range_end
+
+            logger.info(f"Downloading dividend data for {period_type} range {idx+1}/{len(time_ranges)}: {range_start} - {range_end}")
+
+            # 发起请求
+            range_data = self._make_request(interface_config, range_params)
+
+            if range_data:
+                all_data.extend(range_data)
+                logger.info(f"Downloaded {len(range_data)} records for {period_type} range {range_start}-{range_end}")
+            else:
+                logger.warning(f"No data returned for {period_type} range {range_start}-{range_end}")
+
+        return all_data
+
+    def _generate_time_ranges(self, start_date: str, end_date: str, period_type: str) -> List[tuple]:
+        """
+        生成时间分割范围
+        根据周期类型将日期范围分割为多个时间段
+
+        Args:
+            start_date: 开始日期 (YYYYMMDD)
+            end_date: 结束日期 (YYYYMMDD)
+            period_type: 周期类型 ('week', 'month', 'quarter', 'year')
+
+        Returns:
+            List of (start_date, end_date) tuples
+        """
+        from datetime import datetime, timedelta
+
+        start_dt = datetime.strptime(start_date, '%Y%m%d')
+        end_dt = datetime.strptime(end_date, '%Y%m%d')
+
+        time_ranges = []
+        current = start_dt
+
+        while current <= end_dt:
+            if period_type == 'week':
+                # 计算当前周的结束日期（周日）
+                days_until_sunday = 6 - current.weekday()  # Monday is 0, Sunday is 6
+                period_end = current + timedelta(days=days_until_sunday)
+            elif period_type == 'month':
+                # 计算当前月的结束日期
+                if current.month == 12:
+                    period_end = datetime(current.year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    period_end = datetime(current.year, current.month + 1, 1) - timedelta(days=1)
+            elif period_type == 'quarter':
+                # 计算当前季度的结束日期
+                if current.month <= 3:
+                    period_end = datetime(current.year, 3, 31)
+                elif current.month <= 6:
+                    period_end = datetime(current.year, 6, 30)
+                elif current.month <= 9:
+                    period_end = datetime(current.year, 9, 30)
+                else:
+                    period_end = datetime(current.year, 12, 31)
+            elif period_type == 'year':
+                # 计算当前年的结束日期
+                period_end = datetime(current.year, 12, 31)
+            else:
+                # 默认按月
+                if current.month == 12:
+                    period_end = datetime(current.year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    period_end = datetime(current.year, current.month + 1, 1) - timedelta(days=1)
+
+            # 如果周期结束日期超过总结束日期，则使用总结束日期
+            if period_end > end_dt:
+                period_end = end_dt
+
+            # 确定范围开始日期
+            range_start = current.strftime('%Y%m%d')
+            range_end = period_end.strftime('%Y%m%d')
+            time_ranges.append((range_start, range_end))
+
+            # 移动到下一个周期
+            if period_type == 'week':
+                current = period_end + timedelta(days=1)
+            elif period_type == 'month':
+                if period_end.month == 12:
+                    current = datetime(period_end.year + 1, 1, 1)
+                else:
+                    current = datetime(period_end.year, period_end.month + 1, 1)
+            elif period_type == 'quarter':
+                if period_end.month == 3:
+                    current = datetime(period_end.year, 4, 1)
+                elif period_end.month == 6:
+                    current = datetime(period_end.year, 7, 1)
+                elif period_end.month == 9:
+                    current = datetime(period_end.year, 10, 1)
+                else:
+                    current = datetime(period_end.year + 1, 1, 1)
+            elif period_type == 'year':
+                current = datetime(period_end.year + 1, 1, 1)
+
+        return time_ranges
 
     def download_single_stock(self, interface_config: Dict[str, Any], stock: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """下载单只股票的数据 - 原子化方法供调度器调用

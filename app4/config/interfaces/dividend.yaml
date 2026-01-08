@@ -36,7 +36,8 @@ parameters:
 
 pagination:
   enabled: true          # 启用分页
-  mode: quarterly_range  # 使用季度范围分页模式
+  mode: periodic_range   # 使用周期性时间范围分页模式
+  period_type: week     # 按月分割时间范围 (可选: week, month, quarter, year)
 
 output:
   primary_key: ["ts_code", "end_date", "ann_date"]
