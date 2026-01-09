@@ -35,7 +35,8 @@ parameters:
     description: "报告期结束日期 YYYYMMDD"
 
 pagination:
-  enabled: false
+  enabled: true
+  mode: "stock_loop"
 
 output:
   primary_key: ["ts_code", "period", "holder_name"]

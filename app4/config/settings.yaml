@@ -51,6 +51,23 @@ groups:
     - stk_managers
     - stk_surv
 
+  # tscode-historical 组，包含所有需要股票循环模式的接口（共14个）
+  tscode_historical:
+    - stk_rewards
+    - income_vip
+    - balancesheet_vip
+    - cashflow_vip
+    - forecast_vip
+    - express_vip
+    - fina_indicator_vip
+    - fina_audit
+    - fina_mainbz_vip
+    - disclosure_date
+    - top10_floatholders
+    - top10_holders
+    - pledge_stat
+    - pledge_detail
+
   daily:
     - daily
     - daily_basic

@@ -36,8 +36,7 @@ parameters:
 
 pagination:
   enabled: true
-  mode: "period_range"
-  date_parameter_type: "report_period"
+  mode: "stock_loop"
 
 output:
   primary_key: ["ts_code", "end_date", "bz_item"]

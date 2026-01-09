@@ -23,7 +23,8 @@ parameters:
     description: "报告期 YYYYMMDD"
 
 pagination:
-  enabled: false
+  enabled: true
+  mode: "stock_loop"
 
 output:
   primary_key: ["ts_code", "name", "ann_date"]

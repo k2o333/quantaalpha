@@ -23,7 +23,8 @@ parameters:
     description: "截止日期 YYYYMMDD"
 
 pagination:
-  enabled: false
+  enabled: true
+  mode: "stock_loop"
 
 output:
   primary_key: ["ts_code", "end_date"]

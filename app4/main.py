@@ -333,8 +333,9 @@ def main():
 
         # 参数映射逻辑（改为累加模式）
         if args.tscode_historical:
-            # tscode-historical 模式：只下载那4个需要 ts_code 的接口
-            interfaces_to_run.extend(['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit'])
+            # tscode-historical 模式：使用配置组，获取所有需要股票循环模式的接口
+            tscode_historical_group = config_loader.global_config.get('groups', {}).get('tscode_historical', [])
+            interfaces_to_run.extend(tscode_historical_group)
 
         if args.pro_bar_only:
             # pro_bar_only 模式：添加 pro_bar 接口
@@ -363,7 +364,8 @@ def main():
             # 默认运行所有可用接口（可根据积分限制过滤）
             available_interfaces = config_loader.get_available_interfaces()
             # 过滤掉ts_code依赖的接口和pro_bar
-            interfaces_to_run = [iface for iface in available_interfaces if iface not in ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit', 'pro_bar']]
+            tscode_historical_group = config_loader.global_config.get('groups', {}).get('tscode_historical', [])
+            interfaces_to_run = [iface for iface in available_interfaces if iface not in tscode_historical_group and iface != 'pro_bar']
 
         logger.info(f"Interfaces to run: {interfaces_to_run}")
 
@@ -396,10 +398,40 @@ def main():
                 if args.ts_code:
                     params['ts_code'] = args.ts_code
 
-                # 对于需要ts_code的接口，根据下载模式处理
-                if args.tscode_historical and 'ts_code' in interface_config.get('parameters', {}):
-                    logger.info(f"Running historical download for {interface_name}")
-                    # 这里可以实现获取股票列表并逐个下载的逻辑
+                # 检查是否使用股票循环模式（根据配置文件中的 pagination.mode）
+                pagination_config = interface_config.get('pagination', {})
+                if pagination_config.get('enabled', False) and pagination_config.get('mode') == 'stock_loop':
+                    logger.info(f"Using stock_loop mode for {interface_name}")
+
+                    # 获取股票列表 - 从Data目录或API获取
+                    stock_list = downloader._get_stock_list_from_data_dir()
+                    if stock_list is None:
+                        logger.info("Data目录中未找到股票列表，正在从API获取...")
+                        stock_params = {'list_status': 'L'}
+                        stock_list = downloader.download('stock_basic', stock_params)
+                        if stock_list:
+                            logger.info(f"从API获取到 {len(stock_list)} 只股票")
+                            # 保存到Data目录
+                            storage_manager.save_data('stock_basic', stock_list, async_write=False)
+                        else:
+                            logger.warning("未能从API获取股票列表")
+                            continue
+
+                    # 如果参数中指定了股票代码，则只下载该股票
+                    if 'ts_code' in params:
+                        target_code = params['ts_code']
+                        stock_list = [stock for stock in stock_list if stock['ts_code'] == target_code]
+                        logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
+
+                    # 使用并发下载
+                    all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)
+
+                    if all_data:
+                        logger.info(f"Successfully downloaded {len(all_data)} total records for {interface_name}")
+                        process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
+                    else:
+                        logger.warning(f"No data downloaded for {interface_name}")
+                    continue  # 继续处理下一个接口
                 else:
                     # 对于pro_bar接口特殊处理
                     if interface_name == 'pro_bar' and args.pro_bar_only:

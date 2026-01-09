@@ -19,7 +19,8 @@ parameters:
     description: "股票代码"
 
 pagination:
-  enabled: false
+  enabled: true
+  mode: "stock_loop"
 
 output:
   primary_key: ["ts_code", "ann_date", "holder_name", "start_date"]
