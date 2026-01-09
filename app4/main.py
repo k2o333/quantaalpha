@@ -89,6 +89,7 @@ def setup_logging(log_config: dict):
 
 
 def main():
+    global datetime  # 声明使用全局的datetime变量，避免局部变量冲突
     parser = argparse.ArgumentParser(description="aspipe_v4 融合重构版 - 配置驱动架构")
 
     # 保持与原版的参数兼容性
@@ -377,16 +378,26 @@ def main():
 
                 # 检查积分要求
                 min_points = interface_config.get('permissions', {}).get('min_points', 0)
-                import os
                 actual_points = int(os.getenv('tushare_points', '120'))
                 if min_points > actual_points:  # 直接比较实际积分要求
                     logger.warning(f"Insufficient points for interface {interface_name} (required: {min_points}, available: {actual_points})")
                     continue
 
+                # [新增] 检查是否是 tscode_historical 接口
+                tscode_historical_group = config_loader.global_config.get('groups', {}).get('tscode_historical', [])
+                is_tscode_historical_interface = interface_name in tscode_historical_group
+
+                # [新增] 对于 tscode_historical 接口，如果用户使用默认日期，则改为 1990年1月1日
+                if is_tscode_historical_interface:
+                    if args.start_date == '20230101' and args.end_date is None:
+                        logger.info(f"Using default date range for tscode_historical interface {interface_name}: 19900101 to today")
+                        args.start_date = '19900101'
+                        args.end_date = datetime.now().strftime('%Y%m%d')
+
                 # 准备请求参数
                 args.start_date, args.end_date = validate_and_adjust_date(
                     args.start_date,
-                    args.end_date or datetime.now().strftime('%Y%m%d')
+                    args.end_date
                 )
 
                 params = {
@@ -529,7 +540,9 @@ def main():
                             logger.warning(f"No data downloaded for {interface_name}")
 
             except Exception as e:
+                import traceback
                 logger.error(f"Error processing interface {interface_name}: {str(e)}")
+                traceback.print_exc()
 
     except KeyboardInterrupt:
         logger.warning("\n用户手动中断执行 (Ctrl+C detected)")
