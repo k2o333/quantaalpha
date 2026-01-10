@@ -22,9 +22,11 @@ The App4 architecture represents a paradigm shift from code-driven to configurat
 ### App4 Architecture (app4/) - Modern Configuration-Driven
 - **Zero-code interface addition**: Add new interfaces by creating YAML configuration files
 - **Universal downloader**: Single generic downloader handles all interfaces based on configuration
-- **Multi-strategy pagination**: Supports offset, date_range, stock_loop, and period_range pagination modes
+- **Multi-strategy pagination**: Supports offset, date_range, stock_loop, period_range, quarterly_range, and periodic_range pagination modes
 - **Asynchronous architecture**: Producer-consumer pattern with non-blocking I/O
 - **High-performance processing**: Uses Polars for data processing and validation
+- **Coverage management**: Intelligent duplicate detection to avoid redundant downloads
+- **Performance monitoring**: Built-in metrics collection and alerting system
 
 ## App4 Configuration-Driven Architecture
 
@@ -66,6 +68,11 @@ The App4 architecture represents a paradigm shift from code-driven to configurat
    - Pre-defined data type schemas to avoid runtime inference overhead
    - Optimized schemas for high-frequency financial data interfaces
 
+8. **Coverage Manager** (`app4/core/coverage_manager.py`)
+   - Implements duplicate detection to avoid redundant downloads
+   - Supports multiple strategies: date_range, period, and stock-based detection
+   - Uses memory caching for efficient coverage checks
+
 ### Configuration Structure
 
 #### Global Configuration (`app4/config/settings.yaml`)
@@ -84,8 +91,8 @@ tushare:
     professional: 8000
 
 concurrency:
-  max_workers: 8
-  queue_size: 1000
+  max_workers: 4  # [修改] 从 8 改为 4
+  max_queue_size: 1000
 
 request:
   max_retries: 3
@@ -98,9 +105,48 @@ cache:
   max_size_gb: 10
 
 storage:
-  directory: "data"
+  base_dir: "../data"  # [修改] 从 "data" 改为 "../data"
   format: "parquet"
-  batch_size: 1000
+  batch_size: 10000  # [优化] 从 1000 增大到 10000
+
+logging:
+  level: "INFO"
+  file: "log/app4.log"
+  max_size_mb: 100
+  backup_count: 5
+
+groups:
+  tscode_historical:
+    - "stk_rewards"
+    - "top10_holders"
+    - "pledge_detail"
+    - "fina_audit"
+    - "top10_floatholders"
+    - "stk_holdertrade"
+  holders:
+    - "top10_holders"
+    - "top10_floatholders"
+    - "stk_rewards"
+    - "pledge_detail"
+    - "fina_audit"
+    - "stk_holdertrade"
+  daily:
+    - "daily"
+    - "daily_basic"
+    - "adj_factor"
+    - "moneyflow"
+  financial:
+    - "income"
+    - "balancesheet"
+    - "cashflow"
+    - "fina_indicator"
+    - "fina_audit"
+    - "fina_mainbz"
+  basic:
+    - "stock_basic"
+    - "trade_cal"
+    - "namechange"
+    - "stock_company"
 ```
 
 #### Interface Configuration (`app4/config/interfaces/*.yaml`)
@@ -139,6 +185,11 @@ output:
   columns:
     ts_code: {type: string, required: true}
     trade_date: {type: date, format: "%Y%m%d", required: true}
+
+duplicate_detection:
+  enabled: true
+  date_column: "trade_date"
+  threshold: 0.95
 ```
 
 ### Key Features
@@ -153,15 +204,19 @@ output:
 8. **High Concurrency**: Thread-pool based concurrent processing
 9. **Rate Limit Protection**: Token bucket algorithm prevents API throttling
 10. **Type Safety**: Comprehensive parameter validation and type checking
+11. **Coverage Management**: Intelligent duplicate detection to avoid redundant downloads
+12. **Memory-Efficient Caching**: Runtime cache for frequently accessed data
+13. **Dataset-Mode Storage**: Efficient storage using Parquet dataset format
 
 ### Interface Groups
 
 App4 organizes interfaces into logical groups for easier management:
-- **daily**: Daily market data (daily, daily_basic, adj_factor)
-- **financial**: Financial statements (income, balancesheet, cashflow)
-- **holders**: Shareholder data (top10_holders, stk_rewards, pledge_detail)
-- **market**: Market indicators (moneyflow, cyq_chips, stk_factor)
-- **basic**: Basic information (stock_basic, trade_cal, namechange)
+- **daily**: Daily market data (daily, daily_basic, adj_factor, moneyflow)
+- **financial**: Financial statements (income, balancesheet, cashflow, fina_indicator, fina_audit, fina_mainbz)
+- **holders**: Shareholder data (top10_holders, top10_floatholders, stk_rewards, pledge_detail, stk_holdertrade)
+- **market**: Market indicators (moneyflow, cyq_chips, stk_factor, moneyflow_ind_dc, moneyflow_cnt_ths)
+- **basic**: Basic information (stock_basic, trade_cal, namechange, stock_company)
+- **tscode_historical**: Interfaces requiring stock code loops (stk_rewards, top10_holders, pledge_detail, fina_audit, top10_floatholders, stk_holdertrade)
 
 ## Legacy Architecture (app/) - Reference
 
@@ -179,7 +234,7 @@ See the original file structure and components in the appendix below.
 - **Enhanced Main Downloader**: `app/enhanced_main_downloader.py` - Production-ready enhanced downloader with strategy pattern
 - **App4 Main Module**: `app4/main.py` - Configuration-driven architecture with enhanced optimizations
 - **App4 Config Loader**: `app4/core/config_loader.py` - Configuration-driven approach with global and interface-specific settings
-- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor
+- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor, CoverageManager
 - **App4 Storage Manager**: `app4/core/storage.py` - Enhanced storage management with async operations and batch processing
 - **App4 Cache Manager**: `app4/core/cache_manager.py` - Enhanced caching with atomic writes, derivation strategy, and performance optimization
 - **App4 Generic Downloader**: `app4/core/downloader.py` - Enhanced downloader with data validation, network retry optimization, and performance monitoring
@@ -212,7 +267,7 @@ python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily
 python app4/main.py --start_date 20230101 --end_date 20231231 --group financial
 
 # Set concurrency level
-python app4/main.py --concurrency 8
+python app4/main.py --concurrency 4  # [修改] 默认并发数从 8 改为 4
 
 # Set log level
 python app4/main.py --log-level DEBUG
@@ -222,6 +277,18 @@ python app4/main.py --list-interfaces
 
 # Check interface configuration
 python app4/main.py --show-config daily
+
+# Download with ts_code specified
+python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily --ts_code 000001.SZ
+
+# Download stock loop interfaces (holders data)
+python app4/main.py --holders-data
+
+# Download pro_bar data only
+python app4/main.py --pro-bar-only
+
+# Download full historical data for stock loop interfaces
+python app4/main.py --tscode-historical
 ```
 
 #### Legacy Architecture (app/)
@@ -288,25 +355,37 @@ python -m pytest test/test_app4_integration.py
 ```
 aspipe_v4/
 ├── app4/                  # Modern configuration-driven architecture (Recommended)
+│   ├── __init__.py        # Package initialization with version info
 │   ├── README.md          # Detailed App4 design documentation
 │   ├── main.py            # CLI entry point with enhanced features
 │   ├── core/              # Core components
 │   │   ├── __init__.py
 │   │   ├── config_loader.py    # YAML configuration loader
-│   │   ├── downloader.py       # Universal download engine
+│   │   ├── downloader.py       # Universal download engine with performance monitoring
 │   │   ├── processor.py        # Data processing with Polars
-│   │   ├── storage.py          # Asynchronous storage manager
+│   │   ├── storage.py          # Asynchronous storage manager with dataset mode
 │   │   ├── cache_manager.py    # Intelligent cache management
 │   │   ├── scheduler.py        # Task scheduler with rate limiting
-│   │   └── schema_manager.py   # Pre-defined data schemas
+│   │   ├── schema_manager.py   # Pre-defined data schemas
+│   │   └── coverage_manager.py # Duplicate detection and coverage management
 │   ├── config/            # Configuration files
 │   │   ├── settings.yaml  # Global settings and defaults
-│   │   └── interfaces/    # Interface definitions (80+ YAML files)
+│   │   └── interfaces/    # Interface definitions (40+ YAML files)
 │   │       ├── daily.yaml
 │   │       ├── stock_basic.yaml
 │   │       ├── income.yaml
-│   │       └── ... (80+ more interfaces)
-│   └── requirements.txt   # App4 specific dependencies
+│   │       ├── balancesheet.yaml
+│   │       ├── cashflow.yaml
+│   │       ├── top10_holders.yaml
+│   │       ├── stk_rewards.yaml
+│   │       ├── pledge_detail.yaml
+│   │       ├── fina_audit.yaml
+│   │       ├── moneyflow.yaml
+│   │       ├── trade_cal.yaml
+│   │       ├── pro_bar.yaml
+│   │       └── ... (30+ more interfaces)
+│   ├── requirements.txt   # App4 specific dependencies
+│   └── utils/             # Utility functions (currently empty)
 ├── app/                   # Legacy code-driven architecture
 │   ├── main.py            # Main entry point
 │   ├── enhanced_main_downloader.py  # Enhanced downloader
@@ -338,6 +417,9 @@ aspipe_v4/
 - **High performance**: Polars for data processing, async I/O
 - **Intelligent caching**: Trade calendar derivation strategy
 - **Production ready**: Comprehensive error handling and monitoring
+- **Coverage management**: Avoid redundant downloads with duplicate detection
+- **Memory-efficient**: Runtime caching for frequently accessed data
+- **Dataset storage**: Efficient data access using Parquet dataset format
 
 ### Legacy Architecture Notes
 - All logging is in Chinese for better readability
@@ -360,7 +442,7 @@ When migrating from legacy (app/) to App4 architecture:
 For detailed information about the legacy architecture components, refer to the Git history or contact the development team.
 - **Enhanced Configuration**: `app/enhanced_download_config.py` - Advanced interface configuration with priority, retries, rate limits, and caching
 - **Configuration Adapter**: `app/config_adapter.py` - Maintains backward compatibility with old config format
-- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor
+- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor, CoverageManager
 - **Task Queue Manager**: `app/task_queue_manager.py` - Task queue management with priority and status tracking
 - **Interface Modules**: `app/interfaces/` - Modularized API interfaces for different data types
 - **Utils**: `app/utils/` - Helper functions for date handling and other utilities
@@ -374,6 +456,7 @@ For detailed information about the legacy architecture components, refer to the 
 - **Cache Monitor**: `app/cache_monitor.py` - Cache performance monitoring with hit rate tracking
 - **Stock List Manager**: `app/stock_list_manager.py` - Singleton pattern implementation to prevent duplicate API calls
 - **App4 Generic Downloader**: `app4/core/downloader.py` - Enhanced downloader with data validation, network retry optimization, and performance monitoring
+- **App4 Coverage Manager**: `app4/core/coverage_manager.py` - Duplicate detection to avoid redundant downloads
 - **Error Handler**: `app/error_handler.py` - Enhanced error handling with retry mechanisms and API-specific error handling
 
 ## Data Categories by Score Level
@@ -428,6 +511,11 @@ For detailed information about the legacy architecture components, refer to the 
 40. **Performance Monitoring System**: Built-in performance metrics collection with monitoring of request times, data sizes, retry counts, and alert thresholds
 41. **Thread-Safe Operations**: Thread-safe cache operations with atomic writes to prevent data corruption during concurrent access
 42. **Enhanced Error Handling**: Comprehensive error handling with graceful degradation and isolated failure handling for individual stock downloads
+43. **Coverage Management**: Intelligent duplicate detection to avoid redundant downloads with multiple strategies (date_range, period, stock)
+44. **Memory-Efficient Caching**: Runtime cache for frequently accessed data with thread-safe operations
+45. **Dataset-Mode Storage**: Efficient storage using Parquet dataset format for better performance
+46. **Quarterly and Periodic Range Pagination**: Support for financial data with period_range, quarterly_range, and periodic_range pagination modes
+47. **Broker Recommendation Handling**: Special handling for broker_recommend interface with month-based requests
 
 ## Development Commands
 
@@ -482,7 +570,7 @@ python app/main.py --start_date 20230101 --end_date 20231231 --force-redownload
 # App4 specific commands with enhanced optimizations:
 python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily  # Download specific interface
 python app4/main.py --start_date 20230101 --end_date 20231231 --group daily     # Download interface group
-python app4/main.py --concurrency 8                                            # Set concurrency level
+python app4/main.py --concurrency 4                                            # Set concurrency level (default now 4)
 python app4/main.py --log-level DEBUG                                         # Set log level
 ```
 
@@ -621,3 +709,10 @@ aspipe_v4/
 - Batch processing for ts_code-dependent interfaces improves performance by processing multiple stocks in parallel
 - Asynchronous storage operations prevent blocking of download threads
 - Enhanced interface configuration provides detailed settings for cache, API parameters, and concurrency
+- App4 introduces configuration-driven architecture with zero-code interface addition capability
+- App4 implements multiple pagination strategies: offset, date_range, stock_loop, period_range, quarterly_range, and periodic_range
+- App4 features performance monitoring with real-time metrics collection and alerting
+- App4 includes coverage management to detect and avoid redundant downloads using multiple strategies
+- App4 uses memory-efficient caching for frequently accessed data with thread-safe operations
+- App4 implements dataset-mode storage using Parquet format for improved performance
+- App4 adds special handling for broker recommendation data with month-based requests
