@@ -37,37 +37,71 @@ class StorageManager:
         """停止写入线程"""
         if self.running:
             self.running = False
+            # 发送哨兵信号，确保队列中的数据被处理完
+            self.data_queue.put(None)
             if self.writer_thread:
                 self.writer_thread.join()
             logger.info("Storage writer thread stopped")
 
     def _writer_worker(self):
         """写入工作者线程"""
-        while self.running:
+        while True:
             try:
                 # 从队列中获取数据批次
                 batch_data = []
                 try:
                     # 尝试获取第一个元素
                     item = self.data_queue.get(timeout=1)
+                    
+                    # 检查哨兵
+                    if item is None:
+                        # 收到停止信号，处理完当前批次（如果还有剩余）后退出
+                        # 但这里我们设计的是单个哨兵结束整个循环，
+                        # 且由于是一个个get，收到None说明前面没有数据了（如果队列FIFO）
+                        # 或者有数据但被None隔开了。
+                        # 为了安全起见，收到None后，我们将队列中剩余所有非None项取出处理
+                        while not self.data_queue.empty():
+                            try:
+                                extra_item = self.data_queue.get_nowait()
+                                if extra_item is not None:
+                                    batch_data.append(extra_item)
+                            except queue.Empty:
+                                break
+                        
+                        if batch_data:
+                            self._write_batch(batch_data)
+                        break
+
                     batch_data.append(item)
 
                     # 尝试获取更多元素以组成批次
                     while len(batch_data) < self.batch_size:
                         try:
                             item = self.data_queue.get_nowait()
+                            if item is None:
+                                # 如果在批次收集中遇到None，说明要结束
+                                # 将None放回队列，以便外层循环处理退出逻辑
+                                self.data_queue.put(None)
+                                break
                             batch_data.append(item)
                         except queue.Empty:
                             break
 
                     # 处理批次数据
-                    self._write_batch(batch_data)
+                    if batch_data:
+                        self._write_batch(batch_data)
 
                 except queue.Empty:
+                    # 如果队列为空且收到停止信号（通过self.running判断作为双重保障）
+                    if not self.running:
+                        break
                     continue
 
             except Exception as e:
                 logger.error(f"Error in storage writer worker: {str(e)}")
+                # 防止死循环
+                if not self.running:
+                    break
 
     def _write_batch(self, batch_data: List[Dict[str, Any]]):
         """写入数据批次"""

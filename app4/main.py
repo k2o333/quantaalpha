@@ -166,13 +166,27 @@ def main():
 
         logger.info(f"Preloading global trade calendar: {start_date} - {end_date}")
 
-        # 首先尝试从Data目录读取
+        # 使用 downloader.get_trade_calendar 统一方法
+        # 这会自动处理 Mem -> Disk -> API 的回退，并且如果从Disk读取会自动更新Mem
+        # 但我们需要确保如果从API获取，也会保存到Disk
+        
+        # 1. 尝试通过标准路径获取（Mem -> Disk -> API）
+        # 这里直接调用 downloader.get_trade_calendar 会自动处理大部分逻辑
+        # 但 downloader 的 save 逻辑可能还没完善，所以我们手动处理一下以确保万无一失
+        
+        # 检查本地是否有数据
         trade_calendar = downloader._get_trade_calendar_from_data_dir(start_date, end_date)
-        if trade_calendar is not None:
-            logger.info(f"Global trade calendar loaded from data directory: {len(trade_calendar)} trade days")
-            return trade_calendar
+        
+        if trade_calendar:
+             logger.info(f"Global trade calendar loaded from data directory: {len(trade_calendar)} trade days")
+             # 手动填充内存缓存
+             cache_key = (start_date, end_date)
+             with downloader._cache_lock:
+                 downloader._memory_cache['trade_cal'][cache_key] = trade_calendar
+             return trade_calendar
 
         # Data目录未命中，请求 API
+        logger.info("Global trade calendar not found locally, fetching from API...")
         calendar_params = {
             'start_date': start_date,
             'end_date': end_date,
@@ -188,6 +202,15 @@ def main():
             # 过滤出交易日
             trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
             trade_days = sorted(trade_days, key=lambda x: x['cal_date'])
+            
+            # [新增] 保存到存储
+            logger.info(f"Saving {len(trade_days)} trade days to storage")
+            storage_manager.save_data('trade_cal', trade_calendar, async_write=False)
+            
+            # [新增] 填充内存缓存
+            cache_key = (start_date, end_date)
+            with downloader._cache_lock:
+                 downloader._memory_cache['trade_cal'][cache_key] = trade_calendar
 
             logger.info(f"Preloaded {len(trade_days)} trade days from API")
             return trade_days

@@ -79,7 +79,9 @@ class GenericDownloader:
         # [新增] 运行时简易缓存，替代原有的 CacheManager
         self._memory_cache = {
             'trade_cal': {},      # Key: ('start_date', 'end_date'), Value: list[dict]
-            'stock_list': None    # Value: list[dict]
+            'stock_list': None,   # Value: list[dict]
+            'coverage': {},       # Key: (interface_name, params_hash), Value: coverage_result
+            'api_responses': {}   # Key: (api_name, params_hash), Value: response_data
         }
         self._cache_lock = threading.RLock()  # 确保线程安全
 
@@ -267,33 +269,8 @@ class GenericDownloader:
 
         logger.info(f"Fetching trade calendar for date range: {start_date} - {end_date}")
 
-        # [修改] 先查内存缓存，再查Data目录，最后请求 API
-        with self._cache_lock:
-            cache_key = (start_date, end_date)
-            trade_calendar = self._memory_cache['trade_cal'].get(cache_key)
-
-        # 如果内存缓存未命中，查询Data目录
-        if trade_calendar is None:
-            trade_calendar = self._get_trade_calendar_from_data_dir(start_date, end_date)
-
-        # 如果Data目录未命中，请求 API
-        if trade_calendar is None:
-            logger.info(f"Trade calendar not found in memory cache or data directory, fetching from API")
-            calendar_params = {
-                'start_date': start_date,
-                'end_date': end_date,
-                'exchange': 'SSE'
-            }
-            trade_calendar = self._make_request(
-                self.config_loader.get_interface_config('trade_cal'),
-                calendar_params
-            )
-            # 更新内存缓存
-            if trade_calendar:
-                with self._cache_lock:
-                    self._memory_cache['trade_cal'][cache_key] = trade_calendar
-        else:
-            logger.info(f"Trade calendar loaded from data directory: {start_date}-{end_date}")
+        # [优化] 使用统一的 get_trade_calendar 方法
+        trade_calendar = self.get_trade_calendar(start_date, end_date)
 
         # 如果获取交易日历失败，使用默认的日期范围分页
         if not trade_calendar:
@@ -475,8 +452,49 @@ class GenericDownloader:
             logger.warning(f"Failed to read stock list from Data dir: {e}")
             return None
 
+    def get_trade_calendar(self, start_date: str, end_date: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        获取交易日历，采用三级缓存策略：
+        1. 内存缓存 (_memory_cache)
+        2. 本地存储 (Data 目录 parquet 文件)
+        3. API 请求
+        """
+        cache_key = (start_date, end_date)
+        
+        # 1. 检查内存缓存
+        with self._cache_lock:
+            if cache_key in self._memory_cache['trade_cal']:
+                logger.debug(f"Trade calendar loaded from memory cache: {start_date}-{end_date}")
+                return self._memory_cache['trade_cal'][cache_key]
+
+        # 2. 检查本地数据目录
+        trade_calendar = self._get_trade_calendar_from_data_dir(start_date, end_date)
+        
+        if trade_calendar:
+            logger.info(f"Trade calendar loaded from data directory: {start_date}-{end_date}")
+        else:
+            # 3. 请求 API
+            logger.info(f"Trade calendar not found locally, fetching from API: {start_date}-{end_date}")
+            calendar_params = {
+                'start_date': start_date,
+                'end_date': end_date,
+                'exchange': 'SSE'
+            }
+            # 使用 _make_request 直接请求，避免递归调用
+            trade_calendar = self._make_request(
+                self.config_loader.get_interface_config('trade_cal'),
+                calendar_params
+            )
+            
+        # 更新内存缓存
+        if trade_calendar:
+            with self._cache_lock:
+                self._memory_cache['trade_cal'][cache_key] = trade_calendar
+                
+        return trade_calendar
+
     def _get_trade_calendar_from_data_dir(self, start_date, end_date):
-        """从 Data 目录查询交易日历 (Source of Truth)"""
+        """从 Data 目录查询交易日历 (Source of Truth) - 优化版本"""
         # 假设存储目录为 data/trade_cal/
         storage_dir = self.global_config.get('storage', {}).get('base_dir', '../data')
         dir_path = os.path.join(storage_dir, 'trade_cal')
@@ -486,17 +504,29 @@ class GenericDownloader:
 
         try:
             # 读取目录下所有 parquet 文件 (Dataset 模式)
-            df = pl.read_parquet(dir_path)
+            try:
+                df = pl.read_parquet(dir_path)
+            except Exception:
+                return None
 
             if df.is_empty():
                 return None
 
+            # 构建过滤条件
+            conditions = [
+                (pl.col('cal_date') >= start_date),
+                (pl.col('cal_date') <= end_date),
+                (pl.col('is_open') == 1)
+            ]
+            
+            # [修复] 检查 exchange 列是否存在
+            if 'exchange' in df.columns:
+                conditions.append(pl.col('exchange') == 'SSE')
+
             # 过滤日期范围并去重
             # 必须去重，因为 Dataset 模式下可能有重复数据
             filtered_df = df.filter(
-                (pl.col('cal_date') >= start_date) &
-                (pl.col('cal_date') <= end_date) &
-                (pl.col('is_open') == 1)
+                pl.all_horizontal(conditions)
             ).unique(subset=['cal_date'], keep='last').sort('cal_date')
 
             if filtered_df.is_empty():
