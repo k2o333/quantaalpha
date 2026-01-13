@@ -106,3 +106,9 @@ output:
     adj_factor:
       type: float
       description: "复权因子"
+
+# 7. 去重配置
+dedup:
+  enabled: true
+  strategy: "primary_key"
+  columns: ["ts_code", "trade_date"]

@@ -154,3 +154,9 @@ output:
     end_net_profit: {type: float}
     update_flag: {type: string}
     period: {type: string, required: false}
+
+# 去重配置
+dedup:
+  enabled: true
+  strategy: "primary_key"
+  columns: ["ts_code", "ann_date", "end_date"]
