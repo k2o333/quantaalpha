@@ -1,337 +1,120 @@
-# App4 混合线程池异步方案
+# App4 混合线程池异步方案（精简版）
 
-## 1. 概述
+## 1. 核心思想
 
-本方案针对全异步方案的**重构成本高、调试困难、依赖复杂**等问题，提出一种**混合架构**：
-- **保留现有线程池架构**（不引入 asyncio）
-- **实现无阻塞判断**（轻量级内存缓存 + Bloom Filter 可选）
-- **异步保存和索引**（队列解耦，后台线程）
-- **渐进式实施**（可逐步升级，无需一次性重构）
+**保留现有线程池架构**，通过**三级队列**实现异步化：
+- **判断层**：内存缓存/Bloom Filter 快速判断（<10ms）
+- **下载层**：10线程并发下载
+- **保存层**：批量保存 + 异步索引
 
-**核心原则**：**最小改动，最大收益**，在现有架构基础上实现异步化。
+**优势**：零重构、零新依赖、实施快（2-3天）
 
-## 2. 核心设计原则
-
-### 2.1 架构兼容
-- **保留 threading**：不引入 asyncio，团队无学习成本
-- **复用现有组件**：GenericDownloader、StorageManager、CoverageManager 无需重写
-- **渐进式升级**：可以逐步替换，无需一次性重构
-
-### 2.2 无阻塞判断
-- **轻量级缓存**：内存缓存接口级索引，< 10ms 判断
-- **可选 Bloom Filter**：简单实现，无额外依赖
-- **智能降级**：缓存失效时自动回退到传统检查
-
-### 2.3 异步流水线
-- **三级队列**：下载队列 → 保存队列 → 索引队列
-- **批量处理**：减少 I/O 次数，提升吞吐量
-- **背压控制**：有界队列防止内存溢出
-
-### 2.4 生产就绪
-- **易于调试**：同步代码为主，异常处理简单
-- **测试友好**：无需异步测试框架
-- **运维简单**：配置参数少，监控清晰
-
-## 3. 架构设计
+## 2. 架构
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              GenericDownloader (主线程)                  │
-│  - 生成下载任务（无阻塞）                                 │
-│  - 调用 CoverageManager 快速判断                          │
-└────────────────────┬────────────────────────────────────┘
-                     │ 投递到下载队列
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│        DownloadWorkerPool (10个线程)                     │
-│  - 并发下载数据                                          │
-│  - 不等待判断和保存                                      │
-└────────────────────┬────────────────────────────────────┘
-                     │ 投递到保存队列（仅新数据）
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│        SaveWorker (1个线程)                              │
-│  - 批量保存数据文件                                      │
-│  - 投递到索引队列                                        │
-└────────────────────┬────────────────────────────────────┘
-                     │ 投递到索引队列
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│        IndexWorker (1个线程)                             │
-│  - 批量更新索引                                          │
-│  - 定期合并历史索引                                      │
-└─────────────────────────────────────────────────────────┘
+主线程 → 判断 → 下载队列 → 10工作线程 → 保存队列 → 保存线程 → 索引队列 → 索引线程
+          (缓存)       (并发下载)           (批量保存)         (后台合并)
 ```
 
-## 4. 核心实现
+## 3. 核心组件伪代码
 
-### 4.1 FastCoverageManager - 快速覆盖率检查（无阻塞）
+### 3.1 FastCoverageManager - 快速判断
 
 ```python
-import threading
-import time
-import hashlib
-from typing import Dict, Any, Optional, Set, List
-import polars as pl
-from pathlib import Path
-import logging
-
-logger = logging.getLogger(__name__)
-
 class FastCoverageManager:
-    """快速覆盖率管理器 - 轻量级内存缓存 + 可选 Bloom Filter"""
+    def __init__(self, storage_manager, config_loader):
+        self.cache = {}  # {interface: {record_key: timestamp}}
+        self.cache_lock = threading.RLock()
+        self.cache_ttl = 300  # 5分钟过期
+        self.bloom_filters = {}  # 可选
     
-    def __init__(self, storage_manager, config_loader, use_bloom_filter: bool = False):
-        self.storage_manager = storage_manager
-        self.config_loader = config_loader
-        self.use_bloom_filter = use_bloom_filter
+    def should_download(self, interface_name, params) -> bool:
+        """判断是否需要下载（<10ms）"""
+        # 1. 生成记录键
+        record_keys = self._generate_keys(interface_name, params)
         
-        # 轻量级内存缓存 {interface: {record_key: timestamp}}
-        self._cache: Dict[str, Dict[tuple, float]] = {}
-        self._cache_lock = threading.RLock()
-        self._cache_ttl = 300  # 5分钟过期
+        # 2. 查缓存
+        missing = self._check_cache(interface_name, record_keys)
+        if missing is not None:  # 缓存完整
+            return len(missing) > 0
         
-        # 可选 Bloom Filter（简单实现）
-        if use_bloom_filter:
-            self._bloom_filters: Dict[str, 'SimpleBloomFilter'] = {}
-        
-        logger.info(f"FastCoverageManager initialized (use_bloom_filter={use_bloom_filter})")
-    
-    def should_download(self, interface_name: str, params: Dict[str, Any]) -> bool:
-        """
-        判断是否需要下载（无阻塞，< 10ms）
-        
-        三层判断策略：
-        1. 内存缓存（最快，~1ms）
-        2. Bloom Filter（可选，~1ms）
-        3. 索引检查（较快，~10-50ms）
-        4. 传统检查（最慢，~500ms，降级使用）
-        """
-        try:
-            # 1. 生成记录键
-            record_keys = self._generate_record_keys(interface_name, params)
-            if not record_keys:
+        # 3. 查Bloom Filter（可选）
+        if self.use_bloom:
+            missing = self._check_bloom(interface_name, record_keys)
+            if len(missing) < len(record_keys):
                 return True
-            
-            # 2. 内存缓存检查（最快）
-            missing_keys = self._check_cache(interface_name, record_keys)
-            if missing_keys is not None:
-                # 缓存命中，直接返回
-                if not missing_keys:
-                    logger.debug(f"All records found in cache for {interface_name}")
-                    return False
-                else:
-                    logger.debug(f"Cache hit: {len(missing_keys)} missing records for {interface_name}")
-                    return True
-            
-            # 3. 如果启用 Bloom Filter，进行二次判断
-            if self.use_bloom_filter:
-                missing_keys = self._check_bloom_filter(interface_name, record_keys)
-                if missing_keys:
-                    logger.debug(f"Bloom Filter: {len(missing_keys)} definitely missing for {interface_name}")
-                    return True
-            
-            # 4. 检查索引（如果索引存在）
-            if hasattr(self.storage_manager, 'index_manager'):
-                existing = self.storage_manager.index_manager.get_existing_records(
-                    interface_name,
-                    start_date=params.get('start_date'),
-                    end_date=params.get('end_date'),
-                    ts_codes=params.get('ts_codes'),
-                    period=params.get('period')
-                )
-                missing_keys = record_keys - existing
-                
-                if not missing_keys:
-                    logger.info(f"All records exist in index for {interface_name}")
-                    return False
-                else:
-                    logger.info(f"Index check: {len(missing_keys)} missing for {interface_name}")
-                    return True
-            
-            # 5. 降级到传统检查
-            logger.info(f"Using traditional coverage check for {interface_name}")
-            return self._traditional_check(interface_name, params)
-            
-        except Exception as e:
-            logger.warning(f"Fast coverage check failed: {e}, using traditional check")
-            return self._traditional_check(interface_name, params)
-    
-    def _generate_record_keys(self, interface_name: str, params: Dict) -> Set[tuple]:
-        """生成记录键集合"""
-        record_keys = set()
         
-        index_config = {}
-        if self.config_loader:
-            interface_config = self.config_loader.get_interface_config(interface_name)
-            index_config = interface_config.get('index', {})
-        
-        primary_keys = index_config.get('primary_keys', ['trade_date'])
-        ts_field = index_config.get('ts_field', 'ts_code')
-        date_field = index_config.get('date_field', 'trade_date')
-        period_field = index_config.get('period_field', 'period')
-        
-        # 根据参数生成所有可能的记录键
-        if 'ts_codes' in params and 'start_date' in params and 'end_date' in params:
-            # 股票+日期模式
-            ts_codes = params['ts_codes']
-            start_date = params['start_date']
-            end_date = params['end_date']
-            
-            from datetime import datetime, timedelta
-            start = datetime.strptime(start_date, '%Y%m%d')
-            end = datetime.strptime(end_date, '%Y%m%d')
-            
-            current = start
-            while current <= end:
-                date_str = current.strftime('%Y%m%d')
-                for ts_code in ts_codes:
-                    key = tuple(
-                        ts_code if k == 'ts_code' else date_str 
-                        for k in primary_keys
-                    )
-                    record_keys.add(key)
-                current += timedelta(days=1)
-        
-        elif 'ts_codes' in params and 'periods' in params:
-            # 股票+报告期模式
-            ts_codes = params['ts_codes']
-            periods = params['periods']
-            
-            for ts_code in ts_codes:
-                for period in periods:
-                    key = tuple(
-                        ts_code if k == 'ts_code' else period
-                        for k in primary_keys
-                    )
-                    record_keys.add(key)
-        
-        return record_keys
-    
-    def _check_cache(self, interface_name: str, record_keys: Set[tuple]) -> Optional[Set[tuple]]:
-        """检查内存缓存"""
-        with self._cache_lock:
-            cache = self._cache.get(interface_name, {})
-            
-            # 清理过期缓存
-            now = time.time()
-            expired_keys = [k for k, t in cache.items() if now - t > self._cache_ttl]
-            for k in expired_keys:
-                del cache[k]
-            
-            # 检查所有记录键
-            missing_keys = set()
-            for key in record_keys:
-                if key not in cache:
-                    missing_keys.add(key)
-            
-            # 如果全部命中，返回缺失集合
-            # 如果部分命中，返回 None（表示缓存不完整）
-            if missing_keys and len(missing_keys) < len(record_keys):
-                return None  # 缓存不完整，需要查索引
-            
-            return missing_keys
-    
-    def _check_bloom_filter(self, interface_name: str, record_keys: Set[tuple]) -> Set[tuple]:
-        """检查 Bloom Filter"""
-        if interface_name not in self._bloom_filters:
-            # 创建 Bloom Filter
-            self._bloom_filters[interface_name] = SimpleBloomFilter(
-                capacity=10_000_000,
-                error_rate=0.001
+        # 4. 查索引
+        if hasattr(self.storage_manager, 'index_manager'):
+            existing = self.storage_manager.index_manager.get_existing_records(
+                interface_name, **filters
             )
+            return len(record_keys - existing) > 0
         
-        bloom = self._bloom_filters[interface_name]
-        
-        missing_keys = set()
-        for key in record_keys:
-            # Bloom Filter 返回 False 表示肯定不存在
-            if not bloom.contains("_".join(map(str, key))):
-                missing_keys.add(key)
-        
-        return missing_keys
-    
-    def _traditional_check(self, interface_name: str, params: Dict) -> bool:
-        """降级到传统检查（保留现有逻辑）"""
-        # 这里复用现有的 CoverageManager.should_skip 逻辑
-        # 或者简化为总是下载（更安全）
+        # 5. 降级
         return True  # 默认下载
     
-    def update_cache(self, interface_name: str, record_keys: Set[tuple]):
-        """更新缓存（下载完成后调用）"""
-        with self._cache_lock:
-            if interface_name not in self._cache:
-                self._cache[interface_name] = {}
+    def _check_cache(self, interface_name, record_keys):
+        """内存缓存检查"""
+        with self.cache_lock:
+            cache = self.cache.get(interface_name, {})
             
-            cache = self._cache[interface_name]
+            # 清理过期
             now = time.time()
+            for k, t in list(cache.items()):
+                if now - t > self.cache_ttl:
+                    del cache[k]
             
+            # 检查缺失
+            missing = {k for k in record_keys if k not in cache}
+            
+            # 如果部分命中，返回None（表示缓存不完整）
+            if 0 < len(missing) < len(record_keys):
+                return None
+            
+            return missing
+    
+    def update_cache(self, interface_name, record_keys):
+        """更新缓存"""
+        with self.cache_lock:
+            cache = self.cache.setdefault(interface_name, {})
+            now = time.time()
             for key in record_keys:
                 cache[key] = now
-            
-            logger.debug(f"Updated cache for {interface_name}: {len(record_keys)} records")
 
 class SimpleBloomFilter:
-    """简化版 Bloom Filter（无外部依赖）"""
-    
-    def __init__(self, capacity: int, error_rate: float = 0.001):
-        self.capacity = capacity
-        self.error_rate = error_rate
-        
-        # 计算参数
-        self.size = int(-(capacity * math.log(error_rate)) / (math.log(2) ** 2))
+    """简化版Bloom Filter"""
+    def __init__(self, capacity, error_rate=0.001):
+        self.size = int(-(capacity * math.log(error_rate)) / (math.log(2)**2))
         self.hash_count = int((self.size / capacity) * math.log(2))
-        
-        # 位数组（使用 Python 的 int 模拟）
         self.bit_array = 0
-        self.bit_size = self.size
     
-    def add(self, item: str):
-        """添加元素"""
+    def add(self, item):
         for i in range(self.hash_count):
             digest = hashlib.md5(f"{item}{i}".encode()).hexdigest()
-            index = int(digest, 16) % self.bit_size
+            index = int(digest, 16) % self.size
             self.bit_array |= (1 << index)
     
-    def contains(self, item: str) -> bool:
-        """检查元素是否存在"""
+    def contains(self, item):
         for i in range(self.hash_count):
             digest = hashlib.md5(f"{item}{i}".encode()).hexdigest()
-            index = int(digest, 16) % self.bit_size
-            
+            index = int(digest, 16) % self.size
             if not (self.bit_array & (1 << index)):
                 return False
-        
         return True
 ```
 
-### 4.2 AsyncStorageManager - 异步存储管理（最小改动）
+### 3.2 AsyncStorageManager - 异步存储
 
 ```python
-import threading
-import queue
-import time
-from typing import List, Dict, Any
-import polars as pl
-from pathlib import Path
-import logging
-
-logger = logging.getLogger(__name__)
-
 class AsyncStorageManager:
-    """异步存储管理器 - 在现有 StorageManager 基础上增加异步队列"""
-    
-    def __init__(self, storage_dir: str = "../data", config_loader=None):
-        self.storage_dir = Path(storage_dir)
-        self.config_loader = config_loader
+    def __init__(self, storage_dir, config_loader):
+        # 复用现有StorageManager
+        self.base_storage = StorageManager(storage_dir, config_loader)
         
-        # 初始化基础 StorageManager（复用现有代码）
-        from app4.core.storage import StorageManager
-        self.base_storage = StorageManager(storage_dir, config_loader=config_loader)
-        
-        # 新增异步队列
-        self.save_queue = queue.Queue(maxsize=1000)  # 有界队列
-        self.index_queue = queue.Queue(maxsize=10000)  # 索引队列
+        # 新增队列
+        self.save_queue = queue.Queue(maxsize=1000)
+        self.index_queue = queue.Queue(maxsize=10000)
         
         # 启动后台线程
         self.save_thread = threading.Thread(target=self._save_worker, daemon=True)
@@ -339,1220 +122,390 @@ class AsyncStorageManager:
         
         self.index_thread = threading.Thread(target=self._index_worker, daemon=True)
         self.index_thread.start()
-        
-        logger.info("AsyncStorageManager initialized with async workers")
     
-    def save_data_async(self, interface_name: str, data: List[Dict], file_path: str,
-                       record_keys: Optional[Set] = None):
-        """
-        异步保存数据（立即返回，不等待）
-        
-        Args:
-            interface_name: 接口名称
-            data: 数据列表
-            file_path: 文件路径
-            record_keys: 记录键（用于索引）
-        """
-        # 构建任务
+    def save_data_async(self, interface_name, data, file_path, record_keys=None):
+        """异步保存（立即返回）"""
         task = {
             'interface': interface_name,
             'data': data,
             'file_path': file_path,
-            'record_keys': record_keys or set(),
-            'timestamp': time.time()
+            'record_keys': record_keys or set()
         }
         
-        # 非阻塞放入队列
         try:
             self.save_queue.put_nowait(task)
-            logger.debug(f"Queued {len(data)} records for {interface_name}")
         except queue.Full:
-            # 队列满时，同步保存（降级）
-            logger.warning(f"Save queue full, saving synchronously for {interface_name}")
+            # 降级：同步保存
             self._save_sync(task)
     
     def _save_worker(self):
-        """后台保存工作线程"""
+        """后台保存线程"""
         while True:
-            try:
-                # 批量获取任务（减少 I/O 次数）
-                batch = self._get_batch()
-                
-                if batch:
-                    self._process_batch(batch)
-                
-            except Exception as e:
-                logger.error(f"Save worker error: {e}")
-                time.sleep(1.0)
+            batch = self._get_batch(self.save_queue, 50)
+            if batch:
+                self._process_save_batch(batch)
     
-    def _get_batch(self) -> List[Dict]:
+    def _get_batch(self, queue, max_size):
         """批量获取任务"""
         batch = []
-        
-        # 获取第一个（阻塞，但最多等待1秒）
         try:
-            first = self.save_queue.get(timeout=1.0)
-            batch.append(first)
-            
-            # 快速获取更多
-            while len(batch) < 50:
-                try:
-                    item = self.save_queue.get_nowait()
-                    batch.append(item)
-                except queue.Empty:
-                    break
-        except queue.Empty:
+            batch.append(queue.get(timeout=1.0))
+            while len(batch) < max_size:
+                batch.append(queue.get_nowait())
+        except (queue.Empty, queue.Full):
             pass
-        
         return batch
     
-    def _process_batch(self, batch: List[Dict]):
-        """批量处理保存任务"""
+    def _process_save_batch(self, batch):
+        """批量保存"""
         # 按接口分组
         by_interface = {}
         for task in batch:
             iface = task['interface']
-            if iface not in by_interface:
-                by_interface[iface] = []
-            by_interface[iface].append(task)
+            by_interface.setdefault(iface, []).append(task)
         
-        # 批量保存每个接口
+        # 批量保存
         for iface, tasks in by_interface.items():
-            try:
-                self._save_interface_batch(iface, tasks)
-            except Exception as e:
-                logger.error(f"Failed to save batch for {iface}: {e}")
+            self._save_interface_batch(iface, tasks)
     
-    def _save_interface_batch(self, interface_name: str, tasks: List[Dict]):
+    def _save_interface_batch(self, interface_name, tasks):
         """批量保存单个接口"""
-        # 确保目录存在
-        iface_dir = self.storage_dir / interface_name
-        iface_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 合并数据（如果文件路径相同）
+        # 按文件分组
         file_groups = {}
         for task in tasks:
-            file_path = task['file_path']
-            if file_path not in file_groups:
-                file_groups[file_path] = {
-                    'data': [],
-                    'keys': set()
-                }
-            file_groups[file_path]['data'].extend(task['data'])
-            file_groups[file_path]['keys'].update(task['record_keys'])
+            fp = task['file_path']
+            file_groups.setdefault(fp, {'data': [], 'keys': set()})
+            file_groups[fp]['data'].extend(task['data'])
+            file_groups[fp]['keys'].update(task['record_keys'])
         
         # 保存每个文件
         for file_path, group in file_groups.items():
-            try:
-                self._save_single_file(
-                    interface_name,
-                    file_path,
-                    group['data'],
-                    group['keys']
-                )
-            except Exception as e:
-                logger.error(f"Failed to save {file_path}: {e}")
-    
-    def _save_single_file(self, interface_name: str, file_path: str,
-                         data: List[Dict], record_keys: Set):
-        """保存单个文件"""
-        # 数据转换为 DataFrame
-        df = pl.DataFrame(data)
-        
-        # 原子写入
-        temp_path = file_path + ".tmp"
-        df.write_parquet(temp_path, compression='snappy')
-        Path(temp_path).rename(file_path)
-        
-        logger.info(f"Saved {len(data)} records to {file_path}")
-        
-        # 投递到索引队列（异步更新索引）
-        try:
-            self.index_queue.put_nowait({
-                'interface': interface_name,
-                'file_path': file_path,
-                'df': df,
-                'record_keys': record_keys
-            })
-        except queue.Full:
-            # 索引队列满，稍后重试
-            logger.warning(f"Index queue full, will retry for {interface_name}")
-            # 启动后台任务稍后重试
-            threading.Thread(
-                target=self._retry_index_update,
-                args=(interface_name, file_path, df, record_keys),
-                daemon=True
-            ).start()
-    
-    def _retry_index_update(self, interface_name: str, file_path: str,
-                           df: pl.DataFrame, record_keys: Set):
-        """重试索引更新"""
-        time.sleep(1.0)
-        try:
+            df = pl.DataFrame(group['data'])
+            df.write_parquet(file_path + ".tmp", compression='snappy')
+            Path(file_path + ".tmp").rename(file_path)
+            
+            # 投递到索引队列
             self.index_queue.put({
                 'interface': interface_name,
                 'file_path': file_path,
                 'df': df,
-                'record_keys': record_keys
-            }, timeout=5.0)
-        except queue.Full:
-            logger.error(f"Failed to queue index update for {interface_name}")
-    
-    def _save_sync(self, task: Dict):
-        """同步保存（降级方案）"""
-        interface_name = task['interface']
-        file_path = task['file_path']
-        data = task['data']
-        record_keys = task['record_keys']
-        
-        df = pl.DataFrame(data)
-        df.write_parquet(file_path + ".tmp", compression='snappy')
-        Path(file_path + ".tmp").rename(file_path)
-        
-        logger.info(f"Synchronously saved {len(data)} records to {file_path}")
-        
-        # 索引更新（异步）
-        try:
-            self.index_queue.put_nowait({
-                'interface': interface_name,
-                'file_path': file_path,
-                'df': df,
-                'record_keys': record_keys
+                'keys': group['keys']
             })
-        except queue.Full:
-            logger.error(f"Index queue full after sync save for {interface_name}")
     
     def _index_worker(self):
-        """后台索引工作线程"""
+        """后台索引线程"""
         while True:
-            try:
-                # 批量获取索引任务
-                batch = self._get_index_batch()
-                
-                if batch:
-                    self._process_index_batch(batch)
-                
-            except Exception as e:
-                logger.error(f"Index worker error: {e}")
-                time.sleep(1.0)
+            batch = self._get_batch(self.index_queue, 100)
+            if batch:
+                self._process_index_batch(batch)
     
-    def _get_index_batch(self) -> List[Dict]:
-        """批量获取索引任务"""
-        batch = []
-        
-        try:
-            first = self.index_queue.get(timeout=1.0)
-            batch.append(first)
-            
-            while len(batch) < 100:
-                try:
-                    item = self.index_queue.get_nowait()
-                    batch.append(item)
-                except queue.Empty:
-                    break
-        except queue.Empty:
-            pass
-        
-        return batch
-    
-    def _process_index_batch(self, batch: List[Dict]):
-        """批量处理索引更新"""
-        # 按接口分组
+    def _process_index_batch(self, batch):
+        """批量更新索引"""
         by_interface = {}
         for task in batch:
             iface = task['interface']
-            if iface not in by_interface:
-                by_interface[iface] = []
-            by_interface[iface].append(task)
+            by_interface.setdefault(iface, []).append(task)
         
-        # 批量更新每个接口的索引
         for iface, tasks in by_interface.items():
-            try:
-                self._update_interface_index(iface, tasks)
-            except Exception as e:
-                logger.error(f"Failed to update index for {iface}: {e}")
-    
-    def _update_interface_index(self, interface_name: str, tasks: List[Dict]):
-        """批量更新接口索引"""
-        # 这里调用 IndexManager 的批量更新方法
-        # 复用现有索引逻辑
-        if hasattr(self.storage_manager, 'index_manager'):
             for task in tasks:
-                self.storage_manager.index_manager.add_records(
-                    interface_name,
-                    task['file_path'],
-                    task['df']
-                )
-        
-        logger.info(f"Updated index for {interface_name}: {len(tasks)} files")
-    
-    def get_queue_stats(self) -> Dict[str, Any]:
-        """获取队列统计信息"""
-        return {
-            'save_queue_size': self.save_queue.qsize(),
-            'save_queue_maxsize': self.save_queue.maxsize,
-            'index_queue_size': self.index_queue.qsize(),
-            'index_queue_maxsize': self.index_queue.maxsize,
-            'save_thread_alive': self.save_thread.is_alive(),
-            'index_thread_alive': self.index_thread.is_alive()
-        }
+                self.index_manager.add_records(iface, task['file_path'], task['df'])
 ```
 
-### 4.3 AsyncGenericDownloader - 异步下载器（保留线程池）
+### 3.3 AsyncGenericDownloader - 异步下载器
 
 ```python
-import threading
-import queue
-import time
-from typing import List, Dict, Any, Optional
-import logging
-
-logger = logging.getLogger(__name__)
-
 class AsyncGenericDownloader:
-    """异步下载器 - 基于线程池，无 asyncio"""
-    
-    def __init__(self, config_loader=None, storage_manager=None):
+    def __init__(self, config_loader, storage_manager):
         self.config_loader = config_loader
         self.storage_manager = storage_manager
-        self.fast_coverage = FastCoverageManager(
-            storage_manager=storage_manager,
-            config_loader=config_loader,
-            use_bloom_filter=True  # 可选，默认关闭
-        )
+        self.coverage = FastCoverageManager(storage_manager, config_loader)
         
-        # 下载队列
         self.download_queue = queue.Queue(maxsize=100)
-        
-        # 工作线程池
         self.num_workers = 10
         self.workers = []
         self.running = False
-        
-        # 统计信息
-        self.stats = {
-            'total_downloaded': 0,
-            'total_skipped': 0,
-            'total_errors': 0,
-            'start_time': None
-        }
+        self.stats = {'downloaded': 0, 'skipped': 0, 'errors': 0}
     
     def start(self):
-        """启动下载器"""
-        if self.running:
-            return
-        
+        """启动工作线程"""
         self.running = True
-        self.stats['start_time'] = time.time()
-        
-        # 启动工作线程
         for i in range(self.num_workers):
-            worker = threading.Thread(
-                target=self._download_worker,
-                name=f"DownloadWorker-{i}",
-                daemon=True
-            )
-            worker.start()
-            self.workers.append(worker)
-        
-        logger.info(f"AsyncGenericDownloader started with {self.num_workers} workers")
+            t = threading.Thread(target=self._worker, daemon=True)
+            t.start()
+            self.workers.append(t)
     
     def stop(self):
-        """停止下载器"""
-        if not self.running:
-            return
-        
+        """停止工作线程"""
         self.running = False
-        
-        # 发送停止信号
         for _ in self.workers:
             self.download_queue.put(None)
-        
-        # 等待线程结束
-        for worker in self.workers:
-            worker.join(timeout=5.0)
-        
-        logger.info("AsyncGenericDownloader stopped")
+        for w in self.workers:
+            w.join()
     
-    def download_interface(self, interface_name: str, **params) -> Dict[str, Any]:
-        """
-        异步下载接口数据（立即返回，后台执行）
-        
-        Args:
-            interface_name: 接口名称
-            **params: 下载参数
-            
-        Returns:
-            Dict: 任务信息和统计
-        """
-        # 1. 生成分页参数批次
+    def download_interface(self, interface_name, **params):
+        """异步下载（立即返回）"""
+        # 1. 生成分页批次
         batches = self._generate_batches(interface_name, params)
         
-        # 2. 快速判断，过滤已存在批次
-        filtered_batches = []
+        # 2. 快速判断
+        filtered = []
         for batch in batches:
-            if self.fast_coverage.should_download(interface_name, batch):
-                filtered_batches.append(batch)
+            if self.coverage.should_download(interface_name, batch):
+                filtered.append(batch)
             else:
-                self.stats['total_skipped'] += 1
-                logger.debug(f"Batch skipped for {interface_name}")
+                self.stats['skipped'] += 1
         
-        if not filtered_batches:
-            logger.info(f"All batches exist for {interface_name}, nothing to download")
-            return {
-                'interface': interface_name,
-                'total_batches': len(batches),
-                'filtered_batches': 0,
-                'status': 'completed',
-                'message': 'All records exist'
-            }
+        if not filtered:
+            return {'status': 'completed', 'message': 'All records exist'}
         
-        # 3. 投递到下载队列
+        # 3. 投递队列
         task_id = f"{interface_name}_{int(time.time() * 1000)}"
-        
-        for i, batch in enumerate(filtered_batches):
+        for i, batch in enumerate(filtered):
             task = {
-                'task_id': f"{task_id}_{i}",
+                'id': f"{task_id}_{i}",
                 'interface': interface_name,
                 'params': batch,
-                'retry_count': 0,
-                'max_retries': 3
+                'retry': 0
             }
-            
-            try:
-                self.download_queue.put_nowait(task)
-            except queue.Full:
-                logger.warning(f"Download queue full, dropping task for {interface_name}")
-                self.stats['total_errors'] += 1
+            self.download_queue.put(task)
         
-        logger.info(f"Queued {len(filtered_batches)} batches for {interface_name}")
-        
-        return {
-            'interface': interface_name,
-            'total_batches': len(batches),
-            'filtered_batches': len(filtered_batches),
-            'status': 'queued',
-            'task_id': task_id
-        }
+        return {'status': 'queued', 'batches': len(filtered)}
     
-    def _generate_batches(self, interface_name: str, params: Dict) -> List[Dict]:
-        """生成分页参数批次"""
-        batches = []
-        
-        # 获取接口配置
-        interface_config = {}
-        if self.config_loader:
-            interface_config = self.config_loader.get_interface_config(interface_name)
-        
-        pagination_config = interface_config.get('pagination', {})
-        
-        if not pagination_config.get('enabled', False):
-            # 不分页，单批次
-            batches.append(params)
-            return batches
-        
-        mode = pagination_config.get('mode', 'date_range')
-        
-        if mode == 'date_range':
-            start_date = params.get('start_date')
-            end_date = params.get('end_date')
-            window = pagination_config.get('window_size_days', 365)
-            
-            from datetime import datetime, timedelta
-            start = datetime.strptime(start_date, '%Y%m%d')
-            end = datetime.strptime(end_date, '%Y%m%d')
-            
-            current = start
-            while current <= end:
-                window_end = min(current + timedelta(days=window-1), end)
-                
-                batch = params.copy()
-                batch['start_date'] = current.strftime('%Y%m%d')
-                batch['end_date'] = window_end.strftime('%Y%m%d')
-                batches.append(batch)
-                
-                current = window_end + timedelta(days=1)
-        
-        elif mode == 'stock_loop':
-            ts_codes = params.get('ts_codes', [])
-            batch_size = pagination_config.get('batch_size', 100)
-            
-            for i in range(0, len(ts_codes), batch_size):
-                batch_codes = ts_codes[i:i+batch_size]
-                batch = params.copy()
-                batch['ts_codes'] = batch_codes
-                batches.append(batch)
-        
-        elif mode == 'period_range':
-            periods = params.get('periods', [])
-            for period in periods:
-                batch = params.copy()
-                batch['period'] = period
-                batches.append(batch)
-        
-        else:
-            batches.append(params)
-        
-        return batches
-    
-    def _download_worker(self):
-        """下载工作线程"""
+    def _worker(self):
+        """工作线程"""
         while self.running:
             try:
-                # 获取任务（阻塞，但最多等待1秒）
                 task = self.download_queue.get(timeout=1.0)
-                
-                # 停止信号
                 if task is None:
                     break
-                
-                # 执行任务
-                self._execute_task(task)
-                
+                self._execute(task)
             except queue.Empty:
                 continue
-            except Exception as e:
-                logger.error(f"Worker error: {e}")
-                time.sleep(1.0)
     
-    def _execute_task(self, task: Dict):
-        """执行单个下载任务"""
-        interface = task['interface']
-        params = task['params']
-        task_id = task['task_id']
-        retry_count = task['retry_count']
-        
+    def _execute(self, task):
+        """执行下载任务"""
         try:
-            # 1. 下载数据
-            data = self._fetch_data(interface, params)
-            
-            if not data:
-                logger.warning(f"No data returned for {interface}, params: {params}")
-                return
+            # 1. 下载
+            data = self._fetch_data(task['interface'], task['params'])
             
             # 2. 生成记录键
-            record_keys = self._generate_record_keys(interface, params)
+            keys = self.coverage._generate_keys(task['interface'], task['params'])
             
             # 3. 生成文件路径
-            file_path = self._generate_file_path(interface, params)
+            file_path = self._generate_filepath(task['interface'], task['params'])
             
-            # 4. 异步保存（不等待）
-            if hasattr(self.storage_manager, 'save_data_async'):
-                # 使用异步保存
-                self.storage_manager.save_data_async(
-                    interface_name=interface,
-                    data=data,
-                    file_path=file_path,
-                    record_keys=record_keys
-                )
-            else:
-                # 降级到同步保存
-                self._save_sync(interface, file_path, data, record_keys)
-            
-            # 5. 更新统计
-            self.stats['total_downloaded'] += len(data)
-            
-            logger.info(f"Successfully downloaded and queued {len(data)} records for {interface}")
-            
-        except Exception as e:
-            logger.error(f"Task failed for {interface}: {e}")
-            self.stats['total_errors'] += 1
-            
-            # 重试逻辑
-            if retry_count < task['max_retries']:
-                retry_count += 1
-                logger.info(f"Retrying task {task_id}, attempt {retry_count}")
-                
-                # 延迟后重试
-                time.sleep(min(2 ** retry_count, 30))
-                
-                # 重新放入队列
-                task['retry_count'] = retry_count
-                try:
-                    self.download_queue.put_nowait(task)
-                except queue.Full:
-                    logger.error(f"Queue full, dropping task {task_id}")
-            else:
-                logger.error(f"Task {task_id} exhausted all retries")
-    
-    def _fetch_data(self, interface_name: str, params: Dict) -> List[Dict]:
-        """获取数据（复用现有逻辑）"""
-        # 这里调用现有的 GenericDownloader.download 方法
-        # 或者调用 API 接口
-        try:
-            # 模拟调用
-            from app4.core.downloader import GenericDownloader
-            downloader = GenericDownloader(
-                config_loader=self.config_loader,
-                storage_manager=self.storage_manager
+            # 4. 异步保存
+            self.storage_manager.save_data_async(
+                task['interface'], data, file_path, keys
             )
             
-            # 复用现有下载逻辑
-            return downloader.download(interface_name, params)
+            self.stats['downloaded'] += len(data)
+            
         except Exception as e:
-            logger.error(f"Failed to fetch data for {interface_name}: {e}")
-            return []
-    
-    def _generate_record_keys(self, interface_name: str, params: Dict) -> Set[tuple]:
-        """生成记录键"""
-        # 复用 FastCoverageManager 的逻辑
-        return self.fast_coverage._generate_record_keys(interface_name, params)
-    
-    def _generate_file_path(self, interface_name: str, params: Dict) -> str:
-        """生成文件路径"""
-        timestamp = int(time.time() * 1000)
-        
-        # 生成参数哈希
-        import hashlib
-        param_str = "_".join(f"{k}-{v}" for k, v in sorted(params.items()) if v)
-        param_hash = hashlib.md5(param_str.encode()).hexdigest()[:8]
-        
-        file_name = f"{interface_name}_{timestamp}_{param_hash}.parquet"
-        return str(self.storage_dir / interface_name / file_name)
-    
-    def _save_sync(self, interface_name: str, file_path: str,
-                  data: List[Dict], record_keys: Set):
-        """同步保存（降级）"""
-        # 复用 StorageManager 的同步保存
-        self.storage_manager.save_data(
-            interface_name=interface_name,
-            data=data,
-            async_write=False  # 同步保存
-        )
-        
-        logger.info(f"Synchronously saved {len(data)} records for {interface_name}")
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """获取统计信息"""
-        elapsed = time.time() - self.stats['start_time'] if self.stats['start_time'] else 0
-        
-        stats = self.stats.copy()
-        stats['elapsed_seconds'] = elapsed
-        stats['throughput'] = stats['total_downloaded'] / elapsed if elapsed > 0 else 0
-        stats['queue_size'] = self.download_queue.qsize()
-        
-        # 添加队列统计
-        if hasattr(self.storage_manager, 'get_queue_stats'):
-            stats['storage_queues'] = self.storage_manager.get_queue_stats()
-        
-        return stats
-    
-    def wait_completion(self, timeout: float = 60.0):
-        """等待所有任务完成"""
-        start = time.time()
-        
-        while True:
-            if self.download_queue.empty():
-                break
-            
-            if time.time() - start > timeout:
-                logger.warning(f"Timeout waiting for completion, {self.download_queue.qsize()} tasks remaining")
-                break
-            
-            time.sleep(0.5)
+            # 重试逻辑
+            if task['retry'] < 3:
+                task['retry'] += 1
+                time.sleep(min(2 ** task['retry'], 30))
+                self.download_queue.put(task)
+            else:
+                self.stats['errors'] += 1
 ```
 
-### 4.4 索引管理器（增量更新）
+### 3.4 UnifiedIndexManager - 索引管理
 
 ```python
-# 在现有 StorageManager 中添加
-
 class UnifiedIndexManager:
-    """统一索引管理器（增量更新，后台合并）"""
-    
-    def __init__(self, storage_dir: str, config_loader=None):
+    def __init__(self, storage_dir, config_loader):
         self.storage_dir = Path(storage_dir)
         self.config_loader = config_loader
+        self.daily_index = []  # 内存增量
+        self.lock = threading.RLock()
         
-        # 今日增量索引（内存中）
-        self.daily_index: List[Dict] = []
-        self._lock = threading.RLock()
-        
-        # 启动后台合并线程
+        # 启动合并线程
         self.merge_thread = threading.Thread(target=self._periodic_merge, daemon=True)
         self.merge_thread.start()
-        
-        logger.info("UnifiedIndexManager initialized")
     
-    def add_records(self, interface_name: str, file_path: str, df: pl.DataFrame):
-        """添加记录到索引（增量）"""
-        index_config = {}
-        if self.config_loader:
-            interface_config = self.config_loader.get_interface_config(interface_name)
-            index_config = interface_config.get('index', {})
-        
-        primary_keys = index_config.get('primary_keys', ['trade_date'])
-        ts_field = index_config.get('ts_field', 'ts_code')
-        date_field = index_config.get('date_field', 'trade_date')
-        period_field = index_config.get('period_field', 'period')
-        
-        # 生成索引记录
-        records = []
-        for row in df.iter_rows(named=True):
-            record = {
-                "interface_name": interface_name,
-                "ts_code": str(row.get(ts_field, "")),
-                "trade_date": str(row.get(date_field, "")),
-                "period": str(row.get(period_field, "")) if period_field and period_field in row else "",
-                "file_path": str(file_path),
-                "update_time": int(time.time() * 1000),
-                "record_count": len(df),
-            }
-            records.append(record)
-        
-        # 添加到内存索引
-        with self._lock:
+    def add_records(self, interface_name, file_path, df):
+        """添加记录（增量）"""
+        with self.lock:
+            records = []
+            for row in df.iter_rows(named=True):
+                records.append({
+                    "interface": interface_name,
+                    "ts_code": row.get('ts_code', ""),
+                    "trade_date": str(row.get('trade_date', "")),
+                    "file_path": str(file_path),
+                    "update_time": int(time.time() * 1000),
+                })
             self.daily_index.extend(records)
-        
-        logger.debug(f"Added {len(records)} records to daily index for {interface_name}")
-        
-        # 如果内存索引过大，立即刷盘
-        if len(self.daily_index) > 10000:
-            self._flush_daily_index()
-    
-    def _flush_daily_index(self):
-        """刷写今日增量索引到磁盘"""
-        with self._lock:
-            if not self.daily_index:
-                return
             
+            # 内存过大则刷盘
+            if len(self.daily_index) > 10000:
+                self._flush()
+    
+    def _flush(self):
+        """刷写增量到磁盘"""
+        with self.lock:
             records = self.daily_index.copy()
             self.daily_index.clear()
         
-        # 写入增量文件
         today = date.today().isoformat()
-        index_path = self.storage_dir / f"index_delta_{today}.parquet"
+        path = self.storage_dir / f"index_delta_{today}.parquet"
         
+        # 读取现有 + 合并 + 原子写入
         try:
-            # 读取现有增量
-            try:
-                existing = pl.read_parquet(index_path)
-            except:
-                existing = pl.DataFrame(schema=self._get_schema())
-            
-            # 合并新记录
-            new_df = pl.DataFrame(records, schema=self._get_schema())
-            updated = pl.concat([existing, new_df])
-            
-            # 原子写入
-            temp_path = index_path.with_suffix('.tmp.parquet')
-            updated.write_parquet(temp_path, compression='snappy')
-            temp_path.rename(index_path)
-            
-            logger.info(f"Flushed {len(records)} records to {index_path}")
-            
-        except Exception as e:
-            logger.error(f"Failed to flush daily index: {e}")
+            existing = pl.read_parquet(path)
+        except:
+            existing = pl.DataFrame()
+        
+        new_df = pl.DataFrame(records)
+        updated = pl.concat([existing, new_df])
+        updated.write_parquet(str(path) + ".tmp", compression='snappy')
+        Path(str(path) + ".tmp").rename(path)
     
     def _periodic_merge(self):
-        """定期合并历史增量索引（每天凌晨2点）"""
+        """每天凌晨2点合并历史增量"""
         while True:
+            # 等待到2点
+            self._wait_until(2, 0)
+            
+            # 执行合并
+            self._flush()  # 先刷内存
+            
+            delta_files = list(self.storage_dir.glob("index_delta_*.parquet"))
+            if not delta_files:
+                continue
+            
+            # 读取所有增量
+            dfs = [pl.read_parquet(f) for f in delta_files]
+            all_delta = pl.concat(dfs)
+            
+            # 读取主索引
+            main_path = self.storage_dir / "index_main.parquet"
             try:
-                # 等待到2点
-                self._wait_until(2, 0)
-                
-                # 执行合并
-                self._merge_all_indexes()
-                
-            except Exception as e:
-                logger.error(f"Periodic merge error: {e}")
-                time.sleep(3600)  # 1小时后重试
-    
-    def _wait_until(self, hour: int, minute: int):
-        """等待到指定时间"""
-        now = datetime.now()
-        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if target <= now:
-            target += timedelta(days=1)
-        
-        wait_seconds = (target - now).total_seconds()
-        time.sleep(wait_seconds)
-    
-    def _merge_all_indexes(self):
-        """合并所有增量索引到主索引"""
-        logger.info("Starting index merge process...")
-        
-        # 先刷写内存索引
-        self._flush_daily_index()
-        
-        # 查找所有增量文件
-        delta_files = list(self.storage_dir.glob("index_delta_*.parquet"))
-        
-        if not delta_files:
-            return
-        
-        # 读取所有增量
-        delta_dfs = []
-        for file_path in delta_files:
-            try:
-                df = pl.read_parquet(file_path)
-                delta_dfs.append(df)
-            except Exception as e:
-                logger.error(f"Failed to read {file_path}: {e}")
-        
-        if not delta_dfs:
-            return
-        
-        # 合并所有增量
-        all_delta = pl.concat(delta_dfs)
-        
-        # 读取主索引（如果不存在则创建）
-        main_path = self.storage_dir / "index_main.parquet"
-        try:
-            main_df = pl.read_parquet(main_path)
-        except:
-            main_df = pl.DataFrame(schema=self._get_schema())
-        
-        # 合并并去重（按主键，保留最新）
-        combined = pl.concat([main_df, all_delta])
-        combined = combined.sort("update_time", descending=True)
-        
-        primary_keys = ["interface_name", "ts_code", "trade_date", "period"]
-        merged = combined.unique(subset=primary_keys, keep="first")
-        
-        # 写入主索引
-        temp_path = main_path.with_suffix('.tmp.parquet')
-        merged.write_parquet(temp_path, compression='snappy')
-        temp_path.rename(main_path)
-        
-        # 删除已合并的增量文件
-        for file_path in delta_files:
-            try:
-                file_path.unlink()
-            except Exception as e:
-                logger.error(f"Failed to delete {file_path}: {e}")
-        
-        logger.info(f"Merged {len(delta_files)} delta files into main index, total {len(merged)} records")
-    
-    def get_existing_records(self, interface_name: str, **filters) -> Set[tuple]:
-        """获取已存在记录（从主索引+今日增量）"""
-        # 读取主索引
-        main_path = self.storage_dir / "index_main.parquet"
-        dfs = []
-        
-        try:
-            main_df = pl.read_parquet(main_path)
-            dfs.append(main_df)
-        except:
-            pass
-        
-        # 读取今日增量
-        today = date.today().isoformat()
-        delta_path = self.storage_dir / f"index_delta_{today}.parquet"
-        try:
-            delta_df = pl.read_parquet(delta_path)
-            dfs.append(delta_df)
-        except:
-            pass
-        
-        # 读取内存中的增量
-        with self._lock:
-            if self.daily_index:
-                memory_df = pl.DataFrame(self.daily_index, schema=self._get_schema())
-                dfs.append(memory_df)
-        
-        if not dfs:
-            return set()
-        
-        # 合并
-        index_df = pl.concat(dfs)
-        
-        # 应用过滤条件
-        query = pl.col("interface_name") == interface_name
-        
-        if filters.get('start_date'):
-            query &= pl.col("trade_date") >= filters['start_date']
-        if filters.get('end_date'):
-            query &= pl.col("trade_date") <= filters['end_date']
-        if filters.get('ts_codes'):
-            query &= pl.col("ts_code").is_in(filters['ts_codes'])
-        if filters.get('period'):
-            query &= pl.col("period") == filters['period']
-        
-        filtered = index_df.filter(query)
-        
-        # 生成记录标识
-        existing_records = set()
-        for row in filtered.iter_rows(named=True):
-            key = tuple(row.get(col, "") for col in ["ts_code", "trade_date", "period"])
-            existing_records.add(key)
-        
-        return existing_records
-    
-    def _get_schema(self) -> Dict[str, pl.DataType]:
-        """索引 Schema"""
-        return {
-            "interface_name": pl.String,
-            "ts_code": pl.String,
-            "trade_date": pl.String,
-            "period": pl.String,
-            "file_path": pl.String,
-            "update_time": pl.Int64,
-            "record_count": pl.Int64,
-        }
+                main_df = pl.read_parquet(main_path)
+            except:
+                main_df = pl.DataFrame()
+            
+            # 合并并去重
+            combined = pl.concat([main_df, all_delta])
+            combined = combined.sort("update_time", descending=True)
+            merged = combined.unique(subset=["interface", "ts_code", "trade_date"], keep="first")
+            
+            # 写入主索引
+            merged.write_parquet(str(main_path) + ".tmp", compression='snappy')
+            Path(str(main_path) + ".tmp").rename(main_path)
+            
+            # 删除增量文件
+            for f in delta_files:
+                f.unlink()
 ```
 
-## 5. 配置选项
+## 4. 配置
 
 ```yaml
-# app4/config/settings.yaml
-
 storage:
   base_dir: "../data"
-  
-  # 异步配置
   async:
     enabled: true
-    download_workers: 10  # 下载工作线程数
-    save_queue_maxsize: 1000  # 保存队列大小
-    index_queue_maxsize: 10000  # 索引队列大小
+    download_workers: 10      # 下载线程数
+    save_queue_maxsize: 1000   # 保存队列
+    index_queue_maxsize: 10000 # 索引队列
 
-# 快速覆盖率检查
 coverage:
-  fast_mode: true  # 启用快速判断
-  use_bloom_filter: false  # 是否使用 Bloom Filter（可选）
-  cache_ttl: 300  # 缓存过期时间（秒）
-  
-# 索引配置
+  fast_mode: true          # 启用快速判断
+  use_bloom_filter: false  # 可选Bloom
+  cache_ttl: 300           # 缓存5分钟
+
 index:
   enabled: true
-  merge_hour: 2  # 合并时间（凌晨2点）
-  flush_interval: 300  # 刷盘间隔（5分钟）
+  merge_hour: 2            # 凌晨2点合并
 ```
 
-## 6. 使用示例
+## 5. 使用示例
 
 ```python
-from app4.core.async_downloader import AsyncGenericDownloader
-from app4.core.config_loader import ConfigLoader
-from app4.core.storage import AsyncStorageManager
-
 # 初始化
-def main():
-    config_loader = ConfigLoader()
-    
-    # 使用 AsyncStorageManager（包装现有 StorageManager）
-    storage_manager = AsyncStorageManager(
-        storage_dir="../data",
-        config_loader=config_loader
-    )
-    
-    # 初始化异步下载器
-    downloader = AsyncGenericDownloader(
-        config_loader=config_loader,
-        storage_manager=storage_manager
-    )
-    
-    # 启动下载器
-    downloader.start()
-    
-    # 异步下载（立即返回）
-    result1 = downloader.download_interface(
-        interface_name="daily",
-        start_date="20240101",
-        end_date="20240131",
-        ts_codes=["000001.SZ", "000002.SZ", "600000.SH"]
-    )
-    
-    print(f"Task queued: {result1}")
-    
-    # 继续添加其他下载任务
-    result2 = downloader.download_interface(
-        interface_name="income_vip",
-        ts_codes=["000001.SZ"],
-        periods=["2023Q1", "2023Q2", "2023Q3", "2023Q4"]
-    )
-    
-    print(f"Task queued: {result2}")
-    
-    # 等待所有任务完成
-    print("Waiting for completion...")
-    downloader.wait_completion(timeout=3600)  # 最多等待1小时
-    
-    # 获取统计信息
-    stats = downloader.get_stats()
-    print(f"Downloaded: {stats['total_downloaded']}")
-    print(f"Skipped: {stats['total_skipped']}")
-    print(f"Throughput: {stats['throughput']:.2f} records/sec")
-    
-    # 停止下载器
-    downloader.stop()
+config_loader = ConfigLoader()
+storage_manager = AsyncStorageManager("../data", config_loader)
+downloader = AsyncGenericDownloader(config_loader, storage_manager)
 
-if __name__ == '__main__':
-    main()
+# 启动
+downloader.start()
+
+# 异步下载（立即返回）
+result = downloader.download_interface(
+    interface_name="daily",
+    start_date="20240101",
+    end_date="20240131",
+    ts_codes=["000001.SZ", "000002.SZ"]
+)
+print(f"Queued: {result}")
+
+# 等待完成
+downloader.wait_completion(timeout=3600)
+
+# 查看统计
+stats = downloader.get_stats()
+print(f"Downloaded: {stats['total_downloaded']}")
+print(f"Throughput: {stats['throughput']:.2f} records/s")
+
+# 停止
+downloader.stop()
 ```
 
-## 7. CLI 命令
-
-```python
-# app4/main.py
-
-import argparse
-import time
-from app4.core.async_downloader import AsyncGenericDownloader
-from app4.core.config_loader import ConfigLoader
-from app4.core.storage import AsyncStorageManager
-
-def download_command(args):
-    """异步下载命令"""
-    config_loader = ConfigLoader()
-    
-    storage_manager = AsyncStorageManager(
-        storage_dir=args.storage_dir,
-        config_loader=config_loader
-    )
-    
-    downloader = AsyncGenericDownloader(
-        config_loader=config_loader,
-        storage_manager=storage_manager
-    )
-    
-    downloader.start()
-    
-    try:
-        # 添加下载任务
-        result = downloader.download_interface(
-            interface_name=args.interface,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            ts_codes=args.ts_codes.split(',') if args.ts_codes else None
-        )
-        
-        print(f"✓ Task queued: {result}")
-        print(f"  - Total batches: {result['total_batches']}")
-        print(f"  - Filtered batches: {result['filtered_batches']}")
-        print(f"  - Status: {result['status']}")
-        
-        # 等待完成
-        print("\nWaiting for completion...")
-        downloader.wait_completion(timeout=args.timeout)
-        
-        # 显示统计
-        stats = downloader.get_stats()
-        print(f"\n✓ Download completed:")
-        print(f"  - Downloaded: {stats['total_downloaded']} records")
-        print(f"  - Skipped: {stats['total_skipped']} batches")
-        print(f"  - Errors: {stats['total_errors']}")
-        print(f"  - Elapsed: {stats['elapsed_seconds']:.2f}s")
-        print(f"  - Throughput: {stats['throughput']:.2f} records/s")
-        
-        # 显示队列状态
-        if hasattr(storage_manager, 'get_queue_stats'):
-            queue_stats = storage_manager.get_queue_stats()
-            print(f"\nQueue status:")
-            print(f"  - Save queue: {queue_stats['save_queue_size']}/{queue_stats['save_queue_maxsize']}")
-            print(f"  - Index queue: {queue_stats['index_queue_size']}/{queue_stats['index_queue_maxsize']}")
-        
-    finally:
-        downloader.stop()
-
-def stats_command(args):
-    """查看实时统计"""
-    # 实现统计查看逻辑
-    pass
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='App4 Async Downloader')
-    subparsers = parser.add_subparsers(dest='command')
-    
-    # 下载命令
-    download_parser = subparsers.add_parser('download', help='Download data asynchronously')
-    download_parser.add_argument('--interface', required=True, help='Interface name')
-    download_parser.add_argument('--start-date', help='Start date (YYYYMMDD)')
-    download_parser.add_argument('--end-date', help='End date (YYYYMMDD)')
-    download_parser.add_argument('--ts-codes', help='Comma-separated stock codes')
-    download_parser.add_argument('--storage-dir', default='../data', help='Storage directory')
-    download_parser.add_argument('--timeout', type=int, default=3600, help='Timeout in seconds')
-    download_parser.set_defaults(func=download_command)
-    
-    # 统计命令
-    stats_parser = subparsers.add_parser('stats', help='View statistics')
-    stats_parser.set_defaults(func=stats_command)
-    
-    args = parser.parse_args()
-    
-    if args.command:
-        args.func(args)
-    else:
-        parser.print_help()
-```
-
-## 8. 使用方式
+## 6. CLI
 
 ```bash
-# 下载日线数据（异步）
+# 下载
 python app4/main.py download \
     --interface daily \
     --start-date 20240101 \
     --end-date 20240131 \
-    --ts-codes 000001.SZ,000002.SZ,600000.SH
+    --ts-codes 000001.SZ,000002.SZ
 
-# 下载财务数据
-python app4/main.py download \
-    --interface income_vip \
-    --ts-codes 000001.SZ \
-    --periods 2023Q1,2023Q2,2023Q3,2023Q4
-
-# 使用 Bloom Filter（可选）
-# 修改配置文件：use_bloom_filter: true
+# 重建索引
+python app4/main.py rebuild-index
 ```
 
-## 9. 性能指标
-
-### 9.1 预期性能
+## 7. 性能指标
 
 | 指标 | 数值 | 说明 |
 |------|------|------|
-| **判断延迟** | 1-10ms | 内存缓存或 Bloom Filter |
-| **下载吞吐量** | 500+ records/sec | 10个并发线程 |
-| **保存吞吐量** | 2000+ records/sec | 批量保存 |
-| **索引更新延迟** | 0ms | 队列投递后立即返回 |
-| **内存占用** | < 500MB | 缓存 + 队列 |
-| **并发接口** | 10+ | 线程池并行 |
+| 判断延迟 | 1-10ms | 内存缓存/Bloom |
+| 下载吞吐量 | 500+ records/sec | 10线程并发 |
+| 保存吞吐量 | 2000+ records/sec | 批量保存 |
+| 内存占用 | < 500MB | 缓存+队列 |
 
-### 9.2 与全异步方案对比
+## 8. 实施计划
 
-| 维度 | 全异步方案 | 混合方案 | 差异 |
-|------|-----------|---------|------|
-| **代码复杂度** | ⭐⭐⭐⭐ 高 | ⭐⭐ 低 | **混合方案更简单** |
-| **重构成本** | 高（需重写核心组件） | 低（包装现有组件） | **混合方案更低** |
-| **性能** | 11111+ records/sec | 500+ records/sec | 全异步更高，但混合已足够 |
-| **调试难度** | 高（异步异常复杂） | 低（同步为主） | **混合方案更易调试** |
-| **依赖库** | pybloom_live, aiohttp | 无新依赖 | **混合方案无依赖冲突** |
-| **团队学习成本** | 高（需掌握 asyncio） | 低（现有技能） | **混合方案更低** |
-| **实施时间** | 4-5天 | 2-3天 | **混合方案更快** |
-| **生产稳定性** | 需充分测试 | 经过验证的线程模型 | **混合方案更稳定** |
+**总计：5天**
 
-## 10. 优势总结
+- Day 1: AsyncStorageManager（包装现有组件）
+- Day 2: FastCoverageManager（内存缓存+Bloom）
+- Day 3: AsyncGenericDownloader（线程池+队列）
+- Day 4: UnifiedIndexManager（增量+合并）
+- Day 5: 集成测试和部署
 
-### 10.1 架构优势
-1. **完全兼容**：不破坏现有架构，可逐步升级
-2. **零依赖**：不引入新库，避免版本冲突
-3. **易于调试**：同步代码为主，异常处理简单
-4. **团队友好**：无需学习新技能
+## 9. 监控
 
-### 10.2 性能优势
-1. **无阻塞判断**：内存缓存/Bloom Filter，< 10ms
-2. **并发下载**：10个工作线程，充分利用带宽
-3. **批量保存**：50个一批，减少 I/O 次数
-4. **异步索引**：后台更新，不影响下载流程
+```python
+# 关键指标
+stats = {
+    'download_queue_size': downloader.download_queue.qsize(),
+    'save_queue_size': storage_manager.save_queue.qsize(),
+    'download_throughput': stats['total_downloaded'] / elapsed,
+    'cache_hit_rate': cache_hits / total_checks,
+}
+```
 
-### 10.3 可靠性优势
-1. **优雅降级**：队列满时自动降级为同步保存
-2. **重试机制**：失败任务自动重试（指数退避）
-3. **背压控制**：有界队列防止内存溢出
-4. **统计监控**：详细的统计信息和日志
+## 10. 总结
 
-### 10.4 可维护性优势
-1. **代码简洁**：每个组件 < 200 行
-2. **渐进式升级**：可以逐步替换，风险可控
-3. **测试友好**：同步代码易于单元测试
-4. **文档完善**：使用示例和 CLI 命令齐全
+**优势**：
+- ✅ 零重构：复用现有线程池架构
+- ✅ 零依赖：不引入新库
+- ✅ 易调试：同步代码为主
+- ✅ 实施快：5天完成
+- ✅ 性能够：500+ records/sec
 
-## 11. 实施计划
-
-### 第一阶段：核心组件包装（1天）
-- **任务**：实现 AsyncStorageManager（包装现有 StorageManager）
-- **目标**：提供异步保存和索引更新能力
-- **风险**：低（完全兼容现有代码）
-- **验证**：手动测试保存和索引更新
-
-### 第二阶段：快速判断层（1天）
-- **任务**：实现 FastCoverageManager（内存缓存 + 可选 Bloom Filter）
-- **目标**：实现无阻塞判断
-- **风险**：低（可降级到传统检查）
-- **验证**：性能测试（判断延迟 < 10ms）
-
-### 第三阶段：异步下载器（1天）
-- **任务**：实现 AsyncGenericDownloader（基于线程池）
-- **目标**：实现并发下载和三级流水线
-- **风险**：中（需要测试并发和队列逻辑）
-- **验证**：压力测试（吞吐量 > 500 records/sec）
-
-### 第四阶段：集成和测试（1天）
-- **任务**：集成到现有 App4，编写测试用例
-- **目标**：确保兼容性和稳定性
-- **风险**：中（可能发现兼容性问题）
-- **验证**：集成测试（所有接口正常工作）
-
-### 第五阶段：部署和监控（1天）
-- **任务**：生产环境部署，添加监控
-- **目标**：监控性能和稳定性
-- **风险**：低（逐步灰度发布）
-- **验证**：监控指标正常，无异常告警
-
-**总计实施时间**：5天（比全异步方案节省2-3天）
-
-## 12. 监控指标
-
-### 12.1 性能指标
-- `download_queue_size`: 下载队列大小
-- `save_queue_size`: 保存队列大小
-- `index_queue_size`: 索引队列大小
-- `download_throughput`: 下载吞吐量（records/sec）
-- `save_throughput`: 保存吞吐量（records/sec）
-- `cache_hit_rate`: 缓存命中率
-- `bloom_filter_false_positive`: Bloom Filter 误判率（如果启用）
-
-### 12.2 可靠性指标
-- `download_errors`: 下载错误数
-- `save_errors`: 保存错误数
-- `index_errors`: 索引更新错误数
-- `queue_overflows`: 队列溢出次数
-- `retry_count`: 重试次数
-
-### 12.3 资源指标
-- `worker_thread_count`: 工作线程数
-- `worker_thread_active`: 活跃线程数
-- `memory_usage_mb`: 内存使用（MB）
-- `cpu_usage_percent`: CPU 使用率
-
-## 13. 注意事项
-
-### 13.1 队列大小调优
-- **保存队列**：默认 1000，可根据内存调整
-- **索引队列**：默认 10000，通常足够
-- **下载队列**：默认 100，避免任务堆积
-
-### 13.2 工作线程数
-- **默认 10**：适合大多数场景
-- **计算公式**：min(接口数 * 2, CPU 核心数 * 4)
-- **API 限流**：考虑 API 限流，不要设置过大
-
-### 13.3 缓存过期时间
-- **默认 5分钟**：平衡内存占用和命中率
-- **高频率场景**：可设置为 60秒
-- **低频率场景**：可设置为 10分钟
-
-### 13.4 Bloom Filter（可选）
-- **默认关闭**：内存占用小，实现简单
-- **误判率**：0.1% 可接受
-- **容量**：根据数据量调整
-
-## 14. 与全异步方案的对比建议
-
-### 选择全异步方案如果：
-- ✅ 团队熟悉 asyncio
-- ✅ 需要极致性能（> 10000 records/sec）
-- ✅ 可以接受较高的重构成本
-- ✅ 项目处于早期阶段，重构影响小
-
-### 选择混合方案如果：
-- ✅ 团队不熟悉 asyncio
-- ✅ 性能要求适中（500-1000 records/sec 已足够）
-- ✅ 需要快速上线，风险低
-- ✅ 项目已稳定，不想大规模重构
-- ✅ API 限流是主要瓶颈
-
-## 15. 总结
-
-本方案通过**混合架构**实现了：
-
-1. **架构兼容**：完全复用现有线程池，无学习成本
-2. **无阻塞判断**：内存缓存 + 可选 Bloom Filter，< 10ms
-3. **异步流水线**：三级队列解耦，吞吐量 500+ records/sec
-4. **极低风险**：渐进式升级，可逐步替换
-5. **生产就绪**：完整的监控、日志、CLI 工具
-6. **快速实施**：5天完成，比全异步节省 2-3 天
-
-**核心优势**：在保留现有架构稳定性的前提下，实现了异步化的主要收益，是**生产环境最佳实践**。
+**适用**：团队不熟悉asyncio，需快速上线，性能要求适中场景
