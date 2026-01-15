@@ -247,8 +247,8 @@ class GenericDownloader:
         return all_data
 
     def _execute_date_range_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any],
-                                      pagination_config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """执行日期范围分页 - 支持内部offset分页"""
+                                  pagination_config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """执行日期范围分页 - 支持内部offset分页和增量下载"""
         # 如果没有提供分页配置，从接口配置中获取
         if pagination_config is None:
             pagination_config = interface_config.get('pagination', {})
@@ -259,17 +259,9 @@ class GenericDownloader:
         start_date = params.get('start_date', '20050101')
         end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
 
-        # [新增] 获取线程 ID 和任务 ID
-        thread_id = threading.get_ident()
-        task_id = params.get('ts_code', 'unknown')
-
-        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] _execute_date_range_pagination called with params: {params}")
-        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] start_date: {start_date}, end_date: {end_date}")
-        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] ts_code in params: {params.get('ts_code', 'N/A')}")
-
         logger.info(f"Fetching trade calendar for date range: {start_date} - {end_date}")
 
-        # [优化] 使用统一的 get_trade_calendar 方法
+        # 使用统一的 get_trade_calendar 方法
         trade_calendar = self.get_trade_calendar(start_date, end_date)
 
         # 如果获取交易日历失败，使用默认的日期范围分页
@@ -310,68 +302,146 @@ class GenericDownloader:
             window_params['start_date'] = window_start
             window_params['end_date'] = window_end
 
-            # [新增] 检查覆盖率，如果已覆盖则跳过
+            # 使用新的增量下载决策机制
             if self.coverage_manager:
-                should_skip = self.coverage_manager.should_skip(
+                decision, ranges, message = self.coverage_manager.get_missing_date_ranges(
                     interface_config['api_name'],
-                    window_params,
-                    strategy='date_range'
+                    window_start,
+                    window_end,
+                    **{k: v for k, v in window_params.items() if k not in ['start_date', 'end_date']}
                 )
-                if should_skip:
+                logger.info(f"Coverage decision for {interface_config['api_name']}: {message}")
+
+                if decision == 'skip':
                     logger.info(f"Skipping window {window_start} - {window_end} for {interface_config['api_name']} (already covered)")
                     continue
+                elif decision == 'download_partial':
+                    # 增量下载：只下载缺失的部分
+                    logger.info(f"Downloading {len(ranges)} missing ranges for {interface_config['api_name']} in window {window_start}-{window_end}")
+                    for missing_start, missing_end in ranges:
+                        logger.info(f"  Downloading missing range: {missing_start} - {missing_end}")
 
-            # 记录开始时间
-            start_time = time.time()
+                        # 创建缺失范围的参数
+                        missing_params = window_params.copy()
+                        missing_params['start_date'] = missing_start
+                        missing_params['end_date'] = missing_end
 
-            logger.info(f"Downloading data for window {i//window_size + 1}: {window_start} - {window_end}")
+                        # 记录开始时间
+                        start_time = time.time()
 
-            # 检查是否配置了内部offset分页
-            offset_config = interface_config.get('offset_pagination', {})
-            if offset_config.get('enabled', False):
-                # 使用内部offset分页下载窗口数据
-                logger.info(f"Using internal offset pagination for window {window_start}-{window_end}")
-                window_data = self._execute_offset_pagination(interface_config, window_params, offset_config)
-            else:
-                # 直接下载窗口数据
-                window_data = self._make_request(interface_config, window_params)
+                        # 检查是否需要使用offset分页
+                        offset_config = interface_config.get('offset_pagination', {})
+                        if offset_config.get('enabled', False):
+                            # 使用内部offset分页下载缺失范围数据
+                            range_data = self._execute_offset_pagination(interface_config, missing_params, offset_config)
+                        else:
+                            # 直接下载缺失范围数据
+                            range_data = self._make_request(interface_config, missing_params)
 
-            # 记录并检查性能指标
-            elapsed_time = time.time() - start_time
-            performance_monitor.record_metric('request_time', elapsed_time, {
-                'interface': interface_config['api_name'],
-                'window': f"{window_start}-{window_end}",
-                'ts_code': params.get('ts_code', 'unknown')
-            })
-            performance_monitor.check_alerts('request_time', elapsed_time, {
-                'interface': interface_config['api_name'],
-                'window': f"{window_start}-{window_end}",
-                'ts_code': params.get('ts_code', 'unknown')
-            })
+                        # 记录并检查性能指标
+                        elapsed_time = time.time() - start_time
+                        performance_monitor.record_metric('request_time', elapsed_time, {
+                            'interface': interface_config['api_name'],
+                            'range': f"{missing_start}-{missing_end}",
+                            'ts_code': params.get('ts_code', 'unknown')
+                        })
+                        performance_monitor.check_alerts('request_time', elapsed_time, {
+                            'interface': interface_config['api_name'],
+                            'range': f"{missing_start}-{missing_end}",
+                            'ts_code': params.get('ts_code', 'unknown')
+                        })
 
-            if window_data:
-                # 检查数据完整性
-                query_limit = interface_config.get('permissions', {}).get('query_limit', 6000)
+                        if range_data:
+                            # 记录数据量指标
+                            performance_monitor.record_metric('data_size', len(range_data), {
+                                'interface': interface_config['api_name'],
+                                'range': f"{missing_start}-{missing_end}",
+                                'ts_code': params.get('ts_code', 'unknown')
+                            })
+                            all_data.extend(range_data)
+                            logger.info(f"Downloaded {len(range_data)} records for missing range {missing_start}-{missing_end}")
+                elif decision == 'download_full':
+                    # 完整下载窗口数据
+                    logger.info(f"Downloading full window {window_start} - {window_end} for {interface_config['api_name']}")
 
-                # 记录数据量指标
-                performance_monitor.record_metric('data_size', len(window_data), {
-                    'interface': interface_config['api_name'],
-                    'window': f"{window_start}-{window_end}",
-                    'ts_code': params.get('ts_code', 'unknown')
-                })
+                    # 记录开始时间
+                    start_time = time.time()
 
-                if len(window_data) >= query_limit:
-                    logger.warning(f"Window {window_start}-{window_end} returned {len(window_data)} records, which may be truncated (API limit: {query_limit})")
-                    performance_monitor.check_alerts('data_size', len(window_data), {
+                    # 检查是否需要使用offset分页
+                    offset_config = interface_config.get('offset_pagination', {})
+                    if offset_config.get('enabled', False):
+                        # 使用内部offset分页下载窗口数据
+                        logger.info(f"Using internal offset pagination for window {window_start}-{window_end}")
+                        window_data = self._execute_offset_pagination(interface_config, window_params, offset_config)
+                    else:
+                        # 直接下载窗口数据
+                        window_data = self._make_request(interface_config, window_params)
+
+                    # 记录并检查性能指标
+                    elapsed_time = time.time() - start_time
+                    performance_monitor.record_metric('request_time', elapsed_time, {
+                        'interface': interface_config['api_name'],
+                        'window': f"{window_start}-{window_end}",
+                        'ts_code': params.get('ts_code', 'unknown')
+                    })
+                    performance_monitor.check_alerts('request_time', elapsed_time, {
                         'interface': interface_config['api_name'],
                         'window': f"{window_start}-{window_end}",
                         'ts_code': params.get('ts_code', 'unknown')
                     })
 
-                all_data.extend(window_data)
-                logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end}")
+                    if window_data:
+                        # 记录数据量指标
+                        performance_monitor.record_metric('data_size', len(window_data), {
+                            'interface': interface_config['api_name'],
+                            'window': f"{window_start}-{window_end}",
+                            'ts_code': params.get('ts_code', 'unknown')
+                        })
+                        all_data.extend(window_data)
+                        logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end}")
+                    else:
+                        logger.warning(f"No data returned for window {window_start}-{window_end}")
             else:
-                logger.warning(f"No data returned for window {window_start}-{window_end}")
+                # 没有coverage_manager，使用原始逻辑
+                logger.info(f"Downloading full window {window_start} - {window_end} for {interface_config['api_name']}")
+
+                # 记录开始时间
+                start_time = time.time()
+
+                # 检查是否需要使用offset分页
+                offset_config = interface_config.get('offset_pagination', {})
+                if offset_config.get('enabled', False):
+                    # 使用内部offset分页下载窗口数据
+                    logger.info(f"Using internal offset pagination for window {window_start}-{window_end}")
+                    window_data = self._execute_offset_pagination(interface_config, window_params, offset_config)
+                else:
+                    # 直接下载窗口数据
+                    window_data = self._make_request(interface_config, window_params)
+
+                # 记录并检查性能指标
+                elapsed_time = time.time() - start_time
+                performance_monitor.record_metric('request_time', elapsed_time, {
+                    'interface': interface_config['api_name'],
+                    'window': f"{window_start}-{window_end}",
+                    'ts_code': params.get('ts_code', 'unknown')
+                })
+                performance_monitor.check_alerts('request_time', elapsed_time, {
+                    'interface': interface_config['api_name'],
+                    'window': f"{window_start}-{window_end}",
+                    'ts_code': params.get('ts_code', 'unknown')
+                })
+
+                if window_data:
+                    # 记录数据量指标
+                    performance_monitor.record_metric('data_size', len(window_data), {
+                        'interface': interface_config['api_name'],
+                        'window': f"{window_start}-{window_end}",
+                        'ts_code': params.get('ts_code', 'unknown')
+                    })
+                    all_data.extend(window_data)
+                    logger.info(f"Downloaded {len(window_data)} records for date range {window_start}-{window_end}")
+                else:
+                    logger.warning(f"No data returned for window {window_start}-{window_end}")
 
         return all_data
 

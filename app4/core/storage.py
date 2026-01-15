@@ -225,7 +225,7 @@ class StorageManager:
             logger.error(f"Error writing interface data for {interface_name}: {str(e)}")
             raise
 
-    def read_interface_data(self, interface_name: str, start_date: str = None, end_date: str = None, columns: Optional[List[str]] = None) -> pl.DataFrame:
+    def read_interface_data(self, interface_name: str, start_date: str = None, end_date: str = None, columns: Optional[List[str]] = None, **kwargs) -> pl.DataFrame:
         """
         读取接口数据 - 支持文件名过滤和确定性去重
         """
@@ -282,6 +282,11 @@ class StorageManager:
                             continue
             else:
                 df = pl.read_parquet(files_to_read)
+
+            # [新增] 过滤额外参数（例如 ts_code）
+            for param_name, param_value in kwargs.items():
+                if param_name in df.columns and param_value is not None:
+                    df = df.filter(pl.col(param_name) == param_value)
 
             # [优化] 确定性去重
             interface_config = self._get_interface_config(interface_name)
