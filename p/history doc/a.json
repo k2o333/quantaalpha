@@ -1,0 +1,33 @@
+SQL (Structured Query Language) is a standard programming language designed specifically for managing and manipulating relational databases.
+
+## Key Characteristics:
+
+- **Querying Data**: Retrieve, filter, sort, and aggregate data from databases
+- **Data Definition**: Create and modify database structures (tables, schemas, indexes)
+- **Data Manipulation**: Insert, update, and delete records
+- **Data Control**: Manage user permissions and access rights
+
+## Common Uses:
+
+- Database management systems like MySQL, PostgreSQL, SQLite, Oracle, Microsoft SQL Server
+- Web applications and services that need persistent data storage
+- Business intelligence and analytics
+- Enterprise applications
+
+## Basic SQL Operations:
+
+```sql
+-- Retrieve data
+SELECT * FROM users WHERE age > 18;
+
+-- Insert data
+INSERT INTO users (name, age) VALUES ('John', 25);
+
+-- Update data
+UPDATE users SET age = 26 WHERE name = 'John';
+
+-- Delete data
+DELETE FROM users WHERE id = 1;
+```
+
+SQL is the de facto standard for interacting with relational databases and is widely used across virtually all industries for data management.
