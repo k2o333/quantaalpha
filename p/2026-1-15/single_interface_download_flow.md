@@ -30,7 +30,7 @@ flowchart TD
         ConcurrencyCheck{并发控制}
         GetToken[获取令牌<br/>RateLimiter 令牌桶]
         WaitQueue[等待队列空闲]
-        RandomDelay[随机延迟<br/>0.05-0.5秒]
+        RandomDelay[随机延迟<br/>0.05-0.1秒]
         
         ConcurrencyCheck -->|有可用槽位| GetToken
         ConcurrencyCheck -->|队列已满| WaitQueue
@@ -165,7 +165,7 @@ flowchart TD
         BackgroundThread[后台线程处理]
         TempFile[写入临时文件]
         AtomicRename[原子重命名<br/>确保完整性]
-        FileFormat["文件名格式:<br/>{interface}_{date_range}<br/>{timestamp}_{uuid}.parquet<br/>(date_range从数据中提取)"]
+        FileFormat["文件名格式:<br/>{interface}_{start}_{end}<br/>{timestamp}_{uuid}.parquet"]
         
         AsyncWrite --> BackgroundThread
         BackgroundThread --> TempFile
@@ -207,6 +207,7 @@ flowchart TD
     class MakeAPIRequest,SendRequest,CheckResponse,ParseData,RateLimitRetry,APIRetry api
     class DataTransform,TypeConversion,PrimaryKeyCheck,BatchDedup,DataCleaning,DataValidation processing
     class ReadExisting,FilterNewRecords,SaveBatch,Accumulate,AsyncWrite,BackgroundThread,TempFile,AtomicRename,FileFormat storage
+
 
 ```
 
