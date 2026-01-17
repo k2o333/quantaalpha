@@ -1,0 +1,41 @@
+2026-01-17 18:48:42,936 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-17 18:48:42,936 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260117
+2026-01-17 18:48:42,936 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-01-17 18:48:43,724 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-01-17 18:48:43,724 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-01-17 18:48:43,752 - __main__ - INFO - Saving 8565 trade days to storage
+2026-01-17 18:48:43,786 - core.storage - INFO - Wrote 12814 records to ./data/trade_cal/trade_cal_19901219_20260117_1768646923752_8a336e67.parquet
+2026-01-17 18:48:43,786 - __main__ - INFO - Preloaded 8565 trade days from API
+2026-01-17 18:48:43,786 - core.scheduler - INFO - Task scheduler started with 1 workers
+2026-01-17 18:48:43,787 - core.storage - INFO - Storage writer thread started
+2026-01-17 18:48:43,787 - __main__ - INFO - Interfaces to run: ['moneyflow_ind_dc']
+2026-01-17 18:48:43,787 - __main__ - INFO - Downloading data for moneyflow_ind_dc, pagination mode: date_range
+2026-01-17 18:48:43,787 - core.downloader - INFO - Fetching trade calendar for date range: 20240401 - 20240705
+2026-01-17 18:48:43,787 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20240401-20240705
+2026-01-17 18:48:43,980 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-01-17 18:48:43,980 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-01-17 18:48:43,980 - core.downloader - INFO - Found 64 trade days
+2026-01-17 18:48:43,981 - core.downloader - INFO - Using window size: 365 days
+2026-01-17 18:48:43,981 - core.downloader - INFO - Coverage decision for moneyflow_ind_dc: Coverage 0.00% too low, downloading full range
+2026-01-17 18:48:43,981 - core.downloader - INFO - Downloading full window 20240401 - 20240705 for moneyflow_ind_dc
+2026-01-17 18:48:44,368 - core.downloader - INFO - API returned 18 fields for moneyflow_ind_dc
+2026-01-17 18:48:44,369 - core.downloader - INFO - Returned fields: ['trade_date', 'content_type', 'ts_code', 'name', 'pct_change', 'close', 'net_amount', 'net_amount_rate', 'buy_elg_amount', 'buy_elg_amount_rate', 'buy_lg_amount', 'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 'buy_sm_amount_rate', 'buy_sm_amount_stock', 'rank']
+2026-01-17 18:48:44,369 - core.downloader - WARNING - No data returned for window 20240401-20240705
+2026-01-17 18:48:44,369 - __main__ - WARNING - No data downloaded for moneyflow_ind_dc
+2026-01-17 18:48:44,369 - __main__ - INFO - 正在停止调度器...
+2026-01-17 18:48:44,369 - core.scheduler - INFO - Task scheduler stopped
+2026-01-17 18:48:44,370 - __main__ - INFO - 正在关闭存储写入...
+2026-01-17 18:48:44,370 - core.storage - INFO - Storage writer thread stopped
+Debug: performance_monitor id: 140040687042000
+Debug: request_time指标数量: 1
+Debug: data_size指标数量: 0
+2026-01-17 18:48:44,370 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+平均请求时间: 0.39s
+平均单窗口条数: 0.00 条
+平均重试次数: 0.00 次
+==============================
+
