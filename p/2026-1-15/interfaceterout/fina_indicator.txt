@@ -1,0 +1,116 @@
+2026-01-17 18:48:00,340 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-17 18:48:00,341 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260117
+2026-01-17 18:48:00,341 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-01-17 18:48:01,479 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-01-17 18:48:01,479 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-01-17 18:48:01,510 - __main__ - INFO - Saving 8565 trade days to storage
+2026-01-17 18:48:01,549 - core.storage - INFO - Wrote 12814 records to ./data/trade_cal/trade_cal_19901219_20260117_1768646881510_59f2b33a.parquet
+2026-01-17 18:48:01,549 - __main__ - INFO - Preloaded 8565 trade days from API
+2026-01-17 18:48:01,550 - core.scheduler - INFO - Task scheduler started with 1 workers
+2026-01-17 18:48:01,550 - core.storage - INFO - Storage writer thread started
+2026-01-17 18:48:01,550 - __main__ - INFO - Interfaces to run: ['fina_indicator']
+2026-01-17 18:48:01,550 - __main__ - INFO - Downloading data for fina_indicator, pagination mode: date_range
+2026-01-17 18:48:01,551 - core.downloader - INFO - Fetching trade calendar for date range: 20240401 - 20240705
+2026-01-17 18:48:01,551 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20240401-20240705
+2026-01-17 18:48:01,709 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-01-17 18:48:01,710 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-01-17 18:48:01,710 - core.downloader - INFO - Found 64 trade days
+2026-01-17 18:48:01,711 - core.downloader - INFO - Using window size: 365 days
+2026-01-17 18:48:01,711 - core.downloader - INFO - Coverage decision for fina_indicator: Coverage 0.00% too low, downloading full range
+2026-01-17 18:48:01,711 - core.downloader - INFO - Downloading full window 20240401 - 20240705 for fina_indicator
+2026-01-17 18:48:02,317 - core.downloader - INFO - API returned 108 fields for fina_indicator
+2026-01-17 18:48:02,317 - core.downloader - INFO - First 10 fields: ['ts_code', 'ann_date', 'end_date', 'eps', 'dt_eps', 'total_revenue_ps', 'revenue_ps', 'capital_rese_ps', 'surplus_rese_ps', 'undist_profit_ps']
+2026-01-17 18:48:02,317 - core.downloader - INFO - Last 10 fields: ['ocf_yoy', 'roe_yoy', 'bps_yoy', 'assets_yoy', 'eqt_yoy', 'tr_yoy', 'or_yoy', 'q_sales_yoy', 'q_op_qoq', 'equity_yoy']
+2026-01-17 18:48:02,318 - core.downloader - INFO - Downloaded 2 records for date range 20240401-20240705
+2026-01-17 18:48:02,318 - __main__ - INFO - Successfully downloaded 2 records for fina_indicator
+thread '<unnamed>' panicked at py-polars/src/map/series.rs:222:19:
+python function failed TypeError: the truth value of a Series is ambiguous
+
+Here are some things you might want to try:
+- instead of `if s`, use `if not s.is_empty()`
+- instead of `s1 and s2`, use `s1 & s2`
+- instead of `s1 or s2`, use `s1 | s2`
+- instead of `s in [y, z]`, use `s.is_in([y, z])`
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--- PyO3 is resuming a panic after fetching a PanicException from Python. ---
+Python stack trace below:
+Traceback (most recent call last):
+  File "/home/quan/testdata/aspipe_v4/app4/core/processor.py", line 127, in _handle_primary_keys
+    pl.col('__index').list()
+TypeError: 'ExprListNameSpace' object is not callable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/miniforge3/lib/python3.12/site-packages/polars/expr/expr.py", line 4690, in __call__
+    result = self.function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/lib/python3.12/site-packages/polars/expr/expr.py", line 5068, in wrap_f
+    return x.map_elements(
+           ^^^^^^^^^^^^^^^
+  File "/root/miniforge3/lib/python3.12/site-packages/polars/series/series.py", line 5519, in map_elements
+    self._s.apply_lambda(function, pl_return_dtype, skip_nulls)
+pyo3_runtime.PanicException: python function failed TypeError: the truth value of a Series is ambiguous
+
+Here are some things you might want to try:
+- instead of `if s`, use `if not s.is_empty()`
+- instead of `s1 and s2`, use `s1 & s2`
+- instead of `s1 or s2`, use `s1 | s2`
+- instead of `s in [y, z]`, use `s.is_in([y, z])`
+
+2026-01-17 18:48:02,448 - core.processor - INFO - Processed 1 records for fina_indicator
+thread '<unnamed>' panicked at py-polars/src/map/series.rs:222:19:
+python function failed TypeError: the truth value of a Series is ambiguous
+
+Here are some things you might want to try:
+- instead of `if s`, use `if not s.is_empty()`
+- instead of `s1 and s2`, use `s1 & s2`
+- instead of `s1 or s2`, use `s1 | s2`
+- instead of `s in [y, z]`, use `s.is_in([y, z])`
+
+--- PyO3 is resuming a panic after fetching a PanicException from Python. ---
+Python stack trace below:
+Traceback (most recent call last):
+  File "/home/quan/testdata/aspipe_v4/app4/core/processor.py", line 242, in validate_data
+    pl.col('__index').list()
+TypeError: 'ExprListNameSpace' object is not callable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/miniforge3/lib/python3.12/site-packages/polars/expr/expr.py", line 4690, in __call__
+    result = self.function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/lib/python3.12/site-packages/polars/expr/expr.py", line 5068, in wrap_f
+    return x.map_elements(
+           ^^^^^^^^^^^^^^^
+  File "/root/miniforge3/lib/python3.12/site-packages/polars/series/series.py", line 5519, in map_elements
+    self._s.apply_lambda(function, pl_return_dtype, skip_nulls)
+pyo3_runtime.PanicException: python function failed TypeError: the truth value of a Series is ambiguous
+
+Here are some things you might want to try:
+- instead of `if s`, use `if not s.is_empty()`
+- instead of `s1 and s2`, use `s1 & s2`
+- instead of `s1 or s2`, use `s1 | s2`
+- instead of `s in [y, z]`, use `s.is_in([y, z])`
+
+2026-01-17 18:48:02,458 - __main__ - INFO - Saved 1 processed records for fina_indicator
+2026-01-17 18:48:02,459 - __main__ - INFO - 正在停止调度器...
+2026-01-17 18:48:02,459 - core.scheduler - INFO - Task scheduler stopped
+2026-01-17 18:48:02,459 - __main__ - INFO - 正在关闭存储写入...
+2026-01-17 18:48:02,569 - core.storage - INFO - Wrote 1 records to ./data/fina_indicator/fina_indicator_20240831_20240831_1768646882458_d9479545.parquet
+2026-01-17 18:48:02,569 - core.storage - INFO - Storage writer thread stopped
+Debug: performance_monitor id: 140670863687024
+Debug: request_time指标数量: 1
+Debug: data_size指标数量: 1
+2026-01-17 18:48:02,569 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+平均请求时间: 0.61s
+平均单窗口条数: 2.00 条
+平均重试次数: 0.00 次
+==============================
+
