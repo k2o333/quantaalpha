@@ -118,6 +118,9 @@ def main():
                         help='日志级别')
     parser.add_argument('--ts_code', type=str,
                         help='指定股票代码 (如: 000001.SZ)')
+    # [新增] 添加移除历史标记的命令行选项
+    parser.add_argument('--remove-historical-markers', action='store_true',
+                        help='移除所有历史下载标记文件')
 
     args = parser.parse_args()
 
@@ -125,6 +128,23 @@ def main():
     import os
     config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
     config_loader = ConfigLoader(config_dir=config_dir_path)
+
+    # [新增] 如果指定了移除历史标记选项，执行移除并退出
+    if args.remove_historical_markers:
+        # 临时创建必要的组件
+        storage_manager = StorageManager(
+            storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
+            format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
+            batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)
+        )
+        from core.coverage_manager import CoverageManager
+        coverage_manager = CoverageManager(storage_manager, config_loader, None)  # 使用最小化的组件
+        if coverage_manager.remove_all_historical_download_markers():
+            print("已成功移除所有历史下载标记文件")
+        else:
+            print("未找到历史下载标记文件")
+        storage_manager.stop_writer()
+        return 0
 
     # 验证配置
     if not config_loader.validate_config():
@@ -256,6 +276,11 @@ def main():
     # 创建全局速率限制器（优先使用接口配置，否则使用全局默认）
     global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
     global_rate_limiter = RateLimiter(global_rate_limit)
+
+    # [新增] 在启动下载前移除所有历史下载标记文件
+    from core.coverage_manager import CoverageManager
+    coverage_manager = CoverageManager(storage_manager, config_loader, downloader)  # 使用现有的组件
+    coverage_manager.remove_all_historical_download_markers()
 
     # 启动各组件
     scheduler.start()

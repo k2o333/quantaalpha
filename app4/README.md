@@ -288,6 +288,9 @@ python main.py --pro-bar-only
 
 # 为股票循环接口下载完整历史数据
 python main.py --tscode-historical
+
+# 移除历史下载标记文件
+python main.py --remove-historical-markers
 ```
 
 ### 智能增量下载功能

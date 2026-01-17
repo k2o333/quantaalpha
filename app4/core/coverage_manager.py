@@ -426,3 +426,63 @@ class CoverageManager:
             self._coverage_cache[cache_key] = result
 
         return result
+
+    def remove_historical_download_marker(self, interface_name: str):
+        """
+        移除指定接口的历史下载标记（如果存在）
+        """
+        import json
+        from pathlib import Path
+        import os
+
+        # 构建历史下载标记文件路径（为了兼容旧系统）
+        cache_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/cache')
+        cache_dir.mkdir(exist_ok=True)
+        marker_path = cache_dir / 'historical_download_marker.json'
+
+        try:
+            if marker_path.exists():
+                with open(marker_path, 'r', encoding='utf-8') as f:
+                    markers = json.load(f)
+
+                # 如果接口在标记文件中，移除它
+                if interface_name in markers:
+                    del markers[interface_name]
+
+                    # 如果没有其他标记，删除整个文件
+                    if not markers:
+                        marker_path.unlink()
+                        print(f"已删除空的历史下载标记文件: {marker_path}")
+                    else:
+                        # 否则更新文件
+                        with open(marker_path, 'w', encoding='utf-8') as f:
+                            json.dump(markers, f, ensure_ascii=False, indent=2)
+                        print(f"已从历史下载标记中移除接口: {interface_name}")
+
+                    return True
+            return False
+        except Exception as e:
+            print(f"移除历史下载标记失败: {e}")
+            return False
+
+    def remove_all_historical_download_markers(self):
+        """
+        移除所有历史下载标记（如果存在）
+        """
+        import json
+        from pathlib import Path
+        import os
+
+        # 构建历史下载标记文件路径
+        cache_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/cache')
+        marker_path = cache_dir / 'historical_download_marker.json'
+
+        try:
+            if marker_path.exists():
+                marker_path.unlink()
+                print(f"已删除历史下载标记文件: {marker_path}")
+                return True
+            return False
+        except Exception as e:
+            print(f"删除历史下载标记文件失败: {e}")
+            return False
