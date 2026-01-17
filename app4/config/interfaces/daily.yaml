@@ -42,6 +42,12 @@ duplicate_detection:
   date_column: trade_date
   threshold: 0.95        # 覆盖率阈值
 
+# 去重配置
+dedup:
+  enabled: true
+  strategy: primary_key
+  columns: ["ts_code", "trade_date"]
+
 output:
   primary_key: ["ts_code", "trade_date"]
   sort_by: ["trade_date"]

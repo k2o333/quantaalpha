@@ -329,6 +329,78 @@ class StorageManager:
             # 同步写入：直接写入
             self._write_interface_data(interface_name, data)
 
+    def filter_new_records(self, interface_name: str, new_data: List[Dict], dedup_config: Dict[str, Any]) -> List[Dict]:
+        """
+        根据去重配置过滤新记录，只返回不存在的记录
+
+        Args:
+            interface_name: 接口名称
+            new_data: 新数据列表
+            dedup_config: 去重配置
+
+        Returns:
+            过滤后的新记录列表
+        """
+        if not dedup_config.get('enabled', False):
+            return new_data
+
+        strategy = dedup_config.get('strategy', 'none')
+        dedup_columns = dedup_config.get('columns', [])
+
+        if strategy != 'primary_key' or not dedup_columns:
+            return new_data
+
+        # 读取现有数据
+        existing_df = self.read_interface_data(interface_name, columns=dedup_columns)
+
+        if existing_df.is_empty():
+            return new_data
+
+        # 构建现有主键集合
+        existing_keys = set()
+        for row in existing_df.iter_rows(named=True):
+            key_tuple = tuple(row.get(k) for k in dedup_columns if k in row)
+            if all(v is not None for v in key_tuple):
+                existing_keys.add(key_tuple)
+
+        logger.info(f"Found {len(existing_keys)} existing key combinations for {interface_name}")
+
+        # 过滤出不存在的新记录
+        original_count = len(new_data)
+        new_records = []
+        for record in new_data:
+            key_tuple = tuple(record.get(k) for k in dedup_columns if k in record)
+            if key_tuple not in existing_keys and all(v is not None for v in key_tuple):
+                new_records.append(record)
+
+        if not new_records:
+            logger.info(f"All {original_count} records already exist for {interface_name}, skipping save")
+            return []
+
+        logger.info(f"Filtered {original_count - len(new_records)} duplicate records, "
+                    f"saving {len(new_records)} new records for {interface_name}")
+
+        return new_records
+
+    def save_data_with_dedup(self, interface_name: str, data: List[Dict], dedup_config: Dict[str, Any], async_write: bool = True):
+        """
+        带去重功能的数据保存
+
+        Args:
+            interface_name: 接口名称
+            data: 要保存的数据
+            dedup_config: 去重配置
+            async_write: 是否异步写入
+        """
+        # 先过滤新记录
+        filtered_data = self.filter_new_records(interface_name, data, dedup_config)
+
+        if not filtered_data:
+            return  # 没有新数据需要保存
+
+        # 保存过滤后的数据
+        self.save_data(interface_name, filtered_data, async_write)
+
     def get_storage_info(self) -> Dict[str, Any]:
         """获取存储信息"""
         files = os.listdir(self.storage_dir)

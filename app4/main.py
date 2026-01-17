@@ -262,19 +262,7 @@ def main():
     storage_manager.start_writer()
 
     def process_and_save_data(data, interface_name, interface_config, processor, storage_manager):
-        """处理并保存数据的通用函数 - 支持基于接口配置的去重
-
-        Args:
-            data: 原始数据列表
-            interface_name: 接口名称
-            interface_config: 接口配置
-            processor: 数据处理器
-            storage_manager: 存储管理器
-
-        Returns:
-            处理后的 DataFrame，如果处理失败则返回 None
-        """
-        import polars as pl
+        """处理并保存数据的通用函数 - 重构后"""
         if not data:
             logger.warning(f"No data to process for {interface_name}")
             return None
@@ -283,48 +271,11 @@ def main():
         df = processor.process_data(data, interface_config)
         validation_result = processor.validate_data(df, interface_config)
 
-        # [新增] 基于接口配置的去重
+        # 从接口配置获取去重配置
         dedup_config = interface_config.get('dedup', {})
 
-        if dedup_config.get('enabled', False):
-            strategy = dedup_config.get('strategy', 'none')
-            dedup_columns = dedup_config.get('columns', [])
-
-            if strategy == 'primary_key' and dedup_columns:
-                # 读取现有数据
-                existing_df = storage_manager.read_interface_data(
-                    interface_name,
-                    columns=dedup_columns
-                )
-
-                if not existing_df.is_empty():
-                    # 构建现有主键集合
-                    existing_keys = set()
-                    for row in existing_df.iter_rows(named=True):
-                        key_tuple = tuple(row.get(k) for k in dedup_columns if k in row)
-                        if all(v is not None for v in key_tuple):
-                            existing_keys.add(key_tuple)
-
-                    logger.info(f"Found {len(existing_keys)} existing key combinations for {interface_name}")
-
-                    # 过滤出不存在的新记录
-                    original_count = len(df)
-                    new_records = []
-                    for row in df.iter_rows(named=True):
-                        key_tuple = tuple(row.get(k) for k in dedup_columns)
-                        if key_tuple not in existing_keys:
-                            new_records.append(row)
-
-                    if not new_records:
-                        logger.info(f"All {original_count} records already exist for {interface_name}, skipping save")
-                        return df
-
-                    # 重新创建 DataFrame
-                    df = pl.DataFrame(new_records)
-                    logger.info(f"Filtered {original_count - len(df)} duplicate records, saving {len(df)} new records for {interface_name}")
-
-        # 保存数据
-        storage_manager.save_data(interface_name, df.to_dicts(), async_write=True)
+        # 保存数据（内部处理去重逻辑）
+        storage_manager.save_data_with_dedup(interface_name, df.to_dicts(), dedup_config, async_write=True)
 
         logger.info(f"Saved {len(df)} processed records for {interface_name}")
         if validation_result['duplicate_records'] > 0:
