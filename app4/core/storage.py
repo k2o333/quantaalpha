@@ -276,7 +276,14 @@ class StorageManager:
                             temp_df = pl.read_parquet(file_path)
                             available_cols = [col for col in columns if col in temp_df.columns]
                             temp_df = temp_df.select(available_cols)
-                            df = df.vstack(temp_df) if not df.is_empty() else temp_df
+                            if df.is_empty():
+                                df = temp_df
+                            else:
+                                try:
+                                    df = pl.concat([df, temp_df], how='vertical')
+                                except Exception:
+                                    # 如果类型不匹配，尝试diagonal模式
+                                    df = pl.concat([df, temp_df], how='diagonal')
                         except Exception:
                             # 如果单个文件有问题，跳过它
                             continue

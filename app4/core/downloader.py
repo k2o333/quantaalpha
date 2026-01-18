@@ -502,24 +502,116 @@ class GenericDownloader:
             return self._memory_cache['stock_list']
 
     def _get_stock_list_from_data_dir(self) -> Optional[List[Dict[str, Any]]]:
-        """从Data目录获取股票列表"""
+        """从Data目录获取股票列表 - 修复schema不一致问题"""
         try:
             storage_dir = self.global_config.get('storage', {}).get('base_dir', '../data')
             dir_path = os.path.join(storage_dir, 'stock_basic')
 
             if not os.path.exists(dir_path):
+                logger.debug(f"Stock basic directory not found: {dir_path}")
                 return None
 
-            # 读取目录下所有 parquet 文件
-            df = pl.read_parquet(dir_path)
+            # 读取目录下所有 parquet 文件，处理schema不一致问题
+            all_files = [f for f in os.listdir(dir_path) if f.endswith('.parquet')]
+            if not all_files:
+                logger.debug("No stock basic files found")
+                return None
+
+            logger.debug(f"Found {len(all_files)} stock basic files")
+
+            all_data = []
+            for file_name in all_files:
+                file_path = os.path.join(dir_path, file_name)
+                try:
+                    df = pl.read_parquet(file_path)
+                    if not df.is_empty():
+                        # 确保 list_date 是字符串类型
+                        if 'list_date' in df.columns:
+                            # 检查并转换类型
+                            if df.schema['list_date'] != pl.Utf8:
+                                logger.debug(f"Converting list_date to string in {file_name}")
+                                df = df.with_columns([
+                                    pl.col('list_date').cast(pl.Utf8).alias('list_date')
+                                ])
+
+                        all_data.append(df)
+                        logger.debug(f"Successfully read {len(df)} rows from {file_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to read {file_path}: {e}")
+                    continue
+
+            if not all_data:
+                logger.debug("No valid stock basic data found")
+                return None
+
+            # 合并所有数据 - 更强健的schema处理
+            if len(all_data) == 1:
+                df = all_data[0]
+            else:
+                try:
+                    # 尝试垂直合并（要求schema一致）
+                    df = pl.concat(all_data, how='vertical')
+                except Exception as e:
+                    logger.warning(f"Failed to vertically concat data, trying diagonal: {e}")
+                    try:
+                        # 如果schema不完全一致，使用diagonal模式
+                        df = pl.concat(all_data, how='diagonal')
+                    except Exception as e2:
+                        logger.warning(f"Failed to diagonally concat data, using common columns: {e2}")
+                        # 最后手段：逐个处理数据并只保留共同列
+                        common_columns = set(all_data[0].columns)
+                        for df_temp in all_data[1:]:
+                            common_columns &= set(df_temp.columns)
+                        
+                        if not common_columns:
+                            logger.error("No common columns found in stock basic files")
+                            return None
+                        
+                        common_columns = list(common_columns)
+                        logger.info(f"Using common columns for stock basic: {common_columns}")
+                        
+                        # 确保必要列存在
+                        if 'ts_code' not in common_columns:
+                            logger.error("ts_code column not found in common columns")
+                            return None
+                        
+                        # 重新读取并只保留共同列
+                        processed_data = []
+                        for df_temp in all_data:
+                            df_common = df_temp.select(common_columns)
+                            # 确保cal_date是字符串类型
+                            if 'cal_date' in df_common.columns and df_common.schema['cal_date'] != pl.Utf8:
+                                df_common = df_common.with_columns([
+                                    pl.col('cal_date').cast(pl.Utf8).alias('cal_date')
+                                ])
+                            # 确保is_open是Int64类型
+                            if 'is_open' in df_common.columns and df_common.schema['is_open'] != pl.Int64:
+                                df_common = df_common.with_columns([
+                                    pl.col('is_open').cast(pl.Int64).alias('is_open')
+                                ])
+                            processed_data.append(df_common)
+                        
+                        df = pl.concat(processed_data, how='vertical')
 
             if df.is_empty():
+                logger.debug("Combined DataFrame is empty")
                 return None
+
+            # 去重，保留最新的记录（基于 _update_time 或文件名中的时间戳）
+            if 'ts_code' in df.columns:
+                if '_update_time' in df.columns:
+                    df = df.sort('_update_time', descending=True)
+                df = df.unique(subset=['ts_code'], keep='first')  # 保留最新的
+                logger.info(f"Loaded {len(df)} unique stocks from local storage")
+            else:
+                logger.warning("ts_code column not found, skipping deduplication")
 
             return df.to_dicts()
 
         except Exception as e:
             logger.warning(f"Failed to read stock list from Data dir: {e}")
+            import traceback
+            logger.debug(f"Full traceback: {traceback.format_exc()}")
             return None
 
     def get_trade_calendar(self, start_date: str, end_date: str) -> Optional[List[Dict[str, Any]]]:
@@ -564,48 +656,149 @@ class GenericDownloader:
         return trade_calendar
 
     def _get_trade_calendar_from_data_dir(self, start_date, end_date):
-        """从 Data 目录查询交易日历 (Source of Truth) - 优化版本"""
-        # 假设存储目录为 data/trade_cal/
+        """从 Data 目录查询交易日历 (Source of Truth) - 修复schema不一致问题"""
         storage_dir = self.global_config.get('storage', {}).get('base_dir', '../data')
         dir_path = os.path.join(storage_dir, 'trade_cal')
 
         if not os.path.exists(dir_path):
+            logger.debug(f"Trade calendar directory not found: {dir_path}")
             return None
 
         try:
-            # 读取目录下所有 parquet 文件 (Dataset 模式)
-            try:
-                df = pl.read_parquet(dir_path)
-            except Exception:
+            # 获取所有parquet文件
+            all_files = [f for f in os.listdir(dir_path) if f.endswith('.parquet')]
+            if not all_files:
+                logger.debug("No trade calendar files found")
                 return None
+
+            logger.debug(f"Found {len(all_files)} trade calendar files")
+
+            # 逐个文件读取，处理schema不一致问题
+            all_data = []
+            for file_name in all_files:
+                file_path = os.path.join(dir_path, file_name)
+                try:
+                    df = pl.read_parquet(file_path)
+                    if not df.is_empty():
+                        # 确保必要列存在且类型正确
+                        if 'cal_date' in df.columns:
+                            # 统一cal_date为字符串类型
+                            if df.schema['cal_date'] != pl.Utf8:
+                                logger.debug(f"Converting cal_date to string in {file_name}")
+                                df = df.with_columns([
+                                    pl.col('cal_date').cast(pl.Utf8).alias('cal_date')
+                                ])
+
+                        all_data.append(df)
+                        logger.debug(f"Successfully read {len(df)} rows from {file_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to read {file_path}: {e}")
+                    continue
+
+            if not all_data:
+                logger.debug("No valid trade calendar data found")
+                return None
+
+            # 合并所有数据 - 更强健的schema处理
+            if len(all_data) == 1:
+                df = all_data[0]
+            else:
+                try:
+                    # 尝试垂直合并（要求schema一致）
+                    df = pl.concat(all_data, how='vertical')
+                except Exception as e:
+                    logger.warning(f"Failed to vertically concat trade calendar data, trying diagonal: {e}")
+                    try:
+                        # 如果schema不完全一致，使用diagonal模式
+                        df = pl.concat(all_data, how='diagonal')
+                    except Exception as e2:
+                        logger.warning(f"Failed to diagonally concat trade calendar data: {e2}")
+                        # 最后手段：逐个处理数据并只保留共同列
+                        common_columns = set(all_data[0].columns)
+                        for df_temp in all_data[1:]:
+                            common_columns &= set(df_temp.columns)
+                        
+                        if not common_columns:
+                            logger.error("No common columns found in trade calendar files")
+                            return None
+                        
+                        common_columns = list(common_columns)
+                        logger.info(f"Using common columns for trade calendar: {common_columns}")
+                        
+                        # 确保必要列存在
+                        if 'cal_date' not in common_columns:
+                            logger.error("cal_date column not found in common columns")
+                            return None
+                        
+                        # 重新读取并只保留共同列
+                        processed_data = []
+                        for df_temp, file_name in zip(all_data, all_files):
+                            df_common = df_temp.select(common_columns)
+                            # 确保cal_date是字符串类型，并统一数值类型
+                            if 'cal_date' in df_common.columns:
+                                # 统一cal_date为字符串类型
+                                if df_common.schema['cal_date'] != pl.Utf8:
+                                    logger.debug(f"Converting cal_date to string in {file_name}")
+                                    df_common = df_common.with_columns([
+                                        pl.col('cal_date').cast(pl.Utf8).alias('cal_date')
+                                    ])
+                            
+                            # 统一is_open列为Int64类型
+                            if 'is_open' in df_common.columns and df_common.schema['is_open'] != pl.Int64:
+                                logger.debug(f"Converting is_open to Int64 in {file_name}")
+                                df_common = df_common.with_columns([
+                                    pl.col('is_open').cast(pl.Int64).alias('is_open')
+                                ])
+                            processed_data.append(df_common)
+                        
+                        df = pl.concat(processed_data, how='vertical')
 
             if df.is_empty():
+                logger.debug("Combined trade calendar DataFrame is empty")
                 return None
 
-            # 构建过滤条件
-            conditions = [
-                (pl.col('cal_date') >= start_date),
-                (pl.col('cal_date') <= end_date),
-                (pl.col('is_open') == 1)
-            ]
-            
-            # [修复] 检查 exchange 列是否存在
+            # 检查必要列
+            if 'cal_date' not in df.columns:
+                logger.warning(f"cal_date column not found in trade calendar data. Available columns: {df.columns}")
+                return None
+
+            # 构建过滤条件 - 更健壮的实现
+            conditions = []
+
+            # 日期范围过滤
+            conditions.append(pl.col('cal_date') >= start_date)
+            conditions.append(pl.col('cal_date') <= end_date)
+
+            # 交易日过滤
+            if 'is_open' in df.columns:
+                conditions.append(pl.col('is_open') == 1)
+            else:
+                logger.warning("is_open column not found, skipping trade day filter")
+
+            # 交易所过滤（如果存在该列）
             if 'exchange' in df.columns:
                 conditions.append(pl.col('exchange') == 'SSE')
 
-            # 过滤日期范围并去重
-            # 必须去重，因为 Dataset 模式下可能有重复数据
-            filtered_df = df.filter(
-                pl.all_horizontal(conditions)
-            ).unique(subset=['cal_date'], keep='last').sort('cal_date')
+            # 应用过滤
+            filtered_df = df.filter(pl.all_horizontal(conditions))
 
-            if filtered_df.is_empty():
+            # 去重和排序
+            if not filtered_df.is_empty():
+                # 按 cal_date 去重，保留最新的
+                filtered_df = filtered_df.unique(subset=['cal_date'], keep='last')
+                # 按日期排序
+                filtered_df = filtered_df.sort('cal_date')
+
+                logger.info(f"Loaded {len(filtered_df)} trade days from local storage ({start_date} to {end_date})")
+                return filtered_df.to_dicts()
+            else:
+                logger.debug(f"No trade days found in range {start_date}-{end_date}")
                 return None
-
-            return filtered_df.to_dicts()
 
         except Exception as e:
             logger.warning(f"Failed to read trade calendar from Data dir: {e}")
+            import traceback
+            logger.debug(f"Full traceback: {traceback.format_exc()}")
             return None
 
     def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:

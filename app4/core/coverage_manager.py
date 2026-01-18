@@ -115,23 +115,50 @@ class CoverageManager:
         interface_config = self.config_loader.get_interface_config(interface_name)
         detection_config = interface_config.get('duplicate_detection', {})
 
-        # 获取检测列，默认为trade_date
-        date_column = detection_config.get('date_column', 'trade_date')
+        # 智能识别日期列
+        # 对于 period_range 模式，优先使用 period 列
+        pagination_config = interface_config.get('pagination', {})
+        pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
+
+        if pagination_mode == 'period_range' or pagination_mode == 'stock_loop':
+            # 对于 period_range 或 stock_loop 模式，检查是否有 period 列配置
+            date_column = detection_config.get('date_column', 'period')  # 默认使用 period
+            logger.debug(f"Using date column '{date_column}' for {pagination_mode} mode")
+        else:
+            date_column = detection_config.get('date_column', 'trade_date')
+
         threshold = detection_config.get('threshold', 0.95)
+        logger.debug(f"Checking coverage for {interface_name} using column '{date_column}'")
 
         try:
             # 读取接口数据，只读取日期列，考虑所有传入的参数（如ts_code）
-            df = self.storage_manager.read_interface_data(
-                interface_name,
-                start_date=start_date,
-                end_date=end_date,
-                columns=[date_column],
-                **{k: v for k, v in params.items() if k not in ['start_date', 'end_date']}
-            )
+            read_params = {k: v for k, v in params.items() if k not in ['start_date', 'end_date']}
+            
+            # 对于 period_range 接口，不使用日期范围过滤，而是读取所有数据
+            if pagination_mode == 'period_range' or pagination_mode == 'stock_loop':
+                logger.debug(f"Reading all {interface_name} data for {pagination_mode} mode")
+                df = self.storage_manager.read_interface_data(
+                    interface_name,
+                    columns=[date_column],
+                    **read_params
+                )
+            else:
+                logger.debug(f"Reading {interface_name} data in date range {start_date}-{end_date}")
+                df = self.storage_manager.read_interface_data(
+                    interface_name,
+                    start_date=start_date,
+                    end_date=end_date,
+                    columns=[date_column],
+                    **read_params
+                )
 
             if df.is_empty():
-                logger.debug(f"No existing data found for {interface_name} in range {start_date}-{end_date}")
+                logger.debug(f"No existing data found for {interface_name}")
                 return False
+
+            logger.debug(f"Found {len(df)} existing {interface_name} records")
+            logger.debug(f"Available columns: {df.columns}")
+            logger.debug(f"Sample data: {df.head() if not df.is_empty() else 'empty'}")
 
             # 获取实际存在的日期，并统一转换为字符串格式
             actual_dates_raw = df[date_column].to_list()
@@ -144,16 +171,43 @@ class CoverageManager:
                 else:
                     actual_dates.add(str(date_val))
 
-            # [优化] 直接使用 downloader 的 get_trade_calendar 方法
-            if self.downloader:
-                trade_calendar = self.downloader.get_trade_calendar(start_date, end_date)
-            else:
-                logger.warning("Downloader not available for trade calendar check")
-                return not df.is_empty()
+            logger.debug(f"Found {len(actual_dates)} existing dates for {interface_name}")
 
-            if not trade_calendar:
-                logger.info(f"Trade calendar not available for {interface_name}, using simple coverage check")
-                return not df.is_empty()
+            # 获取交易日历（或生成预期日期范围）
+            if pagination_mode == 'period_range' or pagination_mode == 'stock_loop':
+                # 对于 period_range，直接生成季度末日期
+                expected_dates = set(self._generate_quarter_end_dates(start_date, end_date))
+                logger.debug(f"Generated {len(expected_dates)} expected quarter-end dates")
+            else:
+                # 对于普通日期范围，使用交易日历
+                if self.downloader:
+                    trade_calendar = self.downloader.get_trade_calendar(start_date, end_date)
+                else:
+                    logger.warning("Downloader not available for trade calendar check")
+                    return not df.is_empty()
+
+                if not trade_calendar:
+                    logger.info(f"Trade calendar not available for {interface_name}, using simple coverage check")
+                    return not df.is_empty()
+
+                # 过滤出交易日
+                expected_dates = {day['cal_date'] for day in trade_calendar if day.get('is_open', 0) == 1}
+
+            if not expected_dates:
+                logger.warning(f"No expected dates in range {start_date}-{end_date}")
+                return False
+
+            # 计算覆盖率
+            covered_dates = actual_dates & expected_dates
+            coverage = len(covered_dates) / len(expected_dates) if expected_dates else 0.0
+
+            logger.info(f"Coverage for {interface_name} ({start_date}-{end_date}): {coverage:.2%} "
+                       f"({len(covered_dates)}/{len(expected_dates)})")
+            logger.debug(f"Covered dates: {sorted(list(covered_dates))[:5]}...")  # 只显示前5个
+            logger.debug(f"Missing dates: {sorted(list(expected_dates - actual_dates))[:5]}...")
+
+            result = coverage >= threshold
+            return result
 
             # 过滤出交易日
             expected_dates = {day['cal_date'] for day in trade_calendar if day.get('is_open', 0) == 1}
@@ -242,8 +296,8 @@ class CoverageManager:
         interface_config = self.config_loader.get_interface_config(interface_name)
         detection_config = interface_config.get('duplicate_detection', {})
         
-        # 获取检测列，默认为ts_code
-        key_column = detection_config.get('key_column', 'ts_code')
+        # 获取检测列，对于股票存在检查，优先使用ts_code
+        key_column = 'ts_code'  # 股票存在检查应该使用ts_code列
         
         try:
             # Lazy load all stocks for this interface
@@ -486,3 +540,27 @@ class CoverageManager:
         except Exception as e:
             print(f"删除历史下载标记文件失败: {e}")
             return False
+
+    def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:
+        """生成日期范围内的所有季度末日期"""
+        from datetime import datetime
+
+        start_dt = datetime.strptime(start_date, '%Y%m%d')
+        end_dt = datetime.strptime(end_date, '%Y%m%d')
+
+        quarter_ends = []
+        current = start_dt
+
+        # 移动到下一个季度末
+        while current <= end_dt:
+            year = current.year
+
+            # 四个季度末
+            for month, day in [(3, 31), (6, 30), (9, 30), (12, 31)]:
+                qe_date = datetime(year, month, day)
+                if start_dt <= qe_date <= end_dt:
+                    quarter_ends.append(qe_date.strftime('%Y%m%d'))
+
+            current = datetime(year + 1, 1, 1)
+
+        return quarter_ends

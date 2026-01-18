@@ -55,6 +55,8 @@ duplicate_detection:
   enabled: true          # 默认为 true
   mode: "set"            # 可选: range, set (默认), exact
   key_column: period     # 检测的主键列
+  date_column: period    # 明确指定使用 period 列作为日期检测
+  threshold: 0.95        # 覆盖率阈值
 
 output:
   primary_key: ["ts_code", "ann_date", "end_date"]
