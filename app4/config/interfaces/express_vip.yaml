@@ -1,0 +1,76 @@
+name: express_vip
+api_name: express_vip
+description: "业绩快报(VIP) - 按季度获取全部上市公司数据"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码(可选，不填则获取全部股票)"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "公告开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "公告结束日期 YYYYMMDD"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+
+output:
+  primary_key: ["ts_code", "ann_date", "end_date"]
+  sort_by: ["ann_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d", required: true}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    revenue: {type: float}
+    operate_profit: {type: float}
+    total_profit: {type: float}
+    n_income: {type: float}
+    total_assets: {type: float}
+    total_hldr_eqy_exc_min_int: {type: float}
+    diluted_eps: {type: float}
+    diluted_roe: {type: float}
+    yoy_net_profit: {type: float}
+    bps: {type: float}
+    yoy_sales: {type: float}
+    yoy_op: {type: float}
+    yoy_tp: {type: float}
+    yoy_dedu_np: {type: float}
+    yoy_eps: {type: float}
+    yoy_roe: {type: float}
+    growth_assets: {type: float}
+    yoy_equity: {type: float}
+    growth_bps: {type: float}
+    or_last_year: {type: float}
+    op_last_year: {type: float}
+    tp_last_year: {type: float}
+    np_last_year: {type: float}
+    eps_last_year: {type: float}
+    open_net_assets: {type: float}
+    open_bps: {type: float}
+    perf_summary: {type: string}
+    is_audit: {type: int}
+    remark: {type: string}

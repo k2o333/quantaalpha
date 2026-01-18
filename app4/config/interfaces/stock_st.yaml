@@ -1,0 +1,47 @@
+name: stock_st
+api_name: stock_st
+description: "ST股票列表"
+
+permissions:
+  min_points: 3000
+  rate_limit: 60
+  query_limit: 1000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "开始时间 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束时间 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+  date_field: "trade_date"
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    name: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    type: {type: string, required: true}
+    type_name: {type: string, required: true}

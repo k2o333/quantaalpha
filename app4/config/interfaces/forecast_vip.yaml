@@ -1,0 +1,60 @@
+name: forecast_vip
+api_name: forecast_vip
+description: "业绩预告(VIP) - 按季度获取全部上市公司数据"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码(可选，不填则获取全部股票)"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "公告开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "公告结束日期 YYYYMMDD"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+  type:
+    type: string
+    required: false
+    description: "预告类型(预增/预减/扭亏/首亏/续亏/续盈/略增/略减)"
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+
+output:
+  primary_key: ["ts_code", "ann_date", "end_date"]
+  sort_by: ["ann_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d", required: true}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    type: {type: string}
+    p_change_min: {type: float}
+    p_change_max: {type: float}
+    net_profit_min: {type: float}
+    net_profit_max: {type: float}
+    last_parent_net: {type: float}
+    first_ann_date: {type: date, format: "%Y%m%d"}
+    summary: {type: string}
+    change_reason: {type: string}

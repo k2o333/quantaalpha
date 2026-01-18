@@ -107,8 +107,8 @@ def test_api_rate_limiting():
     # 快速连续调用API以测试频率限制
     for i in range(10):
         try:
-            # 调用一个简单的API
-            daily_data = pro.daily(trade_date='20231201', limit=100)
+            # 调用一个简单的API (daily接口不支持limit参数)
+            daily_data = pro.daily(trade_date='20231201')
             logger.debug(f"API调用 {i+1}: 成功获取 {len(daily_data)} 条记录")
             success_count += 1
         except Exception as e:

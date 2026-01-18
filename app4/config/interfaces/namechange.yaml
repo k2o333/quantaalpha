@@ -1,0 +1,45 @@
+name: namechange
+api_name: namechange
+description: "股票曾用名"
+
+permissions:
+  min_points: 0
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "TS代码"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "公告开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "公告结束日期 YYYYMMDD"
+
+pagination:
+  enabled: false
+
+output:
+  primary_key: ["ts_code", "ann_date", "start_date"]
+  sort_by: ["ann_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    name: {type: string, required: true}
+    start_date: {type: date, format: "%Y%m%d", required: true}
+    end_date: {type: date, format: "%Y%m%d"}
+    ann_date: {type: date, format: "%Y%m%d", required: true}
+    change_reason: {type: string, required: true}

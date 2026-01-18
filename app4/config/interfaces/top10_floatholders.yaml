@@ -1,0 +1,53 @@
+name: top10_floatholders
+api_name: top10_floatholders
+description: "前十大流通股东"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "TS代码"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "报告期开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "报告期结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+
+output:
+  primary_key: ["ts_code", "period", "holder_name"]
+  sort_by: ["period", "ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d"}
+    holder_name: {type: string, required: true}
+    hold_amount: {type: float}
+    hold_ratio: {type: float}
+    hold_float_ratio: {type: float}
+    hold_change: {type: float}
+    holder_type: {type: string}

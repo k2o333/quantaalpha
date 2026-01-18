@@ -1,0 +1,164 @@
+name: income_vip
+api_name: income_vip
+description: "利润表(VIP) - 按季度获取全部上市公司数据"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 8800
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码(可选，不填则获取全部股票)"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  f_ann_date:
+    type: string
+    required: false
+    description: "实际公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "报告期开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "报告期结束日期 YYYYMMDD"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+  report_type:
+    type: string
+    required: false
+    description: "报告类型"
+  comp_type:
+    type: string
+    required: false
+    description: "公司类型"
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+
+# 重复数据检测配置
+duplicate_detection:
+  enabled: true          # 默认为 true
+  mode: "set"            # 可选: range, set (默认), exact
+  key_column: period     # 检测的主键列
+  date_column: period    # 明确指定使用 period 列作为日期检测
+  threshold: 0.95        # 覆盖率阈值
+
+output:
+  primary_key: ["ts_code", "ann_date", "end_date"]
+  sort_by: ["ann_date", "end_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    f_ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    report_type: {type: string}
+    comp_type: {type: string}
+    basic_eps: {type: float}
+    diluted_eps: {type: float}
+    total_revenue: {type: float}
+    revenue: {type: float}
+    int_income: {type: float}
+    prem_earned: {type: float}
+    comm_income: {type: float}
+    n_commis_income: {type: float}
+    n_oth_income: {type: float}
+    n_oth_b_income: {type: float}
+    prem_income: {type: float}
+    out_prem: {type: float}
+    une_prem_reser: {type: float}
+    reins_income: {type: float}
+    n_sec_tb_income: {type: float}
+    n_sec_uw_income: {type: float}
+    n_asset_mg_income: {type: float}
+    oth_b_income: {type: float}
+    fv_value_chg_gain: {type: float}
+    invest_income: {type: float}
+    ass_invest_income: {type: float}
+    forex_gain: {type: float}
+    total_cogs: {type: float}
+    oper_cost: {type: float}
+    int_exp: {type: float}
+    comm_exp: {type: float}
+    biz_tax_surchg: {type: float}
+    sell_exp: {type: float}
+    admin_exp: {type: float}
+    fin_exp: {type: float}
+    assets_impair_loss: {type: float}
+    prem_refund: {type: float}
+    compens_payout: {type: float}
+    reser_insur_liab: {type: float}
+    div_payt: {type: float}
+    reins_exp: {type: float}
+    oper_exp: {type: float}
+    compens_payout_refu: {type: float}
+    insur_reser_refu: {type: float}
+    reins_cost_refund: {type: float}
+    other_bus_cost: {type: float}
+    operate_profit: {type: float}
+    non_oper_income: {type: float}
+    non_oper_exp: {type: float}
+    nca_disploss: {type: float}
+    total_profit: {type: float}
+    income_tax: {type: float}
+    n_income: {type: float}
+    n_income_attr_p: {type: float}
+    minority_gain: {type: float}
+    oth_compr_income: {type: float}
+    t_compr_income: {type: float}
+    compr_inc_attr_p: {type: float}
+    compr_inc_attr_m_s: {type: float}
+    ebit: {type: float}
+    ebitda: {type: float}
+    insurance_exp: {type: float}
+    undist_profit: {type: float}
+    distable_profit: {type: float}
+    rd_exp: {type: float}
+    fin_exp_int_exp: {type: float}
+    fin_exp_int_inc: {type: float}
+    transfer_surplus_rese: {type: float}
+    transfer_housing_imprest: {type: float}
+    transfer_oth: {type: float}
+    adj_lossgain: {type: float}
+    withdra_legal_surplus: {type: float}
+    withdra_legal_pubfund: {type: float}
+    withdra_biz_devfund: {type: float}
+    withdra_rese_fund: {type: float}
+    withdra_oth_ersu: {type: float}
+    workers_welfare: {type: float}
+    distr_profit_shrhder: {type: float}
+    prfshare_payable_dvd: {type: float}
+    comshare_payable_dvd: {type: float}
+    capit_comstock_div: {type: float}
+    net_after_nr_lp_correct: {type: float}
+    credit_impa_loss: {type: float}
+    net_expo_hedging_benefits: {type: float}
+    oth_impair_loss_assets: {type: float}
+    total_opcost: {type: float}
+    amodcost_fin_assets: {type: float}
+    oth_income: {type: float}
+    asset_disp_income: {type: float}
+    continued_net_profit: {type: float}
+    end_net_profit: {type: float}
+    update_flag: {type: string}
+    period: {type: string, required: false}
+
+# 去重配置
+dedup:
+  enabled: true
+  strategy: "primary_key"
+  columns: ["ts_code", "ann_date", "end_date"]

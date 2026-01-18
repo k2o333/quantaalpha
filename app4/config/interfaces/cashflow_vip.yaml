@@ -1,0 +1,157 @@
+name: cashflow_vip
+api_name: cashflow_vip
+description: "现金流量表(VIP) - 按季度获取全部上市公司数据"
+
+permissions:
+  min_points: 5000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码(可选，不填则获取全部股票)"
+  ann_date:
+    type: string
+    required: false
+    description: "公告日期 YYYYMMDD"
+  f_ann_date:
+    type: string
+    required: false
+    description: "实际公告日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "公告开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "公告结束日期 YYYYMMDD"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+  report_type:
+    type: string
+    required: false
+    description: "报告类型"
+  comp_type:
+    type: string
+    required: false
+    description: "公司类型"
+  is_calc:
+    type: int
+    required: false
+    description: "是否计算报表"
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+
+output:
+  primary_key: ["ts_code", "ann_date", "end_date"]
+  sort_by: ["ann_date", "end_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    f_ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d", required: true}
+    comp_type: {type: string}
+    report_type: {type: string}
+    end_type: {type: string}
+    net_profit: {type: float}
+    finan_exp: {type: float}
+    c_fr_sale_sg: {type: float}
+    recp_tax_rends: {type: float}
+    n_depos_incr_fi: {type: float}
+    n_incr_loans_cb: {type: float}
+    n_inc_borr_oth_fi: {type: float}
+    prem_fr_orig_contr: {type: float}
+    n_incr_insured_dep: {type: float}
+    n_reinsur_prem: {type: float}
+    n_incr_disp_tfa: {type: float}
+    ifc_cash_incr: {type: float}
+    n_incr_disp_faas: {type: float}
+    n_incr_loans_oth_bank: {type: float}
+    n_cap_incr_repur: {type: float}
+    c_fr_oth_operate_a: {type: float}
+    c_inf_fr_operate_a: {type: float}
+    c_paid_goods_s: {type: float}
+    c_paid_to_for_empl: {type: float}
+    c_paid_for_taxes: {type: float}
+    n_incr_clt_loan_adv: {type: float}
+    n_incr_dep_cbob: {type: float}
+    c_pay_claims_orig_inco: {type: float}
+    pay_handling_chrg: {type: float}
+    pay_comm_insur_plcy: {type: float}
+    oth_cash_pay_oper_act: {type: float}
+    st_cash_out_act: {type: float}
+    n_cashflow_act: {type: float}
+    oth_recp_ral_inv_act: {type: float}
+    c_disp_withdrwl_invest: {type: float}
+    c_recp_return_invest: {type: float}
+    n_recp_disp_fiolta: {type: float}
+    n_recp_disp_sobu: {type: float}
+    stot_inflows_inv_act: {type: float}
+    c_pay_acq_const_fiolta: {type: float}
+    c_paid_invest: {type: float}
+    n_disp_subs_oth_biz: {type: float}
+    oth_pay_ral_inv_act: {type: float}
+    n_incr_pledge_loan: {type: float}
+    stot_out_inv_act: {type: float}
+    n_cashflow_inv_act: {type: float}
+    c_recp_borrow: {type: float}
+    proc_issue_bonds: {type: float}
+    oth_cash_recp_ral_fnc_act: {type: float}
+    stot_cash_in_fnc_act: {type: float}
+    free_cashflow: {type: float}
+    c_prepay_amt_borr: {type: float}
+    c_pay_dist_dpcp_int_exp: {type: float}
+    incl_dvd_profit_paid_sc_ms: {type: float}
+    oth_cashpay_ral_fnc_act: {type: float}
+    stot_cashout_fnc_act: {type: float}
+    n_cash_flows_fnc_act: {type: float}
+    eff_fx_flu_cash: {type: float}
+    n_incr_cash_cash_equ: {type: float}
+    c_cash_equ_beg_period: {type: float}
+    c_cash_equ_end_period: {type: float}
+    c_recp_cap_contrib: {type: float}
+    incl_cash_rec_saims: {type: float}
+    uncon_invest_loss: {type: float}
+    prov_depr_assets: {type: float}
+    depr_fa_coga_dpba: {type: float}
+    amort_intang_assets: {type: float}
+    lt_amort_deferred_exp: {type: float}
+    decr_deferred_exp: {type: float}
+    incr_acc_exp: {type: float}
+    loss_disp_fiolta: {type: float}
+    loss_scr_fa: {type: float}
+    loss_fv_chg: {type: float}
+    invest_loss: {type: float}
+    decr_def_inc_tax_assets: {type: float}
+    incr_def_inc_tax_liab: {type: float}
+    decr_inventories: {type: float}
+    decr_oper_payable: {type: float}
+    incr_oper_payable: {type: float}
+    others: {type: float}
+    im_net_cashflow_oper_act: {type: float}
+    conv_debt_into_cap: {type: float}
+    conv_copbonds_due_within_1y: {type: float}
+    fa_fnc_leases: {type: float}
+    im_n_incr_cash_equ: {type: float}
+    net_dism_capital_add: {type: float}
+    net_cash_rece_sec: {type: float}
+    credit_impa_loss: {type: float}
+    use_right_asset_dep: {type: float}
+    oth_loss_asset: {type: float}
+    end_bal_cash: {type: float}
+    beg_bal_cash: {type: float}
+    end_bal_cash_equ: {type: float}
+    beg_bal_cash_equ: {type: float}
+    update_flag: {type: string}

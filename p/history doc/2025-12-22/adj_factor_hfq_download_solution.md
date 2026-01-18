@@ -1,0 +1,401 @@
+# 后复权因子下载功能实现方案（更新版）
+
+## 项目概述
+
+实现一个完整的后复权因子（`adj_factor`）下载功能，支持通过 `main.py --adj_factor_hfq` 命令下载所有股票的后复权因子数据。该功能将与现有系统架构保持一致，支持缓存、异步下载和异步存储。**基于最新发现，复权因子数据可通过TuShare的`stk_factor`和`stk_factor_pro`接口获取，这两个接口的输出参数中均包含`adj_factor`字段（复权因子）**。
+
+## 需求分析
+
+### 功能需求
+1. 添加 `adj_factor` 接口支持（通过`stk_factor`接口获取）
+2. 通过 `--adj_factor_hfq` 参数触发后复权因子下载
+3. 遍历所有股票，逐个下载每只股票的历史后复权因子
+4. 与现有系统保持一致：缓存、异步下载、异步存储
+
+### 技术要求
+1. 与现有架构模式保持一致
+2. 支持现有缓存机制
+3. 支持异步下载和存储
+4. 遵循现有错误处理和重试机制
+
+## 实现方案
+
+### 1. 接口配置扩展
+
+在 `app/enhanced_download_config.py` 中添加 `adj_factor` 接口配置：
+
+```python
+'adj_factor': InterfaceConfig(
+    enabled=True,
+    priority=DataTypePriority.MEDIUM,
+    max_retries=3,
+    strategy=DownloadStrategy.PAGINATED,  # 分页下载策略
+    batch_size=1000,
+    required_points=5000,  # stk_factor接口需要5000积分
+    cache_enabled=True,
+    cache_ttl_hours=24
+)
+```
+
+### 2. 接口实现扩展
+
+在 `app/interfaces/technical_factors.py` 的 `TechnicalFactorsDownloader` 类中添加方法：
+
+```python
+def download_adj_factor_all(self, ts_code: str = None, trade_date: str = None) -> pd.DataFrame:
+    """
+    下载复权因子数据
+    TuShare接口：pro.stk_factor (通过获取adj_factor字段)
+    权限：需要5000积分以上
+    描述：获取股票复权因子信息，用于前复权、后复权处理
+    """
+    if TUSHARE_POINTS < 5000:
+        self.logger.warning("adj_factor via stk_factor requires 5000+ points, skipping download")
+        return pd.DataFrame()
+
+    try:
+        kwargs = {}
+        if ts_code:
+            kwargs['ts_code'] = ts_code
+        if trade_date:
+            kwargs['trade_date'] = trade_date
+
+        result = self.download_with_retry(
+            self.pro.stk_factor,
+            **kwargs
+        )
+
+        # 从stk_factor结果中提取adj_factor字段
+        if result is not None and not result.empty:
+            # 选择只包含ts_code, trade_date, adj_factor的列
+            adj_factor_cols = ['ts_code', 'trade_date', 'adj_factor']
+            available_cols = [col for col in adj_factor_cols if col in result.columns]
+            result = result[available_cols]
+
+            # 过滤掉adj_factor为null的行
+            if 'adj_factor' in result.columns:
+                result = result.dropna(subset=['adj_factor'])
+
+        self.logger.info(f"Successfully downloaded adj_factor for {ts_code or 'all stocks'}: {len(result) if result is not None else 0} records")
+        return result
+    except Exception as e:
+        self.logger.error(f"Failed to download adj_factor for {ts_code or 'all stocks'}: {e}")
+        ErrorHandler.handle_api_error(e, f"download_adj_factor for {ts_code or 'all stocks'}")
+        raise
+
+def download_adj_factor_range(self, start_date: str, end_date: str) -> pd.DataFrame:
+    """
+    按日期范围下载复权因子数据
+    通过stk_factor接口按日期范围获取复权因子
+    """
+    if TUSHARE_POINTS < 5000:
+        self.logger.warning("adj_factor via stk_factor requires 5000+ points, skipping download")
+        return pd.DataFrame()
+
+    try:
+        # 获取交易日历
+        from .basic_data import BasicDataDownloader
+        basic_downloader = BasicDataDownloader(self.pro)
+        trade_cal = basic_downloader.download_trade_cal(start_date=start_date, end_date=end_date)
+        trading_days = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
+        trading_days.sort()
+
+        all_data = []
+        self.logger.info(f"Starting to download adj_factor for {len(trading_days)} trading days")
+
+        for i, trade_date in enumerate(trading_days):
+            if (i + 1) % 10 == 0:  # Log progress every 10 days
+                self.logger.info(f"Processed {i + 1}/{len(trading_days)} trading days...")
+
+            try:
+                df = self.download_adj_factor_all(trade_date=trade_date)
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                    self.logger.debug(f"Got {len(df)} adj_factor records for {trade_date}")
+                else:
+                    self.logger.debug(f"No adj_factor data for {trade_date}")
+            except Exception as e:
+                self.logger.warning(f"Failed to download adj_factor for {trade_date}: {e}")
+                continue  # Continue with next day even if one fails
+
+        # Combine all data
+        if all_data:
+            result = pd.concat(all_data, ignore_index=True)
+            self.logger.info(f"Successfully downloaded adj_factor for date range: {len(result)} records")
+            return result
+        else:
+            self.logger.warning("No adj_factor data could be downloaded for the date range")
+            return pd.DataFrame()
+    except Exception as e:
+        self.logger.error(f"Failed to download adj_factor for date range: {e}")
+        ErrorHandler.handle_api_error(e, "download_adj_factor_range")
+        raise
+
+def download_all_stocks_adj_factor(self) -> pd.DataFrame:
+    """
+    下载所有股票的复权因子数据
+    遍历所有股票，逐个获取其复权因子数据
+    """
+    if TUSHARE_POINTS < 5000:
+        self.logger.warning("adj_factor via stk_factor requires 5000+ points, skipping download")
+        return pd.DataFrame()
+
+    try:
+        # 获取股票列表
+        from .basic_data import BasicDataDownloader
+        basic_downloader = BasicDataDownloader(self.pro)
+        stock_list = basic_downloader.download_stock_basic()
+
+        all_data = []
+        total_stocks = len(stock_list) if stock_list is not None else 0
+        self.logger.info(f"开始下载 {total_stocks} 只股票的复权因子数据")
+
+        for index, stock in stock_list.iterrows():
+            ts_code = stock['ts_code']
+            try:
+                df = self.download_adj_factor_all(ts_code=ts_code)
+                if df is not None and not df.empty:
+                    all_data.append(df)
+                    self.logger.info(f"已下载 {ts_code} 的复权因子数据: {len(df)} 条记录")
+                else:
+                    self.logger.debug(f"No adj_factor data for {ts_code}")
+            except Exception as e:
+                self.logger.warning(f"Failed to download adj_factor for {ts_code}: {e}")
+                continue
+
+        if all_data:
+            result = pd.concat(all_data, ignore_index=True)
+            self.logger.info(f"Successfully downloaded adj_factor for all stocks: {len(result)} records")
+            return result
+        else:
+            self.logger.warning("No adj_factor data could be downloaded")
+            return pd.DataFrame()
+    except Exception as e:
+        self.logger.error(f"Failed to download adj_factor for all stocks: {e}")
+        ErrorHandler.handle_api_error(e, "download_all_stocks_adj_factor")
+        raise
+```
+
+### 3. 下载策略扩展
+
+在 `app/download_strategies.py` 中添加相应的下载策略：
+
+```python
+class AdjFactorDownloadStrategy(DownloadStrategy):
+    def __init__(self, downloader, strategy_config: InterfaceConfig):
+        super().__init__(downloader, strategy_config)
+        self.logger = logging.getLogger(__name__)
+
+    def download(self, **kwargs) -> pd.DataFrame:
+        """
+        专门用于下载复权因子数据的策略
+        通过stk_factor接口获取adj_factor字段
+        """
+        ts_code = kwargs.get('ts_code')
+        trade_date = kwargs.get('trade_date')
+
+        # 使用technical_factors模块中的方法下载复权因子数据
+        if hasattr(self.downloader, 'technical_factors') and hasattr(self.downloader.technical_factors, 'download_adj_factor_all'):
+            return self.downloader.technical_factors.download_adj_factor_all(ts_code=ts_code, trade_date=trade_date)
+        else:
+            # Fallback to direct API call using stk_factor
+            if TUSHARE_POINTS < 5000:
+                self.logger.warning("adj_factor via stk_factor requires 5000+ points")
+                return pd.DataFrame()
+
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            result = self.downloader.pro.stk_factor(**kwargs)
+
+            # 从结果中提取adj_factor字段
+            if result is not None and not result.empty:
+                # 选择只包含ts_code, trade_date, adj_factor的列
+                adj_factor_cols = ['ts_code', 'trade_date', 'adj_factor']
+                available_cols = [col for col in adj_factor_cols if col in result.columns]
+                result = result[available_cols]
+
+                # 过滤掉adj_factor为null的行
+                if 'adj_factor' in result.columns:
+                    result = result.dropna(subset=['adj_factor'])
+
+            return result
+```
+
+### 4. 策略工厂扩展
+
+在 `app/strategy_factory.py` 中注册新策略：
+
+```python
+def get_strategy(interface_name: str, downloader, config: InterfaceConfig = None):
+    """
+    获取下载策略
+    """
+    if interface_name == 'adj_factor':
+        return AdjFactorDownloadStrategy(downloader, config)
+    # ... 其他策略
+```
+
+### 5. 主程序扩展
+
+在 `app/main.py` 中添加命令行参数支持：
+
+```python
+# 在命令行参数中添加
+parser.add_argument('--adj_factor_hfq', dest='adj_factor_hfq', action='store_true',
+                    help='下载所有股票的后复权因子数据')
+
+# 在主处理逻辑中添加
+if args.adj_factor_hfq:
+    logger.info("开始下载后复权因子数据...")
+    from task_queue_manager import get_download_task_manager
+    from download_scheduler import run_download_schedule
+
+    # 使用调度器方式下载
+    try:
+        downloader = TuShareDownloader()
+
+        # 下载所有股票的复权因子数据
+        adj_factor_data = downloader.technical_factors.download_all_stocks_adj_factor()
+
+        if not adj_factor_data.empty:
+            # 提交存储任务
+            task_manager = get_download_task_manager()
+
+            task_manager.add_storage_task(
+                data=adj_factor_data,
+                filename='adj_factor_all_stocks',
+                subdir='adj_factor',
+                priority=TaskPriority.MEDIUM
+            )
+
+            logger.info(f"已提交 {len(adj_factor_data)} 条后复权因子数据存储任务")
+
+            results['adj_factor_hfq'] = len(adj_factor_data)
+
+            # 也可以标记为已完成历史下载
+            from main import mark_interfaces_as_historical_downloaded
+            mark_interfaces_as_historical_downloaded(['adj_factor'])
+        else:
+            logger.warning("没有获取到后复权因子数据")
+    except Exception as e:
+        logger.error(f"下载后复权因子数据失败: {e}")
+        raise
+```
+
+### 6. 缓存机制
+
+复权因子数据将使用现有的缓存机制：
+- 通过 `data_storage.py` 中的缓存功能
+- 缓存路径：`cache/adj_factor/{ts_code}/adj_factor_{start_date}_{end_date}.parquet`
+- 缓存键生成：使用缓存键生成器 `cache_key_generator.py`
+
+### 7. 参数适配器扩展
+
+在 `app/parameter_adapters.py` 中添加适配器：
+
+```python
+class AdjFactorParameterAdapter(BaseParameterAdapter):
+    """
+    专门用于adj_factor接口的参数适配器
+    """
+    def __init__(self):
+        super().__init__('adj_factor')
+
+    def validate_params(self, **params):
+        """
+        验证参数
+        """
+        # ts_code: 股票代码 (可选)
+        # trade_date: 交易日期 (可选)
+        validated = {}
+
+        if 'ts_code' in params and params['ts_code']:
+            validated['ts_code'] = self.format_ts_code(params['ts_code'])
+
+        if 'trade_date' in params and params['trade_date']:
+            validated['trade_date'] = self.format_date(params['trade_date'])
+
+        return validated
+```
+
+## 实现步骤
+
+### 阶段1：基础接口配置
+1. 在 `enhanced_download_config.py` 中添加 `adj_factor` 配置
+2. 在 `config_adapter.py` 中确保配置适配器支持新接口
+3. 更新参数适配器以支持 `adj_factor` 接口
+
+### 阶段2：接口实现
+1. 在 `app/interfaces/technical_factors.py` 中实现 `download_adj_factor_all` 方法
+2. 实现批量下载方法 `download_all_stocks_adj_factor`
+3. 实现日期范围下载方法 `download_adj_factor_range`
+4. 确保错误处理和重试机制正常工作
+
+### 阶段3：下载策略
+1. 在 `download_strategies.py` 中添加 `AdjFactorDownloadStrategy`
+2. 在 `strategy_factory.py` 中注册新策略
+3. 确保策略与现有架构兼容
+
+### 阶段4：主程序集成
+1. 在 `main.py` 中添加命令行参数
+2. 实现 `--adj_factor_hfq` 参数的处理逻辑
+3. 确保与现有下载模式兼容
+
+### 阶段5：测试验证
+1. 单元测试：验证新接口方法
+2. 集成测试：验证命令行参数处理
+3. 功能测试：验证缓存和异步机制
+4. 性能测试：验证下载效率
+
+## 技术细节
+
+### 数据结构
+复权因子数据包含以下字段：
+- `ts_code`: 股票代码
+- `trade_date`: 交易日期
+- `adj_factor`: 复权因子
+
+### 缓存策略
+- 按股票代码和日期范围缓存
+- 缓存有效期：24小时（可配置）
+- 智能缓存匹配：支持精确匹配和范围匹配
+
+### 任务调度
+- 支持单股票和全市场两种模式
+- 按股票逐个处理，避免单次API调用超载
+- 支持中断恢复和错误重试
+
+## 预期效果
+
+执行 `python app/main.py --adj_factor_hfq` 命令后，系统将：
+
+1. 自动获取所有股票列表
+2. 逐个调用TuShare的 `adj_factor` 接口
+3. 下载每只股票的历史后复权因子数据
+4. 使用现有缓存机制避免重复下载
+5. 通过异步下载提高处理效率
+6. 通过异步存储避免阻塞
+7. 将结果保存到指定目录
+
+## 注意事项
+
+1. **API限制**：注意TuShare的API调用限制，需要适当的延时
+2. **数据量**：复权因子数据量相对较小，但仍需处理异常情况
+3. **兼容性**：确保与现有系统架构完全兼容
+4. **错误处理**：处理股票退市等异常情况
+5. **性能优化**：考虑批量处理和并发控制
+
+## 扩展性考虑
+
+- 支持前复权因子下载（通过修改参数）
+- 支持指定日期范围下载
+- 支持增量更新模式
+- 与其他复权数据接口的兼容性
+
+## 关于adj_factor接口说明
+
+根据TuShare文档分析，`adj_factor`字段存在于`stk_factor`和`stk_factor_pro`技术因子接口的输出参数中，而不是一个独立的接口。通过调用这些技术因子接口，我们可以获取包含复权因子在内的多种技术指标数据。
+
+- `stk_factor`接口：基础技术因子接口，包含adj_factor（复权因子）字段
+- `stk_factor_pro`接口：专业版技术因子接口，同样包含adj_factor（复权因子）字段
+
+这种方式的优势在于可以同时获取复权因子和其他技术指标，提高了数据获取效率。该字段返回每只股票在每个交易日的复权因子，是进行前复权和后复权计算的基础数据。

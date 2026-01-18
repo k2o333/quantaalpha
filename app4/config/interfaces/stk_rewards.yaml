@@ -1,0 +1,39 @@
+name: stk_rewards
+api_name: stk_rewards
+description: "管理层薪酬和持股"
+
+permissions:
+  min_points: 2000
+  rate_limit: 60
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: true
+    description: "TS股票代码"
+  end_date:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+
+output:
+  primary_key: ["ts_code", "name", "ann_date"]
+  sort_by: ["ann_date", "ts_code"]
+  columns:
+    ts_code: {type: string, required: true}
+    ann_date: {type: date, format: "%Y%m%d"}
+    end_date: {type: date, format: "%Y%m%d"}
+    name: {type: string, required: true}
+    title: {type: string}
+    reward: {type: float}
+    hold_vol: {type: float}

@@ -1,0 +1,114 @@
+# 1. 基础元数据
+name: pro_bar
+api_name: pro_bar
+description: "A股复权行情"
+
+# 2. 权限与限制
+permissions:
+  min_points: 0    # 最低积分要求
+  rate_limit: 200   # [修改] 从 60 降至 30
+  query_limit: 6000 # 单次请求最大返回行数
+
+# 3. 请求配置
+request:
+  method: POST
+  # 关键配置：接口的额外地址（用于代理服务器场景）
+  extra_path: "/api/pro_bar"
+  timeout: 60
+
+# 4. 输入参数定义
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "证券代码"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+  adj:
+    type: string
+    required: false
+    default: "qfq"
+    options: ["qfq", "hfq", null]
+    description: "复权类型"
+  freq:
+    type: string
+    required: false
+    default: "D"
+    description: "数据频度"
+  asset:
+    type: string
+    required: false
+    default: "E"
+    description: "资产类别"
+  ma:
+    type: list
+    required: false
+    description: "均线"
+  factors:
+    type: list
+    required: false
+    options: ["tor", "vr"]
+    description: "股票因子（asset='E'有效）支持 tor换手率 vr量比"
+
+# 5. 分页与循环策略
+pagination:
+  enabled: true
+  mode: "stock_loop"
+  date_pagination: true
+  window_size_days: 5000
+  limit_key: "limit"
+  offset_key: "offset"
+  default_limit: 6000
+
+# 6. 输出与存储配置
+output:
+  primary_key:
+    - ts_code
+    - trade_date
+
+  sort_by: ["trade_date"]
+
+  cache:
+    enabled: true
+    ttl: 86400
+
+  columns:
+    ts_code:
+      type: string
+      required: true
+    trade_date:
+      type: string
+      required: true
+    open:
+      type: float
+    high:
+      type: float
+    low:
+      type: float
+    close:
+      type: float
+    pre_close:
+      type: float
+    change:
+      type: float
+    pct_chg:
+      type: float
+    vol:
+      type: float
+    amount:
+      type: float
+    adj_factor:
+      type: float
+      description: "复权因子"
+
+# 7. 去重配置
+dedup:
+  enabled: true
+  strategy: "primary_key"
+  columns: ["ts_code", "trade_date"]

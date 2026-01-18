@@ -1,0 +1,52 @@
+name: cyq_perf
+api_name: cyq_perf
+description: "每日筹码及胜率"
+
+permissions:
+  min_points: 120
+  rate_limit: 60
+  query_limit: 5000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+  columns:
+    ts_code: {type: string, required: true}
+    trade_date: {type: date, format: "%Y%m%d", required: true}
+    his_low: {type: float}
+    his_high: {type: float}
+    cost_5pct: {type: float}
+    cost_15pct: {type: float}
+    cost_50pct: {type: float}
+    cost_85pct: {type: float}
+    cost_95pct: {type: float}
+    weight_avg: {type: float}
+    winner_rate: {type: float}
