@@ -126,22 +126,22 @@ class DataProcessor:
                 ).group_by(existing_keys).agg(
                     pl.col('__index').list()
                 ).filter(
-                    pl.col('__index').list().lengths() > 1
+                    pl.col('__index').list().len() > 1
                 ).explode('__index').select(
                     pl.col('__index')
                 )
                 if len(duplicates) > 0:
                     logger.info(f"Found {len(duplicates)} duplicate records based on primary keys, keeping all records")
             except:
-                # Fallback for older polars versions or different syntax
+                # Fallback for newer polars versions
                 try:
-                    # Alternative syntax for polars versions
+                    # Alternative syntax for polars versions (apply -> map)
                     duplicates = df.with_columns(
                         pl.int_range(0, pl.len()).alias('__index')
                     ).group_by(existing_keys).agg(
-                        pl.col('__index').apply(lambda x: x, return_dtype=pl.List(pl.Int64))
+                        pl.col('__index').map(lambda x: x, return_dtype=pl.List(pl.Int64))
                     ).filter(
-                        pl.col('__index').apply(lambda x: len(x) if x else 0, return_dtype=pl.Int64) > 1
+                        pl.col('__index').map(lambda x: len(x) if x else 0, return_dtype=pl.Int64) > 1
                     ).select(
                         pl.col('__index').explode()
                     )
@@ -241,21 +241,21 @@ class DataProcessor:
                 ).group_by(existing_keys).agg(
                     pl.col('__index').list()
                 ).filter(
-                    pl.col('__index').list().lengths() > 1
+                    pl.col('__index').list().len() > 1
                 ).explode('__index').select(
                     pl.col('__index')
                 )
                 validation_result['duplicate_records'] = len(duplicates)
             except:
-                # Fallback for older polars versions or different syntax
+                # Fallback for newer polars versions
                 try:
-                    # Alternative syntax for polars versions
+                    # Alternative syntax for polars versions (apply -> map)
                     duplicates = df.with_columns(
                         pl.int_range(0, pl.len()).alias('__index')
                     ).group_by(existing_keys).agg(
-                        pl.col('__index').apply(lambda x: x, return_dtype=pl.List(pl.Int64))
+                        pl.col('__index').map(lambda x: x, return_dtype=pl.List(pl.Int64))
                     ).filter(
-                        pl.col('__index').apply(lambda x: len(x) if x else 0, return_dtype=pl.Int64) > 1
+                        pl.col('__index').map(lambda x: len(x) if x else 0, return_dtype=pl.Int64) > 1
                     ).select(
                         pl.col('__index').explode()
                     )
