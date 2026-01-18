@@ -85,6 +85,15 @@ class GenericDownloader:
         }
         self._cache_lock = threading.RLock()  # 确保线程安全
 
+        # [新增] 缓存统计信息 - 用于跟踪交易日历缓存命中情况
+        self._cache_stats = {
+            'exact_match': 0,      # 精确匹配计数
+            'superset_match': 0,   # 范围匹配计数
+            'file_hit': 0,         # 文件命中计数
+            'miss': 0,             # 未命中计数
+        }
+        self._cache_stats_lock = threading.RLock()  # 确保统计信息线程安全
+
         # [新增] 覆盖率管理器
         if storage_manager:
             self.coverage_manager = CoverageManager(storage_manager, config_loader, downloader=self)
@@ -617,26 +626,49 @@ class GenericDownloader:
     def get_trade_calendar(self, start_date: str, end_date: str) -> Optional[List[Dict[str, Any]]]:
         """
         获取交易日历，采用三级缓存策略：
-        1. 内存缓存 (_memory_cache)
+        1. 内存缓存 (_memory_cache) - 支持范围子集查找
         2. 本地存储 (Data 目录 parquet 文件)
         3. API 请求
         """
         cache_key = (start_date, end_date)
-        
-        # 1. 检查内存缓存
+        hit_type = 'miss'  # 默认为未命中
+
+        # 1. 检查内存缓存 - 完全匹配
         with self._cache_lock:
             if cache_key in self._memory_cache['trade_cal']:
-                logger.debug(f"Trade calendar loaded from memory cache: {start_date}-{end_date}")
+                logger.info(f"交易日历精确匹配缓存命中: {start_date}-{end_date}")
+                # 更新缓存统计 - 精确匹配
+                with self._cache_stats_lock:
+                    self._cache_stats['exact_match'] += 1
+                hit_type = 'exact'
                 return self._memory_cache['trade_cal'][cache_key]
 
-        # 2. 检查本地数据目录
+            # 2. 检查内存缓存中的超集范围
+            # 使用新实现的 _find_superset_range_from_cache 方法
+            superset_result = self._find_superset_range_from_cache(start_date, end_date, 'trade_cal')
+            if superset_result is not None:
+                logger.info(f"交易日历范围超集匹配缓存命中: {start_date}-{end_date}")
+                # 更新缓存统计 - 范围匹配
+                with self._cache_stats_lock:
+                    self._cache_stats['superset_match'] += 1
+                hit_type = 'superset'
+                return superset_result
+
+        # 3. 检查本地数据目录
         trade_calendar = self._get_trade_calendar_from_data_dir(start_date, end_date)
-        
+
         if trade_calendar:
-            logger.info(f"Trade calendar loaded from data directory: {start_date}-{end_date}")
+            logger.info(f"交易日历从数据目录加载: {start_date}-{end_date}")
+            # 更新缓存统计 - 文件命中
+            with self._cache_stats_lock:
+                self._cache_stats['file_hit'] += 1
+            hit_type = 'file'
         else:
-            # 3. 请求 API
-            logger.info(f"Trade calendar not found locally, fetching from API: {start_date}-{end_date}")
+            # 4. 请求 API
+            logger.info(f"交易日历未命中缓存，从API获取: {start_date}-{end_date}")
+            # 更新缓存统计 - 未命中
+            with self._cache_stats_lock:
+                self._cache_stats['miss'] += 1
             calendar_params = {
                 'start_date': start_date,
                 'end_date': end_date,
@@ -647,13 +679,171 @@ class GenericDownloader:
                 self.config_loader.get_interface_config('trade_cal'),
                 calendar_params
             )
-            
+
         # 更新内存缓存
         if trade_calendar:
             with self._cache_lock:
                 self._memory_cache['trade_cal'][cache_key] = trade_calendar
-                
+                logger.info(f"交易日历已缓存到内存: {start_date}-{end_date}")
+
+        # 获取缓存统计信息用于日志
+        with self._cache_stats_lock:
+            exact_match_count = self._cache_stats['exact_match']
+            superset_match_count = self._cache_stats['superset_match']
+            file_hit_count = self._cache_stats['file_hit']
+            miss_count = self._cache_stats['miss']
+
+        # 记录统计信息
+        if trade_calendar:
+            logger.info(f"交易日历获取完成 - 命中类型: {hit_type}, 日期范围: {start_date}-{end_date}, 数据量: {len(trade_calendar)}, "
+                        f"缓存统计 [精确匹配:{exact_match_count}, 范围匹配:{superset_match_count}, 文件命中:{file_hit_count}, 未命中:{miss_count}")
+        else:
+            logger.info(f"交易日历获取失败 - 日期范围: {start_date}-{end_date}, "
+                        f"缓存统计 [精确匹配:{exact_match_count}, 范围匹配:{superset_match_count}, 文件命中:{file_hit_count}, 未命中:{miss_count}")
+
         return trade_calendar
+
+    def get_cache_stats(self) -> Dict[str, int]:
+        """
+        获取缓存统计信息
+
+        Returns:
+            包含缓存统计信息的字典
+        """
+        with self._cache_stats_lock:
+            return self._cache_stats.copy()
+
+    def display_cache_stats(self, formatted: bool = True) -> str:
+        """
+        获取和显示缓存统计信息，计算缓存命中率等关键指标
+
+        Args:
+            formatted: 是否返回格式化的输出
+
+        Returns:
+            缓存统计信息的字符串表示
+        """
+        with self._cache_stats_lock:
+            # 获取当前统计信息的副本
+            stats = self._cache_stats.copy()
+
+        # 计算总访问次数
+        total_accesses = sum(stats.values())
+
+        # 计算缓存命中率
+        total_hits = stats['exact_match'] + stats['superset_match'] + stats['file_hit']
+        hit_rate = (total_hits / total_accesses * 100) if total_accesses > 0 else 0.0
+        miss_rate = (stats['miss'] / total_accesses * 100) if total_accesses > 0 else 0.0
+
+        # 计算各类型命中率
+        exact_hit_rate = (stats['exact_match'] / total_accesses * 100) if total_accesses > 0 else 0.0
+        superset_hit_rate = (stats['superset_match'] / total_accesses * 100) if total_accesses > 0 else 0.0
+        file_hit_rate = (stats['file_hit'] / total_accesses * 100) if total_accesses > 0 else 0.0
+
+        if formatted:
+            # 格式化输出
+            formatted_output = []
+            formatted_output.append("=" * 60)
+            formatted_output.append("缓存统计信息")
+            formatted_output.append("=" * 60)
+            formatted_output.append(f"总访问次数: {total_accesses:,}")
+            formatted_output.append(f"总命中次数: {total_hits:,}")
+            formatted_output.append(f"缓存命中率: {hit_rate:.2f}%")
+            formatted_output.append(f"缓存未命中率: {miss_rate:.2f}%")
+            formatted_output.append("-" * 40)
+            formatted_output.append("详细统计:")
+            formatted_output.append(f"  精确匹配命中: {stats['exact_match']:,} ({exact_hit_rate:.2f}%)")
+            formatted_output.append(f"  范围匹配命中: {stats['superset_match']:,} ({superset_hit_rate:.2f}%)")
+            formatted_output.append(f"  文件命中: {stats['file_hit']:,} ({file_hit_rate:.2f}%)")
+            formatted_output.append(f"  未命中: {stats['miss']:,} ({miss_rate:.2f}%)")
+            formatted_output.append("=" * 60)
+
+            result = "\n".join(formatted_output)
+        else:
+            # 简单输出
+            result = (
+                f"Cache stats - Total: {total_accesses}, "
+                f"Hit Rate: {hit_rate:.2f}%, "
+                f"Exact: {stats['exact_match']}, "
+                f"Superset: {stats['superset_match']}, "
+                f"File: {stats['file_hit']}, "
+                f"Miss: {stats['miss']}"
+            )
+
+        return result
+
+    def get_cache_hit_rate(self) -> float:
+        """
+        获取缓存命中率
+
+        Returns:
+            缓存命中率 (0.0-100.0)
+        """
+        with self._cache_stats_lock:
+            stats = self._cache_stats.copy()
+
+        total_accesses = sum(stats.values())
+        if total_accesses == 0:
+            return 0.0
+
+        total_hits = stats['exact_match'] + stats['superset_match'] + stats['file_hit']
+        return (total_hits / total_accesses) * 100.0
+
+    def _find_superset_range_from_cache(self, start_date: str, end_date: str, cache_type: str = 'trade_cal') -> Optional[List[Dict[str, Any]]]:
+        """
+        从内存缓存中查找包含指定日期范围的更大范围数据
+
+        Args:
+            start_date: 请求的开始日期 (YYYYMMDD)
+            end_date: 请求的结束日期 (YYYYMMDD)
+            cache_type: 缓存类型，默认为 'trade_cal'
+
+        Returns:
+            如果找到包含请求范围的更大范围数据，则返回过滤后的目标范围数据，否则返回 None
+        """
+        with self._cache_lock:
+            # 检查指定类型的内存缓存
+            if cache_type not in self._memory_cache:
+                logger.debug(f"缓存类型 {cache_type} 在内存缓存中未找到")
+                return None
+
+            cache_data = self._memory_cache[cache_type]
+
+            # 遍历内存缓存中的所有范围数据
+            for (cached_start, cached_end), cached_data in cache_data.items():
+                # 检查当前缓存是否包含请求的范围
+                if cached_start <= start_date and end_date <= cached_end:
+                    logger.info(f"交易日历范围超集匹配成功: 请求范围 {start_date}-{end_date} 从缓存范围 {cached_start}-{cached_end} 中获取")
+
+                    # 根据不同缓存类型过滤数据
+                    if cache_type == 'trade_cal':
+                        # 交易日历数据的过滤
+                        filtered_data = [
+                            item for item in cached_data
+                            if 'cal_date' in item and start_date <= item['cal_date'] <= end_date and item.get('is_open', 1) == 1
+                        ]
+                        # 按日期排序
+                        filtered_data.sort(key=lambda x: x['cal_date'])
+                    else:
+                        # 默认处理：适用于其他类型的数据，假设有date字段
+                        date_field = 'trade_date' if any('trade_date' in item for item in cached_data[:10] if isinstance(item, dict)) else 'date'
+                        if date_field == 'date' and not any('date' in item for item in cached_data[:10] if isinstance(item, dict)):
+                            date_field = 'cal_date'  # fallback to cal_date
+
+                        filtered_data = [
+                            item for item in cached_data
+                            if date_field in item and start_date <= item[date_field] <= end_date
+                        ]
+                        # 按日期排序
+                        filtered_data.sort(key=lambda x: x[date_field])
+
+                    # 为该范围添加直接的缓存键，提高后续访问效率
+                    cache_data[(start_date, end_date)] = filtered_data
+                    logger.info(f"交易日历范围超集匹配完成: 从 {cached_start}-{cached_end} 提取 {start_date}-{end_date}, 数据量: {len(filtered_data)}")
+                    return filtered_data
+
+        logger.info(f"交易日历范围超集匹配未命中: {start_date}-{end_date}")
+        return None
 
     def _get_trade_calendar_from_data_dir(self, start_date, end_date):
         """从 Data 目录查询交易日历 (Source of Truth) - 修复schema不一致问题"""
@@ -661,17 +851,17 @@ class GenericDownloader:
         dir_path = os.path.join(storage_dir, 'trade_cal')
 
         if not os.path.exists(dir_path):
-            logger.debug(f"Trade calendar directory not found: {dir_path}")
+            logger.debug(f"交易日历目录未找到: {dir_path}")
             return None
 
         try:
             # 获取所有parquet文件
             all_files = [f for f in os.listdir(dir_path) if f.endswith('.parquet')]
             if not all_files:
-                logger.debug("No trade calendar files found")
+                logger.debug("未找到交易日历文件")
                 return None
 
-            logger.debug(f"Found {len(all_files)} trade calendar files")
+            logger.debug(f"找到 {len(all_files)} 个交易日历文件")
 
             # 逐个文件读取，处理schema不一致问题
             all_data = []
@@ -684,19 +874,19 @@ class GenericDownloader:
                         if 'cal_date' in df.columns:
                             # 统一cal_date为字符串类型
                             if df.schema['cal_date'] != pl.Utf8:
-                                logger.debug(f"Converting cal_date to string in {file_name}")
+                                logger.debug(f"在 {file_name} 中将 cal_date 转换为字符串")
                                 df = df.with_columns([
                                     pl.col('cal_date').cast(pl.Utf8).alias('cal_date')
                                 ])
 
                         all_data.append(df)
-                        logger.debug(f"Successfully read {len(df)} rows from {file_name}")
+                        logger.debug(f"成功从 {file_name} 读取 {len(df)} 行数据")
                 except Exception as e:
-                    logger.warning(f"Failed to read {file_path}: {e}")
+                    logger.warning(f"读取 {file_path} 失败: {e}")
                     continue
 
             if not all_data:
-                logger.debug("No valid trade calendar data found")
+                logger.debug("未找到有效的交易日历数据")
                 return None
 
             # 合并所有数据 - 更强健的schema处理
@@ -707,29 +897,29 @@ class GenericDownloader:
                     # 尝试垂直合并（要求schema一致）
                     df = pl.concat(all_data, how='vertical')
                 except Exception as e:
-                    logger.warning(f"Failed to vertically concat trade calendar data, trying diagonal: {e}")
+                    logger.warning(f"垂直合并交易日历数据失败，尝试对角合并: {e}")
                     try:
                         # 如果schema不完全一致，使用diagonal模式
                         df = pl.concat(all_data, how='diagonal')
                     except Exception as e2:
-                        logger.warning(f"Failed to diagonally concat trade calendar data: {e2}")
+                        logger.warning(f"对角合并交易日历数据失败: {e2}")
                         # 最后手段：逐个处理数据并只保留共同列
                         common_columns = set(all_data[0].columns)
                         for df_temp in all_data[1:]:
                             common_columns &= set(df_temp.columns)
-                        
+
                         if not common_columns:
-                            logger.error("No common columns found in trade calendar files")
+                            logger.error("在交易日历文件中未找到共同列")
                             return None
-                        
+
                         common_columns = list(common_columns)
-                        logger.info(f"Using common columns for trade calendar: {common_columns}")
-                        
+                        logger.info(f"使用交易日历的共同列: {common_columns}")
+
                         # 确保必要列存在
                         if 'cal_date' not in common_columns:
-                            logger.error("cal_date column not found in common columns")
+                            logger.error("在共同列中未找到 cal_date 列")
                             return None
-                        
+
                         # 重新读取并只保留共同列
                         processed_data = []
                         for df_temp, file_name in zip(all_data, all_files):
@@ -738,28 +928,28 @@ class GenericDownloader:
                             if 'cal_date' in df_common.columns:
                                 # 统一cal_date为字符串类型
                                 if df_common.schema['cal_date'] != pl.Utf8:
-                                    logger.debug(f"Converting cal_date to string in {file_name}")
+                                    logger.debug(f"在 {file_name} 中将 cal_date 转换为字符串")
                                     df_common = df_common.with_columns([
                                         pl.col('cal_date').cast(pl.Utf8).alias('cal_date')
                                     ])
-                            
+
                             # 统一is_open列为Int64类型
                             if 'is_open' in df_common.columns and df_common.schema['is_open'] != pl.Int64:
-                                logger.debug(f"Converting is_open to Int64 in {file_name}")
+                                logger.debug(f"在 {file_name} 中将 is_open 转换为 Int64")
                                 df_common = df_common.with_columns([
                                     pl.col('is_open').cast(pl.Int64).alias('is_open')
                                 ])
                             processed_data.append(df_common)
-                        
+
                         df = pl.concat(processed_data, how='vertical')
 
             if df.is_empty():
-                logger.debug("Combined trade calendar DataFrame is empty")
+                logger.debug("合并的交易日历 DataFrame 为空")
                 return None
 
             # 检查必要列
             if 'cal_date' not in df.columns:
-                logger.warning(f"cal_date column not found in trade calendar data. Available columns: {df.columns}")
+                logger.warning(f"交易日历数据中未找到 cal_date 列。可用列: {df.columns}")
                 return None
 
             # 构建过滤条件 - 更健壮的实现
@@ -773,7 +963,7 @@ class GenericDownloader:
             if 'is_open' in df.columns:
                 conditions.append(pl.col('is_open') == 1)
             else:
-                logger.warning("is_open column not found, skipping trade day filter")
+                logger.warning("未找到 is_open 列，跳过交易日过滤")
 
             # 交易所过滤（如果存在该列）
             if 'exchange' in df.columns:
@@ -789,16 +979,16 @@ class GenericDownloader:
                 # 按日期排序
                 filtered_df = filtered_df.sort('cal_date')
 
-                logger.info(f"Loaded {len(filtered_df)} trade days from local storage ({start_date} to {end_date})")
+                logger.info(f"从本地存储加载了 {len(filtered_df)} 个交易日 ({start_date} 到 {end_date})")
                 return filtered_df.to_dicts()
             else:
-                logger.debug(f"No trade days found in range {start_date}-{end_date}")
+                logger.debug(f"在范围 {start_date}-{end_date} 内未找到交易日")
                 return None
 
         except Exception as e:
-            logger.warning(f"Failed to read trade calendar from Data dir: {e}")
+            logger.warning(f"从Data目录读取交易日历失败: {e}")
             import traceback
-            logger.debug(f"Full traceback: {traceback.format_exc()}")
+            logger.debug(f"完整回溯: {traceback.format_exc()}")
             return None
 
     def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:
@@ -1209,7 +1399,7 @@ class GenericDownloader:
                 should_skip = self.coverage_manager.should_skip(
                     interface_config['api_name'],
                     stock_params,
-                    strategy='stock'
+                    strategy='auto'  # Use auto strategy to properly handle different detection modes
                 )
                 if should_skip:
                     logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (already exists)")

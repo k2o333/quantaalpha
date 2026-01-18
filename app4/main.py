@@ -241,14 +241,14 @@ def main():
 
     def print_performance_report():
         """打印性能监控报告"""
-        print("\n" + "="*30)
+        print("\n" + "="*50)
         print("      性能监控报告")
-        print("="*30)
-        
+        print("="*50)
+
         # 添加调试信息
         import sys
         print(f"Debug: performance_monitor id: {id(performance_monitor)}", file=sys.stderr)
-        
+
         avg_request_time = performance_monitor.get_average_metric('request_time')
         avg_data_size = performance_monitor.get_average_metric('data_size')
         avg_retry_count = performance_monitor.get_average_metric('retry_count')
@@ -256,10 +256,36 @@ def main():
         print(f"平均请求时间: {avg_request_time:.2f}s")
         print(f"平均单窗口条数: {avg_data_size:.2f} 条")
         print(f"平均重试次数: {avg_retry_count:.2f} 次")
-        
+
         # 打印更详细的指标信息
         print(f"Debug: request_time指标数量: {len(performance_monitor._metrics['request_time']) if 'request_time' in performance_monitor._metrics else 0}", file=sys.stderr)
         print(f"Debug: data_size指标数量: {len(performance_monitor._metrics['data_size']) if 'data_size' in performance_monitor._metrics else 0}", file=sys.stderr)
+
+        # 打印缓存统计信息
+        if hasattr(downloader, 'display_cache_stats'):
+            print("\n" + downloader.display_cache_stats(formatted=True))
+        elif hasattr(downloader, 'get_cache_stats'):
+            # 手动计算和显示缓存统计信息
+            cache_stats = downloader.get_cache_stats()
+            total_accesses = sum(cache_stats.values())
+            total_hits = cache_stats['exact_match'] + cache_stats['superset_match'] + cache_stats['file_hit']
+            hit_rate = (total_hits / total_accesses * 100) if total_accesses > 0 else 0.0
+            miss_rate = (cache_stats['miss'] / total_accesses * 100) if total_accesses > 0 else 0.0
+
+            print("="*50)
+            print("缓存统计信息")
+            print("="*50)
+            print(f"总访问次数: {total_accesses:,}")
+            print(f"总命中次数: {total_hits:,}")
+            print(f"缓存命中率: {hit_rate:.2f}%")
+            print(f"缓存未命中率: {miss_rate:.2f}%")
+            print("-"*30)
+            print("详细统计:")
+            print(f"  精确匹配命中: {cache_stats['exact_match']:,}")
+            print(f"  范围匹配命中: {cache_stats['superset_match']:,}")
+            print(f"  文件命中: {cache_stats['file_hit']:,}")
+            print(f"  未命中: {cache_stats['miss']:,}")
+            print("="*50)
 
         if avg_request_time > 30:
             print("⚠️ 警告: 平均请求时间过长")
@@ -267,7 +293,7 @@ def main():
             print("⚠️ 警告: 重试频率较高，请检查 API 限制或网络状况")
         if avg_data_size >= 5800:
             print("⚠️ 警告: 数据量接近 API 限制，建议减小窗口大小")
-        print("="*30 + "\n")
+        print("="*50 + "\n")
 
 
     # 预加载全局交易日历

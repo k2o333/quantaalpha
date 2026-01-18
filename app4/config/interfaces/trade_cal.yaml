@@ -38,5 +38,5 @@ output:
   columns:
     cal_date: {type: date, format: "%Y%m%d", required: true}
     exchange: {type: string, required: true}
-    is_open: {type: int, required: true}
+    is_open: {type: int, required: true, description: "是否交易 0休市 1交易"}
     pretrade_date: {type: date, format: "%Y%m%d"}

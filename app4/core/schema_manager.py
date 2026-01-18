@@ -153,7 +153,7 @@ class SchemaManager:
     @classmethod
     def create_dataframe(cls, data: List[Dict[str, Any]], interface_name: str) -> pl.DataFrame:
         """
-        创建DataFrame，优先使用预定义schema，没有则从数据推断
+        创建DataFrame，保持原始数据类型，实现"接口给什么就保存什么"
 
         Args:
             data: 原始数据列表
@@ -165,40 +165,23 @@ class SchemaManager:
         if not data:
             return pl.DataFrame()
 
-        # 获取schema（优先从YAML，否则从数据推断）
-        schema = cls.get_schema(interface_name, data)
+        # 新策略：优先使用智能推断，保持原始数据类型
+        schema = cls._smart_infer_schema(data, interface_name)
 
         if schema:
-            # 使用预定义schema或推断的schema创建DataFrame
             try:
-                # 只保留schema中定义的列
-                filtered_data = []
-                for row in data:
-                    filtered_row = {}
-                    for col_name, col_type in schema.items():
-                        if col_name in row:
-                            filtered_row[col_name] = row[col_name]
-                        else:
-                            # 缺失列使用null填充
-                            filtered_row[col_name] = None
-                    filtered_data.append(filtered_row)
-
-                # 使用schema创建DataFrame
-                df = pl.DataFrame(filtered_data, schema=schema)
-
-                # 记录schema来源
-                if cls._load_schema_from_config(interface_name):
-                    logger.debug(f"Created DataFrame with YAML-defined schema for {interface_name}: {len(schema)} columns")
-                else:
-                    logger.info(f"Created DataFrame with inferred schema for {interface_name}: {len(schema)} columns")
-
+                # 使用智能推断的schema创建DataFrame，保持原始类型
+                df = pl.DataFrame(data, schema=schema)
+                logger.info(f"Created DataFrame with smart schema for {interface_name}: {len(schema)} columns")
                 return df
             except Exception as e:
-                logger.warning(f"Failed to create DataFrame with schema: {str(e)}, falling back to auto inference")
-
-        # 回退到完全自动推断
-        logger.debug(f"Using auto-inferred schema for {interface_name}")
-        return pl.DataFrame(data)
+                logger.warning(f"Failed to create DataFrame with smart schema for {interface_name}: {str(e)}")
+                # 回退到完全自动推断
+                return pl.DataFrame(data, infer_schema_length=len(data))
+        else:
+            # 使用完全自动推断，保持原始类型
+            logger.debug(f"Using auto-inferred schema for {interface_name}")
+            return pl.DataFrame(data, infer_schema_length=len(data))
 
     @classmethod
     def create_dataframe_lazy(cls, data: List[Dict[str, Any]], interface_name: str) -> pl.DataFrame:
@@ -224,3 +207,122 @@ class SchemaManager:
         else:
             # 小数据集直接使用预定义schema
             return cls.create_dataframe(data, interface_name)
+
+    @classmethod
+    def _smart_infer_schema(cls, data: List[Dict[str, Any]], interface_name: str) -> Optional[Dict[str, pl.DataType]]:
+        """
+        智能类型推断，结合配置和数据内容，实现"接口给什么就保存什么"
+        
+        Args:
+            data: 原始数据
+            interface_name: 接口名称
+            
+        Returns:
+            智能推断的schema
+        """
+        if not data:
+            return None
+            
+        # 收集所有字段名
+        all_fields = set()
+        for row in data:
+            all_fields.update(row.keys())
+        
+        # 获取配置中的类型定义作为参考
+        config_schema = cls._load_schema_from_config(interface_name) or {}
+        
+        # 智能推断每个字段的类型
+        schema = {}
+        for field_name in all_fields:
+            # 跳过内部字段
+            if field_name.startswith('_'):
+                continue
+                
+            # 采样数据进行类型推断
+            sample_values = []
+            for row in data[:100]:  # 采样前100行
+                if field_name in row and row[field_name] is not None:
+                    sample_values.append(row[field_name])
+            
+            if not sample_values:
+                # 没有非空值，使用字符串
+                schema[field_name] = pl.Utf8
+                continue
+            
+            # 智能类型选择
+            schema[field_name] = cls._choose_best_type(field_name, sample_values, config_schema.get(field_name))
+        
+        return schema
+    
+    @staticmethod
+    def _choose_best_type(field_name: str, sample_values: List[Any], config_type: Optional[pl.DataType]) -> pl.DataType:
+        """
+        为字段选择最佳数据类型，优先保持原始数据的自然类型
+        
+        Args:
+            field_name: 字段名
+            sample_values: 采样值
+            config_type: 配置中定义的类型
+            
+        Returns:
+            最佳数据类型
+        """
+        # 特殊字段的智能处理规则
+        if field_name in ['is_open', 'list_status']:
+            # 这些字段应该是整数，即使API返回字符串
+            # 检查样本值是否为整数（字符串或整数类型）
+            if all(isinstance(v, (int, str)) and str(v).isdigit() for v in sample_values):
+                return pl.Int64
+            else:
+                return pl.Float64
+        
+        if field_name.endswith(('_date', 'time')):
+            # 日期相关字段保持字符串，让后续处理决定
+            return pl.Utf8
+        
+        # 基于样本值的类型推断
+        first_value = sample_values[0]
+        
+        # 如果是整数
+        if isinstance(first_value, int) and not isinstance(first_value, bool):
+            return pl.Int64
+        
+        # 如果是浮点数
+        if isinstance(first_value, float):
+            return pl.Float64
+        
+        # 如果是字符串
+        if isinstance(first_value, str):
+            # 检查是否为数字字符串
+            try:
+                # 尝试转换为整数
+                int(first_value)
+                # 检查是否所有样本都是整数
+                if all(isinstance(v, str) and v.isdigit() or (isinstance(v, (int, float)) and v == int(v)) for v in sample_values):
+                    return pl.Int64
+            except (ValueError, TypeError):
+                pass
+            
+            try:
+                # 尝试转换为浮点数
+                float(first_value)
+                # 检查是否所有样本都是数字
+                if all((isinstance(v, str) and SchemaManager._is_number(v)) or isinstance(v, (int, float)) for v in sample_values):
+                    return pl.Float64
+            except (ValueError, TypeError):
+                pass
+            
+            # 默认字符串
+            return pl.Utf8
+        
+        # 其他类型保持原样或使用字符串
+        return pl.Utf8
+    
+    @staticmethod
+    def _is_number(s: str) -> bool:
+        """检查字符串是否为数字"""
+        try:
+            float(s)
+            return True
+        except ValueError:
+            return False

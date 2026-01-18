@@ -67,42 +67,46 @@ class DataProcessor:
             return pl.DataFrame()
 
     def _apply_type_conversions(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-        """应用类型转换"""
+        """
+        应用智能类型转换，实现"接口给什么就保存什么"的改进版本
+        只进行必要的转换，保持原始数据类型
+        """
         output_config = interface_config.get('output', {})
         columns_config = output_config.get('columns', {})
 
-        for column_name, column_def in columns_config.items():
-            if column_name in df.columns:
-                column_type = column_def.get('type')
-                if column_type == 'date':
-                    # 处理日期类型
-                    date_format = column_def.get('format', '%Y-%m-%d')
-                    try:
-                        df = df.with_columns([
-                            pl.col(column_name).str.strptime(pl.Date, date_format, strict=False).alias(column_name)
-                        ])
-                    except Exception as e:
-                        logger.warning(f"Error converting {column_name} to date: {str(e)}")
-                        # 尝试自动解析
-                        df = df.with_columns([
-                            pl.col(column_name).str.strptime(pl.Date, '%Y-%m-%d', strict=False).alias(column_name)
-                        ])
-                elif column_type == 'int':
-                    # 处理整数类型
-                    df = df.with_columns([
+        conversions = []
+        
+        for column_name in df.columns:
+            column_def = columns_config.get(column_name, {})
+            expected_type = column_def.get('type')
+            
+            # 特殊转换规则：必要的智能转换
+            if column_name in ['is_open', 'list_status']:
+                # 这些字段应该转换为整数，即使API返回字符串
+                if df[column_name].dtype == pl.Utf8:
+                    conversions.append(
                         pl.col(column_name).cast(pl.Int64, strict=False).alias(column_name)
-                    ])
-                elif column_type == 'float':
-                    # 处理浮点数类型
-                    df = df.with_columns([
-                        pl.col(column_name).cast(pl.Float64, strict=False).alias(column_name)
-                    ])
-                elif column_type == 'string':
-                    # 处理字符串类型
-                    df = df.with_columns([
-                        pl.col(column_name).cast(pl.Utf8).alias(column_name)
-                    ])
-
+                    )
+                continue
+            
+            # 日期字段的智能处理
+            if expected_type == 'date' and df[column_name].dtype == pl.Utf8:
+                date_format = column_def.get('format', '%Y%m%d')
+                # 只有当字符串符合日期格式时才转换
+                conversions.append(
+                    pl.col(column_name).str.strptime(pl.Date, date_format, strict=False).alias(column_name)
+                )
+                continue
+            
+            # 对于其他字段，保持原始类型，不进行强制转换
+            # 这样实现了"接口给什么就保存什么"
+        
+        if conversions:
+            df = df.with_columns(conversions)
+            logger.debug(f"Applied smart conversions for {len(conversions)} columns")
+        else:
+            logger.debug("No type conversions applied, preserving original types")
+        
         return df
 
     def _handle_primary_keys(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:

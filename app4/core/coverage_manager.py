@@ -25,16 +25,16 @@ class CoverageManager:
         self._coverage_cache = {}  # 用于缓存覆盖率检测结果
         self._cache_lock = threading.RLock()  # [新增] 线程锁
 
-    def should_skip(self, interface_name: str, params: Dict[str, Any], 
+    def should_skip(self, interface_name: str, params: Dict[str, Any],
                    strategy: str = 'auto') -> bool:
         """
         根据策略判断是否应该跳过下载
-        
+
         Args:
             interface_name: 接口名称
             params: 请求参数
-            strategy: 检测策略 ('auto', 'date_range', 'period', 'stock')
-            
+            strategy: 检测策略 ('auto', 'date_range', 'period', 'stock', 'set')
+
         Returns:
             True表示应该跳过，False表示应该继续下载
         """
@@ -56,25 +56,34 @@ class CoverageManager:
             # 获取接口配置
             interface_config = self.config_loader.get_interface_config(interface_name)
             detection_config = interface_config.get('duplicate_detection', {})
-            
+
             # 检查是否启用重复检测
             if not detection_config.get('enabled', True):
                 return False
-                
-            # 自动确定策略
+
+            # 自动确定策略 - updated to consider duplicate detection configuration
             if strategy == 'auto':
+                # First, check duplicate detection mode configuration
+                detection_mode = detection_config.get('mode', 'set')  # default to 'set' for better date-aware checking
                 pagination_config = interface_config.get('pagination', {})
                 pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
-                
-                if pagination_mode == 'date_range':
+
+                if detection_mode == 'date_range':
+                    strategy = 'date_range'
+                elif detection_mode == 'period':
+                    strategy = 'period'
+                elif detection_mode == 'set':
+                    strategy = 'set'
+                elif pagination_mode == 'date_range':
                     strategy = 'date_range'
                 elif pagination_mode == 'period_range':
                     strategy = 'period'
                 elif pagination_mode == 'stock_loop':
-                    strategy = 'stock'
+                    # For stock_loop mode, use 'set' mode detection which is more appropriate for financial data
+                    strategy = 'set'  # Changed from 'stock' to 'set' for proper date range checking
                 else:
                     return False  # 不支持的模式，不跳过
-            
+
             # 根据策略执行检测
             result = False
             if strategy == 'date_range':
@@ -83,11 +92,13 @@ class CoverageManager:
                 result = self._check_period_existence(interface_name, params)
             elif strategy == 'stock':
                 result = self._check_stock_existence(interface_name, params)
-            
+            elif strategy == 'set':
+                result = self._check_set_coverage(interface_name, params)
+
             # [优化] 更新缓存 (带锁)
             with self._cache_lock:
                 self._coverage_cache[cache_key] = result
-                
+
             return result
         except Exception as e:
             logger.warning(f"Coverage check failed for {interface_name}: {e}")
@@ -205,20 +216,6 @@ class CoverageManager:
                        f"({len(covered_dates)}/{len(expected_dates)})")
             logger.debug(f"Covered dates: {sorted(list(covered_dates))[:5]}...")  # 只显示前5个
             logger.debug(f"Missing dates: {sorted(list(expected_dates - actual_dates))[:5]}...")
-
-            result = coverage >= threshold
-            return result
-
-            # 过滤出交易日
-            expected_dates = {day['cal_date'] for day in trade_calendar if day.get('is_open', 0) == 1}
-
-            if not expected_dates:
-                logger.warning(f"No expected trade days in range {start_date}-{end_date}")
-                return False
-
-            # 计算覆盖率
-            coverage = len(actual_dates & expected_dates) / len(expected_dates)
-            logger.info(f"Coverage for {interface_name} ({start_date}-{end_date}): {coverage:.2%} ({len(actual_dates & expected_dates)}/{len(expected_dates)})")
 
             result = coverage >= threshold
             return result
@@ -540,6 +537,75 @@ class CoverageManager:
         except Exception as e:
             print(f"删除历史下载标记文件失败: {e}")
             return False
+
+    def _check_set_coverage(self, interface_name: str, params: Dict[str, Any]) -> bool:
+        """
+        Check coverage using set comparison based on primary keys
+        This supports the 'set' mode in duplicate detection configuration
+        """
+        interface_config = self.config_loader.get_interface_config(interface_name)
+        detection_config = interface_config.get('duplicate_detection', {})
+        output_config = interface_config.get('output', {})
+
+        primary_keys = output_config.get('primary_key', ['ts_code'])
+        date_column = detection_config.get('date_column', 'period')
+        threshold = detection_config.get('threshold', 0.95)
+
+        start_date = params.get('start_date')
+        end_date = params.get('end_date')
+        target_stock = params.get('ts_code')
+
+        try:
+            # Read existing data for this stock if ts_code is provided
+            read_params = {}
+            if target_stock:
+                read_params = {'ts_code': target_stock}
+
+            df = self.storage_manager.read_interface_data(interface_name, **read_params)
+
+            if df.is_empty():
+                return False  # No data exists, should download
+
+            # Check if the date column exists in the dataframe
+            if date_column not in df.columns:
+                logger.warning(f"Date column '{date_column}' not found in {interface_name} data, falling back to range coverage")
+                return self._check_range_coverage(interface_name, params)
+
+            # Generate expected primary key combinations based on date range
+            if start_date and end_date:
+                # For income_vip and similar interfaces, we need to generate expected periods
+                pagination_config = interface_config.get('pagination', {})
+                if pagination_config.get('mode') == 'stock_loop':
+                    # Generate expected periods for quarterly data
+                    expected_periods = set(self._generate_quarter_end_dates(start_date, end_date))
+
+                    # Get actual periods for the target stock
+                    if target_stock:
+                        # Filter for specific stock if provided
+                        stock_df = df.filter(pl.col('ts_code') == target_stock)
+                        if not stock_df.is_empty():
+                            actual_periods = set(stock_df[date_column].to_list())
+                        else:
+                            actual_periods = set()
+                    else:
+                        actual_periods = set(df[date_column].to_list())
+
+                    covered_periods = expected_periods & actual_periods
+                    coverage = len(covered_periods) / len(expected_periods) if expected_periods else 0.0
+                    should_skip = coverage >= threshold
+                    logger.debug(f"Set coverage for {interface_name} with {target_stock}: {coverage:.2%} ({len(covered_periods)}/{len(expected_periods)}), threshold: {threshold}, skip: {should_skip}")
+                    return should_skip
+                else:
+                    # For other modes, use standard date range logic
+                    return self._check_range_coverage(interface_name, params)
+            else:
+                # If no date range, just check if stock exists
+                if target_stock:
+                    return target_stock in df['ts_code'].to_list() if 'ts_code' in df.columns else False
+                return not df.is_empty()
+        except Exception as e:
+            logger.warning(f"Set coverage check failed for {interface_name}: {e}")
+            return False  # Fail-safe, continue download
 
     def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:
         """生成日期范围内的所有季度末日期"""
