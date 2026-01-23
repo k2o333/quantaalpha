@@ -1,39 +1,44 @@
-name: top10_holders
 api_name: top10_holders
-description: "前十大股东"
-
-permissions:
-  min_points: 2000
-  rate_limit: 60
-  query_limit: 10000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "证券代码"
-  period:
-    type: string
-    required: false
-    default: "20231231"
-    description: "报告期 YYYYMMDD"
-
+derived_fields:
+  ann_date_dt:
+    description: 日期类型的ann_date
+    format: '%Y%m%d'
+    source: ann_date
+    type: date
+  end_date_dt:
+    description: 日期类型的end_date
+    format: '%Y%m%d'
+    source: end_date
+    type: date
+description: 前十大股东
+name: top10_holders
+output:
+  primary_key:
+  - ts_code
+  - period
+  - holder_name
+  sort_by:
+  - period
+  - ts_code
 pagination:
   enabled: true
-  mode: "stock_loop"
-
-output:
-  primary_key: ["ts_code", "period", "holder_name"]
-  sort_by: ["period", "ts_code"]
-  columns:
-    ts_code: {type: string, required: true}
-    ann_date: {type: date, format: "%Y%m%d"}
-    end_date: {type: date, format: "%Y%m%d"}
-    holder_name: {type: string, required: true}
-    holder_amount: {type: float}
-    holder_rank: {type: int}
+  mode: stock_loop
+  window_size_days: 3650  # 每个股票请求10年数据
+parameters:
+  period:
+    default: '20231231'
+    description: 报告期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 证券代码
+    required: false
+    type: string
+permissions:
+  min_points: 2000
+  query_limit: 10000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

@@ -1,63 +1,64 @@
-name: stk_holdertrade
 api_name: stk_holdertrade
-description: "股东增减持"
-
+derived_fields:
+  ann_date_dt:
+    description: 日期类型的ann_date
+    format: '%Y%m%d'
+    source: ann_date
+    type: date
+  begin_date_dt:
+    description: 日期类型的begin_date
+    format: '%Y%m%d'
+    source: begin_date
+    type: date
+  close_date_dt:
+    description: 日期类型的close_date
+    format: '%Y%m%d'
+    source: close_date
+    type: date
+description: 股东增减持
+name: stk_holdertrade
+output:
+  primary_key:
+  - ts_code
+  - ann_date
+  - holder_name
+  sort_by:
+  - ann_date
+pagination:
+  date_field: ann_date
+  enabled: true
+  mode: date_range
+  window_size_days: 365
+parameters:
+  ann_date:
+    description: 公告日期 YYYYMMDD
+    required: false
+    type: string
+  end_date:
+    description: 公告结束日期 YYYYMMDD
+    required: false
+    type: string
+  holder_type:
+    description: 股东类型C公司P个人G高管
+    required: false
+    type: string
+  start_date:
+    description: 公告开始日期 YYYYMMDD
+    required: false
+    type: string
+  trade_type:
+    description: 交易类型IN增持DE减持
+    required: false
+    type: string
+  ts_code:
+    description: TS股票代码
+    required: false
+    type: string
 permissions:
   min_points: 2000
-  rate_limit: 60
   query_limit: 3000
-
+  rate_limit: 60
 request:
+  extra_path: ''
   method: POST
-  extra_path: ""
   timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "TS股票代码"
-  ann_date:
-    type: string
-    required: false
-    description: "公告日期 YYYYMMDD"
-  start_date:
-    type: string
-    required: false
-    description: "公告开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "公告结束日期 YYYYMMDD"
-  trade_type:
-    type: string
-    required: false
-    description: "交易类型IN增持DE减持"
-  holder_type:
-    type: string
-    required: false
-    description: "股东类型C公司P个人G高管"
-
-pagination:
-  enabled: true
-  mode: "date_range"
-  window_size_days: 365
-  date_field: "ann_date"
-
-output:
-  primary_key: ["ts_code", "ann_date", "holder_name"]
-  sort_by: ["ann_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    ann_date: {type: date, format: "%Y%m%d", required: true}
-    holder_name: {type: string, required: true}
-    holder_type: {type: string}
-    in_de: {type: string}
-    change_vol: {type: float}
-    change_ratio: {type: float}
-    after_share: {type: float}
-    after_ratio: {type: float}
-    avg_price: {type: float}
-    total_share: {type: float}
-    begin_date: {type: date, format: "%Y%m%d"}
-    close_date: {type: date, format: "%Y%m%d"}

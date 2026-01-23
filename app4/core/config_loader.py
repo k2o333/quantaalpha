@@ -170,14 +170,22 @@ class ConfigLoader:
 
             # 验证 output 配置
             output_config = config.get('output', {})
-            if 'primary_key' not in output_config or not output_config['primary_key']:
+            if 'primary_key' not in output_config or not output_config.get('primary_key', []):
                 logger.error(f"Interface '{interface_name}' must have non-empty primary_key")
                 return False
 
-            # 验证 columns 配置
-            if 'columns' not in output_config:
-                logger.error(f"Interface '{interface_name}' must have columns configuration")
+            # 验证 dedup_enabled 是否为布尔类型（如果存在）
+            dedup_enabled = config.get('dedup_enabled')
+            if dedup_enabled is not None and not isinstance(dedup_enabled, bool):
+                logger.error(f"Interface '{interface_name}' dedup_enabled must be boolean, got {type(dedup_enabled).__name__}")
                 return False
+
+            # 验证 derived_fields 配置（新架构）或 columns 配置（旧架构）
+            # 在新架构中，derived_fields 是可选的，不需要强制存在
+            # 如果需要原始字段类型验证，则配置中可能仍包含其他验证逻辑
+            # 新架构下 columns 已移除，使用 derived_fields 进行字段转换
+            # 但不是所有接口都必须有 derived_fields
+            pass  # 在新架构中不强制要求特定的字段配置
 
         logger.info("Configuration validation passed")
         return True

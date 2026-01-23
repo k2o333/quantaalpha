@@ -1,65 +1,50 @@
-name: daily
 api_name: daily
-description: "日线行情"
-
-permissions:
-  min_points: 0
-  rate_limit: 120
-  query_limit: 10000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "证券代码"
-  trade_date:
-    type: string
-    required: false
-    description: "交易日期 YYYYMMDD"
-  start_date:
-    type: string
-    required: false
-    description: "开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "结束日期 YYYYMMDD"
-
+description: 日线行情
+derived_fields:
+  trade_date_dt:
+    description: 日期类型的trade_date（关联trade_cal.cal_date_dt）
+    format: '%Y%m%d'
+    source: trade_date
+    type: date
+duplicate_detection:
+  date_column: trade_date
+  enabled: true
+  mode: range
+  threshold: 0.95
+name: daily
+output:
+  dedup_enabled: true
+  primary_key:
+  - ts_code
+  - trade_date
+  sort_by:
+  - trade_date
 pagination:
   enabled: true
-  mode: "date_range"
-  window_size_days: 365
-
-# 重复数据检测配置
-duplicate_detection:
-  enabled: true          # 默认为 true
-  mode: "range"          # 可选: range (默认), set, exact
-  date_column: trade_date
-  threshold: 0.95        # 覆盖率阈值
-
-# 去重配置
-dedup:
-  enabled: true
-  strategy: primary_key
-  columns: ["ts_code", "trade_date"]
-
-output:
-  primary_key: ["ts_code", "trade_date"]
-  sort_by: ["trade_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    trade_date: {type: date, format: "%Y%m%d", required: true}
-    open: {type: float}
-    high: {type: float}
-    low: {type: float}
-    close: {type: float}
-    pre_close: {type: float}
-    change: {type: float}
-    pct_chg: {type: float}
-    vol: {type: float}
-    amount: {type: float}
+  mode: date_range
+  window_size_days: 1
+parameters:
+  end_date:
+    description: 结束日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 开始日期 YYYYMMDD
+    required: false
+    type: string
+  trade_date:
+    description: 交易日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 证券代码
+    required: false
+    type: string
+permissions:
+  min_points: 0
+  query_limit: 10000
+  rate_limit: 120
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

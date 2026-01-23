@@ -17,6 +17,14 @@ class DataProcessor:
         """
         处理数据 - Polars优化版
 
+        按照以下顺序处理：
+        1. 数据下载（从TuShare API获取原始数据）
+        2. 应用派生字段（SchemaManager中完成）
+        3. 主键空值过滤（删除主键字段中含有空值的记录）
+        4. 检查和处理主键
+        5. 数据去重
+        6. 数据清洗
+
         Args:
             data: 原始数据列表
             interface_config: 接口配置
@@ -31,7 +39,7 @@ class DataProcessor:
             # 获取接口名称
             interface_name = interface_config.get('api_name', 'unknown')
 
-            # 使用SchemaManager创建DataFrame，避免运行时类型推断
+            # 使用SchemaManager创建DataFrame，应用派生字段
             df = SchemaManager.create_dataframe(data, interface_name)
 
             # 如果SchemaManager失败，回退到标准方法但增加优化参数
@@ -48,6 +56,9 @@ class DataProcessor:
 
             # 应用类型转换
             df = self._apply_type_conversions(df, interface_config)
+
+            # 关键步骤：在应用派生字段后，过滤主键中的空值
+            df = self._filter_primary_key_nulls(df, interface_config)
 
             # 检查和处理主键
             df = self._handle_primary_keys(df, interface_config)
@@ -66,97 +77,91 @@ class DataProcessor:
             # 最后的回退方案：返回空DataFrame
             return pl.DataFrame()
 
-    def _apply_type_conversions(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-        """
-        应用智能类型转换，实现"接口给什么就保存什么"的改进版本
-        只进行必要的转换，保持原始数据类型
-        """
-        output_config = interface_config.get('output', {})
-        columns_config = output_config.get('columns', {})
-
-        conversions = []
-        
-        for column_name in df.columns:
-            column_def = columns_config.get(column_name, {})
-            expected_type = column_def.get('type')
-            
-            # 特殊转换规则：必要的智能转换
-            if column_name in ['is_open', 'list_status']:
-                # 这些字段应该转换为整数，即使API返回字符串
-                if df[column_name].dtype == pl.Utf8:
-                    conversions.append(
-                        pl.col(column_name).cast(pl.Int64, strict=False).alias(column_name)
-                    )
-                continue
-            
-            # 日期字段的智能处理
-            if expected_type == 'date' and df[column_name].dtype == pl.Utf8:
-                date_format = column_def.get('format', '%Y%m%d')
-                # 只有当字符串符合日期格式时才转换
-                conversions.append(
-                    pl.col(column_name).str.strptime(pl.Date, date_format, strict=False).alias(column_name)
-                )
-                continue
-            
-            # 对于其他字段，保持原始类型，不进行强制转换
-            # 这样实现了"接口给什么就保存什么"
-        
-        if conversions:
-            df = df.with_columns(conversions)
-            logger.debug(f"Applied smart conversions for {len(conversions)} columns")
-        else:
-            logger.debug("No type conversions applied, preserving original types")
-        
-        return df
-
-    def _handle_primary_keys(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-        """处理主键"""
+    def _filter_primary_key_nulls(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
+        """过滤主键中的空值 - 这一步必须在应用派生字段后执行"""
         output_config = interface_config.get('output', {})
         primary_keys = output_config.get('primary_key', [])
 
-        # 检查主键字段是否存在
-        missing_keys = [key for key in primary_keys if key not in df.columns]
-        if missing_keys:
-            logger.warning(f"Primary key fields missing in data: {missing_keys}")
+        # 过滤掉主键字段中存在空值的行
+        if primary_keys and not df.is_empty():
+            # 构建过滤条件：所有主键字段都不为空
+            conditions = []
+            existing_keys = [key for key in primary_keys if key in df.columns]
 
-        # 只保留在数据中存在的主键字段
-        existing_keys = [key for key in primary_keys if key in df.columns]
+            for key in existing_keys:
+                conditions.append(pl.col(key).is_not_null())
 
-        # 检查主键是否唯一 - 不执行去重操作，只记录信息
-        if existing_keys and len(existing_keys) > 0:
-            try:
-                duplicates = df.with_columns(
-                    pl.int_range(0, pl.len()).alias('__index')
-                ).group_by(existing_keys).agg(
-                    pl.col('__index').list()
-                ).filter(
-                    pl.col('__index').list().len() > 1
-                ).explode('__index').select(
-                    pl.col('__index')
-                )
-                if len(duplicates) > 0:
-                    logger.info(f"Found {len(duplicates)} duplicate records based on primary keys, keeping all records")
-            except:
-                # Fallback for newer polars versions
-                try:
-                    # Alternative syntax for polars versions (apply -> map)
-                    duplicates = df.with_columns(
-                        pl.int_range(0, pl.len()).alias('__index')
-                    ).group_by(existing_keys).agg(
-                        pl.col('__index').map(lambda x: x, return_dtype=pl.List(pl.Int64))
-                    ).filter(
-                        pl.col('__index').map(lambda x: len(x) if x else 0, return_dtype=pl.Int64) > 1
-                    ).select(
-                        pl.col('__index').explode()
-                    )
-                    if len(duplicates) > 0:
-                        logger.info(f"Found {len(duplicates)} duplicate records based on primary keys, keeping all records")
-                except:
-                    # Even simpler alternative - skip duplicate checking if it fails
-                    # Do not log warning since we're not removing duplicates anyway
-                    pass
+            if conditions:
+                # 使用所有主键字段都不为空的条件进行过滤
+                filter_expr = pl.all_horizontal(conditions)
+                original_count = len(df)
+                df = df.filter(filter_expr)
+                filtered_count = len(df)
+
+                if original_count != filtered_count:
+                    logger.info(f"Filtered {original_count - filtered_count} records with null primary keys "
+                               f"for interface {interface_config.get('api_name', 'unknown')}, "
+                               f"kept {filtered_count}/{original_count}")
 
         return df
+
+    def _apply_type_conversions(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
+        """应用类型转换 - 现在主要依赖SchemaManager的衍生字段功能"""
+        # 保留此方法以向后兼容，但实际类型转换已在SchemaManager中完成
+        # 这里只处理不在derived_fields中定义的特殊转换需求
+        return df
+
+    def _detect_duplicates_fast(self, data: List[Dict[str, Any]], interface_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Unified fast duplicate detection using primary keys.
+
+        Args:
+            data: List of data records to check for duplicates
+            interface_config: Configuration containing primary key information
+
+        Returns:
+            Dictionary with 'duplicates' and 'unique' lists
+        """
+        primary_keys = interface_config.get('output', {}).get('primary_key', [])
+
+        if not primary_keys:
+            # If no primary keys defined, treat all as unique
+            return {'duplicates': [], 'unique': data}
+
+        seen_keys = set()
+        unique_records = []
+        duplicate_records = []
+
+        for record in data:
+            # Create a key tuple from primary key values
+            key_values = tuple(record.get(pk) for pk in primary_keys)
+
+            if key_values in seen_keys:
+                duplicate_records.append(record)
+            else:
+                seen_keys.add(key_values)
+                unique_records.append(record)
+
+        return {
+            'duplicates': duplicate_records,
+            'unique': unique_records
+        }
+
+    def _handle_primary_keys(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
+        """处理主键"""
+        primary_keys = interface_config.get('output', {}).get('primary_key', [])
+
+        # Use the unified duplicate detection method
+        data_list = df.to_dicts()
+        detection_result = self._detect_duplicates_fast(data_list, interface_config)
+
+        # Process unique records only
+        unique_df = pl.DataFrame(detection_result['unique'])
+
+        if detection_result['duplicates']:
+            logger.warning(f"Found {len(detection_result['duplicates'])} duplicate records for interface {interface_config.get('name', 'unknown')}")
+
+        return unique_df
 
     def _remove_duplicates(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
         """批次内去重逻辑 - 根据主键去重，保留最后记录"""
@@ -205,7 +210,7 @@ class DataProcessor:
 
     def validate_data(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        验证数据质量
+        验证数据质量 - 使用原始字段进行验证
 
         Args:
             df: 要验证的 DataFrame
@@ -215,6 +220,8 @@ class DataProcessor:
             验证结果字典
         """
         output_config = interface_config.get('output', {})
+        # 现在从接口配置中获取原始字段定义（从derived_fields推断原始字段）
+        # 为了兼容性，仍检查columns配置
         columns_config = output_config.get('columns', {})
 
         validation_result = {
@@ -225,9 +232,11 @@ class DataProcessor:
             'duplicate_records': 0
         }
 
-        # 检查必填字段
-        for column_name, column_def in columns_config.items():
-            if column_def.get('required', False) and column_name in df.columns:
+        # 检查必填字段 - 现在基于primary_key字段和其他原始字段
+        # 从primary_key配置中获取需要检查的字段
+        primary_keys = output_config.get('primary_key', [])
+        for column_name in primary_keys:
+            if column_name in df.columns:
                 missing_count = df[column_name].null_count()
                 if missing_count > 0:
                     validation_result['missing_required_fields'].append({
@@ -235,38 +244,21 @@ class DataProcessor:
                         'missing_count': missing_count
                     })
 
-        # 检查主键重复 - 不执行去重，仅统计
-        primary_keys = output_config.get('primary_key', [])
-        existing_keys = [key for key in primary_keys if key in df.columns]
-        if existing_keys:
-            try:
-                duplicates = df.with_columns(
-                    pl.int_range(0, pl.len()).alias('__index')
-                ).group_by(existing_keys).agg(
-                    pl.col('__index').list()
-                ).filter(
-                    pl.col('__index').list().len() > 1
-                ).explode('__index').select(
-                    pl.col('__index')
-                )
-                validation_result['duplicate_records'] = len(duplicates)
-            except:
-                # Fallback for newer polars versions
-                try:
-                    # Alternative syntax for polars versions (apply -> map)
-                    duplicates = df.with_columns(
-                        pl.int_range(0, pl.len()).alias('__index')
-                    ).group_by(existing_keys).agg(
-                        pl.col('__index').map(lambda x: x, return_dtype=pl.List(pl.Int64))
-                    ).filter(
-                        pl.col('__index').map(lambda x: len(x) if x else 0, return_dtype=pl.Int64) > 1
-                    ).select(
-                        pl.col('__index').explode()
-                    )
-                    validation_result['duplicate_records'] = len(duplicates)
-                except:
-                    # Even simpler alternative - just skip duplicate checking if it fails
-                    # Do not log warning since we're not removing duplicates anyway
-                    validation_result['duplicate_records'] = 0
+        # Use unified duplicate detection
+        data_list = df.to_dicts()
+        detection_result = self._detect_duplicates_fast(data_list, interface_config)
+
+        stats = {
+            'total': len(data_list),
+            'unique': len(detection_result['unique']),
+            'duplicates': len(detection_result['duplicates']),
+            'duplicate_rate': len(detection_result['duplicates']) / len(data_list) if data_list else 0
+        }
+
+        if detection_result['duplicates']:
+            logger.warning(f"Duplicate detection: {stats['duplicates']} duplicates found out of {stats['total']} records")
+
+        # Return validation stats
+        validation_result.update(stats)
 
         return validation_result

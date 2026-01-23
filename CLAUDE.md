@@ -4,29 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-aspipe_v4 is a comprehensive financial data pipeline system that downloads stock market data from TuShare API and stores it in Parquet format. The system features two parallel architectures:
+aspipe_v4 is a comprehensive financial data pipeline system that downloads stock market data from TuShare API and stores it in Parquet format. The system now uses a modern configuration-driven architecture in the app4 directory:
 
-1. **Legacy Architecture (app/)**: Traditional code-driven approach with modular interface classes
-2. **App4 Architecture (app4/)**: Modern configuration-driven approach with zero-code interface addition capability
+**App4 Architecture (app4/)**: Modern configuration-driven approach with zero-code interface addition capability
 
 The App4 architecture represents a paradigm shift from code-driven to configuration-driven data downloading, offering higher flexibility, stronger performance, and better maintainability.
-
-## Architecture Comparison
-
-### Legacy Architecture (app/) - Traditional Code-Driven
-- Modular interface classes for each data category
-- Strategy pattern implementation for different download approaches
-- Producer-consumer pattern with task prioritization
-- Advanced caching and error handling mechanisms
-
-### App4 Architecture (app4/) - Modern Configuration-Driven
-- **Zero-code interface addition**: Add new interfaces by creating YAML configuration files
-- **Universal downloader**: Single generic downloader handles all interfaces based on configuration
-- **Multi-strategy pagination**: Supports offset, date_range, stock_loop, period_range, quarterly_range, and periodic_range pagination modes
-- **Asynchronous architecture**: Producer-consumer pattern with non-blocking I/O
-- **High-performance processing**: Uses Polars for data processing and validation
-- **Coverage management**: Intelligent duplicate detection to avoid redundant downloads
-- **Performance monitoring**: Built-in metrics collection and alerting system
 
 ## App4 Configuration-Driven Architecture
 
@@ -39,36 +21,32 @@ The App4 architecture represents a paradigm shift from code-driven to configurat
 
 2. **Generic Downloader** (`app4/core/downloader.py`)
    - Universal download engine that processes any interface based on configuration
-   - Implements multiple pagination strategies (offset, date_range, stock_loop, period_range)
+   - Implements multiple pagination strategies (offset, date_range, stock_loop, period_range, quarterly_range, periodic_range)
    - Features intelligent caching with trade calendar derivation strategy
    - Monitors performance metrics (request time, data size, retry count)
+   - Includes performance monitoring system with request time, data size, and retry count tracking
 
 3. **Task Scheduler** (`app4/core/scheduler.py`)
    - Manages thread pool for concurrent task execution
    - Implements token bucket algorithm for API rate limiting
    - Supports batch task submission with randomized delays
 
-4. **Cache Manager** (`app4/core/cache_manager.py`)
-   - TTL-based data caching with hash-based filenames
-   - Supports pickle and parquet storage formats
-   - Atomic write operations prevent concurrent file corruption
-   - Smart trade calendar derivation for optimized cache hits
-
-5. **Storage Manager** (`app4/core/storage.py`)
+4. **Storage Manager** (`app4/core/storage.py`)
    - Asynchronous data persistence using producer-consumer pattern
    - Batch processing and append operations to existing parquet files
    - Thread-safe operations with queue management
+   - Dataset-mode storage for efficient data access
 
-6. **Data Processor** (`app4/core/processor.py`)
+5. **Data Processor** (`app4/core/processor.py`)
    - High-performance data validation and transformation using Polars
    - Primary key processing and deduplication
    - Data quality checks and type conversion
 
-7. **Schema Manager** (`app4/core/schema_manager.py`)
+6. **Schema Manager** (`app4/core/schema_manager.py`)
    - Pre-defined data type schemas to avoid runtime inference overhead
    - Optimized schemas for high-frequency financial data interfaces
 
-8. **Coverage Manager** (`app4/core/coverage_manager.py`)
+7. **Coverage Manager** (`app4/core/coverage_manager.py`)
    - Implements duplicate detection to avoid redundant downloads
    - Supports multiple strategies: date_range, period, and stock-based detection
    - Uses memory caching for efficient coverage checks
@@ -207,6 +185,8 @@ duplicate_detection:
 11. **Coverage Management**: Intelligent duplicate detection to avoid redundant downloads
 12. **Memory-Efficient Caching**: Runtime cache for frequently accessed data
 13. **Dataset-Mode Storage**: Efficient storage using Parquet dataset format
+14. **Quarterly and Periodic Range Pagination**: Support for financial data with period_range, quarterly_range, and periodic_range pagination modes
+15. **Broker Recommendation Handling**: Special handling for broker_recommend interface with month-based requests
 
 ### Interface Groups
 
@@ -217,27 +197,6 @@ App4 organizes interfaces into logical groups for easier management:
 - **market**: Market indicators (moneyflow, cyq_chips, stk_factor, moneyflow_ind_dc, moneyflow_cnt_ths)
 - **basic**: Basic information (stock_basic, trade_cal, namechange, stock_company)
 - **tscode_historical**: Interfaces requiring stock code loops (stk_rewards, top10_holders, pledge_detail, fina_audit, top10_floatholders, stk_holdertrade)
-
-## Legacy Architecture (app/) - Reference
-
-For reference, the legacy architecture includes:
-- **TuShare API Integration**: Handles authentication and rate limiting
-- **Modular Interface System**: Separate modules for different data categories
-- **Download Strategies**: Strategy pattern for different data types
-- **Advanced Caching**: Multi-layer caching with intelligent matching
-- **Task Queue Management**: Priority-based task scheduling
-
-See the original file structure and components in the appendix below.
-
-### Key Modules
-- **Main Entry Point**: `app/main.py` - Unified entry point for all data downloads with fallback capability
-- **Enhanced Main Downloader**: `app/enhanced_main_downloader.py` - Production-ready enhanced downloader with strategy pattern
-- **App4 Main Module**: `app4/main.py` - Configuration-driven architecture with enhanced optimizations
-- **App4 Config Loader**: `app4/core/config_loader.py` - Configuration-driven approach with global and interface-specific settings
-- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor, CoverageManager
-- **App4 Storage Manager**: `app4/core/storage.py` - Enhanced storage management with async operations and batch processing
-- **App4 Cache Manager**: `app4/core/cache_manager.py` - Enhanced caching with atomic writes, derivation strategy, and performance optimization
-- **App4 Generic Downloader**: `app4/core/downloader.py` - Enhanced downloader with data validation, network retry optimization, and performance monitoring
 
 ## Development Commands
 
@@ -289,36 +248,6 @@ python app4/main.py --pro-bar-only
 
 # Download full historical data for stock loop interfaces
 python app4/main.py --tscode-historical
-```
-
-#### Legacy Architecture (app/)
-```bash
-# Run from the project root (not app directory)
-python app/main.py --start_date 20230101 --end_date 20231231
-
-# Default start date is 20230101, end date is today
-python app/main.py
-
-# For enhanced download using production ready features
-python app/enhanced_main_downloader.py --start_date 20230101 --end_date 20231231
-
-# Use legacy mode (skip new scheduler)
-python app/main.py --start_date 20230101 --end_date 20231231 --use_legacy
-
-# Enable download of stk_rewards, top10_holders, pledge_detail, fina_audit shareholder data
-python app/main.py --start_date 20230101 --end_date 20231231 --holders-data
-
-# Download only pro_bar adjusted price data
-python app/main.py --start_date 20230101 --end_date 20231231 --pro-bar-only
-
-# Download full historical data instead of date-range data (for specific interfaces that require ts_code)
-python app/main.py --start_date 20230101 --end_date 20231231 --tscode-historical
-
-# Download with historical download tracking to avoid redundant processing
-python app/main.py --start_date 20230101 --end_date 20231231 --track-history
-
-# Force re-download of historically completed interfaces
-python app/main.py --start_date 20230101 --end_date 20231231 --force-redownload
 ```
 
 ### Development Tasks
@@ -386,11 +315,6 @@ aspipe_v4/
 │   │       └── ... (30+ more interfaces)
 │   ├── requirements.txt   # App4 specific dependencies
 │   └── utils/             # Utility functions (currently empty)
-├── app/                   # Legacy code-driven architecture
-│   ├── main.py            # Main entry point
-│   ├── enhanced_main_downloader.py  # Enhanced downloader
-│   ├── interfaces/        # Modular interface classes
-│   └── ... (other legacy modules)
 ├── test/                  # Test scripts
 ├── data/                  # Output directory for downloaded data
 ├── cache/                 # Temporary cache files
@@ -421,52 +345,6 @@ aspipe_v4/
 - **Memory-efficient**: Runtime caching for frequently accessed data
 - **Dataset storage**: Efficient data access using Parquet dataset format
 
-### Legacy Architecture Notes
-- All logging is in Chinese for better readability
-- The system uses pandas for data processing and pyarrow for Parquet storage
-- Rate limiting includes randomization to avoid API detection
-- Multiple token support allows for increased data access
-- Error messages include specific handling for common TuShare API responses
-
-## Migration Guide
-
-When migrating from legacy (app/) to App4 architecture:
-
-1. **Configuration Migration**: Legacy boolean flags are automatically converted to App4 configurations
-2. **CLI Compatibility**: App4 maintains backward compatibility with most legacy CLI arguments
-3. **Data Format**: Both architectures produce identical parquet file formats
-4. **Performance**: App4 offers 2-5x performance improvement through async processing and Polars
-
-## Appendix: Legacy Architecture Details
-
-For detailed information about the legacy architecture components, refer to the Git history or contact the development team.
-- **Enhanced Configuration**: `app/enhanced_download_config.py` - Advanced interface configuration with priority, retries, rate limits, and caching
-- **Configuration Adapter**: `app/config_adapter.py` - Maintains backward compatibility with old config format
-- **App4 Core Components**: `app4/core/` - New architecture with GenericDownloader, CacheManager, TaskScheduler, StorageManager, DataProcessor, CoverageManager
-- **Task Queue Manager**: `app/task_queue_manager.py` - Task queue management with priority and status tracking
-- **Interface Modules**: `app/interfaces/` - Modularized API interfaces for different data types
-- **Utils**: `app/utils/` - Helper functions for date handling and other utilities
-- **Download Strategies**: `app/download_strategies.py` - Strategy pattern for different download approaches (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
-- **Strategy Factory**: `app/strategy_factory.py` - Centralized strategy creation and registration with caching
-- **Parameter Adapters**: `app/parameter_adapters.py` - Standardized parameter validation and adaptation for all interfaces
-- **Data Storage**: `app/data_storage.py` - Data storage and caching with intelligent cache matching
-- **App4 Storage Manager**: `app4/core/storage.py` - Enhanced storage management with async operations and batch processing
-- **Cache Key Generator**: `app/cache_key_generator.py` - Standardized cache key and path generation
-- **App4 Cache Manager**: `app4/core/cache_manager.py` - Enhanced caching with atomic writes, derivation strategy, and performance optimization
-- **Cache Monitor**: `app/cache_monitor.py` - Cache performance monitoring with hit rate tracking
-- **Stock List Manager**: `app/stock_list_manager.py` - Singleton pattern implementation to prevent duplicate API calls
-- **App4 Generic Downloader**: `app4/core/downloader.py` - Enhanced downloader with data validation, network retry optimization, and performance monitoring
-- **App4 Coverage Manager**: `app4/core/coverage_manager.py` - Duplicate detection to avoid redundant downloads
-- **Error Handler**: `app/error_handler.py` - Enhanced error handling with retry mechanisms and API-specific error handling
-
-## Data Categories by Score Level
-
-- **120+ points**: Basic info (trade_cal) - now with HIGH priority and batch download strategy
-- **2000+ points**: Stock basics, daily data, financial statements, holders, events, moneyflow - HIGH priority interfaces
-- **3000+ points**: ST stock lists and additional holder data - MEDIUM priority interfaces
-- **5000+ points**: Advanced data (cyq_chips, cyq_perf, stk_factor), advanced funds flow, and all financial VIP APIs - MEDIUM to LOW priority
-- **8000+ points**: Advanced research data - LOW priority interfaces
-
 ## Key Features
 
 1. **Token Management**: Automatic token switching between primary and secondary tokens when rate limits are reached
@@ -477,45 +355,37 @@ For detailed information about the legacy architecture components, refer to the 
 6. **Caching**: Data caching with freshness checks and configurable TTL (Time To Live)
 7. **Logging**: Comprehensive logging in Chinese with detailed progress tracking
 8. **Parallel Processing**: Production-ready parallel download capabilities with task scheduling
-9. **Strategy Pattern**: Flexible download strategies for different data types (batch, parallel, sequential, paginated)
-10. **Task Prioritization**: Priority-based task scheduling with queue management (HIGH, MEDIUM, LOW priorities)
-11. **Configuration Management**: Advanced configuration with backward compatibility and enhanced settings
-12. **Producer-Consumer Pattern**: Efficient data pipeline with separate download and storage workers
-13. **Enhanced Configuration**: Detailed interface settings including priority, retries, rate limits, concurrency, and caching
-14. **Config Adapter Pattern**: Maintains compatibility between old and new configuration formats
-15. **Concurrency Control**: Configurable concurrency levels per interface to optimize throughput within API limits
-16. **API Parameter Configuration**: Interface-specific API parameters can be set in configuration
-17. **Full History Download**: Specialized downloader for interfaces that require ts_code parameters, enabling bulk downloads of all historical data for all stocks
-18. **Advanced Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming capabilities
-19. **Singleton Pattern Implementation**: Stock list manager using singleton pattern to prevent duplicate API calls
-20. **Enhanced Error Handling**: Improved retry mechanisms with exponential backoff and adaptive rate limiting
-21. **Dependency-Aware Task Queue**: Task queue management with dependency tracking between tasks
-22. **Intelligent Cache Matching**: Can extract specific data from more general caches (e.g., single stock data from all-stock cache)
-23. **Cache Preheating**: Proactive cache warming for frequently accessed data ranges
-24. **Cache Monitoring**: Real-time tracking of cache hit rates and performance metrics
-25. **Date Range Optimization**: Smart date range handling with overlap detection and merging
-26. **Parameter Validation Framework**: Comprehensive parameter validation and normalization for all interfaces
-27. **Configuration Backward Compatibility**: Seamless integration between old boolean config and new detailed interface config
-28. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing
-29. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date range downloads to prevent conflicts
-30. **Strategy Pattern Implementation**: Different download strategies for different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
-31. **Strategy Factory Pattern**: Centralized strategy creation and caching with registry management
-32. **Parameter Adaptation System**: Interface-specific parameter validation and standardization through adapter pattern
-33. **Batch Processing for TSCODE interfaces**: Efficient batch processing of ts_code-dependent interfaces for better performance
-34. **Asynchronous Storage Operations**: Storage operations handled asynchronously to avoid blocking download threads
-35. **Enhanced Interface Configuration**: Detailed interface settings including cache settings, API parameters, and concurrency controls
-36. **App4 Configuration-Driven Architecture**: New architecture in app4/ using configuration files for interface definitions, global settings, and performance parameters
-37. **Advanced Data Validation**: Comprehensive data validation and deduplication with automatic detection and removal of duplicate records using (ts_code, trade_date) as unique keys
-38. **Enhanced Network Retry Mechanism**: Smart retry strategy using HTTPAdapter with connection pooling, exponential backoff, and status-specific error handling (429, 500, 502, 503, 504)
-39. **Optimized Cache Strategy**: Intelligent cache derivation system that preloads global trade calendars and derives date-range subsets to improve cache hit rates significantly
-40. **Performance Monitoring System**: Built-in performance metrics collection with monitoring of request times, data sizes, retry counts, and alert thresholds
-41. **Thread-Safe Operations**: Thread-safe cache operations with atomic writes to prevent data corruption during concurrent access
-42. **Enhanced Error Handling**: Comprehensive error handling with graceful degradation and isolated failure handling for individual stock downloads
-43. **Coverage Management**: Intelligent duplicate detection to avoid redundant downloads with multiple strategies (date_range, period, stock)
-44. **Memory-Efficient Caching**: Runtime cache for frequently accessed data with thread-safe operations
-45. **Dataset-Mode Storage**: Efficient storage using Parquet dataset format for better performance
-46. **Quarterly and Periodic Range Pagination**: Support for financial data with period_range, quarterly_range, and periodic_range pagination modes
-47. **Broker Recommendation Handling**: Special handling for broker_recommend interface with month-based requests
+9. **Producer-Consumer Pattern**: Efficient data pipeline with separate download and storage workers
+10. **Enhanced Configuration**: Detailed interface settings including priority, retries, rate limits, concurrency, and caching
+11. **Config Adapter Pattern**: Maintains compatibility between old and new configuration formats
+12. **Concurrency Control**: Configurable concurrency levels per interface to optimize throughput within API limits
+13. **API Parameter Configuration**: Interface-specific API parameters can be set in configuration
+14. **Full History Download**: Specialized downloader for interfaces that require ts_code parameters, enabling bulk downloads of all historical data for all stocks
+15. **Advanced Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming capabilities
+16. **Enhanced Error Handling**: Improved retry mechanisms with exponential backoff and adaptive rate limiting
+17. **Intelligent Cache Matching**: Can extract specific data from more general caches (e.g., single stock data from all-stock cache)
+18. **Cache Preheating**: Proactive cache warming for frequently accessed data ranges
+19. **Cache Monitoring**: Real-time tracking of cache hit rates and performance metrics
+20. **Date Range Optimization**: Smart date range handling with overlap detection and merging
+21. **Parameter Validation Framework**: Comprehensive parameter validation and normalization for all interfaces
+22. **Configuration Backward Compatibility**: Seamless integration between old boolean config and new detailed interface config
+23. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing
+24. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date range downloads to prevent conflicts
+25. **Parameter Adaptation System**: Interface-specific parameter validation and standardization through adapter pattern
+26. **Batch Processing for TSCODE interfaces**: Efficient batch processing of ts_code-dependent interfaces for better performance
+27. **Asynchronous Storage Operations**: Storage operations handled asynchronously to avoid blocking download threads
+28. **Enhanced Interface Configuration**: Detailed settings for cache, API parameters, and concurrency controls
+29. **App4 Configuration-Driven Architecture**: New architecture using configuration files for interface definitions, global settings, and performance parameters
+30. **Advanced Data Validation**: Comprehensive data validation and deduplication with automatic detection and removal of duplicate records using (ts_code, trade_date) as unique keys
+31. **Enhanced Network Retry Mechanism**: Smart retry strategy using HTTPAdapter with connection pooling, exponential backoff, and status-specific error handling (429, 500, 502, 503, 504)
+32. **Optimized Cache Strategy**: Intelligent cache derivation system that preloads global trade calendars and derives date-range subsets to improve cache hit rates significantly
+33. **Thread-Safe Operations**: Thread-safe cache operations with atomic writes to prevent data corruption during concurrent access
+34. **Enhanced Error Handling**: Comprehensive error handling with graceful degradation and isolated failure handling for individual stock downloads
+35. **Coverage Management**: Intelligent duplicate detection to avoid redundant downloads with multiple strategies (date_range, period, stock)
+36. **Memory-Efficient Caching**: Runtime cache for frequently accessed data with thread-safe operations
+37. **Dataset-Mode Storage**: Efficient storage using Parquet dataset format for better performance
+38. **Quarterly and Periodic Range Pagination**: Support for financial data with period_range, quarterly_range, and periodic_range pagination modes
+39. **Broker Recommendation Handling**: Special handling for broker recommendation data with month-based requests
 
 ## Development Commands
 
@@ -533,39 +403,8 @@ pip install -r requirements.txt
 
 ### Running the System
 ```bash
-# Run from the project root (not app directory)
-python app/main.py --start_date 20230101 --end_date 20231231
-
-# Default start date is 20230101, end date is today
-python app/main.py
-
 # For enhanced download using production ready features (app4)
 python app4/main.py --start_date 20230101 --end_date 20231231
-
-# For enhanced download using production ready features
-python app/enhanced_main_downloader.py --start_date 20230101 --end_date 20231231
-
-# Use legacy mode (skip new scheduler)
-python app/main.py --start_date 20230101 --end_date 20231231 --use_legacy
-
-# Enable download of stk_rewards, top10_holders, pledge_detail, fina_audit shareholder data
-python app/main.py --start_date 20230101 --end_date 20231231 --holders-data
-
-# Download only pro_bar adjusted price data
-python app/main.py --start_date 20230101 --end_date 20231231 --pro-bar-only
-
-# Download full historical data instead of date-range data (for specific interfaces that require ts_code)
-python app/main.py --start_date 20230101 --end_date 20231231 --tscode-historical
-
-# The --tscode-historical flag automatically handles ts_code-dependent interfaces like:
-# stk_rewards, top10_holders, pledge_detail, fina_audit, and pro_bar
-# These interfaces are automatically disabled during date-range downloads to prevent conflicts
-
-# Download with historical download tracking to avoid redundant processing
-python app/main.py --start_date 20230101 --end_date 20231231 --track-history
-
-# Force re-download of historically completed interfaces
-python app/main.py --start_date 20230101 --end_date 20231231 --force-redownload
 
 # App4 specific commands with enhanced optimizations:
 python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily  # Download specific interface
@@ -608,46 +447,6 @@ python app/test_full_history_downloads.py
 ## File Structure
 ```
 aspipe_v4/
-├── app/                    # Main application code
-│   ├── main.py            # Main entry point with fallback
-│   ├── enhanced_main_downloader.py  # Production-ready enhanced downloader with strategy pattern
-│   ├── score_based_downloader.py  # Score-based download management
-│   ├── config.py          # Configuration and token management
-│   ├── score_config.py    # Score-based access control
-│   ├── tushare_api.py     # Main API integration (Facade Pattern)
-│   ├── date_range_downloader.py  # Legacy date range downloader
-│   ├── download_config.py  # Original download configuration (backward compatibility)
-│   ├── enhanced_download_config.py  # Enhanced download configuration with advanced options
-│   ├── config_adapter.py  # Configuration adapter for backward compatibility
-│   ├── data_storage.py    # Data storage and caching
-│   ├── download_scheduler.py  # Producer-consumer scheduler
-│   ├── parallel_downloader.py # Parallel download framework
-│   ├── storage_worker.py  # Data storage consumer logic
-│   ├── download_strategies.py # Strategy pattern for different download approaches
-│   ├── global_rate_limiter.py  # Global rate limiting with token bucket
-│   ├── strategy_factory.py    # Strategy management with caching
-│   ├── parameter_adapters.py  # API parameter adaptation
-│   ├── error_handler.py   # Enhanced error handling with retry mechanisms
-│   ├── stock_list_manager.py  # Singleton stock list management
-│   ├── cache_key_generator.py # Standardized cache key generation
-│   ├── cache_manager.py       # Cache management and preheating
-│   ├── cache_monitor.py       # Cache monitoring
-│   ├── task_queue_manager.py  # Task queue management with priority and status tracking
-│   ├── interfaces/        # Modular interface classes
-│   │   ├── __init__.py    # Package initialization file
-│   │   ├── base.py        # Base interface functionality
-│   │   ├── basic_data.py  # Basic data interface (stock_basic, etc.)
-│   │   ├── daily_data.py  # Daily data interface (daily, daily_basic, etc.)
-│   │   ├── financial_data.py  # Financial data interface (income, balancesheet, etc.)
-│   │   ├── market_flow.py     # Money flow data interface
-│   │   ├── holders_data.py    # Stock holders data interface
-│   │   ├── holders_data_downloader.py  # Full history holder data downloader
-│   │   ├── technical_factors.py  # Technical factors interface
-│   │   ├── cyq_chips.py       # CYQ chips data interface
-│   │   └── research_data.py   # Research data interface
-│   └── utils/             # Utility functions
-│       ├── __init__.py    # Package initialization file
-│       └── date_utils.py      # Date utility functions
 ├── app4/                  # New configuration-driven architecture (App4)
 │   ├── main.py            # New main entry point with enhanced optimizations
 │   ├── core/              # Core components with enhanced features
@@ -681,7 +480,6 @@ aspipe_v4/
 - Error messages include specific handling for common TuShare API responses
 - Data is automatically paginated for large result sets
 - New architecture uses producer-consumer pattern for efficient data pipeline
-- Strategy pattern enables flexible handling of different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
 - Task queue management with priorities optimizes resource usage
 - Enhanced configuration system provides granular control over interface settings
 - Configuration adapter maintains backward compatibility while adding advanced features
@@ -698,13 +496,9 @@ aspipe_v4/
 - Date range optimization intelligently handles overlaps and merges ranges
 - Parameter validation framework ensures consistent and valid API parameters
 - Configuration backward compatibility seamlessly integrates old and new config formats
-- Singleton pattern implementation prevents duplicate stock_basic API calls
 - Full history download capabilities enable bulk downloads for ts_code-dependent interfaces
-- Dependency-aware task queue management tracks task relationships
 - Historical download tracking automatically marks interfaces as completed after full historical downloads
 - Conditional interface management automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
-- Strategy factory pattern provides centralized strategy creation and caching with registry management
-- Download strategies implement different approaches for different data types (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy)
 - Parameter adaptation system provides interface-specific parameter validation and standardization
 - Batch processing for ts_code-dependent interfaces improves performance by processing multiple stocks in parallel
 - Asynchronous storage operations prevent blocking of download threads

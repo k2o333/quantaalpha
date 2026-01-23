@@ -1,45 +1,40 @@
-name: new_share
 api_name: new_share
-description: "IPO新股列表"
-
-permissions:
-  min_points: 120
-  rate_limit: 60
-  query_limit: 2000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  start_date:
-    type: string
-    required: false
-    description: "上网发行开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "上网发行结束日期 YYYYMMDD"
-
+derived_fields:
+  ipo_date_dt:
+    description: 日期类型的ipo_date
+    format: '%Y%m%d'
+    source: ipo_date
+    type: date
+  issue_date_dt:
+    description: 日期类型的issue_date
+    format: '%Y%m%d'
+    source: issue_date
+    type: date
+description: IPO新股列表
+name: new_share
+output:
+  primary_key:
+  - ts_code
+  sort_by:
+  - ipo_date
 pagination:
   enabled: true
-  mode: "date_range"
+  mode: date_range
   window_size_days: 365
-
-output:
-  primary_key: ["ts_code"]
-  sort_by: ["ipo_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    sub_code: {type: string, required: true}
-    name: {type: string, required: true}
-    ipo_date: {type: date, format: "%Y%m%d", required: true}
-    issue_date: {type: date, format: "%Y%m%d"}
-    amount: {type: float}
-    market_amount: {type: float}
-    price: {type: float}
-    pe: {type: float}
-    limit_amount: {type: float}
-    funds: {type: float}
-    ballot: {type: float}
+parameters:
+  end_date:
+    description: 上网发行结束日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 上网发行开始日期 YYYYMMDD
+    required: false
+    type: string
+permissions:
+  min_points: 120
+  query_limit: 2000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

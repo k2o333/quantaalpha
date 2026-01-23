@@ -1,0 +1,36 @@
+2026-01-20 22:53:00,445 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-20 22:53:00,445 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260120
+2026-01-20 22:53:00,497 - __main__ - INFO - Global trade calendar loaded from data directory: 8566 trade days
+2026-01-20 22:53:00,497 - core.scheduler - INFO - Task scheduler started with 1 workers
+2026-01-20 22:53:00,497 - core.storage - INFO - Storage writer and process threads started
+2026-01-20 22:53:00,498 - __main__ - INFO - Interfaces to run: ['cyq_perf']
+2026-01-20 22:53:00,498 - __main__ - INFO - Downloading data for cyq_perf, pagination mode: date_range
+2026-01-20 22:53:00,498 - core.downloader - INFO - [Thread-140214255019840] [Task-unknown] [DEBUG] _execute_date_range_pagination called with params: {'start_date': '20240401', 'end_date': '20240705'}
+2026-01-20 22:53:00,498 - core.downloader - INFO - [Thread-140214255019840] [Task-unknown] [DEBUG] start_date: 20240401, end_date: 20240705
+2026-01-20 22:53:00,498 - core.downloader - INFO - [Thread-140214255019840] [Task-unknown] [DEBUG] ts_code in params: N/A
+2026-01-20 22:53:00,498 - core.downloader - INFO - Fetching trade calendar for date range: 20240401 - 20240705
+2026-01-20 22:53:00,502 - core.downloader - INFO - Trade calendar loaded from data directory: 20240401-20240705
+2026-01-20 22:53:00,502 - core.downloader - INFO - Found 64 trade days
+2026-01-20 22:53:00,502 - core.downloader - INFO - Using window size: 365 days
+2026-01-20 22:53:00,502 - core.downloader - INFO - Downloading data for window 1: 20240401 - 20240705
+2026-01-20 22:53:01,410 - core.downloader - ERROR - API error for cyq_perf: 参数校验失败, ts_code,trade_date至少输入一个参数
+2026-01-20 22:53:01,410 - core.downloader - WARNING - No data returned for window 20240401-20240705
+2026-01-20 22:53:01,411 - __main__ - WARNING - No data downloaded for cyq_perf
+2026-01-20 22:53:01,411 - __main__ - INFO - 正在停止调度器...
+2026-01-20 22:53:01,411 - core.scheduler - INFO - Task scheduler stopped
+2026-01-20 22:53:01,411 - __main__ - INFO - 正在关闭存储写入...
+2026-01-20 22:53:01,412 - core.storage - INFO - Process worker received stop signal
+2026-01-20 22:53:01,412 - core.storage - INFO - Storage threads stopped
+Debug: performance_monitor id: 140214245441440
+Debug: request_time指标数量: 1
+Debug: data_size指标数量: 0
+2026-01-20 22:53:01,413 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+平均请求时间: 0.91s
+平均单窗口条数: 0.00 条
+平均重试次数: 0.00 次
+==============================
+

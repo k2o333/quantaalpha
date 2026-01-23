@@ -1,54 +1,44 @@
-name: moneyflow_ths
 api_name: moneyflow_ths
-description: "个股资金流向（同花顺）"
-
-permissions:
-  min_points: 5000
-  rate_limit: 60
-  query_limit: 6000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "股票代码"
-  trade_date:
-    type: string
-    required: false
-    description: "交易日期 YYYYMMDD"
-  start_date:
-    type: string
-    required: false
-    description: "开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "结束日期 YYYYMMDD"
-
+derived_fields:
+  trade_date_dt:
+    description: 日期类型的trade_date
+    format: '%Y%m%d'
+    source: trade_date
+    type: date
+description: 个股资金流向（同花顺）
+name: moneyflow_ths
+output:
+  primary_key:
+  - ts_code
+  - trade_date
+  sort_by:
+  - trade_date
 pagination:
   enabled: true
-  mode: "date_range"
+  mode: date_range
   window_size_days: 365
-
-output:
-  primary_key: ["ts_code", "trade_date"]
-  sort_by: ["trade_date"]
-  columns:
-    trade_date: {type: date, format: "%Y%m%d", required: true}
-    ts_code: {type: string, required: true}
-    name: {type: string, required: true}
-    pct_change: {type: float}
-    latest: {type: float}
-    net_amount: {type: float}
-    net_d5_amount: {type: float}
-    buy_lg_amount: {type: float}
-    buy_lg_amount_rate: {type: float}
-    buy_md_amount: {type: float}
-    buy_md_amount_rate: {type: float}
-    buy_sm_amount: {type: float}
-    buy_sm_amount_rate: {type: float}
+parameters:
+  end_date:
+    description: 结束日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 开始日期 YYYYMMDD
+    required: false
+    type: string
+  trade_date:
+    description: 交易日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 股票代码
+    required: false
+    type: string
+permissions:
+  min_points: 5000
+  query_limit: 6000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

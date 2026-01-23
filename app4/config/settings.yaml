@@ -1,57 +1,43 @@
-# 全局配置
 app:
   name: "aspipe_v4"
   version: "4.0.0"
 
-# TuShare API 配置
 tushare:
-  token: "${TUSHARE_TOKEN}"  # 从环境变量读取
-  api_url: "http://api.tushare.pro"
-  points_threshold: 2000
+  token: "${TUSHARE_TOKEN}"
+  base_url: "http://api.tushare.pro"
+  points_thresholds: # 积分权限映射
+    basic: 120
+    standard: 2000
+    advanced: 5000
+    professional: 8000
 
-# 并发配置
 concurrency:
-  max_workers: 1      # [修改] 使用单worker
-  max_queue_size: 50
+  max_workers: 4  # [修改] 从 8 改为 4
+  max_queue_size: 1000
 
-# [新增] 请求重试与限流配置
 request:
-  retries: 3          # 最大重试次数
-  retry_delay: 2      # 基础等待时间(秒)
-  retry_backoff: 2    # 指数退避因子
-  jitter_min: 0.05  # 请求前随机延迟最小值(秒)
-  jitter_max: 0.1  # 请求前随机延迟最大值(秒)
-  rate_limit: 500     # 全局默认每分钟最大请求数（当接口未配置时使用）
+  max_retries: 3
+  retry_delay: 1.0
+  timeout: 30
 
+cache:
+  directory: "cache"
+  ttl_hours: 24
+  max_size_gb: 10
 
-# 存储配置
 storage:
-  base_dir: "./data"
+  base_dir: "../data"  # [修改] 从 "data" 改为 "../data"
   format: "parquet"
-  batch_size: 20
-  async_write: true
+  batch_size: 10000  # [优化] 从 1000 增大到 10000
 
-# 日志配置
 logging:
   level: "INFO"
-  file: "./log/aspipe_v4.log"
+  file: "log/app4.log"
   max_size_mb: 100
   backup_count: 5
 
-# 接口组定义
 groups:
-  holders:
-    - top10_holders
-    - top10_floatholders
-    - stk_holdertrade
-    - pledge_detail
-    - pledge_stat
-    - share_float
-    - stk_rewards
-    - stk_managers
-    - stk_surv
-
-  # tscode-historical 组，包含所有需要股票循环模式的接口（共14个）
+  # 需要股票循环的接口组（默认起始日期19900101）
   tscode_historical:
     - stk_rewards
     - income_vip
@@ -67,7 +53,44 @@ groups:
     - top10_holders
     - pledge_stat
     - pledge_detail
+    - dividend  # 新增
+    - stk_factor
+    - stk_factor_pro
 
+  # 股东数据组
+  holders:
+    - top10_holders
+    - top10_floatholders
+    - stk_holdertrade
+    - pledge_detail
+    - pledge_stat
+    - share_float
+    - stk_rewards
+    - stk_managers
+    - stk_surv
+
+  # VIP财务数据组
+  financial_vip:
+    - income_vip
+    - balancesheet_vip
+    - cashflow_vip
+    - fina_indicator_vip
+    - fina_mainbz_vip
+    - express_vip
+    - forecast_vip
+
+  # 基础财务数据组
+  financial_basic:
+    - income
+    - balancesheet
+    - cashflow
+    - fina_indicator
+    - fina_mainbz
+    - fina_audit
+    - express
+    - forecast
+
+  # 日线市场数据组
   daily:
     - daily
     - daily_basic
@@ -78,39 +101,44 @@ groups:
     - bak_basic
     - suspend_d
 
-  financial:
-    - income
-    - balancesheet
-    - cashflow
-    - fina_indicator
-    - fina_mainbz
-    - fina_audit
-    - forecast
-    - express
-    - disclosure_date
-    - report_rc
-
-  market_data:
-    - stock_basic
-    - stock_company
-    - stock_st
-    - namechange
-    - new_share
+  # 资金流向数据组
+  moneyflow:
     - moneyflow
-    - moneyflow_dc
     - moneyflow_ths
-    - moneyflow_ind_dc
+    - moneyflow_dc
     - moneyflow_ind_ths
+    - moneyflow_ind_dc
     - moneyflow_cnt_ths
     - moneyflow_mkt_dc
 
-  analysis_factors:
-    - stk_factor
-    - stk_factor_pro
+  # 特色指标数据组
+  features:
     - cyq_chips
     - cyq_perf
-    - broker_recommend
+    - stk_factor
+    - stk_factor_pro
+    - stk_premarket
 
-  corporate_actions:
+  # 公司信息数据组
+  company_info:
+    - stock_basic
+    - stock_company
+    - namechange
+    - new_share
+    - disclosure_date
+
+  # 其他数据组
+  others:
     - repurchase
+    - stock_hsgt
+    - stock_st
+    - suspend_d
+    - bak_basic
+    - bak_daily
+    - report_rc  # 卖方盈利预测数据
+    - broker_recommend
     - dividend
+    - share_float
+    - stk_holdertrade
+    - stk_managers
+    - stk_surv

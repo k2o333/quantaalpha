@@ -1,75 +1,44 @@
-name: stk_factor
 api_name: stk_factor
-description: "股票技术因子"
-
-permissions:
-  min_points: 5000
-  rate_limit: 60
-  query_limit: 10000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "股票代码"
-  trade_date:
-    type: string
-    required: false
-    description: "交易日期 YYYYMMDD"
-  start_date:
-    type: string
-    required: false
-    description: "开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "结束日期 YYYYMMDD"
-
+derived_fields:
+  trade_date_dt:
+    description: 日期类型的trade_date
+    format: '%Y%m%d'
+    source: trade_date
+    type: date
+description: 股票技术因子
+name: stk_factor
+output:
+  primary_key:
+  - ts_code
+  - trade_date
+  sort_by:
+  - trade_date
 pagination:
   enabled: true
-  mode: "stock_loop"
-
-output:
-  primary_key: ["ts_code", "trade_date"]
-  sort_by: ["trade_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    trade_date: {type: date, format: "%Y%m%d", required: true}
-    close: {type: float}
-    open: {type: float}
-    high: {type: float}
-    low: {type: float}
-    pre_close: {type: float}
-    change: {type: float}
-    pct_change: {type: float}
-    vol: {type: float}
-    amount: {type: float}
-    adj_factor: {type: float}
-    open_hfq: {type: float}
-    open_qfq: {type: float}
-    close_hfq: {type: float}
-    close_qfq: {type: float}
-    high_hfq: {type: float}
-    high_qfq: {type: float}
-    low_hfq: {type: float}
-    low_qfq: {type: float}
-    pre_close_hfq: {type: float}
-    pre_close_qfq: {type: float}
-    macd_dif: {type: float}
-    macd_dea: {type: float}
-    macd: {type: float}
-    kdj_k: {type: float}
-    kdj_d: {type: float}
-    kdj_j: {type: float}
-    rsi_6: {type: float}
-    rsi_12: {type: float}
-    rsi_24: {type: float}
-    boll_upper: {type: float}
-    boll_mid: {type: float}
-    boll_lower: {type: float}
-    cci: {type: float}
+  mode: stock_loop
+  window_size_days: 3650  # 每个股票请求10年数据
+parameters:
+  end_date:
+    description: 结束日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 开始日期 YYYYMMDD
+    required: false
+    type: string
+  trade_date:
+    description: 交易日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 股票代码
+    required: false
+    type: string
+permissions:
+  min_points: 5000
+  query_limit: 10000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

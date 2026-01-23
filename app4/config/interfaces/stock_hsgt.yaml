@@ -1,50 +1,50 @@
-name: stock_hsgt
 api_name: stock_hsgt
-description: "沪深港通股票列表"
-
-permissions:
-  min_points: 3000
-  rate_limit: 120
-  query_limit: 2000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "股票代码"
-  trade_date:
-    type: string
-    required: false
-    description: "交易日期（格式：YYYYMMDD）"
-  type:
-    type: string
-    required: true
-    description: "类型（HK_SZ深股通, SZ_HK港股通(深), HK_SH沪股通, SH_HK港股通(沪)）"
-  start_date:
-    type: string
-    required: false
-    description: "开始时间"
-  end_date:
-    type: string
-    required: false
-    description: "结束时间"
-
+derived_fields:
+  trade_date_dt:
+    description: 日期类型的trade_date
+    format: '%Y%m%d'
+    source: trade_date
+    type: date
+description: 沪深港通股票列表
+name: stock_hsgt
+output:
+  primary_key:
+  - ts_code
+  - trade_date
+  - type
+  sort_by:
+  - trade_date
+  - ts_code
 pagination:
   enabled: true
-  mode: "date_range"
+  mode: date_range
   window_size_days: 365
-
-output:
-  primary_key: ["ts_code", "trade_date", "type"]
-  sort_by: ["trade_date", "ts_code"]
-  columns:
-    ts_code: {type: string, required: true}
-    trade_date: {type: date, format: "%Y%m%d", required: true}
-    type: {type: string, required: true}
-    name: {type: string, required: true}
-    type_name: {type: string, required: true}
+parameters:
+  end_date:
+    description: 结束时间
+    required: false
+    type: string
+  start_date:
+    description: 开始时间
+    required: false
+    type: string
+  trade_date:
+    description: 交易日期（格式：YYYYMMDD）
+    required: false
+    type: string
+  ts_code:
+    description: 股票代码
+    required: false
+    type: string
+  type:
+    description: 类型（HK_SZ深股通, SZ_HK港股通(深), HK_SH沪股通, SH_HK港股通(沪)）
+    required: true
+    type: string
+permissions:
+  min_points: 3000
+  query_limit: 2000
+  rate_limit: 120
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

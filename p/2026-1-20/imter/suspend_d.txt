@@ -1,0 +1,47 @@
+2026-01-20 22:52:21,910 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-20 22:52:21,911 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260120
+2026-01-20 22:52:21,963 - __main__ - INFO - Global trade calendar loaded from data directory: 8566 trade days
+2026-01-20 22:52:21,963 - core.scheduler - INFO - Task scheduler started with 1 workers
+2026-01-20 22:52:21,964 - core.storage - INFO - Storage writer and process threads started
+2026-01-20 22:52:21,964 - __main__ - INFO - Interfaces to run: ['suspend_d']
+2026-01-20 22:52:21,964 - __main__ - INFO - Downloading data for suspend_d, pagination mode: date_range
+2026-01-20 22:52:21,964 - core.downloader - INFO - [Thread-140544323360576] [Task-unknown] [DEBUG] _execute_date_range_pagination called with params: {'start_date': '20240401', 'end_date': '20240705'}
+2026-01-20 22:52:21,964 - core.downloader - INFO - [Thread-140544323360576] [Task-unknown] [DEBUG] start_date: 20240401, end_date: 20240705
+2026-01-20 22:52:21,964 - core.downloader - INFO - [Thread-140544323360576] [Task-unknown] [DEBUG] ts_code in params: N/A
+2026-01-20 22:52:21,965 - core.downloader - INFO - Fetching trade calendar for date range: 20240401 - 20240705
+2026-01-20 22:52:21,969 - core.downloader - INFO - Trade calendar loaded from data directory: 20240401-20240705
+2026-01-20 22:52:21,969 - core.downloader - INFO - Found 64 trade days
+2026-01-20 22:52:21,969 - core.downloader - INFO - Using window size: 365 days
+2026-01-20 22:52:21,969 - core.downloader - INFO - Downloading data for window 1: 20240401 - 20240705
+2026-01-20 22:52:22,797 - core.downloader - INFO - API returned 4 fields for suspend_d
+2026-01-20 22:52:22,797 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'suspend_timing', 'suspend_type']
+2026-01-20 22:52:22,801 - core.downloader - INFO - Downloaded 1295 records for date range 20240401-20240705
+2026-01-20 22:52:22,801 - __main__ - INFO - Successfully downloaded 1295 records for suspend_d
+2026-01-20 22:52:22,802 - core.processor - ERROR - Error processing data for suspend_d: could not append value: "09:30-09:40,09:41-09:51" of type: str to the builder; make sure that all rows have the same schema or consider increasing `infer_schema_length`
+
+it might also be that a value overflows the data-type's capacity
+2026-01-20 22:52:22,802 - __main__ - ERROR - Error processing interface suspend_d: 'StorageManager' object has no attribute 'base_dir'
+Traceback (most recent call last):
+  File "/home/quan/testdata/aspipe_v4/app4/main.py", line 652, in main
+    process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
+  File "/home/quan/testdata/aspipe_v4/app4/main.py", line 337, in process_and_save_data
+    data_dir = storage_manager.base_dir
+AttributeError: 'StorageManager' object has no attribute 'base_dir'
+2026-01-20 22:52:22,803 - __main__ - INFO - 正在停止调度器...
+2026-01-20 22:52:22,803 - core.scheduler - INFO - Task scheduler stopped
+2026-01-20 22:52:22,803 - __main__ - INFO - 正在关闭存储写入...
+2026-01-20 22:52:22,803 - core.storage - INFO - Process worker received stop signal
+2026-01-20 22:52:22,804 - core.storage - INFO - Storage threads stopped
+Debug: performance_monitor id: 140544313761696
+Debug: request_time指标数量: 1
+Debug: data_size指标数量: 1
+2026-01-20 22:52:22,804 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+平均请求时间: 0.83s
+平均单窗口条数: 1295.00 条
+平均重试次数: 0.00 次
+==============================
+

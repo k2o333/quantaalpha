@@ -1,47 +1,51 @@
-name: repurchase
 api_name: repurchase
-description: "股票回购"
-
-permissions:
-  min_points: 600
-  rate_limit: 60
-  query_limit: 2000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
+derived_fields:
+  ann_date_dt:
+    description: 日期类型的ann_date
+    format: '%Y%m%d'
+    source: ann_date
+    type: date
+  end_date_dt:
+    description: 日期类型的end_date
+    format: '%Y%m%d'
+    source: end_date
+    type: date
+  exp_date_dt:
+    description: 日期类型的exp_date
+    format: '%Y%m%d'
+    source: exp_date
+    type: date
+description: 股票回购
+name: repurchase
+output:
+  primary_key:
+  - ts_code
+  - ann_date
+  sort_by:
+  - ann_date
+pagination:
+  date_field: ann_date
+  enabled: true
+  mode: date_range
+  window_size_days: 365
 parameters:
   ann_date:
-    type: string
+    description: 公告日期 YYYYMMDD
     required: false
-    description: "公告日期 YYYYMMDD"
-  start_date:
     type: string
-    required: false
-    description: "公告开始日期 YYYYMMDD"
   end_date:
-    type: string
+    description: 公告结束日期 YYYYMMDD
     required: false
-    description: "公告结束日期 YYYYMMDD"
-
-pagination:
-  enabled: true
-  mode: "date_range"
-  window_size_days: 365
-  date_field: "ann_date"
-
-output:
-  primary_key: ["ts_code", "ann_date"]
-  sort_by: ["ann_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    ann_date: {type: date, format: "%Y%m%d", required: true}
-    end_date: {type: date, format: "%Y%m%d"}
-    proc: {type: string}
-    exp_date: {type: date, format: "%Y%m%d"}
-    vol: {type: float}
-    amount: {type: float}
-    high_limit: {type: float}
-    low_limit: {type: float}
+    type: string
+  start_date:
+    description: 公告开始日期 YYYYMMDD
+    required: false
+    type: string
+permissions:
+  min_points: 600
+  query_limit: 2000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

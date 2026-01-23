@@ -14,9 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-.codebuddy/
-.serena/
-.*/
 lib/
 lib64/
 data/
@@ -203,8 +200,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
-log/
-
 
 # OS specific
 .DS_Store

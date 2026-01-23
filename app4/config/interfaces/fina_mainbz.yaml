@@ -1,55 +1,52 @@
-name: fina_mainbz
 api_name: fina_mainbz
-description: "主营业务构成 (已禁用，请使用 fina_mainbz_vip)"
+derived_fields:
+  end_date_dt:
+    description: 日期类型的end_date
+    format: '%Y%m%d'
+    source: end_date
+    type: date
+description: 主营业务构成 (已禁用，请使用 fina_mainbz_vip)
 enabled: false
-
-permissions:
-  min_points: 2000
-  rate_limit: 120
-  query_limit: 100
-  note: "此接口已禁用，如需获取全部股票数据，请使用 fina_mainbz_vip 接口（需5000积分）"
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: true
-    description: "股票代码"
-  period:
-    type: string
-    required: false
-    description: "报告期(每个季度最后一天的日期,比如20171231表示年报)"
-  type:
-    type: string
-    required: false
-    description: "类型：P按产品 D按地区 I按行业（请输入大写字母P或者D）"
-  start_date:
-    type: string
-    required: false
-    description: "报告期开始日期"
-  end_date:
-    type: string
-    required: false
-    description: "报告期结束日期"
-
+name: fina_mainbz
+output:
+  primary_key:
+  - ts_code
+  - end_date
+  - bz_item
+  sort_by:
+  - ts_code
+  - end_date
 pagination:
   enabled: true
-  mode: "date_range"
+  mode: date_range
   window_size_days: 365
-
-output:
-  primary_key: ["ts_code", "end_date", "bz_item"]
-  sort_by: ["ts_code", "end_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    end_date: {type: date, format: "%Y%m%d", required: true}
-    bz_item: {type: string, required: true}
-    bz_sales: {type: float}
-    bz_profit: {type: float}
-    bz_cost: {type: float}
-    curr_type: {type: string}
-    update_flag: {type: string}
+parameters:
+  end_date:
+    description: 报告期结束日期
+    required: false
+    type: string
+  period:
+    description: 报告期(每个季度最后一天的日期,比如20171231表示年报)
+    required: false
+    type: string
+  start_date:
+    description: 报告期开始日期
+    required: false
+    type: string
+  ts_code:
+    description: 股票代码
+    required: true
+    type: string
+  type:
+    description: 类型：P按产品 D按地区 I按行业（请输入大写字母P或者D）
+    required: false
+    type: string
+permissions:
+  min_points: 2000
+  note: 此接口已禁用，如需获取全部股票数据，请使用 fina_mainbz_vip 接口（需5000积分）
+  query_limit: 100
+  rate_limit: 120
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

@@ -1,0 +1,46 @@
+2026-01-20 22:52:42,682 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-20 22:52:42,682 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260120
+2026-01-20 22:52:42,737 - __main__ - INFO - Global trade calendar loaded from data directory: 8566 trade days
+2026-01-20 22:52:42,737 - core.scheduler - INFO - Task scheduler started with 1 workers
+2026-01-20 22:52:42,738 - core.storage - INFO - Storage writer and process threads started
+2026-01-20 22:52:42,738 - __main__ - INFO - Interfaces to run: ['stock_hsgt']
+2026-01-20 22:52:42,738 - __main__ - INFO - Downloading data for stock_hsgt, pagination mode: date_range
+2026-01-20 22:52:42,738 - core.downloader - INFO - [Thread-140344633272128] [Task-unknown] [DEBUG] _execute_date_range_pagination called with params: {'start_date': '20240401', 'end_date': '20240705'}
+2026-01-20 22:52:42,738 - core.downloader - INFO - [Thread-140344633272128] [Task-unknown] [DEBUG] start_date: 20240401, end_date: 20240705
+2026-01-20 22:52:42,739 - core.downloader - INFO - [Thread-140344633272128] [Task-unknown] [DEBUG] ts_code in params: N/A
+2026-01-20 22:52:42,739 - core.downloader - INFO - Fetching trade calendar for date range: 20240401 - 20240705
+2026-01-20 22:52:42,742 - core.downloader - INFO - Trade calendar loaded from data directory: 20240401-20240705
+2026-01-20 22:52:42,742 - core.downloader - INFO - Found 64 trade days
+2026-01-20 22:52:42,742 - core.downloader - INFO - Using window size: 365 days
+2026-01-20 22:52:42,742 - core.downloader - INFO - Downloading data for window 1: 20240401 - 20240705
+2026-01-20 22:52:43,542 - core.downloader - INFO - API returned 5 fields for stock_hsgt
+2026-01-20 22:52:43,542 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'type', 'name', 'type_name']
+2026-01-20 22:52:43,549 - core.downloader - WARNING - Window 20240401-20240705 returned 2000 records, which may be truncated (API limit: 2000)
+2026-01-20 22:52:43,549 - core.downloader - INFO - Downloaded 2000 records for date range 20240401-20240705
+2026-01-20 22:52:43,549 - __main__ - INFO - Successfully downloaded 2000 records for stock_hsgt
+2026-01-20 22:52:43,569 - core.processor - INFO - Processed 2000 records for stock_hsgt
+2026-01-20 22:52:43,571 - __main__ - ERROR - Error processing interface stock_hsgt: 'StorageManager' object has no attribute 'base_dir'
+Traceback (most recent call last):
+  File "/home/quan/testdata/aspipe_v4/app4/main.py", line 652, in main
+    process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
+  File "/home/quan/testdata/aspipe_v4/app4/main.py", line 337, in process_and_save_data
+    data_dir = storage_manager.base_dir
+AttributeError: 'StorageManager' object has no attribute 'base_dir'
+2026-01-20 22:52:43,573 - __main__ - INFO - 正在停止调度器...
+2026-01-20 22:52:43,573 - core.scheduler - INFO - Task scheduler stopped
+2026-01-20 22:52:43,573 - __main__ - INFO - 正在关闭存储写入...
+2026-01-20 22:52:43,574 - core.storage - INFO - Process worker received stop signal
+2026-01-20 22:52:43,574 - core.storage - INFO - Storage threads stopped
+Debug: performance_monitor id: 140344623669152
+Debug: request_time指标数量: 1
+Debug: data_size指标数量: 1
+2026-01-20 22:52:43,575 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+平均请求时间: 0.81s
+平均单窗口条数: 2000.00 条
+平均重试次数: 0.00 次
+==============================
+

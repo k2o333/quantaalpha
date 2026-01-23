@@ -61,14 +61,16 @@ aspipe_v4 是一个综合性的金融数据管道系统，从 TuShare API 下载
 - 数据质量检查和类型转换
 
 ### 7. Schema 管理器 (`core/schema_manager.py`)
-- 预定义数据类型 schema 以避免运行时推理开销
+- 保留 API 返回的原始数据格式，确保数据完整性
+- 通过配置化的衍生字段提供优化类型（如日期类型、布尔类型等）
+- 分离原始数据和转化字段，实现灵活的数据访问模式
 - 为高频金融数据接口优化的 schema
 
 ### 8. 覆盖率管理器 (`core/coverage_manager.py`)
 - 实现重复检测以避免冗余下载
 - 支持多种策略：日期范围、期间和股票基础检测
 - 使用内存缓存进行高效覆盖率检查
-- **新增智能增量下载功能**：支持检测缺失的数据范围并仅下载缺失部分
+- 兼容新架构中的原始字段和衍生字段
 
 ## 配置结构
 
@@ -153,11 +155,12 @@ groups:
 - API 元数据（名称、描述、权限）
 - 请求参数和验证规则
 - 分页策略和参数
-- 输出 schema 和主键
+- 输出配置（主键、排序字段）
+- 衍生字段配置（用于类型转换和优化）
 - 速率限制和缓存设置
-- 重复检测配置
+- 去重配置（统一的 primary_key + dedup_enabled 方法）
 
-示例接口配置：
+**新的配置格式（统一的去重配置方法）：**
 
 ```yaml
 name: daily
@@ -191,35 +194,125 @@ parameters:
 output:
   primary_key: ["ts_code", "trade_date"]
   sort_by: ["trade_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    trade_date: {type: date, format: "%Y%m%d", required: true}
-    open: {type: float, required: false}
-    high: {type: float, required: false}
-    low: {type: float, required: false}
-    close: {type: float, required: false}
-    pre_close: {type: float, required: false}
-    change: {type: float, required: false}
-    pct_chg: {type: float, required: false}
-    vol: {type: float, required: false}
-    amount: {type: float, required: false}
+  # columns 部分已移除，原始数据保持API返回的原样
 
+# 统一的去重配置 - 新方法
+# 如果 output.primary_key 存在且 dedup_enabled 为 true，则自动启用去重
+dedup_enabled: true  # 统一控制是否启用去重功能
+
+# 旧的重复检测配置已被弃用，保留用于向后兼容
+# duplicate_detection:  # 已弃用
+#   enabled: true
+#   date_column: "trade_date"
+#   threshold: 0.95
+
+# 新增：衍生字段配置
+derived_fields:
+  trade_date_dt:    # 衍生字段名称
+    source: trade_date    # 源字段
+    type: date    # 转换类型
+    format: '%Y%m%d'    # 日期格式
+    description: "日期类型的trade_date"
+  # 可以添加更多衍生字段...
+```
+
+**从旧格式迁移到新格式：**
+
+旧格式：
+```yaml
 duplicate_detection:
   enabled: true
   date_column: "trade_date"
   threshold: 0.95
 ```
 
+新格式：
+```yaml
+dedup_enabled: true  # 仅此一项即可启用去重
+```
+
+**新统一方法的优势：**
+- 更简洁：只需 `primary_key` 和 `dedup_enabled: true` 即可实现去重
+- 更统一：所有去重逻辑基于 primary_key 配置，无需额外的 duplicate_detection 配置
+- 更直观：去重行为与 primary_key 密切相关，统一管理
+- 向后兼容：保留旧的 duplicate_detection 配置格式，但建议使用新的统一方法
+
 ## 接口组
 
 App4 将接口组织成逻辑组以便于管理：
 
-- **daily**: 日线市场数据（daily, daily_basic, adj_factor, moneyflow）
-- **financial**: 财务报表（income, balancesheet, cashflow, fina_indicator, fina_audit, fina_mainbz）
-- **holders**: 股东数据（top10_holders, top10_floatholders, stk_rewards, pledge_detail, stk_holdertrade）
-- **market**: 市场指标（moneyflow, cyq_chips, stk_factor, moneyflow_ind_dc, moneyflow_cnt_ths）
-- **basic**: 基本信息（stock_basic, trade_cal, namechange, stock_company）
-- **tscode_historical**: 需要股票代码循环的接口（stk_rewards, top10_holders, pledge_detail, fina_audit, top10_floatholders, stk_holdertrade）
+- **tscode_historical**: 需要股票代码循环的接口（默认起始日期19900101）
+  - 包括: stk_rewards, income_vip, balancesheet_vip, cashflow_vip, forecast_vip, express_vip, fina_indicator_vip, fina_audit, fina_mainbz_vip, disclosure_date, top10_floatholders, top10_holders, pledge_stat, pledge_detail, dividend, stk_factor, stk_factor_pro
+- **holders**: 股东数据
+  - 包括: top10_holders, top10_floatholders, stk_holdertrade, pledge_detail, pledge_stat, share_float, stk_rewards, stk_managers, stk_surv
+- **financial_vip**: VIP财务数据（季度数据）
+  - 包括: income_vip, balancesheet_vip, cashflow_vip, fina_indicator_vip, fina_mainbz_vip, express_vip, forecast_vip
+- **financial_basic**: 基础财务数据
+  - 包括: income, balancesheet, cashflow, fina_indicator, fina_mainbz, fina_audit, express, forecast
+- **daily**: 日线市场数据
+  - 包括: daily, daily_basic, pro_bar, trade_cal, block_trade, bak_daily, bak_basic, suspend_d
+- **moneyflow**: 资金流向数据
+  - 包括: moneyflow, moneyflow_ths, moneyflow_dc, moneyflow_ind_ths, moneyflow_ind_dc, moneyflow_cnt_ths, moneyflow_mkt_dc
+- **features**: 特色指标数据
+  - 包括: cyq_chips, cyq_perf, stk_factor, stk_factor_pro, stk_premarket
+- **company_info**: 公司基本信息
+  - 包括: stock_basic, stock_company, namechange, new_share, disclosure_date
+- **others**: 其他数据
+  - 包括: repurchase, stock_hsgt, stock_st, suspend_d, bak_basic, bak_daily, report_rc, broker_recommend, dividend, share_float, stk_holdertrade, stk_managers, stk_surv
+
+## 分页配置
+
+### date_range模式
+适用于按时间序列的数据，使用window_size_days控制单次请求的时间范围。
+
+```yaml
+pagination:
+  enabled: true
+  mode: date_range
+  window_size_days: 365  # 每次请求1年的数据
+```
+
+### stock_loop模式
+适用于需要按股票代码循环的数据，每个股票独立请求。
+
+```yaml
+pagination:
+  enabled: true
+  mode: stock_loop
+  window_size_days: 3650  # 每个股票单次请求10年的数据
+```
+
+### periodic_range模式
+适用于按固定周期（日、周、月、季、年）的数据。
+
+```yaml
+pagination:
+  enabled: true
+  mode: periodic_range
+  period_type: quarter  # 支持: day, week, month, quarter, year
+```
+
+### offset模式
+适用于使用offset/limit分页的数据。
+
+```yaml
+pagination:
+  enabled: true
+  mode: offset
+  default_limit: 5000    # 默认每页数量
+  limit_key: limit       # API的limit参数名
+  offset_key: offset     # API的offset参数名
+```
+
+### 禁用分页
+对于不需要分页的接口，显式禁用分页配置。
+
+```yaml
+pagination:
+  enabled: false
+```
+
+**注意**: 当前配置中，`broker_recommend`和`namechange`接口已正确设置`pagination.enabled: false`。
 
 ## 主要特性
 
@@ -234,11 +327,12 @@ App4 将接口组织成逻辑组以便于管理：
 9. **速率限制保护**: 令牌桶算法防止 API 限流
 10. **类型安全**: 全面的参数验证和类型检查
 11. **覆盖率管理**: 智能重复检测避免冗余下载
-12. **智能增量下载**: 检测缺失数据范围并仅下载缺失部分，提高下载效率
-13. **内存高效缓存**: 频繁访问数据的运行时缓存
-14. **数据集模式存储**: 使用 Parquet 数据集格式的高效存储
+12. **内存高效缓存**: 频繁访问数据的运行时缓存
+13. **数据集模式存储**: 使用 Parquet 数据集格式的高效存储
+14. **原始数据+衍生字段架构**: 保持原始API数据格式，通过配置化衍生字段提供优化类型
 15. **季度和周期性范围分页**: 支持财务数据的 period_range、quarterly_range 和 periodic_range 分页模式
 16. **券商推荐处理**: 对 broker_recommend 接口的特殊处理，使用基于月份的请求
+17. **统一去重配置**: 通过 primary_key + dedup_enabled 的统一配置方式实现数据去重，简化配置并提高一致性
 
 ## 使用方法
 
@@ -288,35 +382,14 @@ python main.py --pro-bar-only
 
 # 为股票循环接口下载完整历史数据
 python main.py --tscode-historical
-
-# 移除历史下载标记文件
-python main.py --remove-historical-markers
 ```
-
-### 智能增量下载功能
-
-App4 支持智能增量下载，能够检测已存在的数据并仅下载缺失部分，从而显著提高下载效率：
-
-```bash
-# 智能增量下载 - 系统将自动检测已有数据并仅下载缺失部分
-python main.py --start_date 20230101 --end_date 20231231 --interface daily
-
-# 智能下载多个数据组 - 自动跳过已覆盖的日期范围或仅下载缺失数据
-python main.py --start_date 20230101 --end_date 20231231 --group daily
-
-# 智能股票数据下载 - 自动检测股票数据的覆盖情况并补充缺失数据
-python main.py --holders-data
-```
-
-智能增量下载功能会在下载前分析现有数据的覆盖情况：
-- **完全覆盖**：如果指定日期范围内的数据已完全存在，则跳过下载
-- **部分覆盖**：如果存在部分数据，则仅下载缺失的日期范围
-- **无覆盖**：如果指定日期范围内没有数据，则执行完整下载
 
 ## App4 架构优势
 
 - **零代码扩展性**: 无需编写代码即可添加接口
 - **声明式配置**: 所有行为在 YAML 文件中定义
+- **原始数据+衍生字段架构**: 保持原始API返回格式，通过配置化衍生字段提供优化类型
+- **统一去重配置**: 通过 primary_key + dedup_enabled 的统一配置方式实现数据去重，简化配置并提高一致性
 - **类型安全**: 全面的参数验证
 - **高性能**: Polars 用于数据处理，异步 I/O
 - **智能缓存**: 交易日历派生策略
@@ -324,3 +397,4 @@ python main.py --holders-data
 - **覆盖率管理**: 通过重复检测避免冗余下载
 - **内存高效**: 频繁访问数据的运行时缓存
 - **数据集存储**: 使用 Parquet 数据集格式的高效数据访问
+- **查询性能优化**: 衍生字段（如布尔类型）显著提升Polars查询性能

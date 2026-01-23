@@ -1,48 +1,46 @@
-name: block_trade
 api_name: block_trade
-description: "大宗交易"
-
-permissions:
-  min_points: 300
-  rate_limit: 60
-  query_limit: 1000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "TS代码"
-  trade_date:
-    type: string
-    required: false
-    description: "交易日期 YYYYMMDD"
-  start_date:
-    type: string
-    required: false
-    description: "开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "结束日期 YYYYMMDD"
-
+derived_fields:
+  trade_date_dt:
+    description: 日期类型的trade_date
+    format: '%Y%m%d'
+    source: trade_date
+    type: date
+description: 大宗交易
+name: block_trade
+output:
+  primary_key:
+  - ts_code
+  - trade_date
+  - price
+  - vol
+  sort_by:
+  - trade_date
 pagination:
   enabled: true
-  mode: "date_range"
+  mode: date_range
   window_size_days: 365
-
-output:
-  primary_key: ["ts_code", "trade_date", "price", "vol"]
-  sort_by: ["trade_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    trade_date: {type: date, format: "%Y%m%d", required: true}
-    price: {type: float}
-    vol: {type: float}
-    amount: {type: float}
-    buyer: {type: string}
-    seller: {type: string}
+parameters:
+  end_date:
+    description: 结束日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 开始日期 YYYYMMDD
+    required: false
+    type: string
+  trade_date:
+    description: 交易日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: TS代码
+    required: false
+    type: string
+permissions:
+  min_points: 300
+  query_limit: 1000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

@@ -1,63 +1,45 @@
-name: report_rc
 api_name: report_rc
-description: "卖方盈利预测数据"
-
-permissions:
-  min_points: 8000
-  rate_limit: 60
-  query_limit: 3000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "股票代码"
-  report_date:
-    type: string
-    required: false
-    description: "报告日期 YYYYMMDD"
-  start_date:
-    type: string
-    required: false
-    description: "报告开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "报告结束日期 YYYYMMDD"
-
+derived_fields:
+  report_date_dt:
+    description: 日期类型的report_date
+    format: '%Y%m%d'
+    source: report_date
+    type: date
+description: 卖方盈利预测数据
+name: report_rc
+output:
+  primary_key:
+  - ts_code
+  - report_date
+  - org_name
+  sort_by:
+  - report_date
 pagination:
   enabled: true
-  mode: "date_range"
+  mode: date_range
   window_size_days: 365
-
-output:
-  primary_key: ["ts_code", "report_date", "org_name"]
-  sort_by: ["report_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    name: {type: string, required: true}
-    report_date: {type: date, format: "%Y%m%d", required: true}
-    report_title: {type: string}
-    report_type: {type: string}
-    classify: {type: string}
-    org_name: {type: string, required: true}
-    author_name: {type: string}
-    quarter: {type: string}
-    op_rt: {type: float}
-    op_pr: {type: float}
-    tp: {type: float}
-    np: {type: float}
-    eps: {type: float}
-    pe: {type: float}
-    rd: {type: float}
-    roe: {type: float}
-    ev_ebitda: {type: float}
-    rating: {type: string}
-    max_price: {type: float}
-    min_price: {type: float}
-    imp_dg: {type: string}
+parameters:
+  end_date:
+    description: 报告结束日期 YYYYMMDD
+    required: false
+    type: string
+  report_date:
+    description: 报告日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 报告开始日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 股票代码
+    required: false
+    type: string
+permissions:
+  min_points: 8000
+  query_limit: 3000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

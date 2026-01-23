@@ -1,0 +1,63 @@
+# cyq_perf接口分析报告
+
+## 1. 错误和Bug分析
+- **主要错误**: 第16行显示API返回错误："参数校验失败, ts_code,trade_date至少输入一个参数"
+- **下载失败**: 因上述参数错误，系统无法下载任何数据（第17行："No data returned for window 20240401-20240705"）
+
+- **问题分析**:
+  - 系统尝试使用date_range模式下载cyq_perf接口，但该接口需要ts_code或trade_date参数中的至少一个
+  - 在当前配置中，没有提供这两个必需参数，导致API调用失败
+
+- **潜在Bug**:
+  - 配置文件可能缺少ts_code或trade_date的必需参数配置
+  - cyq_perf接口可能不支持date_range分页模式，或者需要股票代码循环(stk_loop)模式
+
+## 2. 分页限制检查
+- **未触发分页限制**: 因API调用失败，没有实际的数据返回，因此没有触发任何分页限制（1000、2000、10000条记录等）
+- 从日志看，系统没有进入数据获取阶段，因此没有分页处理
+
+## 3. 去重分析
+- **无去重操作**: 因没有获取到任何数据，因此没有执行去重操作，不存在过度删除记录的问题
+
+## 4. 数据保存验证
+- **数据未保存**: 因没有获取到任何数据（第18行："No data downloaded for cyq_perf"），数据没有保存到parquet文件
+- 没有看到存储相关的信息日志，只有停止存储的提示
+
+## 5. 调用频率验证
+- **单次调用**: 从日志看，系统只进行了一次API调用
+- **日期范围**: 20240401 - 20240705 (64个交易日)
+- **调用次数**: 每个交易日只调用一次的预期没有实现，因为整体调用就失败了
+
+## 6. 数据下载确认
+- **无数据下载**: 系统没有成功下载任何数据
+- 性能报告显示平均单窗口条数为0.00条（第33行）
+
+## 总结和建议
+### 主要问题
+1. **接口配置错误**: cyq_perf接口配置中缺少必需的ts_code或trade_date参数
+2. **分页模式不匹配**: cyq_perf接口可能需要股票代码循环模式，而不是date_range模式
+3. **参数校验失败**: TuShare API要求至少提供ts_code或trade_date参数
+
+### 解决方案
+1. **检查接口配置文件**: 检查app4/config/interfaces/cyq_perf.yaml文件配置
+2. **修改分页模式**: cyq_perf可能需要使用stock_loop模式而不是date_range模式
+3. **添加必需参数**: 在配置文件中添加ts_code参数，可能需要先获取股票列表
+4. **验证接口规范**: 确认cyq_perf接口的具体参数要求
+
+### 建议修改
+```yaml
+# cyq_perf.yaml
+name: cyq_perf
+api_name: cyq_perf
+pagination:
+  enabled: true
+  mode: "stock_loop"  # 改为stock_loop模式
+  # 或者需要提供ts_code参数
+parameters:
+  ts_code:  # 添加ts_code参数配置
+    type: string
+    required: true
+    description: "证券代码"
+```
+
+从日志看，当前的cyq_perf接口配置存在问题，需要修正参数配置和分页模式以匹配TuShare API的实际要求。

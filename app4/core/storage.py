@@ -8,40 +8,81 @@ import uuid
 import time
 from typing import List, Dict, Any, Optional
 import logging
+from .dedup import deduplicate_against_existing
 
 logger = logging.getLogger(__name__)
 
 class StorageManager:
-    """存储管理器 - 异步持久化 - Dataset 模式"""
+    """存储管理器 - 支持接口缓存和异步处理"""
 
-    def __init__(self, storage_dir: str = "../data", format: str = "parquet", batch_size: int = 100):
+    def __init__(self, processor: Optional['DataProcessor'] = None, config_loader=None, storage_dir: str = "../data",
+                 format: str = "parquet", batch_size: int = 10000):
+        # 现有属性
         self.storage_dir = storage_dir
         self.format = format
         self.batch_size = batch_size
         self.data_queue = queue.Queue()
         self.writer_thread = None
         self.running = False
+        self.stats = {
+            'total_records': 0,
+            'files_written': 0,
+            'start_time': time.time()
+        }
+
+        # 新增属性
+        self.processor = processor  # 持有Processor引用
+        self.config_loader = config_loader  # 持有配置加载器引用
+        self.interface_buffers = {}  # 接口缓存 {interface_name: BufferContext}
+        self.process_queue = queue.Queue()  # 处理队列
+        self.process_thread = None  # 处理线程
+        self.buffer_threshold = 5000  # 触发阈值
+        self.buffer_lock = threading.Lock()  # 缓存锁
+        self.failed_interfaces = set()  # 失败接口集合
 
         # 确保存储目录存在
         os.makedirs(storage_dir, exist_ok=True)
 
     def start_writer(self):
-        """启动写入线程"""
+        """启动写入线程和处理线程"""
         if not self.running:
             self.running = True
-            self.writer_thread = threading.Thread(target=self._writer_worker, daemon=True)
+
+            # 启动写入线程（现有）
+            self.writer_thread = threading.Thread(
+                target=self._writer_worker,
+                daemon=True
+            )
             self.writer_thread.start()
-            logger.info("Storage writer thread started")
+
+            # 启动处理线程（新增）
+            self.process_thread = threading.Thread(
+                target=self._process_worker,
+                daemon=True
+            )
+            self.process_thread.start()
+
+            logger.info("Storage writer and process threads started")
 
     def stop_writer(self):
-        """停止写入线程"""
+        """停止所有线程"""
         if self.running:
             self.running = False
-            # 发送哨兵信号，确保队列中的数据被处理完
-            self.data_queue.put(None)
+
+            # 处理剩余的数据
+            self.flush_remaining_data()
+
+            # 停止处理线程
+            self.process_queue.put(None)  # 发送哨兵
+            if self.process_thread:
+                self.process_thread.join()
+
+            # 停止写入线程
+            self.data_queue.put(None)  # 发送哨兵
             if self.writer_thread:
                 self.writer_thread.join()
-            logger.info("Storage writer thread stopped")
+
+            logger.info("Storage threads stopped")
 
     def _writer_worker(self):
         """写入工作者线程"""
@@ -225,7 +266,7 @@ class StorageManager:
             logger.error(f"Error writing interface data for {interface_name}: {str(e)}")
             raise
 
-    def read_interface_data(self, interface_name: str, start_date: str = None, end_date: str = None, columns: Optional[List[str]] = None, **kwargs) -> pl.DataFrame:
+    def read_interface_data(self, interface_name: str, start_date: str = None, end_date: str = None, columns: Optional[List[str]] = None) -> pl.DataFrame:
         """
         读取接口数据 - 支持文件名过滤和确定性去重
         """
@@ -276,24 +317,12 @@ class StorageManager:
                             temp_df = pl.read_parquet(file_path)
                             available_cols = [col for col in columns if col in temp_df.columns]
                             temp_df = temp_df.select(available_cols)
-                            if df.is_empty():
-                                df = temp_df
-                            else:
-                                try:
-                                    df = pl.concat([df, temp_df], how='vertical')
-                                except Exception:
-                                    # 如果类型不匹配，尝试diagonal模式
-                                    df = pl.concat([df, temp_df], how='diagonal')
+                            df = df.vstack(temp_df) if not df.is_empty() else temp_df
                         except Exception:
                             # 如果单个文件有问题，跳过它
                             continue
             else:
                 df = pl.read_parquet(files_to_read)
-
-            # [新增] 过滤额外参数（例如 ts_code）
-            for param_name, param_value in kwargs.items():
-                if param_name in df.columns and param_value is not None:
-                    df = df.filter(pl.col(param_name) == param_value)
 
             # [优化] 确定性去重
             interface_config = self._get_interface_config(interface_name)
@@ -312,6 +341,234 @@ class StorageManager:
         except Exception as e:
             logger.error(f"Error reading interface data for {interface_name}: {str(e)}")
             raise
+
+    def add_to_buffer(self, interface_name: str, data: List[Dict[str, Any]]) -> None:
+        """
+        Add data to buffer with optimized lock usage.
+        The lock is held only for minimal operations; I/O happens outside the critical section.
+        """
+        data_to_process = None
+        interface_to_process = None
+
+        with self.buffer_lock:
+            # Only perform minimal necessary operations while holding the lock
+            buffer = self._get_or_create_buffer(interface_name)
+            buffer['data'].extend(data)
+            buffer['count'] += len(data)
+
+            # Check if we should flush the buffer
+            if buffer['count'] >= self.buffer_threshold:
+                # Take ownership of the data outside of the lock
+                data_to_process = buffer['data']
+                interface_to_process = interface_name
+                # Reset buffer with new empty list
+                buffer['data'] = []
+                buffer['count'] = 0
+
+        # Process the data outside the lock to avoid blocking other threads
+        if data_to_process:
+            # Add to processing queue - this might block briefly if queue is full
+            item = {
+                'interface': interface_to_process,
+                'data': data_to_process,
+                'timestamp': time.time()
+            }
+            self.process_queue.put(item)
+
+            # Update statistics outside of lock
+            self.total_buffered_items = getattr(self, 'total_buffered_items', 0) + len(data_to_process)
+            self.last_processed_time = time.time()
+
+    def _get_or_create_buffer(self, interface_name: str) -> Dict[str, Any]:
+        """
+        Get existing buffer for interface or create new one.
+        This helper method is used inside the critical section to avoid code duplication.
+        """
+        if interface_name not in self.interface_buffers:
+            self.interface_buffers[interface_name] = {
+                'data': [],
+                'count': 0,
+                'created_at': time.time()
+            }
+        return self.interface_buffers[interface_name]
+
+    def flush_remaining_data(self):
+        """处理所有缓存中的剩余数据"""
+        items_to_flush = []
+
+        with self.buffer_lock:
+            for interface_name, buffer in self.interface_buffers.items():
+                if buffer['count'] > 0 and buffer['data']:
+                    # 收集需要处理的数据（在锁内做最小操作）
+                    items_to_flush.append({
+                        'interface_name': interface_name,
+                        'data': buffer['data'],
+                        'count': buffer['count']
+                    })
+
+                    # 重置缓存
+                    buffer['data'] = []
+                    buffer['count'] = 0
+
+        # 处理收集的数据（在锁外）
+        for item in items_to_flush:
+            # 放入处理队列
+            try:
+                self.process_queue.put({
+                    'interface': item['interface_name'],
+                    'data': item['data'],
+                    'timestamp': time.time()
+                }, block=False)
+                logger.info(f"Flushed {len(item['data'])} remaining records for processing: {item['interface_name']}")
+            except queue.Full:
+                logger.error(f"Process queue is full, unable to flush data for {item['interface_name']}")
+
+    def _process_worker(self):
+        """处理线程：数据去重、验证、放入写入队列"""
+        while self.running:
+            try:
+                task = self.process_queue.get(timeout=1)
+
+                # 检查停止信号
+                if task is None:
+                    logger.info("Process worker received stop signal")
+                    break
+
+                # 检查接口是否已失败
+                interface_name = task['interface']
+                if interface_name in self.failed_interfaces:
+                    logger.warning(f"Skipping processing for failed interface: {interface_name}")
+                    continue
+
+                try:
+                    # 获取接口配置
+                    try:
+                        if self.config_loader:
+                            # 使用传入的配置加载器
+                            interface_config = self.config_loader.get_interface_config(interface_name)
+                        else:
+                            # 如果没有传入配置加载器，尝试动态加载
+                            from .config_loader import ConfigLoader
+                            config_loader = ConfigLoader()
+                            interface_config = config_loader.get_interface_config(interface_name)
+                    except Exception as e:
+                        # 如果无法加载配置，使用默认配置
+                        logger.warning(f"Failed to load interface config for {interface_name}, using default: {e}")
+                        interface_config = {
+                            'api_name': interface_name,
+                            'output': {'primary_key': ['ts_code', 'trade_date']},
+                            'dedup': {'enabled': True}
+                        }
+
+                    # 处理数据（包含批次内去重）
+                    if self.processor:
+                        df = self.processor.process_data(task['data'], interface_config)
+                    else:
+                        # 如果没有processor，直接创建DataFrame
+                        df = pl.DataFrame(task['data'])
+
+                    if df.is_empty():
+                        logger.warning(f"No data to save after processing: {interface_name}")
+                        continue
+
+                    # 验证数据
+                    if self.processor:
+                        validation_result = self.processor.validate_data(df, interface_config)
+
+                    # 基于接口配置与Parquet文件去重 - 使用统一的去重模块
+                    dedup_config = interface_config.get('dedup', {'dedup_enabled': True})
+                    if dedup_config.get('enabled', False):
+                        # 获取主键配置
+                        output_config = interface_config.get('output', {})
+                        primary_keys = output_config.get('primary_key', [])
+
+                        if primary_keys:
+                            # 读取现有数据（只读主键列）
+                            existing_df = self.read_interface_data(
+                                interface_name,
+                                columns=primary_keys
+                            )
+
+                            if not existing_df.is_empty():
+                                # 使用统一的去重模块 - 需要先将现有数据保存到临时文件
+                                import tempfile
+                                try:
+                                    with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
+                                        existing_df.write_parquet(tmp_file.name)
+                                        temp_path = tmp_file.name
+
+                                    # 使用统一的去重模块
+                                    df, dedup_stats = deduplicate_against_existing(
+                                        new_data=df,
+                                        existing_data_path=temp_path,
+                                        primary_keys=primary_keys
+                                    )
+
+                                    if dedup_stats.removed_rows > 0:
+                                        logger.info(f"Deduplicated {dedup_stats.removed_rows} records for {interface_name}, "
+                                                  f"keeping {len(df)} new records")
+                                    else:
+                                        logger.info(f"No duplicates found for {interface_name}, keeping all {len(df)} records")
+                                finally:
+                                    # 清理临时文件
+                                    if 'temp_path' in locals() and os.path.exists(temp_path):
+                                        os.unlink(temp_path)
+
+                            # 跳过没有新记录的情况
+                            if len(df) == 0:
+                                logger.info(f"No new records to save for {interface_name}, skipping")
+                                continue
+
+                    # 保存数据（异步写入）
+                    self.save_data(interface_name, df.to_dicts(), async_write=True)
+
+                    logger.info(f"Processed and queued {len(df)} records for {interface_name}")
+
+                except Exception as e:
+                    logger.error(f"Error processing {interface_name}: {str(e)}")
+
+                    # 重试机制
+                    # 注意：task结构已改变，不再有retry_count字段，因此我们简化重试逻辑
+                    # 如果需要更复杂的重试，可以更新task结构以支持重试计数
+                    # 暂时只记录错误，不重试
+                    logger.error(f"Failed to process {interface_name}: {str(e)}")
+                    self.failed_interfaces.add(interface_name)
+
+                    # 输出详细的错误信息
+                    logger.error(f"Failed to save {len(task.get('data', []))} records for {interface_name}")
+
+            except queue.Empty:
+                # 队列为空，继续循环
+                continue
+
+            except Exception as e:
+                logger.error(f"Unexpected error in process worker: {str(e)}")
+
+    def get_failed_interfaces(self) -> set:
+        """获取失败的接口集合"""
+        return self.failed_interfaces.copy()
+
+    def clear_failed_interface(self, interface_name: str):
+        """清除接口的失败状态"""
+        self.failed_interfaces.discard(interface_name)
+
+    def get_buffer_stats(self) -> Dict[str, Any]:
+        """获取缓存统计信息"""
+        with self.buffer_lock:
+            stats = {
+                'total_interfaces': len(self.interface_buffers),
+                'interface_stats': {}
+            }
+
+            for interface_name, buffer in self.interface_buffers.items():
+                # 简单估算内存占用
+                buffer_size_mb = sum(len(str(record)) for record in buffer['data']) / 1024 / 1024 if buffer['data'] else 0
+                stats['interface_stats'][interface_name] = {
+                    'buffer_count': buffer['count'],
+                    'buffer_size_mb': buffer_size_mb
+                }
+
+            return stats
 
     def save_data(self, interface_name: str, data: List[Dict[str, Any]], async_write: bool = True):
         """
@@ -335,78 +592,6 @@ class StorageManager:
         else:
             # 同步写入：直接写入
             self._write_interface_data(interface_name, data)
-
-    def filter_new_records(self, interface_name: str, new_data: List[Dict], dedup_config: Dict[str, Any]) -> List[Dict]:
-        """
-        根据去重配置过滤新记录，只返回不存在的记录
-
-        Args:
-            interface_name: 接口名称
-            new_data: 新数据列表
-            dedup_config: 去重配置
-
-        Returns:
-            过滤后的新记录列表
-        """
-        if not dedup_config.get('enabled', False):
-            return new_data
-
-        strategy = dedup_config.get('strategy', 'none')
-        dedup_columns = dedup_config.get('columns', [])
-
-        if strategy != 'primary_key' or not dedup_columns:
-            return new_data
-
-        # 读取现有数据
-        existing_df = self.read_interface_data(interface_name, columns=dedup_columns)
-
-        if existing_df.is_empty():
-            return new_data
-
-        # 构建现有主键集合
-        existing_keys = set()
-        for row in existing_df.iter_rows(named=True):
-            key_tuple = tuple(row.get(k) for k in dedup_columns if k in row)
-            if all(v is not None for v in key_tuple):
-                existing_keys.add(key_tuple)
-
-        logger.info(f"Found {len(existing_keys)} existing key combinations for {interface_name}")
-
-        # 过滤出不存在的新记录
-        original_count = len(new_data)
-        new_records = []
-        for record in new_data:
-            key_tuple = tuple(record.get(k) for k in dedup_columns if k in record)
-            if key_tuple not in existing_keys and all(v is not None for v in key_tuple):
-                new_records.append(record)
-
-        if not new_records:
-            logger.info(f"All {original_count} records already exist for {interface_name}, skipping save")
-            return []
-
-        logger.info(f"Filtered {original_count - len(new_records)} duplicate records, "
-                    f"saving {len(new_records)} new records for {interface_name}")
-
-        return new_records
-
-    def save_data_with_dedup(self, interface_name: str, data: List[Dict], dedup_config: Dict[str, Any], async_write: bool = True):
-        """
-        带去重功能的数据保存
-
-        Args:
-            interface_name: 接口名称
-            data: 要保存的数据
-            dedup_config: 去重配置
-            async_write: 是否异步写入
-        """
-        # 先过滤新记录
-        filtered_data = self.filter_new_records(interface_name, data, dedup_config)
-
-        if not filtered_data:
-            return  # 没有新数据需要保存
-
-        # 保存过滤后的数据
-        self.save_data(interface_name, filtered_data, async_write)
 
     def get_storage_info(self) -> Dict[str, Any]:
         """获取存储信息"""

@@ -1,0 +1,54 @@
+name: daily
+api_name: daily
+description: "日线行情"
+
+permissions:
+  min_points: 0
+  rate_limit: 120
+  query_limit: 10000
+
+request:
+  method: POST
+  extra_path: ""
+  timeout: 30
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "证券代码"
+  trade_date:
+    type: string
+    required: false
+    description: "交易日期 YYYYMMDD"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+
+pagination:
+  enabled: true
+  mode: "date_range"
+  window_size_days: 365
+
+# 重复数据检测配置
+duplicate_detection:
+  enabled: true          # 默认为 true
+  mode: "range"          # 可选: range (默认), set, exact
+  date_column: trade_date
+  threshold: 0.95        # 覆盖率阈值
+
+output:
+  primary_key: ["ts_code", "trade_date"]
+  sort_by: ["trade_date"]
+
+derived_fields:
+  trade_date_dt:
+    source: trade_date
+    type: date
+    format: '%Y%m%d'
+    description: "日期类型的trade_date"

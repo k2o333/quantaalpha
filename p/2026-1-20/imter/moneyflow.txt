@@ -1,0 +1,47 @@
+2026-01-20 22:52:52,981 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-20 22:52:52,981 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260120
+2026-01-20 22:52:53,033 - __main__ - INFO - Global trade calendar loaded from data directory: 8566 trade days
+2026-01-20 22:52:53,033 - core.scheduler - INFO - Task scheduler started with 1 workers
+2026-01-20 22:52:53,033 - core.storage - INFO - Storage writer and process threads started
+2026-01-20 22:52:53,033 - __main__ - INFO - Interfaces to run: ['moneyflow']
+2026-01-20 22:52:53,034 - __main__ - INFO - Downloading data for moneyflow, pagination mode: date_range
+2026-01-20 22:52:53,034 - core.downloader - INFO - [Thread-139961946187584] [Task-unknown] [DEBUG] _execute_date_range_pagination called with params: {'start_date': '20240401', 'end_date': '20240705'}
+2026-01-20 22:52:53,034 - core.downloader - INFO - [Thread-139961946187584] [Task-unknown] [DEBUG] start_date: 20240401, end_date: 20240705
+2026-01-20 22:52:53,034 - core.downloader - INFO - [Thread-139961946187584] [Task-unknown] [DEBUG] ts_code in params: N/A
+2026-01-20 22:52:53,034 - core.downloader - INFO - Fetching trade calendar for date range: 20240401 - 20240705
+2026-01-20 22:52:53,037 - core.downloader - INFO - Trade calendar loaded from data directory: 20240401-20240705
+2026-01-20 22:52:53,038 - core.downloader - INFO - Found 64 trade days
+2026-01-20 22:52:53,038 - core.downloader - INFO - Using window size: 365 days
+2026-01-20 22:52:53,038 - core.downloader - INFO - Downloading data for window 1: 20240401 - 20240705
+2026-01-20 22:52:54,566 - core.downloader - INFO - API returned 20 fields for moneyflow
+2026-01-20 22:52:54,566 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount', 'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount', 'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount', 'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount', 'net_mf_vol', 'net_mf_amount']
+2026-01-20 22:52:54,617 - core.downloader - WARNING - Window 20240401-20240705 returned 6000 records, which may be truncated (API limit: 6000)
+2026-01-20 22:52:54,618 - core.downloader - INFO - Downloaded 6000 records for date range 20240401-20240705
+2026-01-20 22:52:54,618 - __main__ - INFO - Successfully downloaded 6000 records for moneyflow
+2026-01-20 22:52:54,650 - core.processor - INFO - Processed 6000 records for moneyflow
+2026-01-20 22:52:54,651 - __main__ - ERROR - Error processing interface moneyflow: 'StorageManager' object has no attribute 'base_dir'
+Traceback (most recent call last):
+  File "/home/quan/testdata/aspipe_v4/app4/main.py", line 652, in main
+    process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
+  File "/home/quan/testdata/aspipe_v4/app4/main.py", line 337, in process_and_save_data
+    data_dir = storage_manager.base_dir
+AttributeError: 'StorageManager' object has no attribute 'base_dir'
+2026-01-20 22:52:54,651 - __main__ - INFO - 正在停止调度器...
+2026-01-20 22:52:54,652 - core.scheduler - INFO - Task scheduler stopped
+2026-01-20 22:52:54,652 - __main__ - INFO - 正在关闭存储写入...
+2026-01-20 22:52:54,652 - core.storage - INFO - Process worker received stop signal
+2026-01-20 22:52:54,652 - core.storage - INFO - Storage threads stopped
+Debug: performance_monitor id: 139961936588704
+Debug: request_time指标数量: 1
+Debug: data_size指标数量: 1
+2026-01-20 22:52:54,652 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+平均请求时间: 1.58s
+平均单窗口条数: 6000.00 条
+平均重试次数: 0.00 次
+⚠️ 警告: 数据量接近 API 限制，建议减小窗口大小
+==============================
+

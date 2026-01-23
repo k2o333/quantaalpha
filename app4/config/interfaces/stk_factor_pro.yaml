@@ -1,301 +1,44 @@
-name: stk_factor_pro
 api_name: stk_factor_pro
-description: "股票技术因子(专业版)"
-
-permissions:
-  min_points: 5000
-  rate_limit: 30
-  query_limit: 10000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "股票代码"
-  trade_date:
-    type: string
-    required: false
-    description: "交易日期 YYYYMMDD"
-  start_date:
-    type: string
-    required: false
-    description: "开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "结束日期 YYYYMMDD"
-
+derived_fields:
+  trade_date_dt:
+    description: 日期类型的trade_date
+    format: '%Y%m%d'
+    source: trade_date
+    type: date
+description: 股票技术因子(专业版)
+name: stk_factor_pro
+output:
+  primary_key:
+  - ts_code
+  - trade_date
+  sort_by:
+  - trade_date
 pagination:
   enabled: true
-  mode: "stock_loop"
-
-output:
-  primary_key: ["ts_code", "trade_date"]
-  sort_by: ["trade_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    trade_date: {type: date, format: "%Y%m%d", required: true}
-    open: {type: float}
-    open_hfq: {type: float}
-    open_qfq: {type: float}
-    high: {type: float}
-    high_hfq: {type: float}
-    high_qfq: {type: float}
-    low: {type: float}
-    low_hfq: {type: float}
-    low_qfq: {type: float}
-    close: {type: float}
-    close_hfq: {type: float}
-    close_qfq: {type: float}
-    pre_close: {type: float}
-    change: {type: float}
-    pct_chg: {type: float}
-    vol: {type: float}
-    amount: {type: float}
-    turnover_rate: {type: float}
-    turnover_rate_f: {type: float}
-    volume_ratio: {type: float}
-    pe: {type: float}
-    pe_ttm: {type: float}
-    pb: {type: float}
-    ps: {type: float}
-    ps_ttm: {type: float}
-    dv_ratio: {type: float}
-    dv_ttm: {type: float}
-    total_share: {type: float}
-    float_share: {type: float}
-    free_share: {type: float}
-    total_mv: {type: float}
-    circ_mv: {type: float}
-    adj_factor: {type: float}
-    asi_bfq: {type: float}
-    asi_hfq: {type: float}
-    asi_qfq: {type: float}
-    asit_bfq: {type: float}
-    asit_hfq: {type: float}
-    asit_qfq: {type: float}
-    atr_bfq: {type: float}
-    atr_hfq: {type: float}
-    atr_qfq: {type: float}
-    bbi_bfq: {type: float}
-    bbi_hfq: {type: float}
-    bbi_qfq: {type: float}
-    bias1_bfq: {type: float}
-    bias1_hfq: {type: float}
-    bias1_qfq: {type: float}
-    bias2_bfq: {type: float}
-    bias2_hfq: {type: float}
-    bias2_qfq: {type: float}
-    bias3_bfq: {type: float}
-    bias3_hfq: {type: float}
-    bias3_qfq: {type: float}
-    boll_lower_bfq: {type: float}
-    boll_lower_hfq: {type: float}
-    boll_lower_qfq: {type: float}
-    boll_mid_bfq: {type: float}
-    boll_mid_hfq: {type: float}
-    boll_mid_qfq: {type: float}
-    boll_upper_bfq: {type: float}
-    boll_upper_hfq: {type: float}
-    boll_upper_qfq: {type: float}
-    brar_ar_bfq: {type: float}
-    brar_ar_hfq: {type: float}
-    brar_ar_qfq: {type: float}
-    brar_br_bfq: {type: float}
-    brar_br_hfq: {type: float}
-    brar_br_qfq: {type: float}
-    cci_bfq: {type: float}
-    cci_hfq: {type: float}
-    cci_qfq: {type: float}
-    cr_bfq: {type: float}
-    cr_hfq: {type: float}
-    cr_qfq: {type: float}
-    dfma_dif_bfq: {type: float}
-    dfma_dif_hfq: {type: float}
-    dfma_dif_qfq: {type: float}
-    dfma_difma_bfq: {type: float}
-    dfma_difma_hfq: {type: float}
-    dfma_difma_qfq: {type: float}
-    dmi_adx_bfq: {type: float}
-    dmi_adx_hfq: {type: float}
-    dmi_adx_qfq: {type: float}
-    dmi_adxr_bfq: {type: float}
-    dmi_adxr_hfq: {type: float}
-    dmi_adxr_qfq: {type: float}
-    dmi_mdi_bfq: {type: float}
-    dmi_mdi_hfq: {type: float}
-    dmi_mdi_qfq: {type: float}
-    dmi_pdi_bfq: {type: float}
-    dmi_pdi_hfq: {type: float}
-    dmi_pdi_qfq: {type: float}
-    downdays: {type: float}
-    updays: {type: float}
-    dpo_bfq: {type: float}
-    dpo_hfq: {type: float}
-    dpo_qfq: {type: float}
-    madpo_bfq: {type: float}
-    madpo_hfq: {type: float}
-    madpo_qfq: {type: float}
-    ema_bfq_10: {type: float}
-    ema_bfq_20: {type: float}
-    ema_bfq_250: {type: float}
-    ema_bfq_30: {type: float}
-    ema_bfq_5: {type: float}
-    ema_bfq_60: {type: float}
-    ema_bfq_90: {type: float}
-    ema_hfq_10: {type: float}
-    ema_hfq_20: {type: float}
-    ema_hfq_250: {type: float}
-    ema_hfq_30: {type: float}
-    ema_hfq_5: {type: float}
-    ema_hfq_60: {type: float}
-    ema_hfq_90: {type: float}
-    ema_qfq_10: {type: float}
-    ema_qfq_20: {type: float}
-    ema_qfq_250: {type: float}
-    ema_qfq_30: {type: float}
-    ema_qfq_5: {type: float}
-    ema_qfq_60: {type: float}
-    ema_qfq_90: {type: float}
-    emv_bfq: {type: float}
-    emv_hfq: {type: float}
-    emv_qfq: {type: float}
-    maemv_bfq: {type: float}
-    maemv_hfq: {type: float}
-    maemv_qfq: {type: float}
-    expma_12_bfq: {type: float}
-    expma_12_hfq: {type: float}
-    expma_12_qfq: {type: float}
-    expma_50_bfq: {type: float}
-    expma_50_hfq: {type: float}
-    expma_50_qfq: {type: float}
-    kdj_bfq: {type: float}
-    kdj_hfq: {type: float}
-    kdj_qfq: {type: float}
-    kdj_d_bfq: {type: float}
-    kdj_d_hfq: {type: float}
-    kdj_d_qfq: {type: float}
-    kdj_k_bfq: {type: float}
-    kdj_k_hfq: {type: float}
-    kdj_k_qfq: {type: float}
-    ktn_down_bfq: {type: float}
-    ktn_down_hfq: {type: float}
-    ktn_down_qfq: {type: float}
-    ktn_mid_bfq: {type: float}
-    ktn_mid_hfq: {type: float}
-    ktn_mid_qfq: {type: float}
-    ktn_upper_bfq: {type: float}
-    ktn_upper_hfq: {type: float}
-    ktn_upper_qfq: {type: float}
-    lowdays: {type: float}
-    topdays: {type: float}
-    ma_bfq_10: {type: float}
-    ma_bfq_20: {type: float}
-    ma_bfq_250: {type: float}
-    ma_bfq_30: {type: float}
-    ma_bfq_5: {type: float}
-    ma_bfq_60: {type: float}
-    ma_bfq_90: {type: float}
-    ma_hfq_10: {type: float}
-    ma_hfq_20: {type: float}
-    ma_hfq_250: {type: float}
-    ma_hfq_30: {type: float}
-    ma_hfq_5: {type: float}
-    ma_hfq_60: {type: float}
-    ma_hfq_90: {type: float}
-    ma_qfq_10: {type: float}
-    ma_qfq_20: {type: float}
-    ma_qfq_250: {type: float}
-    ma_qfq_30: {type: float}
-    ma_qfq_5: {type: float}
-    ma_qfq_60: {type: float}
-    ma_qfq_90: {type: float}
-    macd_bfq: {type: float}
-    macd_hfq: {type: float}
-    macd_qfq: {type: float}
-    macd_dea_bfq: {type: float}
-    macd_dea_hfq: {type: float}
-    macd_dea_qfq: {type: float}
-    macd_dif_bfq: {type: float}
-    macd_dif_hfq: {type: float}
-    macd_dif_qfq: {type: float}
-    mass_bfq: {type: float}
-    mass_hfq: {type: float}
-    mass_qfq: {type: float}
-    ma_mass_bfq: {type: float}
-    ma_mass_hfq: {type: float}
-    ma_mass_qfq: {type: float}
-    mfi_bfq: {type: float}
-    mfi_hfq: {type: float}
-    mfi_qfq: {type: float}
-    mtm_bfq: {type: float}
-    mtm_hfq: {type: float}
-    mtm_qfq: {type: float}
-    mtmma_bfq: {type: float}
-    mtmma_hfq: {type: float}
-    mtmma_qfq: {type: float}
-    obv_bfq: {type: float}
-    obv_hfq: {type: float}
-    obv_qfq: {type: float}
-    psy_bfq: {type: float}
-    psy_hfq: {type: float}
-    psy_qfq: {type: float}
-    psyma_bfq: {type: float}
-    psyma_hfq: {type: float}
-    psyma_qfq: {type: float}
-    roc_bfq: {type: float}
-    roc_hfq: {type: float}
-    roc_qfq: {type: float}
-    maroc_bfq: {type: float}
-    maroc_hfq: {type: float}
-    maroc_qfq: {type: float}
-    rsi_bfq_12: {type: float}
-    rsi_bfq_24: {type: float}
-    rsi_bfq_6: {type: float}
-    rsi_hfq_12: {type: float}
-    rsi_hfq_24: {type: float}
-    rsi_hfq_6: {type: float}
-    rsi_qfq_12: {type: float}
-    rsi_qfq_24: {type: float}
-    rsi_qfq_6: {type: float}
-    taq_down_bfq: {type: float}
-    taq_down_hfq: {type: float}
-    taq_down_qfq: {type: float}
-    taq_mid_bfq: {type: float}
-    taq_mid_hfq: {type: float}
-    taq_mid_qfq: {type: float}
-    taq_up_bfq: {type: float}
-    taq_up_hfq: {type: float}
-    taq_up_qfq: {type: float}
-    trix_bfq: {type: float}
-    trix_hfq: {type: float}
-    trix_qfq: {type: float}
-    trma_bfq: {type: float}
-    trma_hfq: {type: float}
-    trma_qfq: {type: float}
-    vr_bfq: {type: float}
-    vr_hfq: {type: float}
-    vr_qfq: {type: float}
-    wr_bfq: {type: float}
-    wr_hfq: {type: float}
-    wr_qfq: {type: float}
-    wr1_bfq: {type: float}
-    wr1_hfq: {type: float}
-    wr1_qfq: {type: float}
-    xsii_td1_bfq: {type: float}
-    xsii_td1_hfq: {type: float}
-    xsii_td1_qfq: {type: float}
-    xsii_td2_bfq: {type: float}
-    xsii_td2_hfq: {type: float}
-    xsii_td2_qfq: {type: float}
-    xsii_td3_bfq: {type: float}
-    xsii_td3_hfq: {type: float}
-    xsii_td3_qfq: {type: float}
-    xsii_td4_bfq: {type: float}
-    xsii_td4_hfq: {type: float}
-    xsii_td4_qfq: {type: float}
+  mode: stock_loop
+  window_size_days: 3650  # 每个股票请求10年数据
+parameters:
+  end_date:
+    description: 结束日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 开始日期 YYYYMMDD
+    required: false
+    type: string
+  trade_date:
+    description: 交易日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 股票代码
+    required: false
+    type: string
+permissions:
+  min_points: 5000
+  query_limit: 10000
+  rate_limit: 30
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

@@ -1,42 +1,50 @@
-name: pledge_detail
 api_name: pledge_detail
-description: "股权质押明细"
-
-permissions:
-  min_points: 500
-  rate_limit: 60
-  query_limit: 1000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: true
-    description: "股票代码"
-
+derived_fields:
+  ann_date_dt:
+    description: 日期类型的ann_date
+    format: '%Y%m%d'
+    source: ann_date
+    type: date
+  end_date_dt:
+    description: 日期类型的end_date
+    format: '%Y%m%d'
+    source: end_date
+    type: date
+  release_date_dt:
+    description: 日期类型的release_date
+    format: '%Y%m%d'
+    source: release_date
+    type: date
+  start_date_dt:
+    description: 日期类型的start_date
+    format: '%Y%m%d'
+    source: start_date
+    type: date
+description: 股权质押明细
+name: pledge_detail
+output:
+  primary_key:
+  - ts_code
+  - ann_date
+  - holder_name
+  - start_date
+  sort_by:
+  - ann_date
+  - ts_code
 pagination:
   enabled: true
-  mode: "stock_loop"
-
-output:
-  primary_key: ["ts_code", "ann_date", "holder_name", "start_date"]
-  sort_by: ["ann_date", "ts_code"]
-  columns:
-    ts_code: {type: string, required: true}
-    ann_date: {type: date, format: "%Y%m%d"}
-    holder_name: {type: string, required: true}
-    pledge_amount: {type: float}
-    start_date: {type: date, format: "%Y%m%d"}
-    end_date: {type: date, format: "%Y%m%d"}
-    is_release: {type: string}
-    release_date: {type: date, format: "%Y%m%d"}
-    pledgor: {type: string}
-    holding_amount: {type: float}
-    pledged_amount: {type: float}
-    p_total_ratio: {type: float}
-    h_total_ratio: {type: float}
-    is_buyback: {type: string}
+  mode: stock_loop
+  window_size_days: 3650  # 每个股票请求10年数据
+parameters:
+  ts_code:
+    description: 股票代码
+    required: true
+    type: string
+permissions:
+  min_points: 500
+  query_limit: 1000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

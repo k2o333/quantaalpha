@@ -1,39 +1,37 @@
-name: pledge_stat
 api_name: pledge_stat
-description: "股权质押统计数据"
-
-permissions:
-  min_points: 500
-  rate_limit: 60
-  query_limit: 1000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  ts_code:
-    type: string
-    required: false
-    description: "股票代码"
-  end_date:
-    type: string
-    required: false
-    description: "截止日期 YYYYMMDD"
-
+derived_fields:
+  end_date_dt:
+    description: 日期类型的end_date
+    format: '%Y%m%d'
+    source: end_date
+    type: date
+description: 股权质押统计数据
+name: pledge_stat
+output:
+  primary_key:
+  - ts_code
+  - end_date
+  sort_by:
+  - end_date
+  - ts_code
 pagination:
   enabled: true
-  mode: "stock_loop"
-
-output:
-  primary_key: ["ts_code", "end_date"]
-  sort_by: ["end_date", "ts_code"]
-  columns:
-    ts_code: {type: string, required: true}
-    end_date: {type: date, format: "%Y%m%d", required: true}
-    pledge_count: {type: int}
-    unrest_pledge: {type: float}
-    rest_pledge: {type: float}
-    total_share: {type: float}
-    pledge_ratio: {type: float}
+  mode: stock_loop
+  window_size_days: 3650  # 每个股票请求10年数据
+parameters:
+  end_date:
+    description: 截止日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 股票代码
+    required: false
+    type: string
+permissions:
+  min_points: 500
+  query_limit: 1000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

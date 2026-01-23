@@ -1,42 +1,50 @@
-name: trade_cal
 api_name: trade_cal
-description: "交易日历"
-
-permissions:
-  min_points: 2000
-  rate_limit: 120
-  query_limit: 10000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  exchange:
-    type: string
-    required: false
-    default: "SSE"
-    description: "交易所 SSE上交所 SZSE深交所"
-  start_date:
-    type: string
-    required: false
-    description: "开始日期 YYYYMMDD"
-  end_date:
-    type: string
-    required: false
-    description: "结束日期 YYYYMMDD"
-
+derived_fields:
+  cal_date_dt:
+    description: 日期类型的cal_date
+    format: '%Y%m%d'
+    source: cal_date
+    type: date
+  is_open_bool:
+    description: 布尔类型的is_open，Polars查询性能最优
+    source: is_open
+    type: boolean
+  pretrade_date_dt:
+    description: 日期类型的pretrade_date
+    format: '%Y%m%d'
+    source: pretrade_date
+    type: date
+description: 交易日历
+name: trade_cal
+output:
+  primary_key:
+  - cal_date
+  - exchange
+  sort_by:
+  - cal_date
 pagination:
   enabled: true
-  mode: "date_range"
+  mode: date_range
   window_size_days: 365
-
-output:
-  primary_key: ["cal_date", "exchange"]
-  sort_by: ["cal_date"]
-  columns:
-    cal_date: {type: date, format: "%Y%m%d", required: true}
-    exchange: {type: string, required: true}
-    is_open: {type: int, required: true, description: "是否交易 0休市 1交易"}
-    pretrade_date: {type: date, format: "%Y%m%d"}
+parameters:
+  end_date:
+    description: 结束日期 YYYYMMDD
+    required: false
+    type: string
+  exchange:
+    default: SSE
+    description: 交易所 SSE上交所 SZSE深交所
+    required: false
+    type: string
+  start_date:
+    description: 开始日期 YYYYMMDD
+    required: false
+    type: string
+permissions:
+  min_points: 2000
+  query_limit: 10000
+  rate_limit: 120
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

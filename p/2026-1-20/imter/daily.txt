@@ -1,0 +1,225 @@
+2026-01-20 22:52:02,982 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-20 22:52:02,982 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260120
+2026-01-20 22:52:03,031 - __main__ - INFO - Global trade calendar loaded from data directory: 8566 trade days
+2026-01-20 22:52:03,032 - core.scheduler - INFO - Task scheduler started with 1 workers
+2026-01-20 22:52:03,032 - core.storage - INFO - Storage writer and process threads started
+2026-01-20 22:52:03,032 - __main__ - INFO - Interfaces to run: ['daily']
+2026-01-20 22:52:03,032 - __main__ - INFO - Downloading data for daily, pagination mode: date_range
+2026-01-20 22:52:03,032 - core.downloader - INFO - [Thread-140516323051328] [Task-unknown] [DEBUG] _execute_date_range_pagination called with params: {'start_date': '20240401', 'end_date': '20240705'}
+2026-01-20 22:52:03,032 - core.downloader - INFO - [Thread-140516323051328] [Task-unknown] [DEBUG] start_date: 20240401, end_date: 20240705
+2026-01-20 22:52:03,032 - core.downloader - INFO - [Thread-140516323051328] [Task-unknown] [DEBUG] ts_code in params: N/A
+2026-01-20 22:52:03,033 - core.downloader - INFO - Fetching trade calendar for date range: 20240401 - 20240705
+2026-01-20 22:52:03,036 - core.downloader - INFO - Trade calendar loaded from data directory: 20240401-20240705
+2026-01-20 22:52:03,036 - core.downloader - INFO - Found 64 trade days
+2026-01-20 22:52:03,036 - core.downloader - INFO - Using window size: 1 days
+2026-01-20 22:52:03,121 - core.downloader - INFO - Trade calendar loaded from data directory: 20240401-20240401
+2026-01-20 22:52:03,122 - core.coverage_manager - INFO - Coverage for daily (20240401-20240401): 100.00% (1/1)
+2026-01-20 22:52:03,122 - core.downloader - INFO - Skipping window 20240401 - 20240401 for daily (already covered)
+2026-01-20 22:52:03,181 - core.downloader - INFO - Trade calendar loaded from data directory: 20240402-20240402
+2026-01-20 22:52:03,181 - core.coverage_manager - INFO - Coverage for daily (20240402-20240402): 100.00% (1/1)
+2026-01-20 22:52:03,181 - core.downloader - INFO - Skipping window 20240402 - 20240402 for daily (already covered)
+2026-01-20 22:52:03,244 - core.downloader - INFO - Trade calendar loaded from data directory: 20240403-20240403
+2026-01-20 22:52:03,244 - core.coverage_manager - INFO - Coverage for daily (20240403-20240403): 100.00% (1/1)
+2026-01-20 22:52:03,244 - core.downloader - INFO - Skipping window 20240403 - 20240403 for daily (already covered)
+2026-01-20 22:52:03,309 - core.downloader - INFO - Trade calendar loaded from data directory: 20240408-20240408
+2026-01-20 22:52:03,310 - core.coverage_manager - INFO - Coverage for daily (20240408-20240408): 100.00% (1/1)
+2026-01-20 22:52:03,310 - core.downloader - INFO - Skipping window 20240408 - 20240408 for daily (already covered)
+2026-01-20 22:52:03,383 - core.downloader - INFO - Trade calendar loaded from data directory: 20240409-20240409
+2026-01-20 22:52:03,384 - core.coverage_manager - INFO - Coverage for daily (20240409-20240409): 100.00% (1/1)
+2026-01-20 22:52:03,384 - core.downloader - INFO - Skipping window 20240409 - 20240409 for daily (already covered)
+2026-01-20 22:52:03,451 - core.downloader - INFO - Trade calendar loaded from data directory: 20240410-20240410
+2026-01-20 22:52:03,451 - core.coverage_manager - INFO - Coverage for daily (20240410-20240410): 100.00% (1/1)
+2026-01-20 22:52:03,452 - core.downloader - INFO - Skipping window 20240410 - 20240410 for daily (already covered)
+2026-01-20 22:52:03,528 - core.downloader - INFO - Trade calendar loaded from data directory: 20240411-20240411
+2026-01-20 22:52:03,528 - core.coverage_manager - INFO - Coverage for daily (20240411-20240411): 100.00% (1/1)
+2026-01-20 22:52:03,528 - core.downloader - INFO - Skipping window 20240411 - 20240411 for daily (already covered)
+2026-01-20 22:52:03,592 - core.downloader - INFO - Trade calendar loaded from data directory: 20240412-20240412
+2026-01-20 22:52:03,592 - core.coverage_manager - INFO - Coverage for daily (20240412-20240412): 100.00% (1/1)
+2026-01-20 22:52:03,593 - core.downloader - INFO - Skipping window 20240412 - 20240412 for daily (already covered)
+2026-01-20 22:52:03,659 - core.downloader - INFO - Trade calendar loaded from data directory: 20240415-20240415
+2026-01-20 22:52:03,659 - core.coverage_manager - INFO - Coverage for daily (20240415-20240415): 100.00% (1/1)
+2026-01-20 22:52:03,659 - core.downloader - INFO - Skipping window 20240415 - 20240415 for daily (already covered)
+2026-01-20 22:52:03,716 - core.downloader - INFO - Trade calendar loaded from data directory: 20240416-20240416
+2026-01-20 22:52:03,717 - core.coverage_manager - INFO - Coverage for daily (20240416-20240416): 100.00% (1/1)
+2026-01-20 22:52:03,717 - core.downloader - INFO - Skipping window 20240416 - 20240416 for daily (already covered)
+2026-01-20 22:52:03,786 - core.downloader - INFO - Trade calendar loaded from data directory: 20240417-20240417
+2026-01-20 22:52:03,787 - core.coverage_manager - INFO - Coverage for daily (20240417-20240417): 100.00% (1/1)
+2026-01-20 22:52:03,787 - core.downloader - INFO - Skipping window 20240417 - 20240417 for daily (already covered)
+2026-01-20 22:52:03,856 - core.downloader - INFO - Trade calendar loaded from data directory: 20240418-20240418
+2026-01-20 22:52:03,857 - core.coverage_manager - INFO - Coverage for daily (20240418-20240418): 100.00% (1/1)
+2026-01-20 22:52:03,857 - core.downloader - INFO - Skipping window 20240418 - 20240418 for daily (already covered)
+2026-01-20 22:52:03,935 - core.downloader - INFO - Trade calendar loaded from data directory: 20240419-20240419
+2026-01-20 22:52:03,936 - core.coverage_manager - INFO - Coverage for daily (20240419-20240419): 100.00% (1/1)
+2026-01-20 22:52:03,936 - core.downloader - INFO - Skipping window 20240419 - 20240419 for daily (already covered)
+2026-01-20 22:52:04,029 - core.downloader - INFO - Trade calendar loaded from data directory: 20240422-20240422
+2026-01-20 22:52:04,030 - core.coverage_manager - INFO - Coverage for daily (20240422-20240422): 100.00% (1/1)
+2026-01-20 22:52:04,030 - core.downloader - INFO - Skipping window 20240422 - 20240422 for daily (already covered)
+2026-01-20 22:52:04,099 - core.downloader - INFO - Trade calendar loaded from data directory: 20240423-20240423
+2026-01-20 22:52:04,099 - core.coverage_manager - INFO - Coverage for daily (20240423-20240423): 100.00% (1/1)
+2026-01-20 22:52:04,099 - core.downloader - INFO - Skipping window 20240423 - 20240423 for daily (already covered)
+2026-01-20 22:52:04,149 - core.downloader - INFO - Trade calendar loaded from data directory: 20240424-20240424
+2026-01-20 22:52:04,150 - core.coverage_manager - INFO - Coverage for daily (20240424-20240424): 100.00% (1/1)
+2026-01-20 22:52:04,150 - core.downloader - INFO - Skipping window 20240424 - 20240424 for daily (already covered)
+2026-01-20 22:52:04,214 - core.downloader - INFO - Trade calendar loaded from data directory: 20240425-20240425
+2026-01-20 22:52:04,214 - core.coverage_manager - INFO - Coverage for daily (20240425-20240425): 100.00% (1/1)
+2026-01-20 22:52:04,214 - core.downloader - INFO - Skipping window 20240425 - 20240425 for daily (already covered)
+2026-01-20 22:52:04,282 - core.downloader - INFO - Trade calendar loaded from data directory: 20240426-20240426
+2026-01-20 22:52:04,282 - core.coverage_manager - INFO - Coverage for daily (20240426-20240426): 100.00% (1/1)
+2026-01-20 22:52:04,282 - core.downloader - INFO - Skipping window 20240426 - 20240426 for daily (already covered)
+2026-01-20 22:52:04,337 - core.downloader - INFO - Trade calendar loaded from data directory: 20240429-20240429
+2026-01-20 22:52:04,338 - core.coverage_manager - INFO - Coverage for daily (20240429-20240429): 100.00% (1/1)
+2026-01-20 22:52:04,338 - core.downloader - INFO - Skipping window 20240429 - 20240429 for daily (already covered)
+2026-01-20 22:52:04,403 - core.downloader - INFO - Trade calendar loaded from data directory: 20240430-20240430
+2026-01-20 22:52:04,404 - core.coverage_manager - INFO - Coverage for daily (20240430-20240430): 100.00% (1/1)
+2026-01-20 22:52:04,404 - core.downloader - INFO - Skipping window 20240430 - 20240430 for daily (already covered)
+2026-01-20 22:52:04,463 - core.downloader - INFO - Trade calendar loaded from data directory: 20240506-20240506
+2026-01-20 22:52:04,463 - core.coverage_manager - INFO - Coverage for daily (20240506-20240506): 100.00% (1/1)
+2026-01-20 22:52:04,463 - core.downloader - INFO - Skipping window 20240506 - 20240506 for daily (already covered)
+2026-01-20 22:52:04,521 - core.downloader - INFO - Trade calendar loaded from data directory: 20240507-20240507
+2026-01-20 22:52:04,521 - core.coverage_manager - INFO - Coverage for daily (20240507-20240507): 100.00% (1/1)
+2026-01-20 22:52:04,522 - core.downloader - INFO - Skipping window 20240507 - 20240507 for daily (already covered)
+2026-01-20 22:52:04,579 - core.downloader - INFO - Trade calendar loaded from data directory: 20240508-20240508
+2026-01-20 22:52:04,579 - core.coverage_manager - INFO - Coverage for daily (20240508-20240508): 100.00% (1/1)
+2026-01-20 22:52:04,580 - core.downloader - INFO - Skipping window 20240508 - 20240508 for daily (already covered)
+2026-01-20 22:52:04,638 - core.downloader - INFO - Trade calendar loaded from data directory: 20240509-20240509
+2026-01-20 22:52:04,639 - core.coverage_manager - INFO - Coverage for daily (20240509-20240509): 100.00% (1/1)
+2026-01-20 22:52:04,639 - core.downloader - INFO - Skipping window 20240509 - 20240509 for daily (already covered)
+2026-01-20 22:52:04,720 - core.downloader - INFO - Trade calendar loaded from data directory: 20240510-20240510
+2026-01-20 22:52:04,720 - core.coverage_manager - INFO - Coverage for daily (20240510-20240510): 100.00% (1/1)
+2026-01-20 22:52:04,720 - core.downloader - INFO - Skipping window 20240510 - 20240510 for daily (already covered)
+2026-01-20 22:52:04,775 - core.downloader - INFO - Trade calendar loaded from data directory: 20240513-20240513
+2026-01-20 22:52:04,775 - core.coverage_manager - INFO - Coverage for daily (20240513-20240513): 100.00% (1/1)
+2026-01-20 22:52:04,776 - core.downloader - INFO - Skipping window 20240513 - 20240513 for daily (already covered)
+2026-01-20 22:52:04,834 - core.downloader - INFO - Trade calendar loaded from data directory: 20240514-20240514
+2026-01-20 22:52:04,835 - core.coverage_manager - INFO - Coverage for daily (20240514-20240514): 100.00% (1/1)
+2026-01-20 22:52:04,835 - core.downloader - INFO - Skipping window 20240514 - 20240514 for daily (already covered)
+2026-01-20 22:52:04,904 - core.downloader - INFO - Trade calendar loaded from data directory: 20240515-20240515
+2026-01-20 22:52:04,904 - core.coverage_manager - INFO - Coverage for daily (20240515-20240515): 100.00% (1/1)
+2026-01-20 22:52:04,904 - core.downloader - INFO - Skipping window 20240515 - 20240515 for daily (already covered)
+2026-01-20 22:52:04,960 - core.downloader - INFO - Trade calendar loaded from data directory: 20240516-20240516
+2026-01-20 22:52:04,960 - core.coverage_manager - INFO - Coverage for daily (20240516-20240516): 100.00% (1/1)
+2026-01-20 22:52:04,960 - core.downloader - INFO - Skipping window 20240516 - 20240516 for daily (already covered)
+2026-01-20 22:52:05,020 - core.downloader - INFO - Trade calendar loaded from data directory: 20240517-20240517
+2026-01-20 22:52:05,021 - core.coverage_manager - INFO - Coverage for daily (20240517-20240517): 100.00% (1/1)
+2026-01-20 22:52:05,021 - core.downloader - INFO - Skipping window 20240517 - 20240517 for daily (already covered)
+2026-01-20 22:52:05,076 - core.downloader - INFO - Trade calendar loaded from data directory: 20240520-20240520
+2026-01-20 22:52:05,076 - core.coverage_manager - INFO - Coverage for daily (20240520-20240520): 100.00% (1/1)
+2026-01-20 22:52:05,076 - core.downloader - INFO - Skipping window 20240520 - 20240520 for daily (already covered)
+2026-01-20 22:52:05,135 - core.downloader - INFO - Trade calendar loaded from data directory: 20240521-20240521
+2026-01-20 22:52:05,136 - core.coverage_manager - INFO - Coverage for daily (20240521-20240521): 100.00% (1/1)
+2026-01-20 22:52:05,136 - core.downloader - INFO - Skipping window 20240521 - 20240521 for daily (already covered)
+2026-01-20 22:52:05,193 - core.downloader - INFO - Trade calendar loaded from data directory: 20240522-20240522
+2026-01-20 22:52:05,193 - core.coverage_manager - INFO - Coverage for daily (20240522-20240522): 100.00% (1/1)
+2026-01-20 22:52:05,194 - core.downloader - INFO - Skipping window 20240522 - 20240522 for daily (already covered)
+2026-01-20 22:52:05,255 - core.downloader - INFO - Trade calendar loaded from data directory: 20240523-20240523
+2026-01-20 22:52:05,255 - core.coverage_manager - INFO - Coverage for daily (20240523-20240523): 100.00% (1/1)
+2026-01-20 22:52:05,255 - core.downloader - INFO - Skipping window 20240523 - 20240523 for daily (already covered)
+2026-01-20 22:52:05,313 - core.downloader - INFO - Trade calendar loaded from data directory: 20240524-20240524
+2026-01-20 22:52:05,314 - core.coverage_manager - INFO - Coverage for daily (20240524-20240524): 100.00% (1/1)
+2026-01-20 22:52:05,314 - core.downloader - INFO - Skipping window 20240524 - 20240524 for daily (already covered)
+2026-01-20 22:52:05,370 - core.downloader - INFO - Trade calendar loaded from data directory: 20240527-20240527
+2026-01-20 22:52:05,370 - core.coverage_manager - INFO - Coverage for daily (20240527-20240527): 100.00% (1/1)
+2026-01-20 22:52:05,370 - core.downloader - INFO - Skipping window 20240527 - 20240527 for daily (already covered)
+2026-01-20 22:52:05,427 - core.downloader - INFO - Trade calendar loaded from data directory: 20240528-20240528
+2026-01-20 22:52:05,427 - core.coverage_manager - INFO - Coverage for daily (20240528-20240528): 100.00% (1/1)
+2026-01-20 22:52:05,427 - core.downloader - INFO - Skipping window 20240528 - 20240528 for daily (already covered)
+2026-01-20 22:52:05,484 - core.downloader - INFO - Trade calendar loaded from data directory: 20240529-20240529
+2026-01-20 22:52:05,484 - core.coverage_manager - INFO - Coverage for daily (20240529-20240529): 100.00% (1/1)
+2026-01-20 22:52:05,484 - core.downloader - INFO - Skipping window 20240529 - 20240529 for daily (already covered)
+2026-01-20 22:52:05,539 - core.downloader - INFO - Trade calendar loaded from data directory: 20240530-20240530
+2026-01-20 22:52:05,540 - core.coverage_manager - INFO - Coverage for daily (20240530-20240530): 100.00% (1/1)
+2026-01-20 22:52:05,540 - core.downloader - INFO - Skipping window 20240530 - 20240530 for daily (already covered)
+2026-01-20 22:52:05,599 - core.downloader - INFO - Trade calendar loaded from data directory: 20240531-20240531
+2026-01-20 22:52:05,600 - core.coverage_manager - INFO - Coverage for daily (20240531-20240531): 100.00% (1/1)
+2026-01-20 22:52:05,600 - core.downloader - INFO - Skipping window 20240531 - 20240531 for daily (already covered)
+2026-01-20 22:52:05,652 - core.downloader - INFO - Trade calendar loaded from data directory: 20240603-20240603
+2026-01-20 22:52:05,652 - core.coverage_manager - INFO - Coverage for daily (20240603-20240603): 100.00% (1/1)
+2026-01-20 22:52:05,652 - core.downloader - INFO - Skipping window 20240603 - 20240603 for daily (already covered)
+2026-01-20 22:52:05,708 - core.downloader - INFO - Trade calendar loaded from data directory: 20240604-20240604
+2026-01-20 22:52:05,709 - core.coverage_manager - INFO - Coverage for daily (20240604-20240604): 100.00% (1/1)
+2026-01-20 22:52:05,709 - core.downloader - INFO - Skipping window 20240604 - 20240604 for daily (already covered)
+2026-01-20 22:52:05,766 - core.downloader - INFO - Trade calendar loaded from data directory: 20240605-20240605
+2026-01-20 22:52:05,766 - core.coverage_manager - INFO - Coverage for daily (20240605-20240605): 100.00% (1/1)
+2026-01-20 22:52:05,767 - core.downloader - INFO - Skipping window 20240605 - 20240605 for daily (already covered)
+2026-01-20 22:52:05,824 - core.downloader - INFO - Trade calendar loaded from data directory: 20240606-20240606
+2026-01-20 22:52:05,824 - core.coverage_manager - INFO - Coverage for daily (20240606-20240606): 100.00% (1/1)
+2026-01-20 22:52:05,824 - core.downloader - INFO - Skipping window 20240606 - 20240606 for daily (already covered)
+2026-01-20 22:52:05,877 - core.downloader - INFO - Trade calendar loaded from data directory: 20240607-20240607
+2026-01-20 22:52:05,877 - core.coverage_manager - INFO - Coverage for daily (20240607-20240607): 100.00% (1/1)
+2026-01-20 22:52:05,877 - core.downloader - INFO - Skipping window 20240607 - 20240607 for daily (already covered)
+2026-01-20 22:52:05,932 - core.downloader - INFO - Trade calendar loaded from data directory: 20240611-20240611
+2026-01-20 22:52:05,933 - core.coverage_manager - INFO - Coverage for daily (20240611-20240611): 100.00% (1/1)
+2026-01-20 22:52:05,933 - core.downloader - INFO - Skipping window 20240611 - 20240611 for daily (already covered)
+2026-01-20 22:52:05,988 - core.downloader - INFO - Trade calendar loaded from data directory: 20240612-20240612
+2026-01-20 22:52:05,988 - core.coverage_manager - INFO - Coverage for daily (20240612-20240612): 100.00% (1/1)
+2026-01-20 22:52:05,988 - core.downloader - INFO - Skipping window 20240612 - 20240612 for daily (already covered)
+2026-01-20 22:52:06,054 - core.downloader - INFO - Trade calendar loaded from data directory: 20240613-20240613
+2026-01-20 22:52:06,055 - core.coverage_manager - INFO - Coverage for daily (20240613-20240613): 100.00% (1/1)
+2026-01-20 22:52:06,055 - core.downloader - INFO - Skipping window 20240613 - 20240613 for daily (already covered)
+2026-01-20 22:52:06,112 - core.downloader - INFO - Trade calendar loaded from data directory: 20240614-20240614
+2026-01-20 22:52:06,113 - core.coverage_manager - INFO - Coverage for daily (20240614-20240614): 100.00% (1/1)
+2026-01-20 22:52:06,113 - core.downloader - INFO - Skipping window 20240614 - 20240614 for daily (already covered)
+2026-01-20 22:52:06,168 - core.downloader - INFO - Trade calendar loaded from data directory: 20240617-20240617
+2026-01-20 22:52:06,169 - core.coverage_manager - INFO - Coverage for daily (20240617-20240617): 100.00% (1/1)
+2026-01-20 22:52:06,169 - core.downloader - INFO - Skipping window 20240617 - 20240617 for daily (already covered)
+2026-01-20 22:52:06,229 - core.downloader - INFO - Trade calendar loaded from data directory: 20240618-20240618
+2026-01-20 22:52:06,229 - core.coverage_manager - INFO - Coverage for daily (20240618-20240618): 100.00% (1/1)
+2026-01-20 22:52:06,229 - core.downloader - INFO - Skipping window 20240618 - 20240618 for daily (already covered)
+2026-01-20 22:52:06,286 - core.downloader - INFO - Trade calendar loaded from data directory: 20240619-20240619
+2026-01-20 22:52:06,287 - core.coverage_manager - INFO - Coverage for daily (20240619-20240619): 100.00% (1/1)
+2026-01-20 22:52:06,287 - core.downloader - INFO - Skipping window 20240619 - 20240619 for daily (already covered)
+2026-01-20 22:52:06,355 - core.downloader - INFO - Trade calendar loaded from data directory: 20240620-20240620
+2026-01-20 22:52:06,355 - core.coverage_manager - INFO - Coverage for daily (20240620-20240620): 100.00% (1/1)
+2026-01-20 22:52:06,355 - core.downloader - INFO - Skipping window 20240620 - 20240620 for daily (already covered)
+2026-01-20 22:52:06,412 - core.downloader - INFO - Trade calendar loaded from data directory: 20240621-20240621
+2026-01-20 22:52:06,413 - core.coverage_manager - INFO - Coverage for daily (20240621-20240621): 100.00% (1/1)
+2026-01-20 22:52:06,413 - core.downloader - INFO - Skipping window 20240621 - 20240621 for daily (already covered)
+2026-01-20 22:52:06,470 - core.downloader - INFO - Trade calendar loaded from data directory: 20240624-20240624
+2026-01-20 22:52:06,470 - core.coverage_manager - INFO - Coverage for daily (20240624-20240624): 100.00% (1/1)
+2026-01-20 22:52:06,470 - core.downloader - INFO - Skipping window 20240624 - 20240624 for daily (already covered)
+2026-01-20 22:52:06,535 - core.downloader - INFO - Trade calendar loaded from data directory: 20240625-20240625
+2026-01-20 22:52:06,535 - core.coverage_manager - INFO - Coverage for daily (20240625-20240625): 100.00% (1/1)
+2026-01-20 22:52:06,535 - core.downloader - INFO - Skipping window 20240625 - 20240625 for daily (already covered)
+2026-01-20 22:52:06,592 - core.downloader - INFO - Trade calendar loaded from data directory: 20240626-20240626
+2026-01-20 22:52:06,592 - core.coverage_manager - INFO - Coverage for daily (20240626-20240626): 100.00% (1/1)
+2026-01-20 22:52:06,592 - core.downloader - INFO - Skipping window 20240626 - 20240626 for daily (already covered)
+2026-01-20 22:52:06,646 - core.downloader - INFO - Trade calendar loaded from data directory: 20240627-20240627
+2026-01-20 22:52:06,647 - core.coverage_manager - INFO - Coverage for daily (20240627-20240627): 100.00% (1/1)
+2026-01-20 22:52:06,647 - core.downloader - INFO - Skipping window 20240627 - 20240627 for daily (already covered)
+2026-01-20 22:52:06,701 - core.downloader - INFO - Trade calendar loaded from data directory: 20240628-20240628
+2026-01-20 22:52:06,702 - core.coverage_manager - INFO - Coverage for daily (20240628-20240628): 100.00% (1/1)
+2026-01-20 22:52:06,702 - core.downloader - INFO - Skipping window 20240628 - 20240628 for daily (already covered)
+2026-01-20 22:52:06,755 - core.downloader - INFO - Trade calendar loaded from data directory: 20240701-20240701
+2026-01-20 22:52:06,755 - core.coverage_manager - INFO - Coverage for daily (20240701-20240701): 100.00% (1/1)
+2026-01-20 22:52:06,755 - core.downloader - INFO - Skipping window 20240701 - 20240701 for daily (already covered)
+2026-01-20 22:52:06,811 - core.downloader - INFO - Trade calendar loaded from data directory: 20240702-20240702
+2026-01-20 22:52:06,811 - core.coverage_manager - INFO - Coverage for daily (20240702-20240702): 100.00% (1/1)
+2026-01-20 22:52:06,811 - core.downloader - INFO - Skipping window 20240702 - 20240702 for daily (already covered)
+2026-01-20 22:52:06,846 - core.downloader - INFO - Trade calendar loaded from data directory: 20240703-20240703
+2026-01-20 22:52:06,847 - core.coverage_manager - INFO - Coverage for daily (20240703-20240703): 100.00% (1/1)
+2026-01-20 22:52:06,847 - core.downloader - INFO - Skipping window 20240703 - 20240703 for daily (already covered)
+2026-01-20 22:52:06,860 - core.downloader - INFO - Trade calendar loaded from data directory: 20240704-20240704
+2026-01-20 22:52:06,861 - core.coverage_manager - INFO - Coverage for daily (20240704-20240704): 100.00% (1/1)
+2026-01-20 22:52:06,861 - core.downloader - INFO - Skipping window 20240704 - 20240704 for daily (already covered)
+2026-01-20 22:52:06,873 - core.downloader - INFO - Trade calendar loaded from data directory: 20240705-20240705
+2026-01-20 22:52:06,873 - core.coverage_manager - INFO - Coverage for daily (20240705-20240705): 100.00% (1/1)
+2026-01-20 22:52:06,874 - core.downloader - INFO - Skipping window 20240705 - 20240705 for daily (already covered)
+2026-01-20 22:52:06,874 - __main__ - WARNING - No data downloaded for daily
+2026-01-20 22:52:06,874 - __main__ - INFO - 正在停止调度器...
+2026-01-20 22:52:06,874 - core.scheduler - INFO - Task scheduler stopped
+2026-01-20 22:52:06,874 - __main__ - INFO - 正在关闭存储写入...
+2026-01-20 22:52:06,874 - core.storage - INFO - Process worker received stop signal
+2026-01-20 22:52:06,875 - core.storage - INFO - Storage threads stopped
+Debug: performance_monitor id: 140516313448352
+Debug: request_time指标数量: 0
+Debug: data_size指标数量: 0
+2026-01-20 22:52:06,875 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+平均请求时间: 0.00s
+平均单窗口条数: 0.00 条
+平均重试次数: 0.00 次
+==============================
+

@@ -25,23 +25,95 @@ from core.downloader import GenericDownloader
 from core.scheduler import TaskScheduler, RateLimiter
 from core.storage import StorageManager
 from core.processor import DataProcessor
+from core.dedup import deduplicate_against_existing
 import polars as pl
+import glob
 
 
-def validate_and_adjust_date(start_date, end_date):
+def cleanup_old_stock_basic_files(storage_dir: str, keep_latest: int = 1):
     """
-    验证并调整日期，确保不使用未来日期
+    清理旧的 stock_basic 文件，只保留最新的几个
+
+    Args:
+        storage_dir: 存储目录路径
+        keep_latest: 保留最新的文件数量，默认为1
     """
-    from datetime import datetime
-    today = datetime.now().strftime('%Y%m%d')
+    try:
+        stock_basic_dir = os.path.join(storage_dir, 'stock_basic')
+        if not os.path.exists(stock_basic_dir):
+            return
 
-    if end_date > today:
-        print(f"警告: 结束日期 {end_date} 超过当前日期，已调整为 {today}")
-        end_date = today
+        # 获取所有 stock_basic 文件，按修改时间排序
+        pattern = os.path.join(stock_basic_dir, 'stock_basic_*.parquet')
+        files = glob.glob(pattern)
 
-    if start_date > today:
-        print(f"警告: 开始日期 {start_date} 超过当前日期，已调整为 {today}")
-        start_date = today
+        if len(files) <= keep_latest:
+            return
+
+        # 按修改时间排序（最新的在前）
+        files.sort(key=os.path.getmtime, reverse=True)
+
+        # 删除旧的文件
+        files_to_delete = files[keep_latest:]
+        for file_path in files_to_delete:
+            try:
+                os.remove(file_path)
+                logging.info(f"删除旧的 stock_basic 文件: {os.path.basename(file_path)}")
+            except Exception as e:
+                logging.warning(f"无法删除文件 {file_path}: {e}")
+
+        if files_to_delete:
+            logging.info(f"已清理 {len(files_to_delete)} 个旧的 stock_basic 文件")
+
+    except Exception as e:
+        logging.warning(f"清理 stock_basic 文件时出错: {e}")
+
+
+import re
+from datetime import datetime
+from typing import Tuple, Optional
+
+DATE_PATTERN = re.compile(r'^\d{8}$')
+
+def validate_and_adjust_date(start_date: str, end_date: Optional[str]) -> Tuple[str, str]:
+    """
+    Enhanced date validation with format and range checking.
+
+    Args:
+        start_date: Start date in YYYYMMDD format
+        end_date: End date in YYYYMMDD format, can be None
+
+    Returns:
+        Tuple of validated (start_date, end_date)
+
+    Raises:
+        ValueError: If date format is invalid or range is incorrect
+    """
+    # 处理 end_date 为 None 的情况
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y%m%d')
+
+    # 格式验证
+    if not DATE_PATTERN.match(start_date):
+        raise ValueError(f"Invalid start_date format: {start_date}, expected YYYYMMDD")
+    if not DATE_PATTERN.match(end_date):
+        raise ValueError(f"Invalid end_date format: {end_date}, expected YYYYMMDD")
+
+    # 日期有效性验证
+    try:
+        start_dt = datetime.strptime(start_date, '%Y%m%d')
+        end_dt = datetime.strptime(end_date, '%Y%m%d')
+    except ValueError as e:
+        raise ValueError(f"Invalid date: {e}")
+
+    # start_date <= end_date 检查
+    if start_dt > end_dt:
+        raise ValueError(f"start_date ({start_date}) must be <= end_date ({end_date})")
+
+    # 调整未来日期
+    today = datetime.now()
+    if end_dt > today:
+        end_date = today.strftime('%Y%m%d')
 
     return start_date, end_date
 
@@ -118,9 +190,6 @@ def main():
                         help='日志级别')
     parser.add_argument('--ts_code', type=str,
                         help='指定股票代码 (如: 000001.SZ)')
-    # [新增] 添加移除历史标记的命令行选项
-    parser.add_argument('--remove-historical-markers', action='store_true',
-                        help='移除所有历史下载标记文件')
 
     args = parser.parse_args()
 
@@ -128,23 +197,6 @@ def main():
     import os
     config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
     config_loader = ConfigLoader(config_dir=config_dir_path)
-
-    # [新增] 如果指定了移除历史标记选项，执行移除并退出
-    if args.remove_historical_markers:
-        # 临时创建必要的组件
-        storage_manager = StorageManager(
-            storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
-            format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
-            batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)
-        )
-        from core.coverage_manager import CoverageManager
-        coverage_manager = CoverageManager(storage_manager, config_loader, None)  # 使用最小化的组件
-        if coverage_manager.remove_all_historical_download_markers():
-            print("已成功移除所有历史下载标记文件")
-        else:
-            print("未找到历史下载标记文件")
-        storage_manager.stop_writer()
-        return 0
 
     # 验证配置
     if not config_loader.validate_config():
@@ -167,13 +219,15 @@ def main():
         max_queue_size=config_loader.global_config.get('concurrency', {}).get('max_queue_size', 1000)
     )
 
+    processor = DataProcessor()
     storage_manager = StorageManager(
+        processor=processor,  # 新增参数
+        config_loader=config_loader,  # 传递配置加载器
         storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
         format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
         batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)  # [优化] 增大 batch_size
     )
 
-    processor = DataProcessor()
     downloader = GenericDownloader(config_loader, storage_manager)
 
     from core.downloader import performance_monitor
@@ -241,14 +295,14 @@ def main():
 
     def print_performance_report():
         """打印性能监控报告"""
-        print("\n" + "="*50)
+        print("\n" + "="*30)
         print("      性能监控报告")
-        print("="*50)
-
+        print("="*30)
+        
         # 添加调试信息
         import sys
         print(f"Debug: performance_monitor id: {id(performance_monitor)}", file=sys.stderr)
-
+        
         avg_request_time = performance_monitor.get_average_metric('request_time')
         avg_data_size = performance_monitor.get_average_metric('data_size')
         avg_retry_count = performance_monitor.get_average_metric('retry_count')
@@ -256,36 +310,10 @@ def main():
         print(f"平均请求时间: {avg_request_time:.2f}s")
         print(f"平均单窗口条数: {avg_data_size:.2f} 条")
         print(f"平均重试次数: {avg_retry_count:.2f} 次")
-
+        
         # 打印更详细的指标信息
         print(f"Debug: request_time指标数量: {len(performance_monitor._metrics['request_time']) if 'request_time' in performance_monitor._metrics else 0}", file=sys.stderr)
         print(f"Debug: data_size指标数量: {len(performance_monitor._metrics['data_size']) if 'data_size' in performance_monitor._metrics else 0}", file=sys.stderr)
-
-        # 打印缓存统计信息
-        if hasattr(downloader, 'display_cache_stats'):
-            print("\n" + downloader.display_cache_stats(formatted=True))
-        elif hasattr(downloader, 'get_cache_stats'):
-            # 手动计算和显示缓存统计信息
-            cache_stats = downloader.get_cache_stats()
-            total_accesses = sum(cache_stats.values())
-            total_hits = cache_stats['exact_match'] + cache_stats['superset_match'] + cache_stats['file_hit']
-            hit_rate = (total_hits / total_accesses * 100) if total_accesses > 0 else 0.0
-            miss_rate = (cache_stats['miss'] / total_accesses * 100) if total_accesses > 0 else 0.0
-
-            print("="*50)
-            print("缓存统计信息")
-            print("="*50)
-            print(f"总访问次数: {total_accesses:,}")
-            print(f"总命中次数: {total_hits:,}")
-            print(f"缓存命中率: {hit_rate:.2f}%")
-            print(f"缓存未命中率: {miss_rate:.2f}%")
-            print("-"*30)
-            print("详细统计:")
-            print(f"  精确匹配命中: {cache_stats['exact_match']:,}")
-            print(f"  范围匹配命中: {cache_stats['superset_match']:,}")
-            print(f"  文件命中: {cache_stats['file_hit']:,}")
-            print(f"  未命中: {cache_stats['miss']:,}")
-            print("="*50)
 
         if avg_request_time > 30:
             print("⚠️ 警告: 平均请求时间过长")
@@ -293,7 +321,7 @@ def main():
             print("⚠️ 警告: 重试频率较高，请检查 API 限制或网络状况")
         if avg_data_size >= 5800:
             print("⚠️ 警告: 数据量接近 API 限制，建议减小窗口大小")
-        print("="*50 + "\n")
+        print("="*30 + "\n")
 
 
     # 预加载全局交易日历
@@ -303,17 +331,24 @@ def main():
     global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
     global_rate_limiter = RateLimiter(global_rate_limit)
 
-    # [新增] 在启动下载前移除所有历史下载标记文件
-    from core.coverage_manager import CoverageManager
-    coverage_manager = CoverageManager(storage_manager, config_loader, downloader)  # 使用现有的组件
-    coverage_manager.remove_all_historical_download_markers()
-
     # 启动各组件
     scheduler.start()
     storage_manager.start_writer()
 
     def process_and_save_data(data, interface_name, interface_config, processor, storage_manager):
-        """处理并保存数据的通用函数 - 重构后"""
+        """处理并保存数据的通用函数 - 支持基于接口配置的去重
+
+        Args:
+            data: 原始数据列表
+            interface_name: 接口名称
+            interface_config: 接口配置
+            processor: 数据处理器
+            storage_manager: 存储管理器
+
+        Returns:
+            处理后的 DataFrame，如果处理失败则返回 None
+        """
+        import polars as pl
         if not data:
             logger.warning(f"No data to process for {interface_name}")
             return None
@@ -322,11 +357,46 @@ def main():
         df = processor.process_data(data, interface_config)
         validation_result = processor.validate_data(df, interface_config)
 
-        # 从接口配置获取去重配置
-        dedup_config = interface_config.get('dedup', {})
+        # 使用接口配置获取主键和去重配置
+        output_config = interface_config.get('output', {})
+        primary_keys = output_config.get('primary_key', [])
+        dedup_config = interface_config.get('dedup', {'dedup_enabled': True})
 
-        # 保存数据（内部处理去重逻辑）
-        storage_manager.save_data_with_dedup(interface_name, df.to_dicts(), dedup_config, async_write=True)
+        # 如果去重功能启用且存在主键定义
+        if dedup_config.get('dedup_enabled', True) and primary_keys:
+            # 获取已存在的数据路径
+            data_dir = storage_manager.storage_dir
+            existing_file_path = os.path.join(data_dir, interface_name, f"{interface_name}.parquet")
+
+            # 使用新的统一去重模块对现有数据进行去重
+            df, dedup_stats = deduplicate_against_existing(
+                df,
+                existing_file_path,
+                primary_keys=primary_keys
+            )
+
+            logger.info(f"Deduplication completed for {interface_name}: "
+                       f"input={dedup_stats.input_rows}, "
+                       f"compared={dedup_stats.compared_rows}, "
+                       f"output={dedup_stats.output_rows}, "
+                       f"removed={dedup_stats.removed_rows}, "
+                       f"dedup_rate={dedup_stats.get_dedup_rate():.2f}%")
+
+            # 检查去重结果
+            if dedup_stats.errors:
+                for error in dedup_stats.errors:
+                    logger.error(f"Deduplication error for {interface_name}: {error}")
+            if dedup_stats.warnings and len(dedup_stats.warnings) > 0:
+                for warning in dedup_stats.warnings:
+                    logger.warning(f"Deduplication warning for {interface_name}: {warning}")
+
+            # 如果所有数据都被过滤掉了，则直接返回
+            if len(df) == 0:
+                logger.info(f"All records already exist for {interface_name}, skipping save")
+                return df
+
+        # 保存数据
+        storage_manager.save_data(interface_name, df.to_dicts(), async_write=True)
 
         logger.info(f"Saved {len(df)} processed records for {interface_name}")
         if validation_result['duplicate_records'] > 0:
@@ -394,6 +464,32 @@ def main():
 
         return all_data
 
+    def _prepare_stock_list(downloader, args, params):
+        """统一的股票列表准备方法"""
+        # 获取股票列表 - 从Data目录或API获取
+        stock_list = downloader._get_stock_list_from_data_dir()
+        if stock_list is None:
+            logger.info("Data目录中未找到股票列表，正在从API获取...")
+            stock_params = {'list_status': 'L'}
+            stock_list = downloader.download('stock_basic', stock_params)
+            if stock_list:
+                logger.info(f"从API获取到 {len(stock_list)} 只股票")
+                # 保存到Data目录
+                storage_manager.save_data('stock_basic', stock_list, async_write=False)
+                # 清理旧的 stock_basic 文件
+                cleanup_old_stock_basic_files(storage_manager.storage_dir, keep_latest=1)
+            else:
+                logger.warning("未能从API获取股票列表")
+                return None
+
+        # 如果参数中指定了股票代码，则只下载该股票
+        if 'ts_code' in params:
+            target_code = params['ts_code']
+            stock_list = [stock for stock in stock_list if stock['ts_code'] == target_code]
+            logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
+
+        return stock_list
+
     # [新增] try...finally 结构
     try:
         # 确定要执行的接口
@@ -441,7 +537,11 @@ def main():
         for interface_name in interfaces_to_run:
             try:
                 # 获取接口配置
-                interface_config = config_loader.get_interface_config(interface_name)
+                try:
+                    interface_config = config_loader.get_interface_config(interface_name)
+                except ValueError:
+                    logger.error(f"Interface '{interface_name}' not found in configuration, skipping...")
+                    continue  # 跳过此接口，继续处理下一个
 
                 # 检查积分要求
                 min_points = interface_config.get('permissions', {}).get('min_points', 0)
@@ -481,25 +581,11 @@ def main():
                 if pagination_config.get('enabled', False) and pagination_config.get('mode') == 'stock_loop':
                     logger.info(f"Using stock_loop mode for {interface_name}")
 
-                    # 获取股票列表 - 从Data目录或API获取
-                    stock_list = downloader._get_stock_list_from_data_dir()
+                    # 使用统一的股票列表准备方法
+                    stock_list = _prepare_stock_list(downloader, args, params)
                     if stock_list is None:
-                        logger.info("Data目录中未找到股票列表，正在从API获取...")
-                        stock_params = {'list_status': 'L'}
-                        stock_list = downloader.download('stock_basic', stock_params)
-                        if stock_list:
-                            logger.info(f"从API获取到 {len(stock_list)} 只股票")
-                            # 保存到Data目录
-                            storage_manager.save_data('stock_basic', stock_list, async_write=False)
-                        else:
-                            logger.warning("未能从API获取股票列表")
-                            continue
-
-                    # 如果参数中指定了股票代码，则只下载该股票
-                    if 'ts_code' in params:
-                        target_code = params['ts_code']
-                        stock_list = [stock for stock in stock_list if stock['ts_code'] == target_code]
-                        logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
+                        logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
+                        continue
 
                     # 使用并发下载
                     all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)
@@ -534,26 +620,11 @@ def main():
                     if pagination_mode == 'stock_loop':
                         logger.info(f"Using concurrent download for stock_loop mode")
 
-                        # 获取股票列表 - 从Data目录或API获取
-                        stock_list = downloader._get_stock_list_from_data_dir()
+                        # 使用统一的股票列表准备方法
+                        stock_list = _prepare_stock_list(downloader, args, params)
                         if stock_list is None:
-                            logger.info("Data目录中未找到股票列表，正在从API获取...")
-                            stock_params = {'list_status': 'L'}
-                            stock_list = downloader.download('stock_basic', stock_params)
-                            if stock_list:
-                                logger.info(f"从API获取到 {len(stock_list)} 只股票")
-                                # 保存到Data目录
-                                storage_manager.save_data('stock_basic', stock_list, async_write=False)
-                            else:
-                                logger.warning("未能从API获取股票列表")
-                                continue
-
-                        # 为测试目的，可以限制股票数量
-                        # 如果参数中指定了股票代码，则只下载该股票
-                        if 'ts_code' in params:
-                            target_code = params['ts_code']
-                            stock_list = [stock for stock in stock_list if stock['ts_code'] == target_code]
-                            logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
+                            logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
+                            continue
 
                         # 使用并发下载
                         all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)

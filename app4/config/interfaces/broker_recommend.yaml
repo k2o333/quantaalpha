@@ -1,31 +1,31 @@
-name: broker_recommend
 api_name: broker_recommend
-description: "券商每月荐股"
-
-permissions:
-  min_points: 2000
-  rate_limit: 60
-  query_limit: 1000
-
-request:
-  method: POST
-  extra_path: ""
-  timeout: 30
-
-parameters:
-  month:
-    type: string
-    required: true
-    description: "月度 YYYYMM"
-
+description: 券商每月荐股
+derived_fields:
+  month_dt:
+    description: 日期类型的month（关联trade_cal.cal_date_dt）
+    format: '%Y%m'
+    source: month
+    type: date
+name: broker_recommend
+output:
+  primary_key:
+  - month
+  - broker
+  - ts_code
+  sort_by:
+  - month
 pagination:
   enabled: false
-
-output:
-  primary_key: ["month", "broker", "ts_code"]
-  sort_by: ["month"]
-  columns:
-    month: {type: string, required: true}
-    broker: {type: string, required: true}
-    ts_code: {type: string, required: true}
-    name: {type: string, required: true}
+parameters:
+  month:
+    description: 月度 YYYYMM
+    required: true
+    type: string
+permissions:
+  min_points: 2000
+  query_limit: 1000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30
