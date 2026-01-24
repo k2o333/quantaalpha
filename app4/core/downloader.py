@@ -474,10 +474,13 @@ class GenericDownloader:
 
     def _execute_date_range_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any],
                                       pagination_config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """执行日期范围分页 - 支持内部offset分页"""
+        """执行日期范围分页 - 支持内部offset分页 - 智能分页策略"""
         # 如果没有提供分页配置，从接口配置中获取
         if pagination_config is None:
             pagination_config = interface_config.get('pagination', {})
+
+        # 获取接口配置
+        interface_name = interface_config['name']
 
         # 获取日期范围
         start_date = params.get('start_date', '20050101')
@@ -491,20 +494,35 @@ class GenericDownloader:
         logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] start_date: {start_date}, end_date: {end_date}")
         logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] ts_code in params: {params.get('ts_code', 'N/A')}")
 
+        # 智能分页：根据接口类型确定窗口大小
+        window_size = self._get_window_size_for_interface(interface_name)
+
+        # 根据接口类型调整并发数
+        if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
+            max_workers = 1
+        elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
+            max_workers = 2
+        elif interface_name in ['balancesheet_vip', 'income_vip', 'cashflow_vip', 'fina_indicator_vip']:
+            # 财务数据接口是全量返回，不应分页
+            logger.info(f"财务接口{interface_name}使用全量请求模式")
+            return self._make_request(interface_config, params)
+        else:
+            max_workers = 4  # Conservative default to respect API limits
+
         logger.info(f"Fetching trade calendar for date range: {start_date} - {end_date}")
 
-        # Use concurrent execution for better performance
+        # Use concurrent execution for better performance with intelligent window size
         return self._execute_date_range_pagination_concurrent(
             interface_config=interface_config,
             params=params,
             start_date=start_date,
             end_date=end_date,
-            window_size=pagination_config.get('window_size_days', 365),
-            max_workers=4  # Conservative default to respect API limits
+            window_size=window_size,
+            max_workers=max_workers
         )
 
     def _execute_stock_loop_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """执行股票循环分页 - 串行版本"""
+        """股票循环分页 - 增加前置去重"""
         all_data = []
 
         # 获取股票列表（从内存缓存或API获取）
@@ -536,22 +554,61 @@ class GenericDownloader:
             logger.error("Failed to get stock list for stock loop pagination")
             return all_data
 
+        # 根据接口类型确定并发数
+        interface_name = interface_config['name']
+        if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
+            max_workers = 1
+        elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
+            max_workers = 2
+        else:
+            max_workers = 4  # Conservative default based on previous implementations
+
         # 为每个股票下载数据
         total_stocks = len(stock_list)
         logger.info(f"Starting to download data for {total_stocks} stocks...")
 
         log_interval = 100  # 每100个股票输出一次进度
-        for idx, stock in enumerate(stock_list):
-            # 使用原子化的单股票下载方法
-            stock_data = self.download_single_stock(interface_config, stock, params)
 
-            if stock_data:
-                all_data.extend(stock_data)
+        # 并行处理股票，使用前置去重逻辑
+        skipped_stocks = 0
+        processed_stocks = 0
 
-            # 只在特定间隔输出日志
-            if (idx + 1) % log_interval == 0 or idx == 0:
-                logger.info(f"Processed stock {stock['ts_code']} ({idx+1}/{total_stocks}), got {len(stock_data)} records")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 创建任务
+            futures = []
+            for idx, stock in enumerate(stock_list):
+                ts_code = stock['ts_code']
 
+                # 前置去重：检查本地是否已有该股票的数据
+                if self._is_stock_data_exists(interface_name, ts_code):
+                    logger.info(f"股票{ts_code}数据已存在，跳过")
+                    skipped_stocks += 1
+                    continue
+
+                # 准备参数
+                stock_params = params.copy()
+                stock_params['ts_code'] = ts_code
+
+                future = executor.submit(
+                    self.download_single_stock,
+                    interface_config,
+                    stock,
+                    params  # Use original params to avoid overwriting ts_code
+                )
+                futures.append(future)
+
+            # 收集结果
+            for future in as_completed(futures):
+                try:
+                    data = future.result()
+                    if data:
+                        all_data.extend(data)
+                        processed_stocks += 1
+                except Exception as e:
+                    logger.error(f"获取股票数据失败: {str(e)}")
+                    continue
+
+        logger.info(f"股票循环分页完成: {processed_stocks} 只股票处理, {skipped_stocks} 只股票跳过")
         return all_data
 
     def _get_stock_list_from_memory_cache(self) -> Optional[List[Dict[str, Any]]]:
@@ -1287,6 +1344,56 @@ class GenericDownloader:
 
         # Default to server error if unrecognized
         return APIErrorType.SERVER_ERROR
+
+    def _get_window_size_for_interface(self, interface_name: str) -> int:
+        """根据接口类型确定窗口大小"""
+        # 定义接口数据量级别
+        data_volume_config = {
+            # 小数据量接口：每只股票数据量<100条
+            'small': ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date'],
+            # 中等数据量：100-1000条
+            'medium': ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend',
+                      'repurchase', 'concept_detail', 'share_float', 'stk_holdertrade'],
+            # 大数据量：>1000条
+            'large': ['stk_factor', 'stk_factor_pro', 'moneyflow_hsgt', 'moneyflow_north',
+                     'moneyflow_stock', 'block_trade', 'stk_rewards', 'pledge_stat'],
+            # 财务数据接口：全量数据
+            'financial': ['balancesheet_vip', 'income_vip', 'cashflow_vip', 'fina_indicator_vip']
+        }
+
+        # 确定接口类型
+        for typ, interfaces in data_volume_config.items():
+            if interface_name in interfaces:
+                if typ == 'small':
+                    return 3650  # 10年窗口，减少请求次数
+                elif typ == 'medium':
+                    return 1825  # 5年窗口
+                elif typ == 'financial':
+                    return 36500  # 100年，实际上一次性获取
+                else:  # large
+                    return 365  # 默认1年窗口
+
+        # 默认情况
+        return 365
+
+    def _is_stock_data_exists(self, interface_name: str, ts_code: str, storage_dir: str = None) -> bool:
+        """检查股票数据是否已存在"""
+        if storage_dir is None:
+            storage_dir = self.global_config.get('storage', {}).get('base_dir', '../data')
+
+        dir_path = os.path.join(storage_dir, interface_name)
+
+        if not os.path.exists(dir_path):
+            return False
+
+        try:
+            # 读取现有数据
+            df = pl.read_parquet(dir_path)
+
+            # 检查该股票是否存在
+            return df.filter(pl.col('ts_code') == ts_code).height > 0
+        except Exception:
+            return False
 
     def verify_trade_calendar_integrity(self, df: pl.DataFrame) -> bool:
         """
