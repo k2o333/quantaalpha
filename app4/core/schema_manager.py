@@ -1,6 +1,6 @@
 import yaml
 import polars as pl
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import time
 import logging
 import os
@@ -75,20 +75,58 @@ class SchemaManager:
 
     @staticmethod
     def create_dataframe(data: List[Dict[str, Any]], interface_name: str) -> pl.DataFrame:
-        """创建DataFrame - 保存原始数据，然后应用转化字段"""
+        """混合策略：先尝试预定义schema，失败后回退到智能推断，再回退到宽松模式"""
         if not data:
             return pl.DataFrame()
 
-        # 1. 直接从原始数据创建DataFrame（自动推断）
-        df = pl.DataFrame(data, infer_schema_length=min(len(data), 100))
+        try:
+            # 尝试1：使用预定义schema
+            predefined_schema = SchemaManager.load_schema(interface_name)
+            if predefined_schema:
+                df = pl.DataFrame(data, schema=predefined_schema)
+            else:
+                # 尝试2：智能推断，根据数据量动态调整，增加推断长度
+                data_length = len(data)
+                infer_length = min(data_length, 10000 if data_length > 10000 else data_length)
+                df = pl.DataFrame(data, infer_schema_length=infer_length)
 
-        # 2. 应用转化字段
-        df = SchemaManager.apply_derived_fields(df, interface_name)
+            # 应用衍生字段
+            df = SchemaManager.apply_derived_fields(df, interface_name)
 
-        # 3. 添加系统字段
+        except Exception as e:
+            logger.error(f"Schema推断失败: {str(e)}")
+            logger.error(f"尝试回退到宽松模式...")
+
+            # 回退方案：全部转为字符串，后续再处理类型转换
+            # 先尝试增加推断长度
+            try:
+                df = pl.DataFrame(data, infer_schema_length=min(len(data), 20000))
+                df = SchemaManager.apply_derived_fields(df, interface_name)
+            except Exception as e2:
+                logger.error(f"回退方案也失败: {str(e2)}")
+                logger.error("警告：数据可能包含类型不匹配的情况")
+                # 继续使用完整的数据长度以确保所有数据都被包含
+                df = pl.DataFrame(data, infer_schema_length=len(data))
+                df = SchemaManager.apply_derived_fields(df, interface_name)
+
+            # 应用衍生字段
+            df = SchemaManager.apply_derived_fields(df, interface_name)
+
+        # 添加系统字段
         current_time = int(time.time() * 1000)
         df = df.with_columns([
             pl.lit(current_time).alias('_update_time')
         ])
 
         return df
+
+    @staticmethod
+    def load_schema(interface_name: str) -> Optional[Dict[str, str]]:
+        """加载预定义schema"""
+        schema_file = f"app4/config/schemas/{interface_name}.yaml"
+        if os.path.exists(schema_file):
+            import yaml
+            with open(schema_file, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                return config.get('fields')
+        return None
