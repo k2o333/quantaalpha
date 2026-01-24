@@ -191,6 +191,10 @@ def main():
                         help='日志级别')
     parser.add_argument('--ts_code', type=str,
                         help='指定股票代码 (如: 000001.SZ)')
+    parser.add_argument('--force', action='store_true',
+                        help='强制覆盖已存在的数据')
+    parser.add_argument('--incremental', action='store_true',
+                        help='增量模式 - 只下载缺失的时间段')
 
     args = parser.parse_args()
 
@@ -243,10 +247,10 @@ def main():
         config_loader=config_loader,
         storage_manager=storage_manager,
         trade_calendar_cache=trade_cal_cache,  # 传递交易日历缓存
-        stock_list_cache=stock_list_cache      # 传递股票列表缓存
+        stock_list_cache=stock_list_cache,      # 传递股票列表缓存
+        force_download=args.force,              # 传递强制下载标志
+        incremental_mode=args.incremental       # 传递增量模式标志
     )
-
-    from core.downloader import performance_monitor
 
     # [修改] 预加载全局交易日历 - 不再依赖 CacheManager
     def preload_global_trade_calendar(downloader, start_date='19900101', end_date=None):
@@ -314,29 +318,28 @@ def main():
         print("\n" + "="*30)
         print("      性能监控报告")
         print("="*30)
-        
-        # 添加调试信息
-        import sys
-        print(f"Debug: performance_monitor id: {id(performance_monitor)}", file=sys.stderr)
-        
-        avg_request_time = performance_monitor.get_average_metric('request_time')
-        avg_data_size = performance_monitor.get_average_metric('data_size')
-        avg_retry_count = performance_monitor.get_average_metric('retry_count')
 
-        print(f"平均请求时间: {avg_request_time:.2f}s")
-        print(f"平均单窗口条数: {avg_data_size:.2f} 条")
-        print(f"平均重试次数: {avg_retry_count:.2f} 次")
-        
-        # 打印更详细的指标信息
-        print(f"Debug: request_time指标数量: {len(performance_monitor._metrics['request_time']) if 'request_time' in performance_monitor._metrics else 0}", file=sys.stderr)
-        print(f"Debug: data_size指标数量: {len(performance_monitor._metrics['data_size']) if 'data_size' in performance_monitor._metrics else 0}", file=sys.stderr)
+        # 使用新的性能监控器
+        if hasattr(downloader, 'performance_monitor') and downloader.performance_monitor:
+            summary = downloader.performance_monitor.get_summary()
 
-        if avg_request_time > 30:
-            print("⚠️ 警告: 平均请求时间过长")
-        if avg_retry_count > 0.5:
-            print("⚠️ 警告: 重试频率较高，请检查 API 限制或网络状况")
-        if avg_data_size >= 5800:
-            print("⚠️ 警告: 数据量接近 API 限制，建议减小窗口大小")
+            print(f"总运行时间: {time.time() - downloader.performance_monitor.start_time:.2f}秒")
+            print(f"总请求数: {len(downloader.performance_monitor.metrics)}")
+            print(f"接口数量: {len(summary)}")
+            print("-" * 30)
+
+            for interface, stats in summary.items():
+                print(f"接口: {interface}")
+                print(f"  - 请求次数: {stats['total_requests']}")
+                print(f"  - 总记录数: {stats['total_records']}")
+                print(f"  - 成功率: {stats['success_rate']:.1f}%")
+                print(f"  - 平均请求时间: {stats['avg_duration']:.2f}秒")
+                print(f"  - P50/P90/P99: {stats['p50_duration']:.2f}/{stats['p90_duration']:.2f}/{stats['p99_duration']:.2f}秒")
+                print(f"  - 平均记录数: {stats['avg_records']:.0f}条")
+                print()
+        else:
+            print("未找到性能监控器")
+
         print("="*30 + "\n")
 
 
@@ -712,9 +715,21 @@ def main():
         logger.info("正在关闭存储写入...")
         if 'storage_manager' in locals(): storage_manager.stop_writer()
 
-        # 打印性能报告
+        # 生成性能报告
         if 'print_performance_report' in locals():
             print_performance_report()
+
+        # 保存性能报告到文件
+        if 'downloader' in locals() and hasattr(downloader, 'performance_monitor') and downloader.performance_monitor:
+            import os
+            from datetime import datetime
+            # 确保日志目录存在
+            log_dir = os.path.dirname(logging_config.get('file', 'log/app4.log'))
+            os.makedirs(log_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            performance_file = os.path.join(log_dir, f"performance_report_{timestamp}.md")
+            downloader.performance_monitor.save_report(performance_file)
+            logger.info(f"性能报告已生成: {performance_file}")
 
         logger.info("资源清理完毕，程序退出。")
 

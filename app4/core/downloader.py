@@ -18,6 +18,9 @@ from .processor import DataProcessor
 from .schema_manager import SchemaManager
 import polars as pl
 
+# Import the new PerformanceMonitor class
+from .performance_monitor import PerformanceMonitor
+
 logger = logging.getLogger(__name__)
 
 class LRUCache(OrderedDict):
@@ -57,53 +60,6 @@ class LRUCache(OrderedDict):
         """Alias for __setitem__"""
         self[key] = value
 
-class PerformanceMonitor:
-    """
-    性能监控器，用于跟踪关键指标
-    """
-    def __init__(self):
-        self._metrics = defaultdict(lambda: deque(maxlen=100))  # 保留最近100个指标
-        self._lock = threading.Lock()
-        self._alert_thresholds = {
-            'request_time': 30.0,  # 请求时间超过30秒告警
-            'data_size': 6000,     # 单次请求数据量超过6000条告警
-            'retry_count': 2       # 重试次数超过2次告警
-        }
-
-    def record_metric(self, metric_name: str, value: float, context: Dict[str, Any] = None):
-        """
-        记录性能指标
-        """
-        with self._lock:
-            self._metrics[metric_name].append({
-                'value': value,
-                'timestamp': time.time(),
-                'context': context or {}
-            })
-
-    def get_average_metric(self, metric_name: str) -> float:
-        """
-        获取指标的平均值
-        """
-        with self._lock:
-            if not self._metrics[metric_name]:
-                return 0.0
-            values = [item['value'] for item in self._metrics[metric_name]]
-            return sum(values) / len(values)
-
-    def check_alerts(self, metric_name: str, value: float, context: Dict[str, Any] = None):
-        """
-        检查是否超过告警阈值
-        """
-        threshold = self._alert_thresholds.get(metric_name)
-        if threshold and value > threshold:
-            logger.warning(f"ALERT: {metric_name} exceeded threshold: {value} > {threshold} for {context or {}}")
-            return True
-        return False
-
-# 全局性能监控器实例
-performance_monitor = PerformanceMonitor()
-
 class APIErrorType(Enum):
     SUCCESS = "success"
     RATE_LIMIT = "rate_limit"
@@ -115,7 +71,7 @@ class GenericDownloader:
     """通用下载器 - 原子化的执行引擎"""
 
     def __init__(self, config_loader: ConfigLoader, storage_manager=None,
-                 trade_calendar_cache=None, stock_list_cache=None):
+                 trade_calendar_cache=None, stock_list_cache=None, force_download=False, incremental_mode=False):
         self.config_loader = config_loader
         self.global_config = config_loader.get_global_config()
 
@@ -125,6 +81,13 @@ class GenericDownloader:
         # 数据处理器和模式管理器
         self.data_processor = DataProcessor()
         self.schema_manager = SchemaManager()
+
+        # 下载模式标志
+        self.force_download = force_download
+        self.incremental_mode = incremental_mode
+
+        # 初始化性能监控器
+        self.performance_monitor = PerformanceMonitor()
 
         # 创建具有重试策略的会话
         self.session = self._create_session_with_retries()
@@ -372,7 +335,7 @@ class GenericDownloader:
 
                 # Check coverage - if already covered, skip
                 should_skip = False
-                if self.coverage_manager:
+                if self.coverage_manager and not self.force_download:
                     should_skip = self.coverage_manager.should_skip(
                         interface_config['api_name'],
                         window_params,
@@ -436,36 +399,18 @@ class GenericDownloader:
 
         # Record and check performance metrics
         elapsed_time = time.time() - start_time
-        performance_monitor.record_metric('request_time', elapsed_time, {
-            'interface': interface_config['api_name'],
-            'window': f"{params.get('start_date')}-{params.get('end_date')}",
-            'ts_code': params.get('ts_code', 'unknown')
-        })
-        performance_monitor.check_alerts('request_time', elapsed_time, {
-            'interface': interface_config['api_name'],
-            'window': f"{params.get('start_date')}-{params.get('end_date')}",
-            'ts_code': params.get('ts_code', 'unknown')
-        })
+
+        # Record metrics using new PerformanceMonitor
+        self.performance_monitor.record_request(
+            interface=interface_config['name'],
+            duration=elapsed_time,
+            record_count=len(window_data) if window_data else 0,
+            retry_count=0,  # retry_count is tracked within _make_request
+            window_start=params.get('start_date'),
+            window_end=params.get('end_date')
+        )
 
         if window_data:
-            # Check data integrity
-            query_limit = interface_config.get('permissions', {}).get('query_limit', 6000)
-
-            # Record data size metric
-            performance_monitor.record_metric('data_size', len(window_data), {
-                'interface': interface_config['api_name'],
-                'window': f"{params.get('start_date')}-{params.get('end_date')}",
-                'ts_code': params.get('ts_code', 'unknown')
-            })
-
-            if len(window_data) >= query_limit:
-                logger.warning(f"Window {params.get('start_date')}-{params.get('end_date')} returned {len(window_data)} records, which may be truncated (API limit: {query_limit})")
-                performance_monitor.check_alerts('data_size', len(window_data), {
-                    'interface': interface_config['api_name'],
-                    'window': f"{params.get('start_date')}-{params.get('end_date')}",
-                    'ts_code': params.get('ts_code', 'unknown')
-                })
-
             logger.debug(f"Downloaded {len(window_data)} records for date range {params.get('start_date')}-{params.get('end_date')}")
         else:
             logger.warning(f"No data returned for window {params.get('start_date')}-{params.get('end_date')}")
@@ -579,8 +524,8 @@ class GenericDownloader:
             for idx, stock in enumerate(stock_list):
                 ts_code = stock['ts_code']
 
-                # 前置去重：检查本地是否已有该股票的数据
-                if self._is_stock_data_exists(interface_name, ts_code):
+                # 前置去重：检查本地是否已有该股票的数据（除非强制下载）
+                if not self.force_download and self._is_stock_data_exists(interface_name, ts_code):
                     logger.info(f"股票{ts_code}数据已存在，跳过")
                     skipped_stocks += 1
                     continue
@@ -824,7 +769,8 @@ class GenericDownloader:
             period_params['period'] = period
 
             # [新增] 检查覆盖率，如果已存在则跳过
-            if self.coverage_manager:
+            should_skip = False
+            if self.coverage_manager and not self.force_download:
                 should_skip = self.coverage_manager.should_skip(
                     interface_config['api_name'],
                     period_params,
@@ -836,10 +782,7 @@ class GenericDownloader:
 
             logger.info(f"Fetching data for period {period} ({idx+1}/{len(periods)})")
 
-            # 记录开始时间
-            start_time = time.time()
-
-            # 发起请求
+            # 发起请求 - 记录指标在 _make_request 内部
             period_data = self._make_request(interface_config, period_params)
 
             # 对于period_range模式，将period参数添加到每条记录中
@@ -847,38 +790,9 @@ class GenericDownloader:
                 for record in period_data:
                     record['period'] = period_params['period']
 
-            # 计算请求耗时
-            elapsed_time = time.time() - start_time
-
-            # 记录性能指标
-            logger.debug(f"Recording request_time metric: {elapsed_time:.2f}s for period {period}")
-            performance_monitor.record_metric('request_time', elapsed_time, {
-                'interface': interface_config['api_name'],
-                'period': period,
-                'ts_code': params.get('ts_code', 'unknown')
-            })
-            performance_monitor.check_alerts('request_time', elapsed_time, {
-                'interface': interface_config['api_name'],
-                'period': period,
-                'ts_code': params.get('ts_code', 'unknown')
-            })
-
             if period_data:
                 all_data.extend(period_data)
                 logger.info(f"Downloaded {len(period_data)} records for period {period}")
-
-                # 记录数据量指标
-                logger.debug(f"Recording data_size metric: {len(period_data)} records for period {period}")
-                performance_monitor.record_metric('data_size', len(period_data), {
-                    'interface': interface_config['api_name'],
-                    'period': period,
-                    'ts_code': params.get('ts_code', 'unknown')
-                })
-                performance_monitor.check_alerts('data_size', len(period_data), {
-                    'interface': interface_config['api_name'],
-                    'period': period,
-                    'ts_code': params.get('ts_code', 'unknown')
-                })
             else:
                 logger.warning(f"No data returned for period {period}")
 
@@ -1132,7 +1046,8 @@ class GenericDownloader:
                 stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
 
             # [新增] 检查覆盖率，如果已存在则跳过
-            if self.coverage_manager:
+            should_skip = False
+            if self.coverage_manager and not self.force_download:
                 should_skip = self.coverage_manager.should_skip(
                     interface_config['api_name'],
                     stock_params,
@@ -1175,6 +1090,9 @@ class GenericDownloader:
             req_config.get('jitter_min', 0.1),
             req_config.get('jitter_max', 0.5)
         ))
+
+        start_time = time.time()
+        retry_count = 0
 
         # 重试循环
         for attempt in range(max_retries + 1):
@@ -1230,16 +1148,10 @@ class GenericDownloader:
 
                 # 记录重试次数指标
                 if attempt > 0:
-                    performance_monitor.record_metric('retry_count', attempt, {
-                        'interface': api_name,
-                        'attempt': attempt
-                    })
-                    performance_monitor.check_alerts('retry_count', attempt, {
-                        'interface': api_name
-                    })
+                    retry_count = attempt
 
                 logger.debug(f"Making {method} request to {api_url} for {api_name} (attempt {attempt+1})")
-                
+
                 if method.upper() == 'POST':
                     response = self.session.post(api_url, json=req_params, timeout=timeout)
                 else:
@@ -1259,9 +1171,20 @@ class GenericDownloader:
                             random_delay = base_delay + random.uniform(0, 2)
                             logger.warning(f"Rate limit hit for {api_name}. Retrying in {random_delay:.2f}s...")
                             time.sleep(random_delay)
+                            retry_count = attempt + 1
                             continue
-                    
+
                     logger.error(f"API error for {api_name}: {msg}")
+                    duration = time.time() - start_time
+                    # 记录失败指标
+                    self.performance_monitor.record_request(
+                        interface=interface_config['name'],
+                        duration=duration,
+                        record_count=0,
+                        retry_count=retry_count,
+                        window_start=params.get('start_date'),
+                        window_end=params.get('end_date')
+                    )
                     return []
 
                 # 数据转换逻辑
@@ -1285,6 +1208,18 @@ class GenericDownloader:
                             row_dict[field_name] = item[i]
                     converted_data.append(row_dict)
 
+                duration = time.time() - start_time
+
+                # 记录指标
+                self.performance_monitor.record_request(
+                    interface=interface_config['name'],
+                    duration=duration,
+                    record_count=len(converted_data),
+                    retry_count=retry_count,
+                    window_start=params.get('start_date'),
+                    window_end=params.get('end_date')
+                )
+
                 return converted_data
 
             except (requests.RequestException, json.JSONDecodeError) as e:
@@ -1295,13 +1230,35 @@ class GenericDownloader:
                     random_delay = base_delay + random.uniform(0, 2)
                     logger.warning(f"Retrying {api_name} in {random_delay:.2f}s due to: {type(e).__name__}")
                     time.sleep(random_delay)
+                    retry_count = attempt + 1
                     continue
+                duration = time.time() - start_time
+                # 记录失败指标
+                self.performance_monitor.record_request(
+                    interface=interface_config['name'],
+                    duration=duration,
+                    record_count=0,
+                    retry_count=retry_count,
+                    window_start=params.get('start_date'),
+                    window_end=params.get('end_date')
+                )
                 return []
             except Exception as e:
                 logger.error(f"Unexpected error for {api_name}: {str(e)}")
                 if attempt < max_retries:
                     time.sleep(2 ** attempt)
+                    retry_count = attempt + 1
                     continue
+                duration = time.time() - start_time
+                # 记录失败指标
+                self.performance_monitor.record_request(
+                    interface=interface_config['name'],
+                    duration=duration,
+                    record_count=0,
+                    retry_count=retry_count,
+                    window_start=params.get('start_date'),
+                    window_end=params.get('end_date')
+                )
                 return []
 
     def _classify_api_error(self, response: Dict[str, Any]) -> APIErrorType:
