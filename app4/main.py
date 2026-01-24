@@ -26,6 +26,7 @@ from core.scheduler import TaskScheduler, RateLimiter
 from core.storage import StorageManager
 from core.processor import DataProcessor
 from core.dedup import deduplicate_against_existing
+from core.cache_warmer import CacheWarmer
 import polars as pl
 import glob
 
@@ -228,7 +229,22 @@ def main():
         batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)  # [优化] 增大 batch_size
     )
 
-    downloader = GenericDownloader(config_loader, storage_manager)
+    # 初始化缓存预热器
+    data_dir = config_loader.get_global_config()['storage']['base_dir']
+    cache_warmer = CacheWarmer(data_dir)
+
+    # 预热缓存
+    logger.info("预热全局缓存...")
+    trade_cal_cache = cache_warmer.preload_trade_calendar()
+    stock_list_cache = cache_warmer.preload_stock_list()
+
+    # 传递缓存到Downloader
+    downloader = GenericDownloader(
+        config_loader=config_loader,
+        storage_manager=storage_manager,
+        trade_calendar_cache=trade_cal_cache,  # 传递交易日历缓存
+        stock_list_cache=stock_list_cache      # 传递股票列表缓存
+    )
 
     from core.downloader import performance_monitor
 
