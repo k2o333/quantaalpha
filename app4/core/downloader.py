@@ -114,7 +114,8 @@ class APIErrorType(Enum):
 class GenericDownloader:
     """通用下载器 - 原子化的执行引擎"""
 
-    def __init__(self, config_loader: ConfigLoader, storage_manager=None):
+    def __init__(self, config_loader: ConfigLoader, storage_manager=None,
+                 trade_calendar_cache=None, stock_list_cache=None):
         self.config_loader = config_loader
         self.global_config = config_loader.get_global_config()
 
@@ -136,6 +137,15 @@ class GenericDownloader:
             'api_responses': LRUCache(maxsize=500)   # API responses cache
         }
         self._cache_lock = threading.RLock()  # 确保线程安全
+
+        # 使用传入的缓存（如果不为None）
+        if trade_calendar_cache is not None:
+            with self._cache_lock:
+                self._memory_cache['trade_cal'][('global',)] = trade_calendar_cache
+
+        if stock_list_cache is not None:
+            with self._cache_lock:
+                self._memory_cache['stock_list'] = stock_list_cache
 
         # [新增] 覆盖率管理器
         if storage_manager:
@@ -580,25 +590,21 @@ class GenericDownloader:
 
     def get_trade_calendar(self, start_date: str, end_date: str) -> Optional[List[Dict[str, Any]]]:
         """
-        获取交易日历，采用三级缓存策略：
-        1. 内存缓存 (_memory_cache)
-        2. 本地存储 (Data 目录 parquet 文件)
-        3. API 请求
+        获取交易日历，优先使用预热缓存
         """
-        cache_key = (start_date, end_date)
-        
-        # 1. 检查内存缓存
+        # 使用全局缓存键
+        cache_key = ('global',)  # 改为固定键
+
         with self._cache_lock:
             if cache_key in self._memory_cache['trade_cal']:
-                logger.debug(f"Trade calendar loaded from memory cache: {start_date}-{end_date}")
-                return self._memory_cache['trade_cal'][cache_key]
+                # 从全局缓存过滤日期范围
+                all_days = self._memory_cache['trade_cal'][cache_key]
+                if all_days:
+                    return [d for d in all_days if start_date <= d['cal_date'] <= end_date]
 
-        # 2. 检查本地数据目录
+        # 回退到原有逻辑
         trade_calendar = self._get_trade_calendar_from_data_dir(start_date, end_date)
-        
-        if trade_calendar:
-            logger.info(f"Trade calendar loaded from data directory: {start_date}-{end_date}")
-        else:
+        if not trade_calendar:
             # 3. 请求 API
             logger.info(f"Trade calendar not found locally, fetching from API: {start_date}-{end_date}")
             calendar_params = {
@@ -611,12 +617,13 @@ class GenericDownloader:
                 self.config_loader.get_interface_config('trade_cal'),
                 calendar_params
             )
-            
-        # 更新内存缓存
-        if trade_calendar:
-            with self._cache_lock:
-                self._memory_cache['trade_cal'][cache_key] = trade_calendar
-                
+
+            # 更新内存缓存
+            if trade_calendar:
+                with self._cache_lock:
+                    cache_key = (start_date, end_date)  # 保持原有缓存键
+                    self._memory_cache['trade_cal'][cache_key] = trade_calendar
+
         return trade_calendar
 
     def _get_trade_calendar_from_data_dir(self, start_date, end_date):
