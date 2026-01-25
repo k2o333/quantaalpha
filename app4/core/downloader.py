@@ -16,6 +16,11 @@ from .config_loader import ConfigLoader
 from .coverage_manager import CoverageManager
 from .processor import DataProcessor
 from .schema_manager import SchemaManager
+from .pagination import (
+    ParameterGenerator, 
+    PaginationContext,
+    get_window_size_for_interface
+)
 import polars as pl
 
 # Import the new PerformanceMonitor class
@@ -211,64 +216,65 @@ class GenericDownloader:
         return validated_params
 
     def _execute_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """执行分页/循环逻辑"""
+        """
+        执行分页/循环逻辑 - 控制器
+        
+        职责：
+        1. 创建分页上下文
+        2. 根据模式选择执行方法
+        3. 调用具体执行方法
+        """
         pagination_config = interface_config.get('pagination', {})
         if not pagination_config.get('enabled', False):
-            # 不分页，直接请求
             return self._make_request(interface_config, params)
 
         mode = pagination_config.get('mode', 'offset')
-        all_data = []
+
+        # 创建分页上下文（不包含交易日历和股票列表，在各方法内按需获取）
+        context = PaginationContext(
+            interface_config=interface_config,
+            force_download=self.force_download
+        )
 
         if mode == 'offset':
-            all_data = self._execute_offset_pagination(interface_config, params, pagination_config)
+            return self._execute_offset_pagination(interface_config, params, context)
         elif mode == 'date_range':
-            all_data = self._execute_date_range_pagination(interface_config, params, pagination_config)
+            return self._execute_date_range_pagination(interface_config, params, context)
         elif mode == 'stock_loop':
-            all_data = self._execute_stock_loop_pagination(interface_config, params)
+            return self._execute_stock_loop_pagination(interface_config, params, context)
         elif mode == 'period_range':
-            # 新增：报告期范围分页
-            all_data = self._execute_period_range_pagination(interface_config, params, pagination_config)
+            return self._execute_period_range_pagination(interface_config, params, context)
         elif mode == 'quarterly_range':
-            # 新增：季度范围分页
-            all_data = self._execute_quarterly_pagination(interface_config, params, pagination_config)
+            return self._execute_quarterly_pagination(interface_config, params, context)
         elif mode == 'periodic_range':
-            # 新增：周期性时间范围分页
-            all_data = self._execute_periodic_pagination(interface_config, params, pagination_config)
+            return self._execute_periodic_pagination(interface_config, params, context)
         else:
-            # 默认不分页
-            all_data = self._make_request(interface_config, params)
+            return self._make_request(interface_config, params)
 
-        return all_data
-
-    def _execute_offset_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any],
-                                  pagination_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """执行 offset 分页"""
+    def _execute_offset_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext
+    ) -> List[Dict[str, Any]]:
+        """执行offset分页"""
         all_data = []
-        offset = 0
-        limit_key = pagination_config.get('limit_key', 'limit')
-        offset_key = pagination_config.get('offset_key', 'offset')
-        default_limit = pagination_config.get('default_limit', 5000)
-
-        while True:
-            # 设置分页参数
-            page_params = params.copy()
-            page_params[limit_key] = default_limit
-            page_params[offset_key] = offset
-
-            # 发起请求
+        limit = context.pagination_config.get('default_limit', 5000)
+        
+        param_gen = ParameterGenerator(context)
+        
+        for page_params in param_gen.generate_offset_params(params):
             page_data = self._make_request(interface_config, page_params)
+            
             if not page_data:
                 break
-
+            
             all_data.extend(page_data)
-
-            # 如果返回数据少于限制，说明已经到最后一页
-            if len(page_data) < default_limit:
+            
+            # 判断是否是最后一页
+            if len(page_data) < limit:
                 break
-
-            offset += default_limit
-
+        
         return all_data
 
     def _execute_date_range_pagination_concurrent(self, interface_config: Dict[str, Any], params: Dict[str, Any], start_date: str, end_date: str, window_size: int = 365, max_workers: int = 4) -> List[Dict[str, Any]]:
@@ -417,60 +423,115 @@ class GenericDownloader:
 
         return window_data
 
-    def _execute_date_range_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any],
-                                      pagination_config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """执行日期范围分页 - 支持内部offset分页 - 智能分页策略"""
-        # 如果没有提供分页配置，从接口配置中获取
-        if pagination_config is None:
-            pagination_config = interface_config.get('pagination', {})
-
-        # 获取接口配置
+    def _execute_date_range_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext
+    ) -> List[Dict[str, Any]]:
+        """执行日期范围分页（并发）"""
         interface_name = interface_config['name']
-
-        # 获取日期范围
+        
+        # 财务接口全量返回
+        if interface_name in ['balancesheet_vip', 'income_vip', 'cashflow_vip', 'fina_indicator_vip']:
+            logger.info(f"财务接口{interface_name}使用全量请求")
+            return self._make_request(interface_config, params)
+        
         start_date = params.get('start_date', '20050101')
         end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-
-        # [新增] 获取线程 ID 和任务 ID
-        thread_id = threading.get_ident()
-        task_id = params.get('ts_code', 'unknown')
-
-        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] _execute_date_range_pagination called with params: {params}")
-        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] start_date: {start_date}, end_date: {end_date}")
-        logger.info(f"[Thread-{thread_id}] [Task-{task_id}] [DEBUG] ts_code in params: {params.get('ts_code', 'N/A')}")
-
-        # 智能分页：根据接口类型确定窗口大小
-        window_size = self._get_window_size_for_interface(interface_name)
-
-        # 根据接口类型调整并发数
+        
+        # 获取交易日历
+        trade_calendar = self.get_trade_calendar(start_date, end_date)
+        if not trade_calendar:
+            logger.warning("Failed to get trade calendar, using offset fallback")
+            offset_config = interface_config.get('offset_pagination', {})
+            if offset_config.get('enabled', False):
+                return self._execute_offset_pagination(interface_config, params, context)
+            return self._make_request(interface_config, params)
+        
+        # 更新上下文
+        context.trade_calendar = trade_calendar
+        
+        # 确定并发数
         if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
             max_workers = 1
         elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
             max_workers = 2
-        elif interface_name in ['balancesheet_vip', 'income_vip', 'cashflow_vip', 'fina_indicator_vip']:
-            # 财务数据接口是全量返回，不应分页
-            logger.info(f"财务接口{interface_name}使用全量请求模式")
-            return self._make_request(interface_config, params)
         else:
-            max_workers = 4  # Conservative default to respect API limits
-
-        logger.info(f"Fetching trade calendar for date range: {start_date} - {end_date}")
-
-        # Use concurrent execution for better performance with intelligent window size
-        return self._execute_date_range_pagination_concurrent(
-            interface_config=interface_config,
-            params=params,
-            start_date=start_date,
-            end_date=end_date,
-            window_size=window_size,
-            max_workers=max_workers
-        )
-
-    def _execute_stock_loop_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """股票循环分页 - 增加前置去重"""
+            max_workers = 4
+        
+        # 创建参数生成器并收集窗口
+        param_gen = ParameterGenerator(context)
+        windows = []
+        window_params_list = []
+        
+        for window_params, window_id in param_gen.generate_date_range_params(params, start_date, end_date):
+            windows.append(window_id)
+            window_params_list.append(window_params)
+        
+        # 并发执行
         all_data = []
+        results_by_window = {}
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_window = {}
+            
+            for idx, window_params in enumerate(window_params_list):
+                window_start, window_end = windows[idx]
+                
+                # 覆盖率检查
+                should_skip = False
+                if self.coverage_manager and not self.force_download:
+                    should_skip = self.coverage_manager.should_skip(
+                        interface_config['api_name'],
+                        window_params,
+                        strategy='date_range'
+                    )
+                
+                if should_skip:
+                    logger.info(f"Skipping window {window_start} - {window_end}")
+                    results_by_window[(window_start, window_end)] = []
+                else:
+                    offset_config = interface_config.get('offset_pagination', {})
+                    if offset_config.get('enabled', False):
+                        future = executor.submit(
+                            self._make_request_with_offset_check,
+                            interface_config,
+                            window_params
+                        )
+                    else:
+                        future = executor.submit(
+                            self._make_request,
+                            interface_config,
+                            window_params
+                        )
+                    future_to_window[future] = (window_start, window_end)
+            
+            # 收集结果
+            for future in as_completed(future_to_window):
+                window_start, window_end = future_to_window[future]
+                try:
+                    result = future.result()
+                    results_by_window[(window_start, window_end)] = result
+                except Exception as e:
+                    logger.error(f"Error fetching window {window_start} to {window_end}: {e}")
+                    results_by_window[(window_start, window_end)] = []
+        
+        # 合并结果（保持顺序）
+        for window_start, window_end in windows:
+            window_data = results_by_window.get((window_start, window_end), [])
+            all_data.extend(window_data)
+        
+        return all_data
 
-        # 获取股票列表（从内存缓存或API获取）
+    def _execute_stock_loop_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext
+    ) -> List[Dict[str, Any]]:
+        """执行股票循环分页"""
+        # 获取股票列表
         logger.info("正在获取股票列表...")
         stock_list = self._get_stock_list_from_memory_cache()
 
@@ -487,7 +548,6 @@ class GenericDownloader:
             )
             if stock_list:
                 logger.info(f"从API获取到 {len(stock_list)} 只股票")
-                # 更新内存缓存
                 with self._cache_lock:
                     self._memory_cache['stock_list'] = stock_list
             else:
@@ -497,63 +557,50 @@ class GenericDownloader:
 
         if not stock_list:
             logger.error("Failed to get stock list for stock loop pagination")
-            return all_data
+            return []
 
-        # 根据接口类型确定并发数
+        # 更新上下文
+        context.stock_list = stock_list
+        
+        # 创建参数生成器
+        param_gen = ParameterGenerator(context)
+        
+        # 确定并发数
         interface_name = interface_config['name']
         if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
             max_workers = 1
         elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
             max_workers = 2
         else:
-            max_workers = 4  # Conservative default based on previous implementations
+            max_workers = 4
 
-        # 为每个股票下载数据
-        total_stocks = len(stock_list)
-        logger.info(f"Starting to download data for {total_stocks} stocks...")
-
-        log_interval = 100  # 每100个股票输出一次进度
-
-        # 并行处理股票，使用前置去重逻辑
-        skipped_stocks = 0
-        processed_stocks = 0
-
+        all_data = []
+        
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # 创建任务
-            futures = []
-            for idx, stock in enumerate(stock_list):
-                ts_code = stock['ts_code']
-
-                # 前置去重：检查本地是否已有该股票的数据（除非强制下载）
-                if not self.force_download and self._is_stock_data_exists(interface_name, ts_code):
-                    logger.info(f"股票{ts_code}数据已存在，跳过")
-                    skipped_stocks += 1
-                    continue
-
-                # 准备参数
-                stock_params = params.copy()
-                stock_params['ts_code'] = ts_code
-
+            futures = {}
+            
+            for stock_params, stock_info in param_gen.generate_stock_params(
+                params,
+                existing_stocks_checker=lambda name, code: self._is_stock_data_exists(name, code)
+            ):
                 future = executor.submit(
                     self.download_single_stock,
                     interface_config,
-                    stock,
-                    params  # Use original params to avoid overwriting ts_code
+                    stock_info,
+                    stock_params
                 )
-                futures.append(future)
-
-            # 收集结果
+                futures[future] = stock_info['ts_code']
+            
             for future in as_completed(futures):
+                ts_code = futures[future]
                 try:
                     data = future.result()
                     if data:
                         all_data.extend(data)
-                        processed_stocks += 1
+                        logger.info(f"Downloaded {len(data)} records for {ts_code}")
                 except Exception as e:
-                    logger.error(f"获取股票数据失败: {str(e)}")
-                    continue
-
-        logger.info(f"股票循环分页完成: {processed_stocks} 只股票处理, {skipped_stocks} 只股票跳过")
+                    logger.error(f"Error downloading stock {ts_code}: {e}")
+        
         return all_data
 
     def _get_stock_list_from_memory_cache(self) -> Optional[List[Dict[str, Any]]]:
@@ -673,102 +720,23 @@ class GenericDownloader:
             logger.warning(f"Failed to read trade calendar from Data dir: {e}")
             return None
 
-    def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:
-        """
-        生成日期范围内的所有季度末日期
 
-        Args:
-            start_date: 起始日期 YYYYMMDD
-            end_date: 结束日期 YYYYMMDD
 
-        Returns:
-            季度末日期列表，格式为 YYYYMMDD
-        """
-        from datetime import datetime, timedelta
-
-        # 解析日期
-        start_dt = datetime.strptime(start_date, '%Y%m%d')
-        end_dt = datetime.strptime(end_date, '%Y%m%d')
-
-        # 季度末月份和日期
-        quarter_ends = [
-            (3, 31),   # Q1
-            (6, 30),   # Q2
-            (9, 30),   # Q3
-            (12, 31)   # Q4
-        ]
-
-        periods = []
-
-        # 从起始日期的下一个季度末开始
-        current_year = start_dt.year
-        current_quarter_idx = 0
-
-        # 找到 start_date 之后的第一个季度末
-        for q_idx, (month, day) in enumerate(quarter_ends):
-            quarter_end = datetime(current_year, month, day)
-            if quarter_end >= start_dt:
-                current_quarter_idx = q_idx
-                break
-        else:
-            # 如果当前年份没有找到，从下一年第一季度开始
-            current_year += 1
-            current_quarter_idx = 0
-
-        # 生成所有在范围内的季度末日期
-        while True:
-            month, day = quarter_ends[current_quarter_idx]
-            quarter_end = datetime(current_year, month, day)
-
-            if quarter_end > end_dt:
-                break
-
-            periods.append(quarter_end.strftime('%Y%m%d'))
-
-            # 移动到下一个季度
-            current_quarter_idx += 1
-            if current_quarter_idx >= len(quarter_ends):
-                current_quarter_idx = 0
-                current_year += 1
-
-        return periods
-
-    def _execute_period_range_pagination(self, interface_config: Dict[str, Any],
-                                        params: Dict[str, Any],
-                                        pagination_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        执行报告期范围分页
-
-        当 date_parameter_type 为 "report_period" 时，将 start_date/end_date
-        转换为多个 period 参数请求
-        """
-        all_data = []
-
-        # 获取日期范围
+    def _execute_period_range_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext
+    ) -> List[Dict[str, Any]]:
+        """执行报告期分页"""
         start_date = params.get('start_date', '20050101')
         end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-
-        logger.info(f"Generating report periods for range: {start_date} - {end_date}")
-
-        # 生成季度末日期列表
-        periods = self._generate_quarter_end_dates(start_date, end_date)
-
-        if not periods:
-            logger.warning(f"No valid report periods found in range {start_date} - {end_date}")
-            return []
-
-        logger.info(f"Generated {len(periods)} report periods: {periods}")
-
-        # 为每个 period 发起请求
-        for idx, period in enumerate(periods):
-            period_params = params.copy()
-
-            # 移除 start_date 和 end_date，使用 period 参数
-            period_params.pop('start_date', None)
-            period_params.pop('end_date', None)
-            period_params['period'] = period
-
-            # [新增] 检查覆盖率，如果已存在则跳过
+        
+        param_gen = ParameterGenerator(context)
+        all_data = []
+        
+        for period_params, period in param_gen.generate_period_params(params, start_date, end_date):
+            # 覆盖率检查
             should_skip = False
             if self.coverage_manager and not self.force_download:
                 should_skip = self.coverage_manager.should_skip(
@@ -776,250 +744,75 @@ class GenericDownloader:
                     period_params,
                     strategy='period'
                 )
-                if should_skip:
-                    logger.info(f"Skipping period {period} for {interface_config['api_name']} (already exists)")
-                    continue
-
-            logger.info(f"Fetching data for period {period} ({idx+1}/{len(periods)})")
-
-            # 发起请求 - 记录指标在 _make_request 内部
+            
+            if should_skip:
+                logger.info(f"Skipping period {period}")
+                continue
+            
+            logger.info(f"Fetching data for period {period}")
+            
             period_data = self._make_request(interface_config, period_params)
-
-            # 对于period_range模式，将period参数添加到每条记录中
-            if period_data and 'period' in period_params:
-                for record in period_data:
-                    record['period'] = period_params['period']
-
+            
             if period_data:
+                # 将period参数添加到每条记录中
+                for record in period_data:
+                    record['period'] = period
                 all_data.extend(period_data)
-                logger.info(f"Downloaded {len(period_data)} records for period {period}")
-            else:
-                logger.warning(f"No data returned for period {period}")
-
+        
         return all_data
 
-    def _execute_quarterly_pagination(self, interface_config: Dict[str, Any],
-                                     params: Dict[str, Any],
-                                     pagination_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        执行季度周期分页
-        将日期范围按季度分割，确保每个季度的数据独立请求
-        例如：3月1日到5月1日 -> [3月1日-3月31日, 4月1日-5月1日]
-        """
-        all_data = []
-
-        # 获取日期范围
+    def _execute_quarterly_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext
+    ) -> List[Dict[str, Any]]:
+        """执行季度范围分页"""
         start_date = params.get('start_date', '20050101')
         end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-
-        # 生成季度分割范围
-        quarterly_ranges = self._generate_quarterly_ranges(start_date, end_date)
-
-        # 为每个季度范围发起请求
-        for idx, (range_start, range_end) in enumerate(quarterly_ranges):
-            range_params = params.copy()
-            range_params['start_date'] = range_start
-            range_params['end_date'] = range_end
-
-            logger.info(f"Downloading dividend data for quarterly range {idx+1}/{len(quarterly_ranges)}: {range_start} - {range_end}")
-
-            # 发起请求
+        
+        param_gen = ParameterGenerator(context)
+        all_data = []
+        
+        for range_params, (range_start, range_end) in param_gen.generate_quarterly_params(params, start_date, end_date):
+            logger.info(f"Downloading data for quarterly range {range_start} - {range_end}")
+            
             range_data = self._make_request(interface_config, range_params)
-
+            
             if range_data:
                 all_data.extend(range_data)
-                logger.info(f"Downloaded {len(range_data)} records for quarterly range {range_start}-{range_end}")
-            else:
-                logger.warning(f"No data returned for quarterly range {range_start}-{range_end}")
-
+        
         return all_data
 
-    def _generate_quarterly_ranges(self, start_date: str, end_date: str) -> List[tuple]:
-        """
-        生成季度分割范围
-        将日期范围按季度边界分割
-        Q1: 1月1日 - 3月31日
-        Q2: 4月1日 - 6月30日
-        Q3: 7月1日 - 9月30日
-        Q4: 10月1日 - 12月31日
-        """
-        from datetime import datetime
 
-        start_dt = datetime.strptime(start_date, '%Y%m%d')
-        end_dt = datetime.strptime(end_date, '%Y%m%d')
 
-        quarterly_ranges = []
-
-        current = start_dt
-        while current <= end_dt:
-            # 确定当前季度的结束日期
-            if current.month <= 3:
-                # Q1: 1-3月
-                quarter_end = datetime(current.year, 3, 31)
-            elif current.month <= 6:
-                # Q2: 4-6月
-                quarter_end = datetime(current.year, 6, 30)
-            elif current.month <= 9:
-                # Q3: 7-9月
-                quarter_end = datetime(current.year, 9, 30)
-            else:
-                # Q4: 10-12月
-                quarter_end = datetime(current.year, 12, 31)
-
-            # 如果季度结束日期超过总结束日期，则使用总结束日期
-            if quarter_end > end_dt:
-                quarter_end = end_dt
-
-            # 确定范围开始日期（如果是季度开始，则从当前日期，否则从季度开始）
-            if current.month in [1, 4, 7, 10] and current.day == 1:
-                # 如果已经在季度开始，使用当前日期
-                range_start = current.strftime('%Y%m%d')
-            else:
-                # 否则从当前季度开始
-                if current.month <= 3:
-                    range_start = datetime(current.year, 1, 1).strftime('%Y%m%d')
-                elif current.month <= 6:
-                    range_start = datetime(current.year, 4, 1).strftime('%Y%m%d')
-                elif current.month <= 9:
-                    range_start = datetime(current.year, 7, 1).strftime('%Y%m%d')
-                else:
-                    range_start = datetime(current.year, 10, 1).strftime('%Y%m%d')
-
-            range_end = quarter_end.strftime('%Y%m%d')
-            quarterly_ranges.append((range_start, range_end))
-
-            # 移动到下一个季度
-            if quarter_end.month == 3:
-                current = datetime(quarter_end.year, 4, 1)
-            elif quarter_end.month == 6:
-                current = datetime(quarter_end.year, 7, 1)
-            elif quarter_end.month == 9:
-                current = datetime(quarter_end.year, 10, 1)
-            else:
-                current = datetime(quarter_end.year + 1, 1, 1)
-
-        return quarterly_ranges
-
-    def _execute_periodic_pagination(self, interface_config: Dict[str, Any],
-                                    params: Dict[str, Any],
-                                    pagination_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        执行周期性时间范围分页
-        根据配置的时间周期类型（周/月/季度/年）分割日期范围
-        """
-        all_data = []
-
-        # 获取日期范围
+    def _execute_periodic_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext
+    ) -> List[Dict[str, Any]]:
+        """执行周期性时间范围分页"""
         start_date = params.get('start_date', '20050101')
         end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-
+        
         # 获取周期类型，默认为月
-        period_type = pagination_config.get('period_type', 'month')
-
-        # 生成时间分割范围
-        time_ranges = self._generate_time_ranges(start_date, end_date, period_type)
-
-        # 为每个时间范围发起请求
-        for idx, (range_start, range_end) in enumerate(time_ranges):
-            range_params = params.copy()
-            range_params['start_date'] = range_start
-            range_params['end_date'] = range_end
-
-            logger.info(f"Downloading dividend data for {period_type} range {idx+1}/{len(time_ranges)}: {range_start} - {range_end}")
-
-            # 发起请求
+        period_type = context.pagination_config.get('period_type', 'month')
+        
+        param_gen = ParameterGenerator(context)
+        all_data = []
+        
+        for range_params, (range_start, range_end) in param_gen.generate_periodic_params(params, start_date, end_date, period_type):
+            logger.info(f"Downloading data for {period_type} range {range_start} - {range_end}")
+            
             range_data = self._make_request(interface_config, range_params)
-
+            
             if range_data:
                 all_data.extend(range_data)
-                logger.info(f"Downloaded {len(range_data)} records for {period_type} range {range_start}-{range_end}")
-            else:
-                logger.warning(f"No data returned for {period_type} range {range_start}-{range_end}")
-
+        
         return all_data
 
-    def _generate_time_ranges(self, start_date: str, end_date: str, period_type: str) -> List[tuple]:
-        """
-        生成时间分割范围
-        根据周期类型将日期范围分割为多个时间段
 
-        Args:
-            start_date: 开始日期 (YYYYMMDD)
-            end_date: 结束日期 (YYYYMMDD)
-            period_type: 周期类型 ('week', 'month', 'quarter', 'year')
-
-        Returns:
-            List of (start_date, end_date) tuples
-        """
-        from datetime import datetime, timedelta
-
-        start_dt = datetime.strptime(start_date, '%Y%m%d')
-        end_dt = datetime.strptime(end_date, '%Y%m%d')
-
-        time_ranges = []
-        current = start_dt
-
-        while current <= end_dt:
-            if period_type == 'week':
-                # 计算当前周的结束日期（周日）
-                days_until_sunday = 6 - current.weekday()  # Monday is 0, Sunday is 6
-                period_end = current + timedelta(days=days_until_sunday)
-            elif period_type == 'month':
-                # 计算当前月的结束日期
-                if current.month == 12:
-                    period_end = datetime(current.year + 1, 1, 1) - timedelta(days=1)
-                else:
-                    period_end = datetime(current.year, current.month + 1, 1) - timedelta(days=1)
-            elif period_type == 'quarter':
-                # 计算当前季度的结束日期
-                if current.month <= 3:
-                    period_end = datetime(current.year, 3, 31)
-                elif current.month <= 6:
-                    period_end = datetime(current.year, 6, 30)
-                elif current.month <= 9:
-                    period_end = datetime(current.year, 9, 30)
-                else:
-                    period_end = datetime(current.year, 12, 31)
-            elif period_type == 'year':
-                # 计算当前年的结束日期
-                period_end = datetime(current.year, 12, 31)
-            else:
-                # 默认按月
-                if current.month == 12:
-                    period_end = datetime(current.year + 1, 1, 1) - timedelta(days=1)
-                else:
-                    period_end = datetime(current.year, current.month + 1, 1) - timedelta(days=1)
-
-            # 如果周期结束日期超过总结束日期，则使用总结束日期
-            if period_end > end_dt:
-                period_end = end_dt
-
-            # 确定范围开始日期
-            range_start = current.strftime('%Y%m%d')
-            range_end = period_end.strftime('%Y%m%d')
-            time_ranges.append((range_start, range_end))
-
-            # 移动到下一个周期
-            if period_type == 'week':
-                current = period_end + timedelta(days=1)
-            elif period_type == 'month':
-                if period_end.month == 12:
-                    current = datetime(period_end.year + 1, 1, 1)
-                else:
-                    current = datetime(period_end.year, period_end.month + 1, 1)
-            elif period_type == 'quarter':
-                if period_end.month == 3:
-                    current = datetime(period_end.year, 4, 1)
-                elif period_end.month == 6:
-                    current = datetime(period_end.year, 7, 1)
-                elif period_end.month == 9:
-                    current = datetime(period_end.year, 10, 1)
-                else:
-                    current = datetime(period_end.year + 1, 1, 1)
-            elif period_type == 'year':
-                current = datetime(period_end.year + 1, 1, 1)
-
-        return time_ranges
 
     def download_single_stock(self, interface_config: Dict[str, Any], stock: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """下载单只股票的数据 - 原子化方法供调度器调用
@@ -1302,36 +1095,7 @@ class GenericDownloader:
         # Default to server error if unrecognized
         return APIErrorType.SERVER_ERROR
 
-    def _get_window_size_for_interface(self, interface_name: str) -> int:
-        """根据接口类型确定窗口大小"""
-        # 定义接口数据量级别
-        data_volume_config = {
-            # 小数据量接口：每只股票数据量<100条
-            'small': ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date'],
-            # 中等数据量：100-1000条
-            'medium': ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend',
-                      'repurchase', 'concept_detail', 'share_float', 'stk_holdertrade'],
-            # 大数据量：>1000条
-            'large': ['stk_factor', 'stk_factor_pro', 'moneyflow_hsgt', 'moneyflow_north',
-                     'moneyflow_stock', 'block_trade', 'stk_rewards', 'pledge_stat'],
-            # 财务数据接口：全量数据
-            'financial': ['balancesheet_vip', 'income_vip', 'cashflow_vip', 'fina_indicator_vip']
-        }
 
-        # 确定接口类型
-        for typ, interfaces in data_volume_config.items():
-            if interface_name in interfaces:
-                if typ == 'small':
-                    return 3650  # 10年窗口，减少请求次数
-                elif typ == 'medium':
-                    return 1825  # 5年窗口
-                elif typ == 'financial':
-                    return 36500  # 100年，实际上一次性获取
-                else:  # large
-                    return 365  # 默认1年窗口
-
-        # 默认情况
-        return 365
 
     def _is_stock_data_exists(self, interface_name: str, ts_code: str, storage_dir: str = None) -> bool:
         """检查股票数据是否已存在"""
