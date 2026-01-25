@@ -10,11 +10,6 @@ derived_fields:
     format: '%Y%m%d'
     source: end_date
     type: date
-  f_ann_date_dt:
-    description: 日期类型的f_ann_date
-    format: '%Y%m%d'
-    source: f_ann_date
-    type: date
 description: 资产负债表(VIP) - 按季度获取全部上市公司数据
 name: balancesheet_vip
 output:

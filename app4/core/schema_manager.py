@@ -46,6 +46,11 @@ class SchemaManager:
             source_field = field_config['source']
             target_field = field_name  # 使用配置键作为目标字段名
 
+            # 检查源字段是否存在于DataFrame中
+            if source_field not in df.columns:
+                logger.warning(f"Failed to derive field {target_field}: unable to find column '{source_field}'; valid columns: {list(df.columns)}")
+                continue
+
             try:
                 if field_config['type'] == 'date':
                     df = df.with_columns([
@@ -68,7 +73,7 @@ class SchemaManager:
                 # 可以添加更多转化类型...
 
             except Exception as e:
-                logger.warning(f"Failed to derive field {target_field}: {str(e)}")
+                logger.warning(f"Failed to derive field {target_field} from {source_field}: {str(e)}")
                 continue
 
         return df
@@ -121,7 +126,7 @@ class SchemaManager:
         return df
 
     @staticmethod
-    def load_schema(interface_name: str) -> Optional[Dict[str, str]]:
+    def load_schema(interface_name: str) -> Optional[Dict[str, Any]]:
         """加载预定义schema - 从 interfaces 目录统一读取
 
         合并后，所有字段类型定义都保存在 interfaces 目录的配置文件中。
@@ -132,5 +137,42 @@ class SchemaManager:
             import yaml
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
-                return config.get('fields')
+                fields = config.get('fields', {})
+                # 将字符串类型转换为Polars类型
+                converted_fields = {}
+                type_mapping = {
+                    'string': pl.String,
+                    'String': pl.String,
+                    'int': pl.Int64,
+                    'Int': pl.Int64,
+                    'Int64': pl.Int64,
+                    'int64': pl.Int64,
+                    'float': pl.Float64,
+                    'Float': pl.Float64,
+                    'Float64': pl.Float64,
+                    'float64': pl.Float64,
+                    'bool': pl.Boolean,
+                    'Boolean': pl.Boolean,
+                    'date': pl.Date,
+                    'Date': pl.Date,
+                    'datetime': pl.Datetime,
+                    'Datetime': pl.Datetime,
+                    'object': pl.Object,
+                    'Object': pl.Object,
+                    'binary': pl.Binary,
+                    'Binary': pl.Binary,
+                }
+
+                for field_name, field_type in fields.items():
+                    if isinstance(field_type, str):
+                        if field_type in type_mapping:
+                            converted_fields[field_name] = type_mapping[field_type]
+                        else:
+                            # 如果类型不匹配，使用String作为默认类型
+                            logger.warning(f"Unknown field type '{field_type}' for field '{field_name}', using String")
+                            converted_fields[field_name] = pl.String
+                    else:
+                        converted_fields[field_name] = field_type
+
+                return converted_fields
         return None
