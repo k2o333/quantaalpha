@@ -122,11 +122,15 @@ class SchemaManager:
 
     @staticmethod
     def load_schema(interface_name: str) -> Optional[Dict[str, str]]:
-        """加载预定义schema"""
-        schema_file = f"app4/config/schemas/{interface_name}.yaml"
-        if os.path.exists(schema_file):
+        """加载预定义schema - 从 interfaces 目录统一读取
+
+        合并后，所有字段类型定义都保存在 interfaces 目录的配置文件中。
+        该方法从接口配置中读取 fields 定义，用于创建精确类型的 DataFrame。
+        """
+        config_file = SchemaManager._get_config_file_path(interface_name)
+        if os.path.exists(config_file):
             import yaml
-            with open(schema_file, 'r', encoding='utf-8') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 return config.get('fields')
         return None

@@ -33,7 +33,7 @@ output:
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  window_size_days: 3650
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
@@ -75,3 +75,72 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+fields:
+  ts_code: string
+  ann_date: string
+  f_ann_date: string
+  end_date: string
+  comp_type: Int64
+  report_type: string
+  basic_eps: Float64
+  diluted_eps: Float64
+  total_revenue: Float64
+  revenue: Float64
+  int_income: Float64
+  prem_earned: Float64
+  comm_income: Float64
+  n_commis_income: Float64
+  n_oth_income: Float64
+  n_oth_b_income: Float64
+  prem_income: Float64
+  out_prem: Float64
+  une_prem_reser: Float64
+  reins_income: Float64
+  n_sec_tb_income: Float64
+  n_sec_uw_income: Float64
+  n_asset_mg_income: Float64
+  oth_b_income: Float64
+  fv_value_chg: Float64
+  invest_income: Float64
+  ass_invest_income: Float64
+  forex_income: Float64
+  total_cogs: Float64
+  oper_cost: Float64
+  int_exp: Float64
+  comm_exp: Float64
+  biz_tax_surchg: Float64
+  sell_exp: Float64
+  admin_exp: Float64
+  fin_exp: Float64
+  assets_impair: Float64
+  prem_refund: Float64
+  compens_payout: Float64
+  reser_insur_liab: Float64
+  div_payt: Float64
+  reins_exp: Float64
+  oper_exp: Float64
+  compens_payout_refu: Float64
+  insur_reser_refu: Float64
+  reins_cost_refund: Float64
+  other_bus_cost: Float64
+  operate_profit: Float64
+  non_oper_income: Float64
+  non_oper_exp: Float64
+  nca_disploss: Float64
+  total_profit: Float64
+  income_tax: Float64
+  n_income: Float64
+  n_income_attr_p: Float64
+  minority_gain: Float64
+  oth_compr_income: Float64
+  t_compr_income: Float64
+  compr_inc_attr_p: Float64
+  compr_inc_attr_m_s: Float64
+  ebit: Float64
+  ebitda: Float64
+  insurance_exp: Float64
+  undist_profit: Float64
+  dist_to_d_continu_oper: Float64
+  dist_to_p_fix_int_payable: Float64
+  dist_to_min_inter: Float64
+  update_flag: string

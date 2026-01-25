@@ -301,7 +301,11 @@ class GenericDownloader:
             # Check if internal offset pagination is configured
             offset_config = interface_config.get('offset_pagination', {})
             if offset_config.get('enabled', False):
-                return self._execute_offset_pagination(interface_config, params, offset_config)
+                context = PaginationContext(
+                    interface_config=interface_config,
+                    force_download=self.force_download
+                )
+                return self._execute_offset_pagination(interface_config, params, context)
             else:
                 return self._make_request(interface_config, params)
 
@@ -398,7 +402,11 @@ class GenericDownloader:
         if offset_config.get('enabled', False):
             # Use internal offset pagination for window data
             logger.debug(f"Using internal offset pagination for window {params.get('start_date')}-{params.get('end_date')}")
-            window_data = self._execute_offset_pagination(interface_config, params, offset_config)
+            context = PaginationContext(
+                interface_config=interface_config,
+                force_download=self.force_download
+            )
+            window_data = self._execute_offset_pagination(interface_config, params, context)
         else:
             # Direct download of window data
             window_data = self._make_request(interface_config, params)
@@ -446,7 +454,11 @@ class GenericDownloader:
             logger.warning("Failed to get trade calendar, using offset fallback")
             offset_config = interface_config.get('offset_pagination', {})
             if offset_config.get('enabled', False):
-                return self._execute_offset_pagination(interface_config, params, context)
+                offset_context = PaginationContext(
+                    interface_config=interface_config,
+                    force_download=self.force_download
+                )
+                return self._execute_offset_pagination(interface_config, params, offset_context)
             return self._make_request(interface_config, params)
         
         # 更新上下文
@@ -852,8 +864,15 @@ class GenericDownloader:
 
             logger.info(f"Downloading data for stock {stock['ts_code']}, date range: {stock_params.get('start_date')} - {stock_params.get('end_date')}")
 
+            # 创建分页上下文
+            pagination_config = interface_config.get('pagination', {})
+            context = PaginationContext(
+                interface_config=interface_config,
+                force_download=self.force_download
+            )
+
             # 执行日期范围分页下载
-            stock_data = self._execute_date_range_pagination(interface_config, stock_params)
+            stock_data = self._execute_date_range_pagination(interface_config, stock_params, context)
 
             if stock_data:
                 logger.info(f"Downloaded {len(stock_data)} records for {stock['ts_code']}")

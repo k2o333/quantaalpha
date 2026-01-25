@@ -28,7 +28,7 @@ output:
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  window_size_days: 3650
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
@@ -66,3 +66,31 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+fields:
+  ts_code: string
+  ann_date: string
+  end_date: string
+  comp_type: Int64
+  report_type: string
+  total_share: Float64
+  total_assets: Float64
+  quick_assets: Float64
+  fixed_assets: Float64
+  const_materials: Float64
+  intang_assets: Float64
+  r_and_d: Float64
+  good_will: Float64
+  lt_equity_inv: Float64
+  total_liab: Float64
+  total_cur_liab: Float64
+  total_non_cur_liab: Float64
+  total_sharehol_eq: Float64
+  treasury_share: Float64
+  other_equity: Float64
+  assets_liquidation: Float64
+  deferred_tax_assets: Float64
+  st_borrow: Float64
+  st_loan: Float64
+  total_hldr_eq_exc_min_int: Float64
+  total_assets_yoy: Float64
+  update_flag: string

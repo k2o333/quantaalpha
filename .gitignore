@@ -200,6 +200,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+log/
 
 # OS specific
 .DS_Store
