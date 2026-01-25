@@ -64,7 +64,15 @@ class CacheWarmer:
             df = pl.read_parquet(stock_basic_dir)
 
             # 过滤有效股票
-            df = df.filter(pl.col('status') == 'L')  # 只保留上市股票
+            # 检查 'status' 列是否存在，如果不存在则使用 'list_status'
+            if 'status' in df.columns:
+                df = df.filter(pl.col('status') == 'L')  # 只保留上市股票
+            elif 'list_status' in df.columns:
+                df = df.filter(pl.col('list_status') == 'L')  # 只保留上市股票
+            else:
+                # 如果两个字段都不存在，则不过滤，返回所有股票
+                logger.warning("Neither 'status' nor 'list_status' column found, returning all stocks")
+                pass
 
             # 转换为字典列表
             self.stock_list_cache = df.to_dicts()

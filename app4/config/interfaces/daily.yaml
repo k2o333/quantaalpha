@@ -1,5 +1,13 @@
 api_name: daily
 description: 日线行情
+
+# fields 配置：如果需要额外字段，请取消注释并配置
+# fields:
+#   - pre_close      # 前一日收盘价
+#   - change         # 涨跌额
+#   - pct_change     # 涨跌幅
+#   - vol            # 成交量
+#   - amount         # 成交额
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date（关联trade_cal.cal_date_dt）

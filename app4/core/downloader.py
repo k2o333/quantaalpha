@@ -928,16 +928,27 @@ class GenericDownloader:
                 else:
                     token = token_placeholder
 
-                # 不传递fields参数，让API返回所有字段
-                # 因为API默认返回所有字段，不需要显式指定
+                # 获取接口配置中的 fields
+                config_fields = interface_config.get('fields', [])
 
-                # 根据TuShare API格式构建请求体
-                req_params = {
-                    'api_name': interface_config['api_name'],
-                    'token': token,
-                    'params': params,
-                    'fields': ''  # 空字符串表示不指定字段，API返回所有字段
-                }
+                if config_fields:
+                    # 如果配置了 fields，传递所有配置的字段
+                    # 注意：TuShare API 中如果指定 fields 参数，只返回指定的字段，不会自动包含默认字段
+                    # 所以我们需要确保配置中已包含所有需要的字段（默认字段 + 额外字段）
+                    req_params = {
+                        'api_name': interface_config['api_name'],
+                        'token': token,
+                        'params': params,
+                        'fields': ','.join(config_fields)
+                    }
+                else:
+                    # 如果没有配置 fields，返回默认字段
+                    req_params = {
+                        'api_name': interface_config['api_name'],
+                        'token': token,
+                        'params': params,
+                        'fields': ''  # 空字符串，返回默认字段
+                    }
 
                 # 记录重试次数指标
                 if attempt > 0:
