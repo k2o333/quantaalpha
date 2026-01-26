@@ -26,7 +26,7 @@ cache:
   max_size_gb: 10
 
 storage:
-  base_dir: "../data"  # [修改] 从 "data" 改为 "../data"
+  base_dir: "data"
   format: "parquet"
   batch_size: 10000  # [优化] 从 1000 增大到 10000
 

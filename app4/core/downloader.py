@@ -17,10 +17,11 @@ from .coverage_manager import CoverageManager
 from .processor import DataProcessor
 from .schema_manager import SchemaManager
 from .pagination import (
-    ParameterGenerator, 
+    ParameterGenerator,
     PaginationContext,
     get_window_size_for_interface
 )
+from .pagination_executor import PaginationExecutor
 import polars as pl
 
 # Import the new PerformanceMonitor class
@@ -121,6 +122,9 @@ class GenericDownloader:
         else:
             self.coverage_manager = None
 
+        # [新增] 分页执行器
+        self.pagination_executor = PaginationExecutor()
+
     def _create_session_with_retries(self):
         """创建配置了重试策略的 Session"""
         session = requests.Session()
@@ -218,333 +222,58 @@ class GenericDownloader:
     def _execute_pagination(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         执行分页/循环逻辑 - 控制器
-        
+
         职责：
         1. 创建分页上下文
         2. 根据模式选择执行方法
-        3. 调用具体执行方法
+        3. 委托给分页执行器执行
         """
         pagination_config = interface_config.get('pagination', {})
         if not pagination_config.get('enabled', False):
             return self._make_request(interface_config, params)
 
         mode = pagination_config.get('mode', 'offset')
-
-        # 创建分页上下文（不包含交易日历和股票列表，在各方法内按需获取）
         context = PaginationContext(
             interface_config=interface_config,
             force_download=self.force_download
         )
 
+        # 委托给分页执行器，传递回调函数而非self实例
         if mode == 'offset':
-            return self._execute_offset_pagination(interface_config, params, context)
-        elif mode == 'date_range':
-            return self._execute_date_range_pagination(interface_config, params, context)
-        elif mode == 'stock_loop':
-            return self._execute_stock_loop_pagination(interface_config, params, context)
-        elif mode == 'period_range':
-            return self._execute_period_range_pagination(interface_config, params, context)
-        elif mode == 'quarterly_range':
-            return self._execute_quarterly_pagination(interface_config, params, context)
-        elif mode == 'periodic_range':
-            return self._execute_periodic_pagination(interface_config, params, context)
-        else:
-            return self._make_request(interface_config, params)
-
-    def _execute_offset_pagination(
-        self,
-        interface_config: Dict[str, Any],
-        params: Dict[str, Any],
-        context: PaginationContext
-    ) -> List[Dict[str, Any]]:
-        """执行offset分页"""
-        all_data = []
-        limit = context.pagination_config.get('default_limit', 5000)
-        
-        param_gen = ParameterGenerator(context)
-        
-        for page_params in param_gen.generate_offset_params(params):
-            page_data = self._make_request(interface_config, page_params)
-            
-            if not page_data:
-                break
-            
-            all_data.extend(page_data)
-            
-            # 判断是否是最后一页
-            if len(page_data) < limit:
-                break
-        
-        return all_data
-
-    def _execute_date_range_pagination_concurrent(self, interface_config: Dict[str, Any], params: Dict[str, Any], start_date: str, end_date: str, window_size: int = 365, max_workers: int = 4) -> List[Dict[str, Any]]:
-        """
-        Execute date range pagination concurrently using thread pool.
-
-        Args:
-            interface_config: Configuration for the interface
-            params: Parameters for the request
-            start_date: Start date in YYYYMMDD format
-            end_date: End date in YYYYMMDD format
-            window_size: Size of each time window in days
-            max_workers: Maximum number of worker threads
-
-        Returns:
-            Combined list of data from all windows
-        """
-        # Get trade calendar
-        trade_calendar = self.get_trade_calendar(start_date, end_date)
-
-        # If getting trade calendar fails, fall back to default
-        if not trade_calendar:
-            logger.warning("Failed to get trade calendar, using default date range pagination")
-            # Check if internal offset pagination is configured
-            offset_config = interface_config.get('offset_pagination', {})
-            if offset_config.get('enabled', False):
-                context = PaginationContext(
-                    interface_config=interface_config,
-                    force_download=self.force_download
-                )
-                return self._execute_offset_pagination(interface_config, params, context)
-            else:
-                return self._make_request(interface_config, params)
-
-        # Filter for trading days
-        trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
-
-        # Return early if no trading days
-        if not trade_days:
-            logger.warning(f"No trade days found in range {start_date} - {end_date}")
-            return []
-
-        # Sort by date in ascending order (oldest to newest)
-        trade_days = sorted(trade_days, key=lambda x: x['cal_date'])
-
-        logger.info(f"Found {len(trade_days)} trade days")
-
-        # Generate time ranges
-        windows = []
-        for i in range(0, len(trade_days), window_size):
-            window_trade_days = trade_days[i:i+window_size]
-            if window_trade_days:
-                # Create start and end date for this window
-                window_start = window_trade_days[0]['cal_date']
-                window_end = window_trade_days[-1]['cal_date']
-                windows.append((window_start, window_end))
-
-        all_data = []
-        results_by_window = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all window requests
-            future_to_window = {}
-            for window_start, window_end in windows:
-                window_params = params.copy()
-                window_params['start_date'] = window_start
-                window_params['end_date'] = window_end
-
-                # Check coverage - if already covered, skip
-                should_skip = False
-                if self.coverage_manager and not self.force_download:
-                    should_skip = self.coverage_manager.should_skip(
-                        interface_config['api_name'],
-                        window_params,
-                        strategy='date_range'
-                    )
-
-                if should_skip:
-                    logger.info(f"Skipping window {window_start} - {window_end} for {interface_config['api_name']} (already covered)")
-                    # Store empty result for this window
-                    results_by_window[(window_start, window_end)] = []
-                else:
-                    # Submit the task for execution
-                    future = executor.submit(
-                        self._make_request_with_offset_check,
-                        interface_config,
-                        window_params
-                    )
-                    future_to_window[future] = (window_start, window_end)
-
-            # Collect results as they complete
-            for future in as_completed(future_to_window):
-                window_start, window_end = future_to_window[future]
-                try:
-                    result = future.result()
-                    # Store result with window info to maintain order if needed
-                    results_by_window[(window_start, window_end)] = result
-                except Exception as e:
-                    logger.error(f"Error fetching window {window_start} to {window_end}: {e}")
-                    results_by_window[(window_start, window_end)] = []
-
-        # Combine all results in the original order
-        for window_start, window_end in windows:
-            window_data = results_by_window.get((window_start, window_end), [])
-            all_data.extend(window_data)
-
-        return all_data
-
-    def _make_request_with_offset_check(self, interface_config: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Make request with optional offset pagination check.
-
-        Args:
-            interface_config: Interface configuration
-            params: Request parameters
-
-        Returns:
-            Request result
-        """
-        # Record start time for performance monitoring
-        start_time = time.time()
-
-        # Check if internal offset pagination is configured
-        offset_config = interface_config.get('offset_pagination', {})
-        if offset_config.get('enabled', False):
-            # Use internal offset pagination for window data
-            logger.debug(f"Using internal offset pagination for window {params.get('start_date')}-{params.get('end_date')}")
-            context = PaginationContext(
-                interface_config=interface_config,
-                force_download=self.force_download
+            return self.pagination_executor.execute_offset_pagination(
+                interface_config, params, context, self._make_request
             )
-            window_data = self._execute_offset_pagination(interface_config, params, context)
+        elif mode == 'date_range':
+            return self.pagination_executor.execute_date_range_pagination(
+                interface_config, params, context, self._make_request,
+                coverage_manager=self.coverage_manager, force_download=self.force_download,
+                get_trade_calendar_callback=self.get_trade_calendar
+            )
+        elif mode == 'stock_loop':
+            return self.pagination_executor.execute_stock_loop_pagination(
+                interface_config, params, context, self._make_request,
+                get_stock_list_callback=self._get_stock_list,
+                coverage_manager=self.coverage_manager, force_download=self.force_download
+            )
+        elif mode == 'period_range':
+            return self.pagination_executor.execute_period_range_pagination(
+                interface_config, params, context, self._make_request,
+                coverage_manager=self.coverage_manager, force_download=self.force_download
+            )
+        elif mode == 'quarterly_range':
+            return self.pagination_executor.execute_quarterly_pagination(
+                interface_config, params, context, self._make_request
+            )
+        elif mode == 'periodic_range':
+            return self.pagination_executor.execute_periodic_pagination(
+                interface_config, params, context, self._make_request
+            )
         else:
-            # Direct download of window data
-            window_data = self._make_request(interface_config, params)
-
-        # Record and check performance metrics
-        elapsed_time = time.time() - start_time
-
-        # Record metrics using new PerformanceMonitor
-        self.performance_monitor.record_request(
-            interface=interface_config['name'],
-            duration=elapsed_time,
-            record_count=len(window_data) if window_data else 0,
-            retry_count=0,  # retry_count is tracked within _make_request
-            window_start=params.get('start_date'),
-            window_end=params.get('end_date')
-        )
-
-        if window_data:
-            logger.debug(f"Downloaded {len(window_data)} records for date range {params.get('start_date')}-{params.get('end_date')}")
-        else:
-            logger.warning(f"No data returned for window {params.get('start_date')}-{params.get('end_date')}")
-
-        return window_data
-
-    def _execute_date_range_pagination(
-        self,
-        interface_config: Dict[str, Any],
-        params: Dict[str, Any],
-        context: PaginationContext
-    ) -> List[Dict[str, Any]]:
-        """执行日期范围分页（并发）"""
-        interface_name = interface_config['name']
-        
-        # 财务接口全量返回
-        if interface_name in ['balancesheet_vip', 'income_vip', 'cashflow_vip', 'fina_indicator_vip']:
-            logger.info(f"财务接口{interface_name}使用全量请求")
             return self._make_request(interface_config, params)
-        
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-        
-        # 获取交易日历
-        trade_calendar = self.get_trade_calendar(start_date, end_date)
-        if not trade_calendar:
-            logger.warning("Failed to get trade calendar, using offset fallback")
-            offset_config = interface_config.get('offset_pagination', {})
-            if offset_config.get('enabled', False):
-                offset_context = PaginationContext(
-                    interface_config=interface_config,
-                    force_download=self.force_download
-                )
-                return self._execute_offset_pagination(interface_config, params, offset_context)
-            return self._make_request(interface_config, params)
-        
-        # 更新上下文
-        context.trade_calendar = trade_calendar
-        
-        # 确定并发数
-        if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
-            max_workers = 1
-        elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
-            max_workers = 2
-        else:
-            max_workers = 4
-        
-        # 创建参数生成器并收集窗口
-        param_gen = ParameterGenerator(context)
-        windows = []
-        window_params_list = []
-        
-        for window_params, window_id in param_gen.generate_date_range_params(params, start_date, end_date):
-            windows.append(window_id)
-            window_params_list.append(window_params)
-        
-        # 并发执行
-        all_data = []
-        results_by_window = {}
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_window = {}
-            
-            for idx, window_params in enumerate(window_params_list):
-                window_start, window_end = windows[idx]
-                
-                # 覆盖率检查
-                should_skip = False
-                if self.coverage_manager and not self.force_download:
-                    should_skip = self.coverage_manager.should_skip(
-                        interface_config['api_name'],
-                        window_params,
-                        strategy='date_range'
-                    )
-                
-                if should_skip:
-                    logger.info(f"Skipping window {window_start} - {window_end}")
-                    results_by_window[(window_start, window_end)] = []
-                else:
-                    offset_config = interface_config.get('offset_pagination', {})
-                    if offset_config.get('enabled', False):
-                        future = executor.submit(
-                            self._make_request_with_offset_check,
-                            interface_config,
-                            window_params
-                        )
-                    else:
-                        future = executor.submit(
-                            self._make_request,
-                            interface_config,
-                            window_params
-                        )
-                    future_to_window[future] = (window_start, window_end)
-            
-            # 收集结果
-            for future in as_completed(future_to_window):
-                window_start, window_end = future_to_window[future]
-                try:
-                    result = future.result()
-                    results_by_window[(window_start, window_end)] = result
-                except Exception as e:
-                    logger.error(f"Error fetching window {window_start} to {window_end}: {e}")
-                    results_by_window[(window_start, window_end)] = []
-        
-        # 合并结果（保持顺序）
-        for window_start, window_end in windows:
-            window_data = results_by_window.get((window_start, window_end), [])
-            all_data.extend(window_data)
-        
-        return all_data
 
-    def _execute_stock_loop_pagination(
-        self,
-        interface_config: Dict[str, Any],
-        params: Dict[str, Any],
-        context: PaginationContext
-    ) -> List[Dict[str, Any]]:
-        """执行股票循环分页"""
-        # 获取股票列表
-        logger.info("正在获取股票列表...")
+    def _get_stock_list(self) -> Optional[List[Dict[str, Any]]]:
+        """获取股票列表的统一方法"""
+        # 从内存缓存获取
         stock_list = self._get_stock_list_from_memory_cache()
 
         if stock_list is None:
@@ -567,53 +296,7 @@ class GenericDownloader:
         else:
             logger.info(f"从内存缓存或Data目录获取到 {len(stock_list)} 只股票")
 
-        if not stock_list:
-            logger.error("Failed to get stock list for stock loop pagination")
-            return []
-
-        # 更新上下文
-        context.stock_list = stock_list
-        
-        # 创建参数生成器
-        param_gen = ParameterGenerator(context)
-        
-        # 确定并发数
-        interface_name = interface_config['name']
-        if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
-            max_workers = 1
-        elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
-            max_workers = 2
-        else:
-            max_workers = 4
-
-        all_data = []
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {}
-            
-            for stock_params, stock_info in param_gen.generate_stock_params(
-                params,
-                existing_stocks_checker=lambda name, code: self._is_stock_data_exists(name, code)
-            ):
-                future = executor.submit(
-                    self.download_single_stock,
-                    interface_config,
-                    stock_info,
-                    stock_params
-                )
-                futures[future] = stock_info['ts_code']
-            
-            for future in as_completed(futures):
-                ts_code = futures[future]
-                try:
-                    data = future.result()
-                    if data:
-                        all_data.extend(data)
-                        logger.info(f"Downloaded {len(data)} records for {ts_code}")
-                except Exception as e:
-                    logger.error(f"Error downloading stock {ts_code}: {e}")
-        
-        return all_data
+        return stock_list
 
     def _get_stock_list_from_memory_cache(self) -> Optional[List[Dict[str, Any]]]:
         """从内存缓存获取股票列表"""
@@ -734,95 +417,6 @@ class GenericDownloader:
 
 
 
-    def _execute_period_range_pagination(
-        self,
-        interface_config: Dict[str, Any],
-        params: Dict[str, Any],
-        context: PaginationContext
-    ) -> List[Dict[str, Any]]:
-        """执行报告期分页"""
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-        
-        param_gen = ParameterGenerator(context)
-        all_data = []
-        
-        for period_params, period in param_gen.generate_period_params(params, start_date, end_date):
-            # 覆盖率检查
-            should_skip = False
-            if self.coverage_manager and not self.force_download:
-                should_skip = self.coverage_manager.should_skip(
-                    interface_config['api_name'],
-                    period_params,
-                    strategy='period'
-                )
-            
-            if should_skip:
-                logger.info(f"Skipping period {period}")
-                continue
-            
-            logger.info(f"Fetching data for period {period}")
-            
-            period_data = self._make_request(interface_config, period_params)
-            
-            if period_data:
-                # 将period参数添加到每条记录中
-                for record in period_data:
-                    record['period'] = period
-                all_data.extend(period_data)
-        
-        return all_data
-
-    def _execute_quarterly_pagination(
-        self,
-        interface_config: Dict[str, Any],
-        params: Dict[str, Any],
-        context: PaginationContext
-    ) -> List[Dict[str, Any]]:
-        """执行季度范围分页"""
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-        
-        param_gen = ParameterGenerator(context)
-        all_data = []
-        
-        for range_params, (range_start, range_end) in param_gen.generate_quarterly_params(params, start_date, end_date):
-            logger.info(f"Downloading data for quarterly range {range_start} - {range_end}")
-            
-            range_data = self._make_request(interface_config, range_params)
-            
-            if range_data:
-                all_data.extend(range_data)
-        
-        return all_data
-
-
-
-    def _execute_periodic_pagination(
-        self,
-        interface_config: Dict[str, Any],
-        params: Dict[str, Any],
-        context: PaginationContext
-    ) -> List[Dict[str, Any]]:
-        """执行周期性时间范围分页"""
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-        
-        # 获取周期类型，默认为月
-        period_type = context.pagination_config.get('period_type', 'month')
-        
-        param_gen = ParameterGenerator(context)
-        all_data = []
-        
-        for range_params, (range_start, range_end) in param_gen.generate_periodic_params(params, start_date, end_date, period_type):
-            logger.info(f"Downloading data for {period_type} range {range_start} - {range_end}")
-            
-            range_data = self._make_request(interface_config, range_params)
-            
-            if range_data:
-                all_data.extend(range_data)
-        
-        return all_data
 
 
 
@@ -871,8 +465,29 @@ class GenericDownloader:
                 force_download=self.force_download
             )
 
-            # 执行日期范围分页下载
-            stock_data = self._execute_date_range_pagination(interface_config, stock_params, context)
+            # 为单个股票执行分页下载 - 使用分页执行器
+            # 对于股票循环模式，通常会使用日期范围分页来获取单个股票的历史数据
+            pagination_config = interface_config.get('pagination', {})
+
+            if pagination_config.get('enabled', False):
+                mode = pagination_config.get('mode', 'offset')
+
+                if mode == 'date_range':
+                    stock_data = self.pagination_executor.execute_date_range_pagination(
+                        interface_config, stock_params, context, self._make_request,
+                        coverage_manager=self.coverage_manager, force_download=self.force_download,
+                        get_trade_calendar_callback=self.get_trade_calendar
+                    )
+                elif mode == 'offset':
+                    stock_data = self.pagination_executor.execute_offset_pagination(
+                        interface_config, stock_params, context, self._make_request
+                    )
+                else:
+                    # 对于其他模式或未知模式，直接请求
+                    stock_data = self._make_request(interface_config, stock_params)
+            else:
+                # 如果分页未启用，直接请求
+                stock_data = self._make_request(interface_config, stock_params)
 
             if stock_data:
                 logger.info(f"Downloaded {len(stock_data)} records for {stock['ts_code']}")
@@ -989,25 +604,15 @@ class GenericDownloader:
                     # 如果是频率限制，执行退避重试
                     if '频繁' in msg or 'limit' in msg.lower():
                         if attempt < max_retries:
-                            base_delay = (req_config.get('retry_delay', 2) *
-                                         (req_config.get('retry_backoff', 2) ** attempt))
-                            random_delay = base_delay + random.uniform(0, 2)
+                            random_delay = self._calculate_retry_delay(req_config, attempt)
                             logger.warning(f"Rate limit hit for {api_name}. Retrying in {random_delay:.2f}s...")
                             time.sleep(random_delay)
                             retry_count = attempt + 1
                             continue
 
                     logger.error(f"API error for {api_name}: {msg}")
-                    duration = time.time() - start_time
                     # 记录失败指标
-                    self.performance_monitor.record_request(
-                        interface=interface_config['name'],
-                        duration=duration,
-                        record_count=0,
-                        retry_count=retry_count,
-                        window_start=params.get('start_date'),
-                        window_end=params.get('end_date')
-                    )
+                    self._record_failure_metrics(interface_config, start_time, params, retry_count)
                     return []
 
                 # 数据转换逻辑
@@ -1048,23 +653,13 @@ class GenericDownloader:
             except (requests.RequestException, json.JSONDecodeError) as e:
                 logger.error(f"Request error for {api_name}: {str(e)}")
                 if attempt < max_retries:
-                    base_delay = (req_config.get('retry_delay', 2) *
-                                 (req_config.get('retry_backoff', 2) ** attempt))
-                    random_delay = base_delay + random.uniform(0, 2)
+                    random_delay = self._calculate_retry_delay(req_config, attempt)
                     logger.warning(f"Retrying {api_name} in {random_delay:.2f}s due to: {type(e).__name__}")
                     time.sleep(random_delay)
                     retry_count = attempt + 1
                     continue
-                duration = time.time() - start_time
                 # 记录失败指标
-                self.performance_monitor.record_request(
-                    interface=interface_config['name'],
-                    duration=duration,
-                    record_count=0,
-                    retry_count=retry_count,
-                    window_start=params.get('start_date'),
-                    window_end=params.get('end_date')
-                )
+                self._record_failure_metrics(interface_config, start_time, params, retry_count)
                 return []
             except Exception as e:
                 logger.error(f"Unexpected error for {api_name}: {str(e)}")
@@ -1072,17 +667,46 @@ class GenericDownloader:
                     time.sleep(2 ** attempt)
                     retry_count = attempt + 1
                     continue
-                duration = time.time() - start_time
                 # 记录失败指标
-                self.performance_monitor.record_request(
-                    interface=interface_config['name'],
-                    duration=duration,
-                    record_count=0,
-                    retry_count=retry_count,
-                    window_start=params.get('start_date'),
-                    window_end=params.get('end_date')
-                )
+                self._record_failure_metrics(interface_config, start_time, params, retry_count)
                 return []
+
+    def _calculate_retry_delay(self, req_config: Dict[str, Any], attempt: int) -> float:
+        """
+        计算重试延迟时间
+
+        Args:
+            req_config: 请求配置
+            attempt: 当前尝试次数
+
+        Returns:
+            延迟时间（秒）
+        """
+        base_delay = (req_config.get('retry_delay', 2) *
+                     (req_config.get('retry_backoff', 2) ** attempt))
+        random_delay = base_delay + random.uniform(0, 2)
+        return random_delay
+
+    def _record_failure_metrics(self, interface_config: Dict[str, Any], start_time: float,
+                              params: Dict[str, Any], retry_count: int = 0):
+        """
+        记录失败请求的性能指标
+
+        Args:
+            interface_config: 接口配置
+            start_time: 请求开始时间
+            params: 请求参数
+            retry_count: 重试次数
+        """
+        duration = time.time() - start_time
+        self.performance_monitor.record_request(
+            interface=interface_config['name'],
+            duration=duration,
+            record_count=0,
+            retry_count=retry_count,
+            window_start=params.get('start_date'),
+            window_end=params.get('end_date')
+        )
 
     def _classify_api_error(self, response: Dict[str, Any]) -> APIErrorType:
         """
