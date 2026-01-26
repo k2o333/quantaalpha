@@ -216,6 +216,11 @@ Thumbs.db
 .*.swp
 .*.swo
 
+# All dot directories (except .gitignore and other important dot files)
+.*/
+!/.gitignore
+!/.git/
+
 # Project specific
 output/
 temp/
