@@ -51,6 +51,11 @@ The App4 architecture represents a paradigm shift from code-driven to configurat
    - Supports multiple strategies: date_range, period, and stock-based detection
    - Uses memory caching for efficient coverage checks
 
+8. **Performance Monitor** (`app4/core/performance_monitor.py`)
+   - Tracks key metrics like request time, record count, success rate
+   - Provides P50/P90/P99 percentiles for performance analysis
+   - Generates detailed performance reports
+
 ### Configuration Structure
 
 #### Global Configuration (`app4/config/settings.yaml`)
@@ -134,6 +139,7 @@ Each interface has its own YAML configuration defining:
 - Pagination strategy and parameters
 - Output schema and primary keys
 - Rate limiting and caching settings
+- Data type optimizations using derived fields
 
 Example interface configuration:
 ```yaml
@@ -143,8 +149,8 @@ description: "日线行情"
 
 permissions:
   min_points: 0
-  rate_limit: 120
-  query_limit: 10000
+  rate_limit: 500  # [修改] 提高速率限制
+  query_limit: 5000
 
 pagination:
   enabled: true
@@ -156,18 +162,29 @@ parameters:
     type: string
     required: false
     description: "证券代码"
+  start_date:
+    type: string
+    required: true
+    description: "开始日期"
+  end_date:
+    type: string
+    required: true
+    description: "结束日期"
 
 output:
   primary_key: ["ts_code", "trade_date"]
   sort_by: ["trade_date"]
-  columns:
-    ts_code: {type: string, required: true}
-    trade_date: {type: date, format: "%Y%m%d", required: true}
 
-duplicate_detection:
-  enabled: true
-  date_column: "trade_date"
-  threshold: 0.95
+# 统一的去重配置
+dedup_enabled: true
+
+# 新增：衍生字段配置
+derived_fields:
+  trade_date_dt:    # 衍生字段名称
+    source: trade_date    # 源字段
+    type: date    # 转换类型
+    format: '%Y%m%d'    # 日期格式
+    description: "日期类型的trade_date"
 ```
 
 ### Key Features
@@ -177,7 +194,7 @@ duplicate_detection:
 3. **Flexible Pagination**: Multiple pagination modes to handle different API behaviors
 4. **Asynchronous Storage**: Non-blocking I/O operations for improved throughput
 5. **Intelligent Caching**: Trade calendar derivation strategy for optimal cache utilization
-6. **Performance Monitoring**: Real-time tracking of key metrics with alerting
+6. **Performance Monitoring**: Real-time tracking of key metrics with detailed reporting
 7. **Backward Compatibility**: Maintains compatibility with legacy CLI parameters
 8. **High Concurrency**: Thread-pool based concurrent processing
 9. **Rate Limit Protection**: Token bucket algorithm prevents API throttling
@@ -187,6 +204,7 @@ duplicate_detection:
 13. **Dataset-Mode Storage**: Efficient storage using Parquet dataset format
 14. **Quarterly and Periodic Range Pagination**: Support for financial data with period_range, quarterly_range, and periodic_range pagination modes
 15. **Broker Recommendation Handling**: Special handling for broker_recommend interface with month-based requests
+16. **Unified De-duplication**: Consistent de-duplication using primary_key and dedup_enabled configuration
 
 ### Interface Groups
 
@@ -248,6 +266,12 @@ python app4/main.py --pro-bar-only
 
 # Download full historical data for stock loop interfaces
 python app4/main.py --tscode-historical
+
+# Force overwrite existing data
+python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily --force
+
+# Incremental mode - only download missing time periods
+python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily --incremental
 ```
 
 ### Development Tasks
@@ -255,28 +279,21 @@ python app4/main.py --tscode-historical
 # To check available interfaces for your score level:
 python -c "from score_config import get_available_data_types; from config import TUSHARE_POINTS; print(get_available_data_types(TUSHARE_POINTS))"
 
-# Quick interface verification scripts for validating all API endpoints
-python app/test_interface_verification.py
-
-# Cache functionality tests demonstrating the enhanced caching system
-python app/test_cache_functionality.py
-
-# New comprehensive cache tests (moved to test/ directory)
-python -m pytest test/test_cache_functions.py
-python -m pytest test/test_cache_integration.py
-python -m pytest test/test_cache_verification.py
-python -m pytest test/test_cache_verification_clean.py
-python -m pytest test/test_cache_holder_data.py
-python -m pytest test/test_new_cache_implementation.py
-python -m pytest test/test_imports.py
-
-# Full history download tests for ts_code-dependent interfaces
-python app/test_full_history_downloads.py
-
-# App4 specific tests
-python -m pytest test/test_app4_config_loader.py
-python -m pytest test/test_app4_downloader.py
+# Generate performance report
 python -m pytest test/test_app4_integration.py
+
+# Add new interface (create new YAML in app4/config/interfaces/)
+```
+
+### Testing Commands
+```bash
+# App4 specific tests
+python -m pytest test/test_app4_config_loader.py -v
+python -m pytest test/test_app4_downloader.py -v
+python -m pytest test/test_app4_integration.py -v
+
+# All tests
+python -m pytest test/ -v
 ```
 
 ## File Structure
@@ -296,7 +313,8 @@ aspipe_v4/
 │   │   ├── cache_manager.py    # Intelligent cache management
 │   │   ├── scheduler.py        # Task scheduler with rate limiting
 │   │   ├── schema_manager.py   # Pre-defined data schemas
-│   │   └── coverage_manager.py # Duplicate detection and coverage management
+│   │   ├── coverage_manager.py # Duplicate detection and coverage management
+│   │   └── performance_monitor.py # Performance tracking and reporting
 │   ├── config/            # Configuration files
 │   │   ├── settings.yaml  # Global settings and defaults
 │   │   └── interfaces/    # Interface definitions (40+ YAML files)
@@ -344,6 +362,8 @@ aspipe_v4/
 - **Coverage management**: Avoid redundant downloads with duplicate detection
 - **Memory-efficient**: Runtime caching for frequently accessed data
 - **Dataset storage**: Efficient data access using Parquet dataset format
+- **Unified de-duplication**: Consistent de-duplication using primary_key configuration
+- **Performance reporting**: Detailed metrics and performance analysis
 
 ## Key Features
 
@@ -386,127 +406,5 @@ aspipe_v4/
 37. **Dataset-Mode Storage**: Efficient storage using Parquet dataset format for better performance
 38. **Quarterly and Periodic Range Pagination**: Support for financial data with period_range, quarterly_range, and periodic_range pagination modes
 39. **Broker Recommendation Handling**: Special handling for broker recommendation data with month-based requests
-
-## Development Commands
-
-### Environment Setup
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up environment variables in .env file:
-# tushare_token=your_token
-# tushare_points=your_points
-# tushare2_token=secondary_token (optional)
-# tushare2_points=secondary_points (optional)
-```
-
-### Running the System
-```bash
-# For enhanced download using production ready features (app4)
-python app4/main.py --start_date 20230101 --end_date 20231231
-
-# App4 specific commands with enhanced optimizations:
-python app4/main.py --start_date 20230101 --end_date 20231231 --interface daily  # Download specific interface
-python app4/main.py --start_date 20230101 --end_date 20231231 --group daily     # Download interface group
-python app4/main.py --concurrency 4                                            # Set concurrency level (default now 4)
-python app4/main.py --log-level DEBUG                                         # Set log level
-```
-
-### Development Tasks
-```bash
-# To run specific data type downloads, you can import and use the TuShareDownloader
-# in custom scripts or interactive sessions
-
-# For testing individual modules:
-python app/interfaces/basic_data.py  # Example for testing individual modules
-python app/test_enhanced_features.py  # Test the enhanced features
-
-# To check available interfaces for your score level:
-python -c "from score_config import get_available_data_types; from config import TUSHARE_POINTS; print(get_available_data_types(TUSHARE_POINTS))"
-
-# Quick interface verification scripts for validating all API endpoints
-python app/test_interface_verification.py
-
-# Cache functionality tests demonstrating the enhanced caching system
-python app/test_cache_functionality.py
-
-# New comprehensive cache tests (moved to test/ directory)
-python -m pytest test/test_cache_functions.py
-python -m pytest test/test_cache_integration.py
-python -m pytest test/test_cache_verification.py
-python -m pytest test/test_cache_verification_clean.py
-python -m pytest test/test_cache_holder_data.py
-python -m pytest test/test_new_cache_implementation.py
-python -m pytest test/test_imports.py
-
-# Full history download tests for ts_code-dependent interfaces
-python app/test_full_history_downloads.py
-```
-
-## File Structure
-```
-aspipe_v4/
-├── app4/                  # New configuration-driven architecture (App4)
-│   ├── main.py            # New main entry point with enhanced optimizations
-│   ├── core/              # Core components with enhanced features
-│   │   ├── __init__.py    # Package initialization
-│   │   ├── config_loader.py  # Configuration loader with global and interface configs
-│   │   ├── downloader.py     # Enhanced downloader with data validation and performance monitoring
-│   │   ├── cache_manager.py  # Optimized cache manager with derivation strategy
-│   │   ├── scheduler.py      # Task scheduler with concurrency controls
-│   │   ├── storage.py        # Enhanced storage manager with async operations
-│   │   └── processor.py      # Data processor with validation and transformation
-│   ├── config/            # Configuration files for interfaces and global settings
-│   │   ├── interfaces/    # Interface-specific configuration files
-│   │   │   └── *.yaml     # YAML files for each interface
-│   │   └── settings.yaml     # Global settings and defaults
-├── test/                  # Test scripts (including new cache functionality tests)
-├── data/                  # Output directory for downloaded data
-├── log/                   # Log files
-├── cache/                 # Temporary cache files
-├── requirements.txt       # Dependencies
-├── .env                   # Environment variables
-├── test/                  # Test scripts
-└── p/                     # Documentation
-```
-
-## Development Notes
-
-- All logging is in Chinese for better readability
-- The system uses pandas for data processing and pyarrow for Parquet storage
-- Rate limiting includes randomization to avoid API detection using token bucket algorithm
-- Multiple token support allows for increased data access
-- Error messages include specific handling for common TuShare API responses
-- Data is automatically paginated for large result sets
-- New architecture uses producer-consumer pattern for efficient data pipeline
-- Task queue management with priorities optimizes resource usage
-- Enhanced configuration system provides granular control over interface settings
-- Configuration adapter maintains backward compatibility while adding advanced features
-- Priority-based scheduling ensures critical data (like trade_cal) is downloaded first
-- Caching mechanism reduces redundant API calls and improves performance
-- Advanced retry mechanisms with configurable parameters for different interfaces
-- Concurrency controls allow optimized throughput within API rate limits
-- Interface-specific API parameters can be configured for fine-grained control
-- The system features enhanced error handling, rate limiting, caching, and asynchronous processing
-- Asynchronous producer-consumer pattern decouples download and storage operations for better resource utilization
-- Intelligent cache matching allows extracting specific data from more general caches
-- Cache preheating proactively warms frequently accessed data ranges
-- Cache monitoring tracks hit rates and performance metrics in real-time
-- Date range optimization intelligently handles overlaps and merges ranges
-- Parameter validation framework ensures consistent and valid API parameters
-- Configuration backward compatibility seamlessly integrates old and new config formats
-- Full history download capabilities enable bulk downloads for ts_code-dependent interfaces
-- Historical download tracking automatically marks interfaces as completed after full historical downloads
-- Conditional interface management automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
-- Parameter adaptation system provides interface-specific parameter validation and standardization
-- Batch processing for ts_code-dependent interfaces improves performance by processing multiple stocks in parallel
-- Asynchronous storage operations prevent blocking of download threads
-- Enhanced interface configuration provides detailed settings for cache, API parameters, and concurrency
-- App4 introduces configuration-driven architecture with zero-code interface addition capability
-- App4 implements multiple pagination strategies: offset, date_range, stock_loop, period_range, quarterly_range, and periodic_range
-- App4 features performance monitoring with real-time metrics collection and alerting
-- App4 includes coverage management to detect and avoid redundant downloads using multiple strategies
-- App4 uses memory-efficient caching for frequently accessed data with thread-safe operations
-- App4 implements dataset-mode storage using Parquet format for improved performance
-- App4 adds special handling for broker recommendation data with month-based requests
+40. **Unified Deduplication Configuration**: Consistent deduplication using primary_key + dedup_enabled configuration
+41. **Performance Monitoring and Reporting**: Detailed metrics collection and reporting for system optimization
