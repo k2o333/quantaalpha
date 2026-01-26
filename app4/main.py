@@ -565,7 +565,7 @@ def main():
 
                 # 检查积分要求
                 min_points = interface_config.get('permissions', {}).get('min_points', 0)
-                actual_points = int(os.getenv('tushare_points', '120'))
+                actual_points = int(os.getenv('TUSHARE_POINTS', '120'))
                 if min_points > actual_points:  # 直接比较实际积分要求
                     logger.warning(f"Insufficient points for interface {interface_name} (required: {min_points}, available: {actual_points})")
                     continue
