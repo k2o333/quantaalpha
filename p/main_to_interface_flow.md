@@ -1,658 +1,655 @@
-# Complete Call Flow from main.py to Interface Scripts with Updated Architecture
+# Main.py 下载到存储的完整流程图（Mermaid版）
+
+**日期**: 2026-01-28
+**版本**: 3.0 (超详细版)
+
+---
+
+## 📊 完整数据流程图（Mermaid）
 
 ```mermaid
-flowchart TD
-    A[main.py] --> B[download_all_data_from_date]
-    A --> C[download_with_legacy_fallback]
-    C --> B
-    C --> D[download_with_legacy_method]
+graph TD
+    Start([开始: python app4/main.py]) --> Init[main.py: main函数]
+    
+    subgraph InitSection["初始化阶段"]
+        Init --> ConfigLoader[main.py: 创建ConfigLoader]
+        ConfigLoader --> Downloader[main.py: 创建GenericDownloader]
+        Downloader --> Scheduler[main.py: 创建TaskScheduler]
+        Scheduler --> StorageMgr[main.py: 创建StorageManager]
+        StorageMgr --> Processor[main.py: 创建DataProcessor]
+        Processor --> CacheWarmer[main.py: 创建CacheWarmer]
+        CacheWarmer --> WarmCache[main.py: 预热全局缓存]
+    end
+    
+    WarmCache --> StartStorage[main.py: storage_manager.start_writer]
+    
+    subgraph StorageStart["启动存储管理器"]
+        StartStorage --> WriterThread[storage.py: start_writer<br/>启动writer_thread线程]
+        WriterThread --> ProcessThread[storage.py: start_writer<br/>启动process_thread线程]
+    end
+    
+    ProcessThread --> RunMode[main.py: 运行接口模式判断]
+    
+    subgraph ModeSelection["模式选择"]
+        RunMode --> StockLoop{是否stock_loop模式?}
+        StockLoop -->|是| RunConcurrent[main.py: run_concurrent_stock_download]
+        StockLoop -->|否| OtherModes[main.py: 其他模式处理]
+    end
+    
+    subgraph ConcurrentDownload["并发股票下载流程"]
+        RunConcurrent --> CreateRateLimiter[main.py: 创建RateLimiter]
+        CreateRateLimiter --> SetBatchSize[main.py: 设置batch_size=10000]
+        SetBatchSize --> InitAllData[main.py: 初始化all_data=[]]
+        InitAllData --> InitTasks[main.py: 初始化tasks=[]]
+        
+        InitTasks --> StockLoop[main.py: for stock in stock_list]
+        
+        StockLoop --> CreateTask[main.py: 创建单个任务task]
+        CreateTask --> AppendTask[main.py: tasks.append task]
+        AppendTask --> CheckBatch{tasks数量>=100?}
+        
+        CheckBatch -->|否| StockLoop
+        CheckBatch -->|是| SubmitTasks[main.py: scheduler.submit_tasks]
+        
+        subgraph SubmitTasksFlow["提交任务"]
+            SubmitTasks --> SchedulerSubmit[scheduler.py: submit_tasks]
+            SchedulerSubmit --> WorkerThreads[scheduler.py: 分配给worker线程]
+            WorkerThreads --> DownloadSingle[downloader.py: download_single_stock]
+        end
+        
+        DownloadSingle --> DownloadFlow
+        
+        subgraph DownloadFlow["下载单只股票流程"]
+            DownloadSingle --> CheckPagination{是否分页?}
+            
+            CheckPagination -->|是| CheckCache[downloader.py: CoverageManager检查缓存]
+            CheckCache --> HasCached{是否已缓存?}
+            
+            HasCached -->|是| ReturnEmpty[downloader.py: 返回空列表]
+            HasCached -->|否| Paginate[downloader.py: PaginationExecutor执行分页]
+            
+            CheckPagination -->|否| DirectRequest[downloader.py: 直接请求API]
+            
+            Paginate --> MakeRequest
+            DirectRequest --> MakeRequest
+            
+            subgraph MakeRequestFlow["API请求"]
+                MakeRequest[downloader.py: _make_request]
+                MakeRequest --> BuildParams[downloader.py: 构建请求参数]
+                BuildParams --> CallAPI[downloader.py: 调用TuShare API]
+                CallAPI --> ReturnData[downloader.py: 返回原始数据List[Dict]]
+            end
+            
+            ReturnData --> UpdateCoverage[downloader.py: 更新CoverageManager]
+            UpdateCoverage --> LogDownload[downloader.py: 记录日志Downloaded X records]
+            
+            LogDownload --> CheckBuffer{是否有storage_manager?}
+            CheckBuffer -->|是| AddToBuffer[downloader.py: add_to_buffer]
+            CheckBuffer -->|否| ReturnToTasks
+        end
+        
+        subgraph AddToBufferFlow["Buffer机制路径"]
+            AddToBuffer --> BufferGetBuffer[storage.py: add_to_buffer<br/>获取或创建buffer]
+            BufferGetBuffer --> BufferExtend[storage.py: buffer['data'].extend data]
+            BufferExtend --> BufferCount[storage.py: buffer['count'] += len data]
+            BufferCount --> CheckThreshold{buffer数量>=5000?}
+            
+            CheckThreshold -->|否| ReturnToTasks
+            CheckThreshold -->|是| BufferFlush[storage.py: 触发flush]
+            
+            BufferFlush --> BufferTakeData[storage.py: 取出buffer['data']]
+            BufferTakeData --> BufferReset[storage.py: 重置buffer]
+            BufferReset --> PutToProcessQueue[storage.py: process_queue.put task]
+            
+            PutToProcessQueue --> ProcessWorkerWait[storage.py: _process_worker线程等待]
+            ProcessWorkerWait --> ProcessWorkerGet[storage.py: task = process_queue.get]
+            
+            ProcessWorkerGet --> CheckProcessed{数据已处理?<br/>_update_time in data[0]?}
+            
+            CheckProcessed -->|是| DirectWrite[storage.py: 直接_write_interface_data]
+            CheckProcessed -->|否| ProcessDataFull[storage.py: 完整处理流程]
+            
+            subgraph ProcessDataFullFlow["完整处理流程"]
+                ProcessDataFull --> GetInterfaceConfig[storage.py: 获取interface_config]
+                GetInterfaceConfig --> ProcessDataCall[storage.py: processor.process_data]
+                
+                subgraph ProcessorProcessData["processor.process_data"]
+                    ProcessDataCall --> CreateDataFrameSafe[processor.py: SchemaManager.create_dataframe_safe]
+                    CreateDataFrameSafe --> ApplyTypeConversions[processor.py: _apply_type_conversions]
+                    ApplyTypeConversions --> FilterPrimaryKeys[processor.py: _filter_primary_key_nulls]
+                    FilterPrimaryKeys --> HandlePrimaryKeys[processor.py: _handle_primary_keys]
+                    
+                    subgraph HandlePrimaryKeysFlow["_handle_primary_keys修复"]
+                        HandlePrimaryKeys --> ToDicts[processor.py: df.to_dicts]
+                        ToDicts --> DetectDuplicates[processor.py: _detect_duplicates_fast]
+                        DetectDuplicates --> LoadSchema[processor.py: SchemaManager.load_schema]
+                        LoadSchema --> HasSchema{有预定义schema?}
+                        
+                        HasSchema -->|是| CreateWithSchema[processor.py: pl.DataFrame with schema]
+                        HasSchema -->|否| CreateInfer[processor.py: pl.DataFrame infer_schema]
+                        
+                        CreateWithSchema --> LogProcessed1[processor.py: logger.info Processed X records]
+                        CreateInfer --> LogProcessed1
+                    end
+                    
+                    LogProcessed1 --> RemoveDuplicates[processor.py: _remove_duplicates]
+                    RemoveDuplicates --> CleanData[processor.py: _clean_data]
+                    CleanData --> ReturnDF[processor.py: 返回DataFrame]
+                end
+                
+                ReturnDF --> ValidateData[storage.py: processor.validate_data]
+                ValidateData --> DedupExisting[storage.py: 与现有数据去重]
+                DedupExisting --> WriteInterfaceData[storage.py: _write_interface_data]
+            end
+            
+            WriteInterfaceData --> LogProcessedQueued[storage.py: logger.info Processed and queued]
+            DirectWrite --> LogProcessedQueued
+            
+            LogProcessedQueued --> ReturnToTasks
+        end
+        
+        ReturnToTasks --> CollectResults[main.py: 收集results]
+        CollectResults --> ExtendAllData[main.py: all_data.extend results]
+        ExtendAllData --> LogBatch[main.py: logger.info Completed batch]
+        
+        LogBatch --> CheckBatchSize{all_data数量>=10000?}
+        
+        CheckBatchSize -->|是| ProcessAndSave[main.py: process_and_save_data]
+        CheckBatchSize -->|否| ResetTasks[main.py: tasks=[]]
+        
+        subgraph ProcessAndSaveFlow["批量处理路径"]
+            ProcessAndSave --> CheckEmptyData[main.py: 检查data是否为空]
+            CheckEmptyData --> ProcessorProcessData2[main.py: processor.process_data]
+            
+            subgraph ProcessorProcessData2["processor.process_data (第2次)"]
+                ProcessorProcessData2 --> CreateDataFrameSafe2[processor.py: SchemaManager.create_dataframe_safe]
+                CreateDataFrameSafe2 --> ApplyTypeConversions2[processor.py: _apply_type_conversions]
+                ApplyTypeConversions2 --> FilterPrimaryKeys2[processor.py: _filter_primary_key_nulls]
+                FilterPrimaryKeys2 --> HandlePrimaryKeys2[processor.py: _handle_primary_keys]
+                
+                subgraph HandlePrimaryKeysFlow2["_handle_primarykeys (第2次)"]
+                    HandlePrimaryKeys2 --> ToDicts2[processor.py: df.to_dicts]
+                    ToDicts2 --> DetectDuplicates2[processor.py: _detect_duplicates_fast]
+                    DetectDuplicates2 --> LoadSchema2[processor.py: SchemaManager.load_schema]
+                    LoadSchema2 --> HasSchema2{有预定义schema?}
+                    
+                    HasSchema2 -->|是| CreateWithSchema2[processor.py: pl.DataFrame with schema]
+                    HasSchema2 -->|否| CreateInfer2[processor.py: pl.DataFrame infer_schema]
+                    
+                    CreateWithSchema2 --> LogProcessed2[processor.py: logger.info Processed X records]
+                    CreateInfer2 --> LogProcessed2
+                end
+                
+                LogProcessed2 --> RemoveDuplicates2[processor.py: _remove_duplicates]
+                RemoveDuplicates2 --> CleanData2[processor.py: _clean_data]
+                CleanData2 --> ReturnDF2[processor.py: 返回DataFrame]
+            end
+            
+            ReturnDF2 --> CheckDFEmpty[main.py: 检查df是否为空]
+            CheckDFEmpty --> ValidateData2[main.py: processor.validate_data]
+            ValidateData2 --> DedupExisting2[main.py: 与现有数据去重]
+            DedupExisting2 --> LogProcessed3[main.py: logger.info Processed X records]
+            LogProcessed3 --> SaveDataAsync[main.py: storage_manager.save_data async_write=True]
+            
+            subgraph SaveDataFlow["异步保存流程"]
+                SaveDataAsync --> CheckAlreadyProcessed[storage.py: save_data<br/>检查_update_time]
+                CheckAlreadyProcessed --> PutToDataQueue[storage.py: data_queue.put task]
+                PutToDataQueue --> WriterWorkerWait[storage.py: _writer_worker线程等待]
+                WriterWorkerWait --> WriterWorkerGet[storage.py: item = data_queue.get]
+                WriterWorkerGet --> WriteBatch[storage.py: _write_batch]
+                
+                subgraph WriteBatchFlow["批量写入"]
+                    WriteBatch --> GroupData[storage.py: 按接口分组数据]
+                    GroupData --> WriteInterfaceData2[storage.py: _write_interface_data]
+                    
+                    subgraph WriteInterfaceDataFlow["写入接口数据"]
+                        WriteInterfaceData2 --> CreateDFSafe2[storage.py: SchemaManager.create_dataframe_safe]
+                        CreateDFSafe2 --> DetermineDateRange[storage.py: 确定日期范围]
+                        DetermineDateRange --> GenerateFileName[storage.py: 生成文件名]
+                        GenerateFileName --> AtomicWrite[storage.py: 原子写入<br/>写临时文件→重命名]
+                        AtomicWrite --> LogWrote[storage.py: logger.info Wrote X records to file]
+                    end
+                    
+                    LogWrote --> ClearAllData[main.py: all_data = []]
+                end
+            end
+            
+            ClearAllData --> ResetTasks
+        end
+        
+        ResetTasks --> StockLoop
+    end
+    
+    InitTasks --> SubmitRemainingTasks{tasks有剩余?}
+    
+    SubmitRemainingTasks -->|是| SubmitTasks2[main.py: scheduler.submit_tasks<br/>提交剩余任务]
+    SubmitTasks2 --> SubmitTasksFlow
+    
+    SubmitRemainingTasks -->|否| CheckAllData{all_data有剩余?}
+    
+    CheckAllData -->|是| ProcessAndSave2[main.py: process_and_save_data<br/>处理剩余数据]
+    ProcessAndSave2 --> ProcessAndSaveFlow
+    
+    CheckAllData -->|否| StopScheduler[main.py: 停止调度器]
+    
+    StopScheduler --> StopStorage[main.py: 停止存储写入]
+    
+    subgraph StopStorageFlow["停止存储流程"]
+        StopStorage --> FlushRemaining[storage.py: flush_remaining_data]
+        FlushRemaining --> SendStopSignalProcess[storage.py: process_queue.put None]
+        SendStopSignalProcess --> ProcessWorkerJoin[storage.py: process_thread.join]
+        ProcessWorkerJoin --> SendStopSignalWriter[storage.py: data_queue.put None]
+        SendStopSignalWriter --> WriterWorkerJoin[storage.py: writer_thread.join]
+    end
+    
+    WriterWorkerJoin --> GenerateReport[main.py: 生成性能报告]
+    GenerateReport --> End([结束])
+    
+    classDef path1 fill:#ffe6e6,stroke:#ff6666,stroke-width:2px;
+    classDef path2 fill:#e6f7ff,stroke:#66aaff,stroke-width:2px;
+    classDef common fill:#f0f0f0,stroke:#999999;
+    
+    class AddToBuffer,BufferGetBuffer,BufferExtend,BufferCount,CheckThreshold,BufferFlush,BufferTakeData,BufferReset,PutToProcessQueue,ProcessWorkerWait,ProcessWorkerGet,CheckProcessed,ProcessDataFull,ProcessDataFullFlow,WriteInterfaceData,LogProcessedQueued path1;
+    
+    class ProcessAndSave,ProcessAndSaveFlow,ProcessDataCall,ProcessorProcessData,ProcessorProcessData2,ProcessorProcessData2,SaveDataAsync,SaveDataFlow,PutToDataQueue,WriterWorkerWait,WriterWorkerGet,WriteBatch,WriteBatchFlow,WriteInterfaceData2,WriteInterfaceDataFlow path2;
+    
+    class Init,WarmCache,StartStorage,RunMode,RunConcurrent,SubmitTasks,SubmitTasksFlow,DownloadSingle,DownloadFlow,MakeRequestFlow,CheckPagination,CheckCache,HasCached,Paginate,DirectRequest,MakeRequest,BuildParams,CallAPI,ReturnData,UpdateCoverage,LogDownload,CheckBuffer,ReturnToTasks,CollectResults,ExtendAllData,LogBatch,CheckBatchSize,ResetTasks,CheckEmptyData,CheckDFEmpty,ValidateData,ValidateData2,DedupExisting,DedupExisting2,LogProcessed2,LogProcessed3,CheckAlreadyProcessed,GroupData,ClearAllData,SubmitRemainingTasks,SubmitTasks2,CheckAllData,ProcessAndSave2,StopScheduler,StopStorage,FlushRemaining,SendStopSignalProcess,ProcessWorkerJoin,SendStopSignalWriter,WriterWorkerJoin,GenerateReport common;
+```
 
-    B --> E[download_scheduler.py run_download_schedule]
-    B --> F[DownloadScheduler]
+---
+
+## 🔍 关键函数调用链详细说明
+
+### 1. 入口函数：main.py
+
+```mermaid
+graph LR
+    A[main.py: main函数] --> B[创建ConfigLoader]
+    B --> C[创建GenericDownloader]
+    C --> D[创建TaskScheduler]
+    D --> E[创建StorageManager]
+    E --> F[创建DataProcessor]
+    F --> G[创建CacheWarmer]
+    G --> H[预热全局缓存]
+    H --> I[storage_manager.start_writer]
+    I --> J[运行接口]
+```
+
+**文件位置**: `app4/main.py` (第 690 行开始)
+
+---
+
+### 2. 并发股票下载：run_concurrent_stock_download
+
+```mermaid
+graph TD
+    A[main.py: run_concurrent_stock_download] --> B[创建RateLimiter]
+    B --> C[设置batch_size=10000]
+    C --> D[初始化all_data=[]]
+    D --> E[初始化tasks=[]]
+    E --> F[for stock in stock_list]
+    F --> G[创建task]
+    G --> H[tasks.append task]
+    H --> I{tasks数量>=100?}
+    I -->|否| F
+    I -->|是| J[scheduler.submit_tasks]
+```
+
+**文件位置**: `app4/main.py` (第 449 行)
+
+---
+
+### 3. 任务提交：scheduler.submit_tasks
+
+```mermaid
+graph TD
+    A[main.py: scheduler.submit_tasks] --> B[scheduler.py: submit_tasks]
+    B --> C[分配给worker线程]
+    C --> D[downloader.py: download_single_stock]
+```
+
+**文件位置**: 
+- 调用: `app4/main.py` (第 477, 493 行)
+- 实现: `app4/core/scheduler.py`
+
+---
+
+### 4. 下载单只股票：download_single_stock
+
+```mermaid
+graph TD
+    A[downloader.py: download_single_stock] --> B{是否分页?}
+    B -->|是| C[CoverageManager检查缓存]
+    C --> D{已缓存?}
+    D -->|是| E[返回空列表]
+    D -->|否| F[PaginationExecutor执行分页]
+    B -->|否| G[直接请求API]
+    F --> H[_make_request]
+    G --> H
+    H --> I[返回原始数据]
+    I --> J[更新CoverageManager]
+    J --> K[记录日志]
+    K --> L{有storage_manager?}
+    L -->|是| M[add_to_buffer]
+    L -->|否| N[返回数据]
+```
+
+**文件位置**: `app4/core/downloader.py` (第 432 行)
+
+---
+
+### 5. API请求：_make_request
+
+```mermaid
+graph TD
+    A[downloader.py: _make_request] --> B[构建请求参数]
+    B --> C[调用TuShare API]
+    C --> D[返回原始数据List[Dict]]
+```
+
+**文件位置**: `app4/core/downloader.py` (第 517 行)
+
+---
+
+### 6. Buffer机制：add_to_buffer
+
+```mermaid
+graph TD
+    A[downloader.py: add_to_buffer] --> B[storage.py: add_to_buffer]
+    B --> C[获取或创建buffer]
+    C --> D[buffer['data'].extend data]
+    D --> E[buffer['count'] += len data]
+    E --> F{buffer数量>=5000?}
+    F -->|否| G[返回]
+    F -->|是| H[触发flush]
+    H --> I[取出buffer['data']]
+    I --> J[重置buffer]
+    J --> K[process_queue.put task]
+```
+
+**文件位置**: 
+- 调用: `app4/core/downloader.py` (第 497 行)
+- 实现: `app4/core/storage.py` (第 380 行)
+
+---
+
+### 7. Process Worker处理：_process_worker
+
+```mermaid
+graph TD
+    A[storage.py: _process_worker线程] --> B[从process_queue获取任务]
+    B --> C{数据已处理?<br/>_update_time in data[0]?}
+    C -->|是| D[直接_write_interface_data]
+    C -->|否| E[完整处理流程]
+    
+    E --> F[获取interface_config]
+    F --> G[processor.process_data]
+    
+    G --> H[processor.validate_data]
+    H --> I[与现有数据去重]
+    I --> J[_write_interface_data]
+    
+    D --> K[记录日志]
+    J --> K
+```
+
+**文件位置**: `app4/core/storage.py` (第 454 行)
+
+---
+
+### 8. 数据处理：processor.process_data
+
+```mermaid
+graph TD
+    A[processor.py: process_data] --> B[SchemaManager.create_dataframe_safe]
+    B --> C[_apply_type_conversions]
+    C --> D[_filter_primary_key_nulls]
+    D --> E[_handle_primary_keys]
+    
+    E --> F[df.to_dicts]
+    F --> G[_detect_duplicates_fast]
+    G --> H[SchemaManager.load_schema]
+    H --> I{有预定义schema?}
+    I -->|是| J[pl.DataFrame with schema]
+    I -->|否| K[pl.DataFrame infer_schema]
+    
+    J --> L[logger.info Processed X records]
+    K --> L
+    
+    L --> M[_remove_duplicates]
+    M --> N[_clean_data]
+    N --> O[返回DataFrame]
+```
+
+**文件位置**: `app4/core/processor.py` (第 16 行)
+
+---
+
+### 9. 批量处理：process_and_save_data
+
+```mermaid
+graph TD
+    A[main.py: process_and_save_data] --> B[检查data是否为空]
+    B --> C[processor.process_data]
+    C --> D[检查df是否为空]
+    D --> E[processor.validate_data]
+    E --> F[与现有数据去重]
+    F --> G[logger.info Processed X records]
+    G --> H[storage_manager.save_data async_write=True]
+```
+
+**文件位置**: `app4/main.py` (第 358 行)
+
+---
+
+### 10. 异步保存：save_data
+
+```mermaid
+graph TD
+    A[storage.py: save_data] --> B{async_write?}
+    B -->|否| C[_write_interface_data]
+    B -->|是| D{数据已处理?<br/>_update_time in data[0]?}
+    D -->|是| E[data_queue.put task]
+    D -->|否| F[process_queue.put task]
+    
+    E --> G[_writer_worker处理]
+    F --> H[_process_worker处理]
+```
+
+**文件位置**: `app4/core/storage.py` (第 618 行)
+
+---
+
+### 11. Writer Worker处理：_writer_worker
+
+```mermaid
+graph TD
+    A[storage.py: _writer_worker线程] --> B[从data_queue获取任务]
+    B --> C[_write_batch]
+    C --> D[按接口分组数据]
+    D --> E[_write_interface_data]
+    
+    E --> F[SchemaManager.create_dataframe_safe]
+    F --> G[确定日期范围]
+    G --> H[生成文件名]
+    H --> I[原子写入<br/>写临时文件→重命名]
+    I --> J[logger.info Wrote X records to file]
+```
+
+**文件位置**: `app4/core/storage.py` (第 67 行)
+
+---
+
+### 12. 写入接口数据：_write_interface_data
+
+```mermaid
+graph TD
+    A[storage.py: _write_interface_data] --> B[SchemaManager.create_dataframe_safe]
+    B --> C[确定日期范围<br/>优先级: period > trade_date > cal_date > ann_date]
+    C --> D[生成文件名<br/>{interface}_{start}_{end}_{timestamp}_{uuid}.parquet]
+    D --> E[写入临时文件]
+    E --> F[重命名为正式文件]
+    F --> G[logger.info Wrote X records to file]
+```
+
+**文件位置**: `app4/core/storage.py` (第 207 行)
+
+---
+
+## 📊 两条路径的完整对比
+
+### 路径1: Buffer机制（红色路径）
+
+```mermaid
+graph TD
+    A[下载单只股票] --> B[add_to_buffer]
+    B --> C[累积到buffer]
+    C --> D{达到5000条?}
+    D -->|是| E[flush到process_queue]
+    D -->|否| F[继续累积]
+    E --> G[_process_worker]
+    G --> H[processor.process_data]
+    H --> I[_write_interface_data]
+    I --> J[写入数据]
+    
+    style A fill:#ffe6e6,stroke:#ff6666
+    style B fill:#ffe6e6,stroke:#ff6666
+    style C fill:#ffe6e6,stroke:#ff6666
+    style D fill:#ffe6e6,stroke:#ff6666
+    style E fill:#ffe6e6,stroke:#ff6666
+    style F fill:#ffe6e6,stroke:#ff6666
+    style G fill:#ffe6e6,stroke:#ff6666
+    style H fill:#ffe6e6,stroke:#ff6666
+    style I fill:#ffe6e6,stroke:#ff6666
+    style J fill:#ffe6e6,stroke:#ff6666
+```
+
+**特点**:
+- 实时处理，边下载边处理
+- 内存占用低
+- 适合大规模数据下载
+- 可能产生较多小文件
+
+---
+
+### 路径2: 批量处理（蓝色路径）
+
+```mermaid
+graph TD
+    A[下载单只股票] --> B[累积到all_data]
+    B --> C{达到10000条?}
+    C -->|是| D[process_and_save_data]
+    C -->|否| E[继续累积]
+    D --> F[processor.process_data]
+    F --> G[save_data async_write=True]
+    G --> H[data_queue]
+    H --> I[_writer_worker]
+    I --> J[_write_interface_data]
+    J --> K[写入数据]
+    
+    style A fill:#e6f7ff,stroke:#66aaff
+    style B fill:#e6f7ff,stroke:#66aaff
+    style C fill:#e6f7ff,stroke:#66aaff
+    style D fill:#e6f7ff,stroke:#66aaff
+    style E fill:#e6f7ff,stroke:#66aaff
+    style F fill:#e6f7ff,stroke:#66aaff
+    style G fill:#e6f7ff,stroke:#66aaff
+    style H fill:#e6f7ff,stroke:#66aaff
+    style I fill:#e6f7ff,stroke:#66aaff
+    style J fill:#e6f7ff,stroke:#66aaff
+    style K fill:#e6f7ff,stroke:#66aaff
+```
+
+**特点**:
+- 批量处理效率高
+- 减少文件数量
+- 去重效率高
+- 内存占用较高
+
+---
+
+## 🎯 关键问题点
+
+### 问题1: 重复处理
+
+```mermaid
+graph TD
+    A[原始数据] --> B[路径1: Buffer]
+    A --> C[路径2: Batch]
+    
+    B --> D[processor.process_data<br/>第1次]
+    C --> E[processor.process_data<br/>第2次]
+    
+    D --> F[写入数据]
     E --> F
-
-    F --> G[schedule_download_tasks]
-    G --> H[get_available_interfaces via config_adapter]
-    H --> I[config_adapter.get_all_available_interfaces]
-
-    F --> J[execute_scheduled_tasks]
-    J --> K[_task_consumer_loop]
-    K --> L[Task Manager gets next task]
-
-    L --> M[Download Task Execution]
-    M --> N[download_strategies.get_strategy]
-    N --> O[Facade-TuShareDownloader]
-
-    %% Facade pattern implementation in TuShareDownloader
-    O --> O1[TuShareDownloader Main Class<br/>with __getattr__ delegation]
-    O1 --> O2[BasicDataDownloader Module]
-    O1 --> O3[DailyDataDownloader Module]
-    O1 --> O4[FinancialDataDownloader Module]
-    O1 --> O5[MarketFlowDownloader Module]
-    O1 --> O6[HoldersDataDownloader Module]
-    O1 --> O7[TechnicalFactorsDownloader Module]
-    O1 --> O8[CyqChipsDownloader Module]
-    O1 --> O9[MarketStructureDownloader Module]
-    O1 --> O10[ResearchDataDownloader Module]
-    O1 --> O11[BaseDownloader Module]
-    O1 --> O12[HoldersDataFullHistoryDownloader Module]
-
-    %% Producer-Consumer pattern for storage
-    M --> P1[Check for data download results]
-    P1 --> P2[If successful, create storage task<br/>via task_manager.add_storage_task]
-    P2 --> Q1[Storage Task Queue<br/>in TaskQueueManager]
-
-    Q1 --> R1[StorageWorker Consumer Thread]
-    R1 --> R2[Process Storage Task]
-    R2 --> R3[Write to Parquet via data_storage.py]
-
-    %% Direct storage path for comparison
-    D --> Z[date_range_downloader.py]
-    Z --> AA[DateRangeDownloader]
-    AA --> AB[TuShareDownloader<br/>Instantiated with delegation]
-    AB --> AC[Download via modules<br/>O2 through O12]
-    AC --> AD[Direct save_to_parquet call]
-
-    %% Task management and queuing
-    B --> AE[Download Task Creation]
-    AE --> AF[TaskQueueManager with priority queues]
-    AF --> AG[Download Workers process<br/>tasks via consumer loop]
-    AG --> P1
-
-    %% Task completion and result handling
-    P1 --> AH[Original download task completes<br/>without waiting for storage]
-    P2 --> AI[Storage completion<br/>handled separately]
-
-    %% Configuration and Priority System
-    I --> AJ[ConfigAdapter.get_all_available_interfaces<br/>based on user points]
-    AJ --> AK[InterfaceConfig with priority, retries, rate limits]
-    AK --> AL[get_interface_priority, get_max_retries, get_rate_limit]
-    AL --> AM[TaskQueue with Priority-based processing]
-
-    %% Enhanced features
-    AM --> AN[Global Rate Limiter<br/>Token Bucket Algorithm]
-    AN --> AO[Parallel Downloader<br/>with concurrency controls]
-    AO --> AP[Enhanced Config<br/>with advanced settings]
-
-    %% Missing components from analysis
-    AP --> AQ[ParameterAdapterManager<br/>for parameter validation and adaptation]
-    AQ --> AR[DailyDataParameterAdapter, FinancialDataParameterAdapter, etc.]
-
-    O12 --> AS[HoldersDataFullHistoryDownloader<br/>for ts_code-dependent interfaces]
-    AS --> O2[BasicDataDownloader for stock_basic]
-    AS --> O4[FinancialDataDownloader for fina_audit]
-    AS --> O3[DailyDataDownloader for pro_bar]
-
-    AQ --> O
-    AR --> O
-
-    %% Cache components
-    O --> AT[cache_key_generator.py<br/>Standardized cache key generation]
-    AT --> AU[cache_manager.py<br/>Cache preheating, cleaning and monitoring]
-    AU --> AV[cache_monitor.py<br/>Cache hit rate tracking]
-    AV --> AW[data_storage.py integration<br/>for caching system]
-
-    %% Error handling components
-    O1 --> AX[error_handler.py<br/>Enhanced error handling and retry mechanisms]
-    AX --> AX1[retry_on_failure decorator<br/>with exponential backoff]
-    AX1 --> AX2[ErrorHandler.handle_api_error<br/>with specific error handling]
-
-    %% Stock List Manager - Singleton pattern
-    O --> AY[stock_list_manager.py<br/>Singleton stock list manager]
-    AY --> AY1[Prevents duplicate stock_basic API calls]
-
-    %% Strategy Factory pattern
-    N --> AZ[strategy_factory.py<br/>Strategy creation and caching]
-    AZ --> BA[StrategyFactory.get_strategy<br/>with caching mechanism]
-
-    %% Date utilities
-    AW --> BB[utils/date_utils.py<br/>Date validation and conversion tools]
-
-    %% Error handling integration
-    O --> AX
-    M --> AX
-    AX --> BA
-
-    %% Cache integration in download process
-    AW --> M
-    AU --> F
-    AV --> N
-
-    %% Stock List Manager integration
-    AY --> AS
-    AY --> O4
-    AY --> O3
-    AY --> O2
-
-    subgraph "Main Entry"
-        A
-    end
-
-    %% New Historical Download Marker System
-    A --> A1[get_historical_download_marker_path]
-    A1 --> A2[mark_interfaces_as_historical_downloaded]
-    A2 --> A3[get_historical_downloaded_interfaces]
-    A --> A4[disable_tscode_dependent_interfaces_for_date_range]
-    A4 --> A5[Check for ts_code-dependent interfaces<br/>['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit', 'pro_bar']]
-    A5 --> A6[Temporarily disable interfaces<br/>during date-range downloads]
-    A6 --> A7[Save original interface state<br/>with _original_enabled attribute]
-    A7 --> A8[Restore original interface states<br/>after download completion]
-    A8 --> A9[Historical Download Tracking<br/>to avoid redundant processing]
-
-    %% TSCODE Historical Mode Implementation
-    A --> A10[tscode_historical mode - Full History Downloads]
-    A10 --> A11[Uses DownloadScheduler with mode='tscode_historical']
-    A11 --> A12[_schedule_tscode_interface for batch processing by ts_code]
-    A12 --> A13[_execute_tscode_download for parallel processing]
-    A13 --> A14[ParallelDownloader.batch_download for efficiency]
-
-    %% New Cache Integration Features
-    O --> A15[Enhanced Cache System]
-    A15 --> A16[CacheKeyGenerator for standardized paths]
-    A15 --> A17[Cache Monitor for hit rate tracking]
-    A15 --> A18[Intelligent Cache Matching and extraction]
-    A15 --> A19[Cache Preheating capabilities]
-
-    %% New Configuration and Strategy Features
-    O --> A20[ConfigAdapter.get_interface_cache_settings]
-    O --> A21[ParameterAdapterManager integration]
-    O --> A22[Enhanced InterfaceConfig with detailed settings]
-
-    %% Download Scheduling with New Features
-    A --> A23[Enhanced Download Scheduler]
-    A23 --> A24[TaskQueueManager.add_storage_task]
-    A24 --> A25[StorageWorker.submit_data]
-    A25 --> A26[Asynchronous Storage Operations]
-    A26 --> A27[Batch Storage Worker (optional)]
-
-    subgraph "Download Scheduling"
-        B
-        E
-        F
-        G
-        H
-        I
-        J
-        K
-        L
-    end
-
-    subgraph "Facade Pattern Implementation"
-        O
-        O1
-        O2
-        O3
-        O4
-        O5
-        O6
-        O7
-        O8
-        O9
-        O10
-        O11
-        O12
-    end
-
-    subgraph "Producer-Consumer Storage Pattern"
-        Q1
-        R1
-        R2
-        R3
-    end
-
-    subgraph "Legacy Fallback"
-        C
-        D
-        Z
-        AA
-        AB
-        AC
-        AD
-    end
-
-    subgraph "Task Management"
-        AE
-        AF
-        AG
-        AH
-        AI
-    end
-
-    subgraph "Configuration System"
-        AJ
-        AK
-        AL
-        AM
-    end
-
-    subgraph "Enhanced Features"
-        AN
-        AO
-        AP
-        AQ
-        AR
-        AZ
-        BA
-    end
-
-    subgraph "Caching System"
-        AT
-        AU
-        AV
-        AW
-    end
-
-    subgraph "Error Handling"
-        AX
-        AX1
-        AX2
-    end
-
-    subgraph "Specialized Components"
-        AS
-    end
-
-    subgraph "Stock Management"
-        AY
-        AY1
-    end
-
-    subgraph "Utilities"
-        BB
-    end
-
-    subgraph "Historical Download System"
-        A4
-        A5
-        A6
-        A7
-        A8
-        A9
-        A10
-        A11
-        A12
-        A13
-        A14
-    end
-
-    subgraph "Enhanced Cache System"
-        A15
-        A16
-        A17
-        A18
-        A19
-    end
+    
+    style D fill:#ffcccc,stroke:#ff0000
+    style E fill:#ffcccc,stroke:#ff0000
 ```
 
-## Call Flow Description
+**问题**: 同一份数据被处理2次
 
-### Primary Flow (New Scheduler - Recommended):
-1. `main.py` → `download_all_data_from_date()`
-2. → Conditional interface management: `disable_tscode_dependent_interfaces_for_date_range()` temporarily disables ts_code-dependent interfaces during date-range downloads
-   - Identifies interfaces requiring ts_code parameter: ['stk_rewards', 'top10_holders', 'pledge_detail', 'fina_audit', 'pro_bar']
-   - Saves original interface states with `_original_enabled` attribute
-   - Restores original states after download completion (in both success and error scenarios)
-3. → Historical download tracking: checks `get_historical_downloaded_interfaces()` to avoid redundant processing
-4. → `download_scheduler.run_download_schedule()`
-5. → `DownloadScheduler` class initialization and task scheduling
-6. → `config_adapter.get_all_available_interfaces()` to get user-accessible interfaces based on points
-7. → `DownloadScheduler.schedule_download_tasks()` creates tasks based on score and priority
-8. → `DownloadScheduler.execute_scheduled_tasks()` executes the tasks in parallel
-9. → `DownloadScheduler._task_consumer_loop()` processes tasks via task queue manager
-10. → `download_strategies.get_strategy()` gets the appropriate download strategy
-11. → `strategy_factory.get_strategy()` provides cached strategy instances with configuration
-12. → `TuShareDownloader` main class that orchestrates the interface usage (Facade Pattern)
-    - Implements facade pattern with `__getattr__` delegation to individual interface modules
-    - Maintains unified interface while delegating to specialized modules
-13. → Individual interface classes from `app/interfaces/`:
-    - `BasicDataDownloader` (basic_data.py)
-    - `DailyDataDownloader` (daily_data.py)
-    - `FinancialDataDownloader` (financial_data.py)
-    - `MarketFlowDownloader` (market_flow.py)
-    - `HoldersDataDownloader` (holders_data.py)
-    - `TechnicalFactorsDownloader` (technical_factors.py)
-    - `CyqChipsDownloader` (cyq_chips.py)
-    - `MarketStructureDownloader` (market_structure.py) - 注意：文件存在但目录为空
-    - `ResearchDataDownloader` (research_data.py)
-    - `BaseDownloader` (base.py) - base functionality for all interfaces
-    - `HoldersDataFullHistoryDownloader` (holders_data_downloader.py) - for ts_code-dependent interfaces requiring full history
-14. → Parameter validation and adaptation via `parameter_adapters.py`:
-    - `ParameterAdapterManager` routes to appropriate adapter
-    - `DailyDataParameterAdapter`, `FinancialDataParameterAdapter`, etc.
-    - Standardized parameter validation and date formatting
-15. → Error handling via `error_handler.py`:
-    - `retry_on_failure` decorator with exponential backoff
-    - `ErrorHandler.handle_api_error` with specific error type handling
-16. → Advanced caching system via `cache_key_generator.py`, `cache_manager.py`, `cache_monitor.py`:
-    - Standardized cache key generation with intelligent matching
-    - Cache preheating and monitoring capabilities
-    - Cache hit rate tracking and statistics
-17. → Stock list management via `stock_list_manager.py` singleton pattern:
-    - Prevents duplicate stock_basic API calls
-    - Cached stock list with configurable TTL
-18. → API calls executed via interface-specific classes
-19. → Downloaded data processed via Asynchronous Producer-Consumer Pattern:
-    - Download task completes and creates storage task via `task_manager.add_storage_task()`
-    - Storage task placed in queue managed by `TaskQueueManager`
-    - Independent `StorageWorker` threads consume storage tasks from queue
-    - Storage tasks executed separately from download tasks, enabling parallel processing
-20. → Data saved as Parquet files via `data_storage.py`
-21. → Historical download completion: `mark_interfaces_as_historical_downloaded()` records completed interfaces
+---
 
-### TSCODE Historical Mode Implementation:
-When using `--tscode-historical`, `--holders-data`, or `--pro-bar-only` flags, the system uses a specialized approach:
-1. `main.py` → `run_download_schedule()` with `mode='tscode_historical'`
-2. → `DownloadScheduler.schedule_download_tasks()` with `tscode_historical` mode
-3. → `_schedule_tscode_interface()` for batch processing by ts_code
-4. → `_execute_tscode_download()` for parallel processing of ts_code-dependent interfaces
-5. → `ParallelDownloader.batch_download()` for efficient processing of multiple ts_code values
-6. → Storage tasks submitted to `task_manager.add_storage_task()` with specific subdirectory structure for full history data
+### 问题2: Schema推断错误
 
-### Fallback Flow (Legacy System):
-1. `main.py` → `download_with_legacy_method()`
-2. → Conditional interface management: `disable_tscode_dependent_interfaces_for_date_range()` temporarily disables ts_code-dependent interfaces during date-range downloads (same as primary flow)
-3. → Historical download tracking: checks `get_historical_downloaded_interfaces()` to avoid redundant processing (same as primary flow)
-4. → `date_range_downloader.DateRangeDownloader`
-5. → `TuShareDownloader` class (shared logic with facade pattern)
-6. → Individual interface classes (same as above)
-7. → Parameter validation and adaptation (same as above)
-8. → Advanced error handling (same as above)
-9. → Caching system integration (same as above)
-10. → Stock list management (same as above)
-11. → Data saved directly via synchronous `data_storage.py` calls within download methods
-12. → Historical download completion: `mark_interfaces_as_historical_downloaded()` records completed interfaces (same as primary flow)
-
-### Configuration and Strategy Layer:
-- `config_adapter.py` provides interface configurations based on `DOWNLOAD_PIPELINE_CONFIG` with enhanced features
-- `enhanced_download_config.py` provides detailed interface configurations with priority, retry, rate limit, and caching settings
-- Score-based access control via `score_config.py` determines which interfaces are available to the user
-- `task_queue_manager.py` handles priority-based task scheduling with producer-consumer pattern
-- `global_rate_limiter.py` manages API call rate limiting using token bucket algorithm
-- `parallel_downloader.py` enables parallel downloads of multiple interfaces with concurrency controls
-- `storage_worker.py` implements consumer threads for asynchronous data storage
-- `download_strategies.py` provides different download strategies for different data types (batch, parallel, sequential, paginated)
-- `strategy_factory.py` manages strategy instantiation with caching
-- `parameter_adapters.py` provides parameter validation and normalization for all interfaces
-- `cache_key_generator.py`, `cache_manager.py`, `cache_monitor.py` provide advanced caching capabilities
-- `stock_list_manager.py` implements singleton pattern to prevent duplicate stock API calls
-- `error_handler.py` provides enhanced error handling with retry mechanisms and API-specific error handling
-- `utils/date_utils.py` provides date validation and conversion utilities
-
-### Key Architectural Patterns:
-
-1. **Facade Pattern**: `TuShareDownloader` acts as a unified interface delegating to specialized modules via `__getattr__`
-2. **Producer-Consumer Pattern**: Download tasks and storage tasks are decoupled with independent processing threads
-3. **Strategy Pattern**: Different download approaches are implemented via `download_strategies.py` and `DownloadStrategy` classes
-4. **Strategy Factory Pattern**: Strategy instantiation and caching via `strategy_factory.py`
-5. **Task Queue Management**: Priority-based task scheduling implemented in `task_queue_manager.py`
-6. **Asynchronous Processing**: Storage operations are handled asynchronously to avoid blocking download threads
-7. **Configuration Adapter Pattern**: New configuration system maintains compatibility with old format while adding advanced features
-8. **Rate Limiting with Token Bucket**: Global rate limiting prevents API throttling across all interfaces
-9. **Parameter Adapter Pattern**: Standardized parameter validation and adaptation per interface type
-10. **Caching System**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming capabilities
-11. **Singleton Pattern**: Stock list management uses singleton pattern to prevent duplicate API calls
-12. **Enhanced Error Handling**: Improved retry mechanisms with exponential backoff and adaptive rate limiting
-13. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing (JSON-based marker system)
-14. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
-15. **Intelligent Cache Matching**: Can extract specific data from more general caches (e.g., single stock data from all-stock cache)
-16. **Batch Operations**: For ts_code-dependent interfaces, processes multiple stocks in parallel batches
-
-### New Enhanced Features:
-
-1. **Priority-based Interface Configuration**: Interfaces are categorized by priority (HIGH, MEDIUM, LOW) to optimize download order
-2. **Advanced Download Strategies**: Different strategies available (DailyDataStrategy, FinancialDataStrategy, StaticDataStrategy) for optimal data retrieval
-3. **Concurrency Control**: Configurable concurrency levels per interface to maximize throughput within API limits
-4. **Advanced Caching Mechanism**: Multi-layer caching with intelligent cache key generation, TTL management, and cache warming capabilities
-5. **Token Bucket Rate Limiting**: Sophisticated rate limiting across all API calls with global control
-6. **Enhanced Error Handling**: Improved retry mechanisms with configurable retry counts and backoff strategies with API-specific error handling
-7. **Parameter Adaptation System**: Interface-specific parameter validation and standardization through adapter pattern
-8. **Backward Compatibility**: New configuration system maintains compatibility with the original DOWNLOAD_CONFIG format
-9. **Stock List Management**: Singleton pattern implementation for efficient stock list access
-10. **Strategy Caching**: Factory pattern with caching to optimize strategy instantiation
-11. **Full History Download Capability**: Specialized downloader for interfaces requiring ts_code parameters for bulk historical data
-12. **Cache Monitoring**: Real-time cache performance tracking with hit rate statistics
-13. **Historical Download Tracking**: Tracks completed historical downloads to avoid redundant processing using JSON-based marker files
-14. **Conditional Interface Management**: Automatically disables ts_code-dependent interfaces during date-range downloads to prevent parameter conflicts
-15. **Intelligent Cache Matching**: Can extract specific data from more general caches (e.g., single stock data from all-stock cache)
-16. **Batch Processing**: For ts_code-dependent interfaces, processes multiple stocks in parallel batches for efficiency
-
-This enhanced architecture enables modular, extensible data download functionality with proper error handling, retry logic, rate limiting, caching, and asynchronous processing, all orchestrated through the entry point in main.py. The decoupled nature of download and storage operations allows for better resource utilization and system responsiveness. The new configuration system provides granular control over download behavior while maintaining backward compatibility with the original system structure.
-
-The integrated caching system with standardized cache key generation, parameter validation system with interface-specific adapters, error handling with API-specific logic, singleton stock list manager, historical download tracking, conditional interface management, intelligent cache matching, and batch processing all contribute to a more robust and efficient architecture.
-
-## Application Structure and Key Components
-
-### Directory Structure
-
-```
-aspipe_v4/
-├── app/                    # Main application code
-│   ├── main.py            # Main entry point with fallback
-│   ├── enhanced_main_downloader.py  # Production-ready enhanced downloader
-│   ├── score_based_downloader.py  # Score-based download management
-│   ├── config.py          # Configuration and token management
-│   ├── score_config.py    # Score-based access control
-│   ├── tushare_api.py     # Main API integration (Facade Pattern)
-│   ├── date_range_downloader.py  # Legacy date range downloader
-│   ├── download_config.py  # Original download configuration
-│   ├── enhanced_download_config.py  # Enhanced configuration with advanced options
-│   ├── config_adapter.py  # Configuration adapter for backward compatibility
-│   ├── data_storage.py    # Data storage and caching
-│   ├── download_scheduler.py  # Producer-consumer scheduler
-│   ├── parallel_downloader.py # Parallel download framework
-│   ├── storage_worker.py  # Storage consumer logic
-│   ├── download_strategies.py # Strategy pattern for different download approaches
-│   ├── global_rate_limiter.py  # Rate limiting with token bucket
-│   ├── strategy_factory.py    # Strategy management with caching
-│   ├── parameter_adapters.py  # API parameter adaptation
-│   ├── error_handler.py   # Enhanced error handling with retry mechanisms
-│   ├── stock_list_manager.py  # Singleton stock list management
-│   ├── cache_key_generator.py # Standardized cache key generation
-│   ├── cache_manager.py       # Cache management and preheating
-│   ├── cache_monitor.py       # Cache monitoring
-│   ├── task_queue_manager.py  # Task queue management with priority and status tracking
-│   ├── interfaces/        # Modular interface classes
-│   │   ├── __init__.py    # Package initialization file
-│   │   ├── base.py        # Base interface functionality
-│   │   ├── basic_data.py
-│   │   ├── daily_data.py
-│   │   ├── financial_data.py
-│   │   ├── market_flow.py
-│   │   ├── holders_data.py
-│   │   ├── holders_data_downloader.py  # Full history holder data downloader
-│   │   ├── technical_factors.py
-│   │   ├── cyq_chips.py
-│   │   └── research_data.py
-│   └── utils/             # Utility functions
-│       ├── __init__.py    # Package initialization file
-│       └── date_utils.py      # Date utility functions
-├── test/                  # Test scripts (including new cache functionality tests)
-├── data/                  # Output directory for downloaded data
-├── log/                   # Log files
-├── cache/                 # Temporary cache files
-├── requirements.txt       # Dependencies
-├── .env                   # Environment variables
-├── test/                  # Test scripts
-└── p/                     # Documentation
+```mermaid
+graph TD
+    A[processor.py: _handle_primary_keys] --> B[df.to_dicts]
+    B --> C[_detect_duplicates_fast]
+    C --> D[pl.DataFrame unique]
+    
+    style D fill:#ffcccc,stroke:#ff0000
+    
+    D --> E[错误: 未使用预定义schema]
+    
+    F[修复后] --> G[SchemaManager.load_schema]
+    G --> H[pl.DataFrame with schema]
 ```
 
-### Core Design Patterns
+**问题**: 重新创建DataFrame时未使用预定义schema
 
-#### 1. Facade Pattern
-- **File**: `app/tushare_api.py`
-- **Implementation**: `TuShareDownloader` class acts as a unified interface
-- **Delegation**: Uses `__getattr__` to delegate to specialized modules
-- **Benefits**: Provides simple interface while hiding complexity
+**修复**: 已修复，现在使用预定义schema
 
-The `TuShareDownloader` class implements the Facade pattern through `__getattr__` method:
+---
 
-```python
-def __getattr__(self, name):
-    """
-    代理到各个子模块的方法
-    保持向后兼容性
-    """
-    # 检查各个子模块是否包含该方法
-    for module in [
-        self.basic_data,
-        self.daily_data,
-        self.financial_data,
-        self.market_flow,
-        self.holders_data,
-        self.technical_factors,
-        # 注意：market_structure.py 作为独立文件存在但对应的目录为空
-        self.research_data
-    ]:
-        if hasattr(module, name):
-            return getattr(module, name)
-```
+## 📝 函数索引表
 
-This allows external code to call methods like `downloader.download_stock_basic()` which gets delegated to the appropriate submodule.
+| 函数名 | 文件 | 行号 | 功能 | 路径 |
+|--------|------|------|------|------|
+| `main` | main.py | 690 | 程序入口 | 通用 |
+| `run_concurrent_stock_download` | main.py | 449 | 并发股票下载 | 通用 |
+| `download_single_stock` | downloader.py | 432 | 下载单只股票 | 通用 |
+| `_make_request` | downloader.py | 517 | API请求 | 通用 |
+| `add_to_buffer` | storage.py | 380 | 添加到Buffer | 路径1 |
+| `_process_worker` | storage.py | 454 | 处理线程工作 | 路径1 |
+| `process_data` | processor.py | 16 | 数据处理 | 路径1, 路径2 |
+| `_handle_primary_keys` | processor.py | 198 | 主键处理 | 路径1, 路径2 |
+| `process_and_save_data` | main.py | 358 | 批量处理和保存 | 路径2 |
+| `save_data` | storage.py | 618 | 保存数据 | 路径2 |
+| `_writer_worker` | storage.py | 67 | 写入线程工作 | 路径2 |
+| `_write_interface_data` | storage.py | 207 | 写入接口数据 | 路径1, 路径2 |
+| `submit_tasks` | scheduler.py | - | 提交任务 | 通用 |
 
-#### 2. Producer-Consumer Pattern
-- **Files**: `app/download_scheduler.py`, `app/storage_worker.py`, `app/task_queue_manager.py`
-- **Implementation**: Download tasks produce data, storage workers consume for writing
-- **Benefits**: Decoupled processing, parallel execution, better resource utilization
+---
 
-The new scheduler implements a true producer-consumer pattern:
-- **Producer**: Download tasks create data and submit storage tasks to the queue
-- **Consumer**: StorageWorker processes storage tasks from the queue independently
-- **Decoupling**: Download and storage operations are completely separated
+## 🔧 修复方案总结
 
-Example from `download_scheduler.py`:
-```python
-# After download completes, create storage task instead of immediate storage
-if result is not None and not result.empty:
-    filename = f"{interface_name}_{start_date}_{end_date}"
-    subdir = f"daily/{start_date[:4]}/{start_date[4:6]}"
+### 已修复
+1. ✅ Schema推断错误：`_handle_primary_keys` 现在使用预定义schema
+2. ✅ `save_data` 智能选择队列：根据 `_update_time` 判断
 
-    self.task_manager.add_storage_task(
-        data=result,
-        filename=filename,
-        subdir=subdir,
-        priority=TaskPriority.MEDIUM
-    )
-```
+### 待修复
+1. ❌ 重复处理问题：两条路径同时工作
 
-#### 3. Strategy Pattern
-- **File**: `app/download_strategies.py`
-- **Implementation**: Different download strategies for different data types
-- **Benefits**: Flexible approach selection, easy extension
+### 修复选项
+1. 移除Buffer机制
+2. 移除批量处理
+3. 智能选择路径
+4. 协调两条路径
 
-#### 4. Strategy Factory Pattern
-- **File**: `app/strategy_factory.py`
-- **Implementation**: Strategy creation and caching
-- **Benefits**: Optimized strategy instantiation, centralized management
+---
 
-#### 5. Configuration Adapter Pattern
-- **File**: `app/config_adapter.py`
-- **Implementation**: Unifies access to old and new configuration formats
-- **Benefits**: Maintains backward compatibility while adding advanced features
-
-#### 6. Parameter Adapter Pattern
-- **File**: `app/parameter_adapters.py`
-- **Implementation**: Standardized parameter validation and adaptation per interface
-- **Benefits**: Consistent parameter handling across different interfaces
-
-#### 7. Task Queue Management
-- **File**: `app/task_queue_manager.py`
-- **Implementation**: Priority-based task scheduling with dependency management
-- **Benefits**: Efficient resource management, controlled execution order
-
-The `TaskQueueManager` uses priority queues to manage both download and storage tasks:
-- **Priority-based scheduling**: Critical tasks execute first
-- **Dependency management**: Tasks can wait for other tasks to complete
-- **Retry logic**: Failed tasks can be retried automatically
-- **Statistics tracking**: Monitor task execution metrics
-
-#### 10. Historical Download Tracking
-- **Files**: `app/main.py`, `app/task_queue_manager.py`
-- **Implementation**: JSON-based marker system to track completed historical downloads
-- **Benefits**: Prevents redundant processing of full history downloads
-
-#### 11. Conditional Interface Management
-- **File**: `app/main.py`
-- **Implementation**: Automatically disables ts_code-dependent interfaces during date-range downloads
-- **Benefits**: Prevents parameter conflicts between different download modes
-
-#### 12. Parameter Validation Framework
-- **File**: `app/parameter_adapters.py`
-- **Implementation**: Comprehensive parameter validation and normalization for all interfaces
-- **Benefits**: Ensures consistent and valid API parameters
-
-#### 13. Cache Monitoring
-- **Files**: `app/cache_monitor.py`, `app/cache_manager.py`
-- **Implementation**: Real-time tracking of cache hit rates and performance metrics
-- **Benefits**: Provides insights into cache effectiveness and performance
-
-#### 14. Date Range Optimization
-- **File**: `app/download_scheduler.py`
-- **Implementation**: Smart date range handling with overlap detection and merging
-- **Benefits**: Optimizes date range processing for better performance
-
-#### 15. Intelligent Cache Matching
-- **Files**: `app/data_storage.py`, `app/cache_key_generator.py`
-- **Implementation**: Can extract specific data from more general caches
-- **Benefits**: Reduces redundant downloads by leveraging existing cached data
-
-#### 16. Batch Processing for TSCODE interfaces
-- **Files**: `app/download_scheduler.py`, `app/parallel_downloader.py`
-- **Implementation**: Efficient batch processing of ts_code-dependent interfaces
-- **Benefits**: Reduces API calls by processing multiple stock codes in parallel
-
-### Data Flow Architecture
-
-#### New Scheduler Flow:
-1. **Main Entry** → `main.py`
-2. **Task Scheduling** → `DownloadScheduler.schedule_download_tasks()`
-3. **Strategy Selection** → `strategy_factory.get_strategy()` with caching
-4. **Parameter Adaptation** → `parameter_adapters.adapt_parameters()`
-5. **Task Execution** → `_task_consumer_loop()` processes download tasks
-6. **Strategy Selection** → `download_strategies.get_strategy()`
-7. **Facade Delegation** → `TuShareDownloader.__getattr__()` → Interface modules
-8. **Error Handling** → `error_handler.py` with retry mechanisms
-9. **API Calling** → Individual interface modules
-10. **Caching** → `cache_manager.py` integration for data caching
-11. **Storage Task Creation** → `task_manager.add_storage_task()`
-12. **Storage Processing** → `StorageWorker` consumer threads
-13. **Data Storage** → `data_storage.save_to_parquet()`
-
-#### Legacy Flow:
-1. **Fallback Entry** → `date_range_downloader.DateRangeDownloader`
-2. **Direct Processing** → Synchronous download and storage
-3. **Facade Use** → `TuShareDownloader` delegation still applies
-4. **Immediate Storage** → Direct `save_to_parquet()` calls
-
-### TSCODE Historical Mode Flow:
-1. **Main Entry** → `main.py` with `--tscode-historical` flag
-2. **Task Scheduling** → `DownloadScheduler.schedule_download_tasks(mode='tscode_historical')`
-3. **Batch Scheduling** → `_schedule_tscode_interface()` for batch processing
-4. **Parallel Execution** → `_execute_tscode_download()` with batch processing
-5. **Strategy Selection** → Specialized processing for ts_code-dependent interfaces
-6. **Facade Delegation** → `TuShareDownloader.__getattr__()` → Interface modules
-7. **Error Handling** → `error_handler.py` with retry mechanisms
-8. **API Calling** → Individual interface modules with ts_code parameter
-9. **Storage Task Creation** → `task_manager.add_storage_task()` with specific subdirectory
-10. **Storage Processing** → `StorageWorker` consumer threads
-11. **Data Storage** → `data_storage.save_to_parquet()` with specific path structure
-
-### Key Classes and Responsibilities
-
-| Class | Pattern | Responsibility |
-|-------|---------|----------------|
-| `TuShareDownloader` | Facade | Unified API access, delegation to interface modules |
-| `DownloadScheduler` | Orchestrator | Task scheduling, producer-consumer coordination |
-| `StorageWorker` | Consumer | Asynchronous data storage processing |
-| `TaskQueueManager` | Manager | Priority-based task queue management |
-| `DownloadStrategy` classes | Strategy | Data download approach selection per interface type |
-| `StrategyFactory` | Factory | Strategy creation and caching |
-| `ConfigAdapter` | Adapter | Unifies old and new configuration access |
-| `ParameterAdapter` classes | Adapter | Parameter validation and standardization |
-| `CacheManager` | Manager | Cache preheating, cleaning, monitoring |
-| `StockListManager` | Singleton | Stock list management, prevents duplicate calls |
-| `ErrorHandler` | Handler | Error handling and retry mechanisms |
-| `InterfaceConfig` | Configuration | Enhanced interface settings with priority, retries, etc. |
-| Interface modules | Implementation | Specific data interface implementations |
-| `CacheKeyGenerator` | Generator | Standardized cache key and path generation |
-| `CacheMonitor` | Monitor | Cache hit rate tracking and performance metrics |
-| `ParallelDownloader` | Processor | Batch processing of multiple ts_code values |
+**文档版本**: 3.0
+**最后更新**: 2026-01-28
+**作者**: iFlow CLI

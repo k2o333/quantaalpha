@@ -625,15 +625,35 @@ class StorageManager:
             async_write: 是否异步写入
         """
         if async_write:
-            # 异步写入：将数据放入队列
-            try:
-                self.data_queue.put({
-                    'interface_name': interface_name,
-                    'data': data
-                }, block=False)
-                logger.debug(f"Queued {len(data) if isinstance(data, list) else 1} records for {interface_name}")
-            except queue.Full:
-                logger.warning(f"Storage queue is full, dropping data for {interface_name}")
+            # ✅ 修复：根据数据是否已处理来选择队列
+            # 如果数据包含 '_update_time' 字段，说明已经处理过，直接放入 data_queue
+            # 如果数据未处理，放入 process_queue 由 _process_worker 处理
+            data_already_processed = (
+                data and isinstance(data, list) and 
+                len(data) > 0 and '_update_time' in data[0]
+            )
+
+            if data_already_processed:
+                # 数据已处理，直接放入写入队列
+                try:
+                    self.data_queue.put({
+                        'interface_name': interface_name,
+                        'data': data
+                    }, block=False)
+                    logger.debug(f"Queued processed data ({len(data)} records) for {interface_name}")
+                except queue.Full:
+                    logger.warning(f"Storage queue is full, dropping data for {interface_name}")
+            else:
+                # 数据未处理，放入处理队列
+                try:
+                    self.process_queue.put({
+                        'interface': interface_name,
+                        'data': data,
+                        'timestamp': time.time()
+                    }, block=False)
+                    logger.debug(f"Queued unprocessed data ({len(data)} records) for processing: {interface_name}")
+                except queue.Full:
+                    logger.warning(f"Process queue is full, dropping data for {interface_name}")
         else:
             # 同步写入：直接写入
             self._write_interface_data(interface_name, data)

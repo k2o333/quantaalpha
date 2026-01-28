@@ -383,6 +383,81 @@ def _process_worker(self):
 - ✅ 添加检查：如果数据包含 `_update_time` 字段，说明已经处理过，直接写入
 - ✅ 避免重复调用 `processor.process_data()`
 
+**步骤3**: 修复 `save_data` 方法的队列选择逻辑
+
+**位置**: `/home/quan/testdata/aspipe_v4/app4/core/storage.py`
+
+**问题**: `save_data` 方法总是将数据放到 `data_queue`，但这个队列由 `_writer_worker` 处理，直接写入数据。而 `process_and_save_data` 中的数据已经处理过（包含 `_update_time`），所以应该直接写入，但 `add_to_buffer` 可能把数据放到 `process_queue`，导致重复处理。
+
+**更深层的问题**: 实际上有两条保存路径：
+1. `data_queue` → `_writer_worker` → 直接写入
+2. `process_queue` → `_process_worker` → 重复处理 → 写入
+
+导致数据被保存2次。
+
+**修改前**（第618-635行）:
+```python
+def save_data(self, interface_name: str, data: List[Dict[str, Any]], async_write: bool = True):
+    """保存数据"""
+    if async_write:
+        # 异步写入：将数据放入队列
+        try:
+            self.data_queue.put({
+                'interface_name': interface_name,
+                'data': data
+            }, block=False)
+            logger.debug(f"Queued {len(data) if isinstance(data, list) else 1} records for {interface_name}")
+        except queue.Full:
+            logger.warning(f"Storage queue is full, dropping data for {interface_name}")
+    else:
+        # 同步写入：直接写入
+        self._write_interface_data(interface_name, data)
+```
+
+**修改后**:
+```python
+def save_data(self, interface_name: str, data: List[Dict[str, Any]], async_write: bool = True):
+    """保存数据"""
+    if async_write:
+        # ✅ 修复：根据数据是否已处理来选择队列
+        # 如果数据包含 '_update_time' 字段，说明已经处理过，直接放入 data_queue
+        # 如果数据未处理，放入 process_queue 由 _process_worker 处理
+        data_already_processed = (
+            data and isinstance(data, list) and 
+            len(data) > 0 and '_update_time' in data[0]
+        )
+
+        if data_already_processed:
+            # 数据已处理，直接放入写入队列
+            try:
+                self.data_queue.put({
+                    'interface_name': interface_name,
+                    'data': data
+                }, block=False)
+                logger.debug(f"Queued processed data ({len(data)} records) for {interface_name}")
+            except queue.Full:
+                logger.warning(f"Storage queue is full, dropping data for {interface_name}")
+        else:
+            # 数据未处理，放入处理队列
+            try:
+                self.process_queue.put({
+                    'interface': interface_name,
+                    'data': data,
+                    'timestamp': time.time()
+                }, block=False)
+                logger.debug(f"Queued unprocessed data ({len(data)} records) for processing: {interface_name}")
+            except queue.Full:
+                logger.warning(f"Process queue is full, dropping data for {interface_name}")
+    else:
+        # 同步写入：直接写入
+        self._write_interface_data(interface_name, data)
+```
+
+**关键变化**:
+- ✅ 检查数据是否已处理（包含 `_update_time` 字段）
+- ✅ 已处理数据 → 放入 `data_queue`，直接写入
+- ✅ 未处理数据 → 放入 `process_queue`，先处理再写入
+
 ---
 
 ### 修复2: 修复Schema推断错误
