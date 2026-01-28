@@ -459,7 +459,11 @@ class StorageManager:
                 logger.error(f"Process queue is full, unable to flush data for {item['interface_name']}")
 
     def _process_worker(self):
-        """处理线程：数据去重、验证、放入写入队列"""
+        """处理线程：数据去重、验证、放入写入队列
+
+        注意：由于数据在 process_and_save_data 中已经处理过，
+        这里应该直接保存数据，不再重复处理
+        """
         while self.running:
             try:
                 task = self.process_queue.get(timeout=1)
@@ -469,8 +473,20 @@ class StorageManager:
                     logger.info("Process worker received stop signal")
                     break
 
-                # 检查接口是否已失败
                 interface_name = task['interface']
+                data = task['data']
+
+                # ✅ 优化：检查数据是否已经被处理过
+                # 如果数据包含 '_update_time' 字段，说明已经处理过了
+                if data and isinstance(data, list) and len(data) > 0:
+                    if '_update_time' in data[0]:
+                        logger.debug(f"Data already processed for {interface_name}, skipping re-processing")
+                        # 直接写入数据
+                        self._write_interface_data(interface_name, data)
+                        logger.info(f"Processed and queued {len(data)} records for {interface_name}")
+                        continue
+
+                # 检查接口是否已失败
                 if interface_name in self.failed_interfaces:
                     logger.warning(f"Skipping processing for failed interface: {interface_name}")
                     continue
@@ -479,15 +495,12 @@ class StorageManager:
                     # 获取接口配置
                     try:
                         if self.config_loader:
-                            # 使用传入的配置加载器
                             interface_config = self.config_loader.get_interface_config(interface_name)
                         else:
-                            # 如果没有传入配置加载器，尝试动态加载
                             from .config_loader import ConfigLoader
                             config_loader = ConfigLoader()
                             interface_config = config_loader.get_interface_config(interface_name)
                     except Exception as e:
-                        # 如果无法加载配置，使用默认配置
                         logger.warning(f"Failed to load interface config for {interface_name}, using default: {e}")
                         interface_config = {
                             'api_name': interface_name,
@@ -495,26 +508,23 @@ class StorageManager:
                             'dedup': {'enabled': True}
                         }
 
-                    # 处理数据（包含批次内去重）
+                    # 只有在数据未被处理时才进行处理
                     if self.processor:
                         try:
-                            df = self.processor.process_data(task['data'], interface_config)
+                            df = self.processor.process_data(data, interface_config)
                         except Exception as process_error:
                             logger.error(f"Processor failed for {interface_name}: {str(process_error)}")
-                            # 如果处理器失败，使用SchemaManager安全创建DataFrame作为最后的回退
                             try:
-                                df = SchemaManager.create_dataframe_safe(task['data'], interface_name)
+                                df = SchemaManager.create_dataframe_safe(data, interface_name)
                                 if df.is_empty():
                                     logger.error(f"无法为 {interface_name} 创建DataFrame，跳过处理")
                                     continue
-                                logger.info(f"使用SchemaManager安全模式创建DataFrame for {interface_name}")
                             except Exception as fallback_error:
                                 logger.error(f"SchemaManager安全模式也失败 for {interface_name}: {str(fallback_error)}")
                                 continue
                     else:
-                        # 如果没有processor，使用SchemaManager安全创建DataFrame
                         try:
-                            df = SchemaManager.create_dataframe_safe(task['data'], interface_name)
+                            df = SchemaManager.create_dataframe_safe(data, interface_name)
                             if df.is_empty():
                                 logger.error(f"无法为 {interface_name} 创建DataFrame，跳过处理")
                                 continue
@@ -530,29 +540,22 @@ class StorageManager:
                     if self.processor:
                         validation_result = self.processor.validate_data(df, interface_config)
 
-                    # 基于接口配置与Parquet文件去重 - 使用统一的去重模块
+                    # 基于接口配置与Parquet文件去重
                     dedup_config = interface_config.get('dedup', {'dedup_enabled': True})
                     if dedup_config.get('enabled', False):
-                        # 获取主键配置
                         output_config = interface_config.get('output', {})
                         primary_keys = output_config.get('primary_key', [])
 
                         if primary_keys:
-                            # 读取现有数据（只读主键列）
-                            existing_df = self.read_interface_data(
-                                interface_name,
-                                columns=primary_keys
-                            )
+                            existing_df = self.read_interface_data(interface_name, columns=primary_keys)
 
                             if not existing_df.is_empty():
-                                # 使用统一的去重模块 - 需要先将现有数据保存到临时文件
                                 import tempfile
                                 try:
                                     with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
                                         existing_df.write_parquet(tmp_file.name)
                                         temp_path = tmp_file.name
 
-                                    # 使用统一的去重模块
                                     df, dedup_stats = deduplicate_against_existing(
                                         new_data=df,
                                         existing_data_path=temp_path,
@@ -565,37 +568,24 @@ class StorageManager:
                                     else:
                                         logger.info(f"No duplicates found for {interface_name}, keeping all {len(df)} records")
                                 finally:
-                                    # 清理临时文件
                                     if 'temp_path' in locals() and os.path.exists(temp_path):
                                         os.unlink(temp_path)
 
-                            # 跳过没有新记录的情况
                             if len(df) == 0:
                                 logger.info(f"No new records to save for {interface_name}, skipping")
                                 continue
 
-                    # 直接写入数据，避免重复进入队列
+                    # 写入数据
                     self._write_interface_data(interface_name, df.to_dicts())
 
                     logger.info(f"Processed and queued {len(df)} records for {interface_name}")
 
                 except Exception as e:
                     logger.error(f"Error processing {interface_name}: {str(e)}")
-
-                    # 重试机制
-                    # 注意：task结构已改变，不再有retry_count字段，因此我们简化重试逻辑
-                    # 如果需要更复杂的重试，可以更新task结构以支持重试计数
-                    # 暂时只记录错误，不重试
-                    logger.error(f"Failed to process {interface_name}: {str(e)}")
                     self.failed_interfaces.add(interface_name)
 
-                    # 输出详细的错误信息
-                    logger.error(f"Failed to save {len(task.get('data', []))} records for {interface_name}")
-
             except queue.Empty:
-                # 队列为空，继续循环
                 continue
-
             except Exception as e:
                 logger.error(f"Unexpected error in process worker: {str(e)}")
 

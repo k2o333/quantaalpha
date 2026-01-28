@@ -260,7 +260,11 @@ class SchemaManager:
             import yaml
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
-                fields = config.get('fields', {})
+                fields = config.get('fields')
+                # 如果配置中没有fields键，或者fields为None，或者fields为空字典，则返回None
+                if fields is None or (isinstance(fields, dict) and len(fields) == 0):
+                    return None
+
                 # 将字符串类型转换为Polars类型
                 converted_fields = {}
                 type_mapping = {

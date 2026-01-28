@@ -1,0 +1,64 @@
+(get) root@rdq:/home/quan/testdata/aspipe_v4# python app4/main.py --interface stk_factor_pro   --ts_code 000014.SZ 
+2026-01-27 22:21:45,666 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-01-27 22:21:45,666 - __main__ - INFO - 预热全局缓存...
+2026-01-27 22:21:45,730 - core.cache_warmer - INFO - 预加载交易日历成功: 8572条记录
+2026-01-27 22:21:45,753 - core.cache_warmer - INFO - 预加载股票列表成功: 5473只股票
+2026-01-27 22:21:45,753 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260127
+2026-01-27 22:21:45,771 - __main__ - INFO - Global trade calendar loaded from data directory: 8572 trade days
+2026-01-27 22:21:45,771 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-01-27 22:21:45,772 - core.storage - INFO - Storage writer and process threads started
+2026-01-27 22:21:45,772 - __main__ - INFO - Interfaces to run: ['stk_factor_pro']
+2026-01-27 22:21:45,772 - __main__ - INFO - Using default date range for tscode_historical interface stk_factor_pro: 19900101 to today
+2026-01-27 22:21:45,773 - __main__ - INFO - Using stock_loop mode for stk_factor_pro
+2026-01-27 22:21:45,777 - core.downloader - INFO - 从本地获取了 5473 只股票
+2026-01-27 22:21:45,802 - __main__ - INFO - Filtered to specific stock: 000014.SZ, 1 stocks remaining
+2026-01-27 22:21:45,802 - __main__ - INFO - Starting concurrent download for stk_factor_pro with 1 stocks
+2026-01-27 22:21:45,802 - __main__ - INFO - Submitting final batch of 1 tasks
+2026-01-27 22:21:45,803 - core.downloader - INFO - Downloading data for stock 000014.SZ, date range: 19900101 - 20260127
+2026-01-27 22:23:30,352 - core.downloader - INFO - API returned 261 fields for stk_factor_pro
+2026-01-27 22:23:30,353 - core.downloader - INFO - First 10 fields: ['ts_code', 'trade_date', 'open', 'open_hfq', 'open_qfq', 'high', 'high_hfq', 'high_qfq', 'low', 'low_hfq']
+2026-01-27 22:23:30,353 - core.downloader - INFO - Last 10 fields: ['xsii_td1_qfq', 'xsii_td2_bfq', 'xsii_td2_hfq', 'xsii_td2_qfq', 'xsii_td3_bfq', 'xsii_td3_hfq', 'xsii_td3_qfq', 'xsii_td4_bfq', 'xsii_td4_hfq', 'xsii_td4_qfq']
+2026-01-27 22:23:31,091 - core.downloader - INFO - Downloaded 8024 records for 000014.SZ
+2026-01-27 22:23:31,092 - __main__ - INFO - Completed final batch, got 8024 records
+2026-01-27 22:23:34,657 - core.processor - ERROR - 处理DataFrame时发生错误 for stk_factor_pro: could not append value: 1.8783 of type: f64 to the builder; make sure that all rows have the same schema or consider increasing `infer_schema_length`
+
+it might also be that a value overflows the data-type's capacity
+2026-01-27 22:23:34,672 - core.processor - INFO - 返回已创建的DataFrame，包含 8024 条记录
+2026-01-27 22:23:35,251 - core.processor - ERROR - 处理DataFrame时发生错误 for stk_factor_pro: could not append value: 1.8783 of type: f64 to the builder; make sure that all rows have the same schema or consider increasing `infer_schema_length`
+
+it might also be that a value overflows the data-type's capacity
+2026-01-27 22:23:35,272 - core.processor - INFO - 返回已创建的DataFrame，包含 8024 条记录
+2026-01-27 22:23:35,809 - __main__ - INFO - No existing data found for stk_factor_pro, skipping deduplication
+2026-01-27 22:23:35,834 - __main__ - INFO - Processed 8024 records for stk_factor_pro
+2026-01-27 22:23:39,009 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for stk_factor_pro，记录数: 8024
+2026-01-27 22:23:39,085 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for stk_factor_pro，记录数: 8024
+2026-01-27 22:23:39,085 - core.storage - INFO - Wrote 8024 records to data/stk_factor_pro/stk_factor_pro_19920602_20260127_1769523816716_10530de8.parquet
+2026-01-27 22:23:39,121 - core.storage - INFO - Processed and queued 8024 records for stk_factor_pro
+2026-01-27 22:23:39,191 - core.storage - INFO - Wrote 8024 records to data/stk_factor_pro/stk_factor_pro_19920602_20260127_1769523816832_ebc27335.parquet
+2026-01-27 22:23:39,229 - __main__ - INFO - Successfully downloaded 8024 total records for stk_factor_pro
+2026-01-27 22:23:39,229 - __main__ - INFO - 正在停止调度器...
+2026-01-27 22:23:39,229 - core.scheduler - INFO - Task scheduler stopped
+2026-01-27 22:23:39,229 - __main__ - INFO - 正在关闭存储写入...
+2026-01-27 22:23:39,272 - core.storage - INFO - Process worker received stop signal
+2026-01-27 22:23:39,273 - core.storage - INFO - Storage threads stopped
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 113.52秒
+总请求数: 1
+接口数量: 1
+------------------------------
+接口: stk_factor_pro
+  - 请求次数: 1
+  - 总记录数: 8024
+  - 成功率: 100.0%
+  - 平均请求时间: 104.87秒
+  - P50/P90/P99: 104.87/104.87/104.87秒
+  - 平均记录数: 8024条
+
+==============================
+
+2026-01-27 22:23:39,274 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260127_222339.md
+2026-01-27 22:23:39,274 - __main__ - INFO - 性能报告已生成: log/performance_report_20260127_222339.md
+2026-01-27 22:23:39,274 - __main__ - INFO - 资源清理完毕，程序退出。

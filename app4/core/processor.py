@@ -215,8 +215,21 @@ class DataProcessor:
         data_list = df.to_dicts()
         detection_result = self._detect_duplicates_fast(data_list, interface_config)
 
-        # Process unique records only
-        unique_df = pl.DataFrame(detection_result['unique'])
+        # ✅ 修复：Process unique records only with predefined schema
+        interface_name = interface_config.get('api_name', 'unknown')
+        predefined_schema = SchemaManager.load_schema(interface_name)
+
+        if predefined_schema:
+            try:
+                unique_df = pl.DataFrame(detection_result['unique'], schema=predefined_schema)
+                logger.debug(f"使用预定义schema创建DataFrame，字段数: {len(predefined_schema)}")
+            except Exception as schema_error:
+                logger.warning(f"使用预定义schema失败: {str(schema_error)}，回退到自动推断")
+                # 回退到自动推断
+                unique_df = pl.DataFrame(detection_result['unique'], infer_schema_length=len(detection_result['unique']))
+        else:
+            # 如果没有预定义schema，使用自动推断
+            unique_df = pl.DataFrame(detection_result['unique'], infer_schema_length=len(detection_result['unique']))
 
         if detection_result['duplicates']:
             logger.warning(f"Found {len(detection_result['duplicates'])} duplicate records for interface {interface_config.get('name', 'unknown')}")

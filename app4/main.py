@@ -356,7 +356,7 @@ def main():
     storage_manager.start_writer()
 
     def process_and_save_data(data, interface_name, interface_config, processor, storage_manager):
-        """处理并保存数据的通用函数 - 支持基于接口配置的去重
+        """处理并保存数据的通用函数 - 使用异步处理模式
 
         Args:
             data: 原始数据列表
@@ -375,6 +375,11 @@ def main():
 
         # 处理数据
         df = processor.process_data(data, interface_config)
+
+        if df.is_empty():
+            logger.warning(f"Processed empty DataFrame for {interface_name}")
+            return None
+
         validation_result = processor.validate_data(df, interface_config)
 
         # 使用接口配置获取主键和去重配置
@@ -392,7 +397,7 @@ def main():
                 existing_df = pl.DataFrame()
 
             if not existing_df.is_empty():
-                # 使用临时文件进行去重（保持原有逻辑）
+                # 使用临时文件进行去重
                 import tempfile
                 try:
                     with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
@@ -435,9 +440,9 @@ def main():
         if validation_result['duplicate_records'] > 0:
             logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
 
-        # 直接保存处理后的数据，避免重复处理
-        # 数据已经在当前线程中处理（去重、验证等），直接写入存储
-        storage_manager._write_interface_data(interface_name, df.to_dicts())
+        # ✅ 修复：使用异步保存模式，而不是直接调用 _write_interface_data
+        # 这样数据会被放入队列，由 _process_worker 线程统一处理
+        storage_manager.save_data(interface_name, df.to_dicts(), async_write=True)
 
         return df
 
