@@ -9,6 +9,7 @@ import time
 from typing import List, Dict, Any, Optional
 import logging
 from .dedup import deduplicate_against_existing
+from .schema_manager import SchemaManager
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,16 @@ class StorageManager:
             for item in data:
                 item['_update_time'] = current_time
 
-            df = pl.DataFrame(data)
+            # ✅ 使用SchemaManager安全创建DataFrame
+            try:
+                df = SchemaManager.create_dataframe_safe(data, interface_name)
+                if df.is_empty():
+                    logger.error(f"无法为 {interface_name} 创建DataFrame，跳过保存")
+                    return
+                logger.info(f"使用SchemaManager成功创建DataFrame for {interface_name}，记录数: {len(df)}")
+            except Exception as df_error:
+                logger.error(f"SchemaManager创建DataFrame失败 for {interface_name}: {str(df_error)}")
+                return
 
             # [优化] 从数据中提取日期范围用于文件名元数据
             # 优先级：对于不同接口，优先使用最相关的日期字段
@@ -255,16 +265,41 @@ class StorageManager:
             file_name = f"{interface_name}_{date_range_str}_{current_time}_{unique_id}.parquet"
             file_path = os.path.join(dir_path, file_name)
 
-            # [优化] 原子写入
+            # [优化] 原子写入，但使用更安全的写入方式
             temp_file_path = file_path + ".tmp"
-            df.write_parquet(temp_file_path, compression='snappy')
+            try:
+                df.write_parquet(temp_file_path, compression='snappy')
+            except Exception as write_error:
+                logger.warning(f"snappy压缩写入失败, 尝试其他方式: {str(write_error)[:100]}...")  # 只记录错误摘要
+                # 尝试使用不同的写入选项
+                try:
+                    # 尝试使用不同的压缩方式和选项
+                    df.write_parquet(temp_file_path, compression='gzip')
+                except Exception:
+                    # 最后尝试使用默认设置
+                    df.write_parquet(temp_file_path)
+
             os.rename(temp_file_path, file_path)
 
             logger.info(f"Wrote {len(df)} records to {file_path}")
 
         except Exception as e:
             logger.error(f"Error writing interface data for {interface_name}: {str(e)}")
-            raise
+            # 不再raise异常，而是记录错误并继续
+            # raise
+
+    def _create_dataframe_safe(self, data: List[Dict[str, Any]]) -> pl.DataFrame:
+        """安全创建DataFrame的方法，用于处理类型不匹配问题"""
+        if not data:
+            return pl.DataFrame()
+
+        try:
+            # 尝试使用很大的推断长度
+            return pl.DataFrame(data, infer_schema_length=min(len(data), 100000))
+        except Exception:
+            # 如果还是失败，创建一个空DataFrame
+            logger.warning("无法创建DataFrame，返回空DataFrame")
+            return pl.DataFrame()
 
     def read_interface_data(self, interface_name: str, start_date: str = None, end_date: str = None, columns: Optional[List[str]] = None) -> pl.DataFrame:
         """
@@ -462,10 +497,30 @@ class StorageManager:
 
                     # 处理数据（包含批次内去重）
                     if self.processor:
-                        df = self.processor.process_data(task['data'], interface_config)
+                        try:
+                            df = self.processor.process_data(task['data'], interface_config)
+                        except Exception as process_error:
+                            logger.error(f"Processor failed for {interface_name}: {str(process_error)}")
+                            # 如果处理器失败，使用SchemaManager安全创建DataFrame作为最后的回退
+                            try:
+                                df = SchemaManager.create_dataframe_safe(task['data'], interface_name)
+                                if df.is_empty():
+                                    logger.error(f"无法为 {interface_name} 创建DataFrame，跳过处理")
+                                    continue
+                                logger.info(f"使用SchemaManager安全模式创建DataFrame for {interface_name}")
+                            except Exception as fallback_error:
+                                logger.error(f"SchemaManager安全模式也失败 for {interface_name}: {str(fallback_error)}")
+                                continue
                     else:
-                        # 如果没有processor，直接创建DataFrame
-                        df = pl.DataFrame(task['data'])
+                        # 如果没有processor，使用SchemaManager安全创建DataFrame
+                        try:
+                            df = SchemaManager.create_dataframe_safe(task['data'], interface_name)
+                            if df.is_empty():
+                                logger.error(f"无法为 {interface_name} 创建DataFrame，跳过处理")
+                                continue
+                        except Exception as e:
+                            logger.error(f"SchemaManager创建DataFrame失败 for {interface_name}: {str(e)}")
+                            continue
 
                     if df.is_empty():
                         logger.warning(f"No data to save after processing: {interface_name}")
@@ -519,8 +574,8 @@ class StorageManager:
                                 logger.info(f"No new records to save for {interface_name}, skipping")
                                 continue
 
-                    # 保存数据（异步写入）
-                    self.save_data(interface_name, df.to_dicts(), async_write=True)
+                    # 直接写入数据，避免重复进入队列
+                    self._write_interface_data(interface_name, df.to_dicts())
 
                     logger.info(f"Processed and queued {len(df)} records for {interface_name}")
 

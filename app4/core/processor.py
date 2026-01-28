@@ -35,19 +35,36 @@ class DataProcessor:
         if not data:
             return pl.DataFrame()
 
+        # 获取接口名称
+        interface_name = interface_config.get('api_name', 'unknown')
+
+        # 使用最安全的方式创建DataFrame
+        df = pl.DataFrame()  # 初始化为空DataFrame
+
         try:
-            # 获取接口名称
-            interface_name = interface_config.get('api_name', 'unknown')
+            # 直接使用SchemaManager的安全创建方法，这是最可靠的
+            df = SchemaManager.create_dataframe_safe(data, interface_name)
+            if df.is_empty():
+                logger.error(f"无法为 {interface_name} 创建DataFrame，返回空DataFrame")
+                return pl.DataFrame()
+            logger.debug(f"SchemaManager成功创建DataFrame: {len(df)} 行")
+        except Exception as schema_error:
+            logger.error(f"SchemaManager.create_dataframe_safe failed for {interface_name}: {str(schema_error)}")
+            logger.error(f"Error type: {type(schema_error).__name__}")
 
-            # 使用SchemaManager创建DataFrame，应用派生字段
-            df = SchemaManager.create_dataframe(data, interface_name)
+            # 最后的回退方案 - 使用非常大的推断长度
+            try:
+                df = pl.DataFrame(data, infer_schema_length=min(len(data), 100000))
+                logger.info(f"使用最大推断长度成功创建DataFrame for {interface_name}")
+            except Exception as fallback_error:
+                logger.error(f"最大推断长度也失败 for {interface_name}: {str(fallback_error)}")
+                # 最终极的回退：逐行处理数据
+                df = self._create_dataframe_row_by_row(data)
+                if df.is_empty():
+                    logger.error(f"无法为 {interface_name} 创建DataFrame，返回空DataFrame")
+                    return pl.DataFrame()
 
-            # 如果SchemaManager失败，回退到标准方法但增加优化参数
-            if df.is_empty() and data:
-                logger.warning(f"SchemaManager failed for {interface_name}, using fallback with optimized parameters")
-                # 使用较大的infer_schema_length避免多次扫描
-                df = pl.DataFrame(data, infer_schema_length=len(data))
-
+        try:
             # 确保列名是字符串类型
             df.columns = [str(col) for col in df.columns]
 
@@ -73,8 +90,51 @@ class DataProcessor:
             return df
 
         except Exception as e:
-            logger.error(f"Error processing data for {interface_name}: {str(e)}")
-            # 最后的回退方案：返回空DataFrame
+            logger.error(f"处理DataFrame时发生错误 for {interface_name}: {str(e)}")
+            # 在处理DataFrame时发生错误，但仍返回已创建的DataFrame
+            if not df.is_empty():
+                logger.info(f"返回已创建的DataFrame，包含 {len(df)} 条记录")
+                return df
+            else:
+                # 如果DataFrame为空，返回空DataFrame
+                return pl.DataFrame()
+
+    def _create_dataframe_row_by_row(self, data: List[Dict[str, Any]]) -> pl.DataFrame:
+        """逐行创建DataFrame作为最后的回退方案"""
+        if not data:
+            return pl.DataFrame()
+
+        try:
+            # 先创建一个空DataFrame，获取所有可能的列
+            all_columns = set()
+            for row in data:
+                all_columns.update(row.keys())
+
+            # 创建一个包含所有列的空DataFrame
+            schema = {col: pl.String for col in all_columns}  # 使用String作为默认类型
+            df = pl.DataFrame(schema=schema).clear()
+
+            # 分批处理数据，避免一次性处理大量数据
+            batch_size = 100
+            for i in range(0, len(data), batch_size):
+                batch = data[i:i+batch_size]
+                try:
+                    batch_df = pl.DataFrame(batch, infer_schema_length=len(batch))
+                    df = pl.concat([df, batch_df], how="diagonal")  # 使用diagonal合并处理不同的列
+                except Exception as batch_error:
+                    logger.warning(f"批量处理失败，逐行处理: {str(batch_error)}")
+                    # 如果批量处理失败，逐行处理
+                    for row in batch:
+                        try:
+                            row_df = pl.DataFrame([row])
+                            df = pl.concat([df, row_df], how="diagonal")
+                        except Exception as row_error:
+                            logger.warning(f"跳过单行数据，因为错误: {str(row_error)}")
+                            continue
+
+            return df
+        except Exception as e:
+            logger.error(f"逐行创建DataFrame也失败: {str(e)}")
             return pl.DataFrame()
 
     def _filter_primary_key_nulls(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:

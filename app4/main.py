@@ -384,43 +384,60 @@ def main():
 
         # 如果去重功能启用且存在主键定义
         if dedup_config.get('dedup_enabled', True) and primary_keys:
-            # 获取已存在的数据路径
-            data_dir = storage_manager.storage_dir
-            existing_file_path = os.path.join(data_dir, interface_name, f"{interface_name}.parquet")
+            # 读取该接口的所有现有数据文件（支持Parquet Dataset模式）
+            try:
+                existing_df = storage_manager.read_interface_data(interface_name, columns=primary_keys)
+            except Exception as e:
+                logger.warning(f"无法读取现有数据进行去重: {e}")
+                existing_df = pl.DataFrame()
 
-            # 使用新的统一去重模块对现有数据进行去重
-            df, dedup_stats = deduplicate_against_existing(
-                df,
-                existing_file_path,
-                primary_keys=primary_keys
-            )
+            if not existing_df.is_empty():
+                # 使用临时文件进行去重（保持原有逻辑）
+                import tempfile
+                try:
+                    with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
+                        existing_df.write_parquet(tmp_file.name)
+                        temp_path = tmp_file.name
 
-            logger.info(f"Deduplication completed for {interface_name}: "
-                       f"input={dedup_stats.input_rows}, "
-                       f"compared={dedup_stats.compared_rows}, "
-                       f"output={dedup_stats.output_rows}, "
-                       f"removed={dedup_stats.removed_rows}, "
-                       f"dedup_rate={dedup_stats.get_dedup_rate():.2f}%")
+                    # 使用统一的去重模块
+                    df, dedup_stats = deduplicate_against_existing(
+                        new_data=df,
+                        existing_data_path=temp_path,
+                        primary_keys=primary_keys
+                    )
 
-            # 检查去重结果
-            if dedup_stats.errors:
-                for error in dedup_stats.errors:
-                    logger.error(f"Deduplication error for {interface_name}: {error}")
-            if dedup_stats.warnings and len(dedup_stats.warnings) > 0:
-                for warning in dedup_stats.warnings:
-                    logger.warning(f"Deduplication warning for {interface_name}: {warning}")
+                    logger.info(f"Deduplication completed for {interface_name}: "
+                               f"input={dedup_stats.input_rows}, "
+                               f"compared={dedup_stats.compared_rows}, "
+                               f"output={dedup_stats.output_rows}, "
+                               f"removed={dedup_stats.removed_rows}, "
+                               f"dedup_rate={dedup_stats.get_dedup_rate():.2f}%")
 
-            # 如果所有数据都被过滤掉了，则直接返回
-            if len(df) == 0:
-                logger.info(f"All records already exist for {interface_name}, skipping save")
-                return df
+                    # 检查去重结果
+                    if dedup_stats.errors:
+                        for error in dedup_stats.errors:
+                            logger.error(f"Deduplication error for {interface_name}: {error}")
+                    if dedup_stats.warnings:
+                        for warning in dedup_stats.warnings:
+                            logger.warning(f"Deduplication warning for {interface_name}: {warning}")
 
-        # 保存数据
-        storage_manager.save_data(interface_name, df.to_dicts(), async_write=True)
+                    # 如果所有数据都被过滤掉了，则直接返回
+                    if len(df) == 0:
+                        logger.info(f"All records already exist for {interface_name}, skipping save")
+                        return df
+                finally:
+                    if 'temp_path' in locals() and os.path.exists(temp_path):
+                        os.unlink(temp_path)
+            else:
+                logger.info(f"No existing data found for {interface_name}, skipping deduplication")
 
-        logger.info(f"Saved {len(df)} processed records for {interface_name}")
+        logger.info(f"Processed {len(df)} records for {interface_name}")
         if validation_result['duplicate_records'] > 0:
             logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+
+        # 直接保存处理后的数据，避免重复处理
+        # 数据已经在当前线程中处理（去重、验证等），直接写入存储
+        storage_manager._write_interface_data(interface_name, df.to_dicts())
 
         return df
 
@@ -482,7 +499,8 @@ def main():
         if all_data:
             process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
 
-        return all_data
+        # 返回已处理的数据量信息，而不是原始数据
+        return len(all_data) if all_data else 0
 
     def _prepare_stock_list(downloader, args, params):
         """统一的股票列表准备方法"""
@@ -608,11 +626,10 @@ def main():
                         continue
 
                     # 使用并发下载
-                    all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)
+                    downloaded_count = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)
 
-                    if all_data:
-                        logger.info(f"Successfully downloaded {len(all_data)} total records for {interface_name}")
-                        process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
+                    if downloaded_count > 0:
+                        logger.info(f"Successfully downloaded {downloaded_count} total records for {interface_name}")
                     else:
                         logger.warning(f"No data downloaded for {interface_name}")
                     continue  # 继续处理下一个接口
