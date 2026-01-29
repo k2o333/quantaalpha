@@ -447,7 +447,7 @@ def main():
         return df
 
     def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter, storage_manager, processor):
-        """运行并发股票下载 - 优化批处理"""
+        """运行并发股票下载 - 统一使用buffer机制"""
         logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
 
         # 创建包装函数，包含限流逻辑
@@ -456,9 +456,8 @@ def main():
             rate_limiter.wait_for_tokens(1)
             return downloader.download_single_stock(interface_config, stock, params)
 
-        # [优化] 增大 batch_size 避免小文件爆炸
-        batch_size = 10000
-        all_data = []
+        # ✅ 统一使用buffer机制，不再在主线程批量处理
+        total_records = 0
 
         # 构建任务列表
         tasks = []
@@ -475,18 +474,12 @@ def main():
                 logger.info(f"Submitting batch of {len(tasks)} tasks")
                 results = scheduler.submit_tasks(tasks)
 
-                # 收集结果
+                # ✅ buffer机制会自动处理数据，不再累积到all_data
                 for result in results:
                     if result:
-                        all_data.extend(result)
+                        total_records += len(result)
 
-                logger.info(f"Completed batch, got {len(all_data)} records")
-
-                # [优化] 每 batch_size 条数据处理一次
-                if len(all_data) >= batch_size:
-                    process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
-                    all_data = []
-
+                logger.info(f"Completed batch, total records: {total_records}")
                 tasks = []
 
         # 提交剩余任务
@@ -496,16 +489,14 @@ def main():
 
             for result in results:
                 if result:
-                    all_data.extend(result)
+                    total_records += len(result)
 
-            logger.info(f"Completed final batch, got {len(all_data)} records")
+            logger.info(f"Completed final batch, total records: {total_records}")
 
-        # 处理剩余数据
-        if all_data:
-            process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
+        # ✅ 等待buffer机制处理完成
+        # buffer机制会自动处理数据的累积和写入
 
-        # 返回已处理的数据量信息，而不是原始数据
-        return len(all_data) if all_data else 0
+        return total_records
 
     def _prepare_stock_list(downloader, args, params):
         """统一的股票列表准备方法"""

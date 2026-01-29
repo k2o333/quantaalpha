@@ -459,11 +459,7 @@ class StorageManager:
                 logger.error(f"Process queue is full, unable to flush data for {item['interface_name']}")
 
     def _process_worker(self):
-        """处理线程：数据去重、验证、放入写入队列
-
-        注意：由于数据在 process_and_save_data 中已经处理过，
-        这里应该直接保存数据，不再重复处理
-        """
+        """处理线程：数据去重、验证、放入写入队列"""
         while self.running:
             try:
                 task = self.process_queue.get(timeout=1)
@@ -476,17 +472,7 @@ class StorageManager:
                 interface_name = task['interface']
                 data = task['data']
 
-                # ✅ 优化：检查数据是否已经被处理过
-                # 如果数据包含 '_update_time' 字段，说明已经处理过了
-                if data and isinstance(data, list) and len(data) > 0:
-                    if '_update_time' in data[0]:
-                        logger.debug(f"Data already processed for {interface_name}, skipping re-processing")
-                        # 直接写入数据
-                        self._write_interface_data(interface_name, data)
-                        logger.info(f"Processed and queued {len(data)} records for {interface_name}")
-                        continue
-
-                # 检查接口是否已失败
+                # ✅ 检查接口是否已失败
                 if interface_name in self.failed_interfaces:
                     logger.warning(f"Skipping processing for failed interface: {interface_name}")
                     continue
@@ -508,7 +494,7 @@ class StorageManager:
                             'dedup': {'enabled': True}
                         }
 
-                    # 只有在数据未被处理时才进行处理
+                    # ✅ 处理数据（内部去重）
                     if self.processor:
                         try:
                             df = self.processor.process_data(data, interface_config)
@@ -539,55 +525,68 @@ class StorageManager:
                     # 验证数据
                     if self.processor:
                         validation_result = self.processor.validate_data(df, interface_config)
+                        if not validation_result['valid']:
+                            logger.warning(f"Data validation failed for {interface_name}")
+                            continue
 
-                    # 基于接口配置与Parquet文件去重
+                    # ✅ 与历史数据去重（外部去重）
+                    output_config = interface_config.get('output', {})
+                    primary_keys = output_config.get('primary_key', [])
                     dedup_config = interface_config.get('dedup', {'dedup_enabled': True})
-                    if dedup_config.get('enabled', False):
-                        output_config = interface_config.get('output', {})
-                        primary_keys = output_config.get('primary_key', [])
 
-                        if primary_keys:
+                    if dedup_config.get('dedup_enabled', True) and primary_keys:
+                        try:
                             existing_df = self.read_interface_data(interface_name, columns=primary_keys)
+                        except Exception as e:
+                            logger.warning(f"无法读取现有数据进行去重: {e}")
+                            existing_df = pl.DataFrame()
 
-                            if not existing_df.is_empty():
-                                import tempfile
-                                try:
-                                    with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
-                                        existing_df.write_parquet(tmp_file.name)
-                                        temp_path = tmp_file.name
+                        if not existing_df.is_empty():
+                            import tempfile
+                            try:
+                                with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
+                                    existing_df.write_parquet(tmp_file.name)
+                                    temp_path = tmp_file.name
 
-                                    df, dedup_stats = deduplicate_against_existing(
-                                        new_data=df,
-                                        existing_data_path=temp_path,
-                                        primary_keys=primary_keys
-                                    )
+                                df, dedup_stats = deduplicate_against_existing(
+                                    new_data=df,
+                                    existing_data_path=temp_path,
+                                    primary_keys=primary_keys
+                                )
 
-                                    if dedup_stats.removed_rows > 0:
-                                        logger.info(f"Deduplicated {dedup_stats.removed_rows} records for {interface_name}, "
-                                                  f"keeping {len(df)} new records")
-                                    else:
-                                        logger.info(f"No duplicates found for {interface_name}, keeping all {len(df)} records")
-                                finally:
-                                    if 'temp_path' in locals() and os.path.exists(temp_path):
-                                        os.unlink(temp_path)
+                                logger.info(f"Deduplication completed for {interface_name}: "
+                                           f"input={dedup_stats.input_rows}, "
+                                           f"output={dedup_stats.output_rows}, "
+                                           f"removed={dedup_stats.removed_rows}")
 
-                            if len(df) == 0:
-                                logger.info(f"No new records to save for {interface_name}, skipping")
-                                continue
+                                # ✅ 全相同则跳过保存
+                                if len(df) == 0:
+                                    logger.info(f"All records already exist for {interface_name}, skipping save")
+                                    continue
+                            finally:
+                                if 'temp_path' in locals() and os.path.exists(temp_path):
+                                    os.unlink(temp_path)
 
                     # 写入数据
-                    self._write_interface_data(interface_name, df.to_dicts())
+                    self.data_queue.put({
+                        'interface_name': interface_name,
+                        'data': df.to_dicts()
+                    })
 
                     logger.info(f"Processed and queued {len(df)} records for {interface_name}")
 
                 except Exception as e:
                     logger.error(f"Error processing {interface_name}: {str(e)}")
+                    import traceback
+                    logger.debug(f"Full traceback: {traceback.format_exc()}")
                     self.failed_interfaces.add(interface_name)
 
             except queue.Empty:
                 continue
             except Exception as e:
                 logger.error(f"Unexpected error in process worker: {str(e)}")
+                import traceback
+                logger.debug(f"Full traceback: {traceback.format_exc()}")
 
     def get_failed_interfaces(self) -> set:
         """获取失败的接口集合"""

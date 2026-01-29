@@ -125,6 +125,9 @@ class GenericDownloader:
         # [新增] 分页执行器
         self.pagination_executor = PaginationExecutor()
 
+        # [新增] 存储管理器引用，用于buffer机制
+        self.storage_manager = storage_manager
+
     def _create_session_with_retries(self):
         """创建配置了重试策略的 Session"""
         session = requests.Session()
