@@ -334,4 +334,11 @@ class DataProcessor:
         # Return validation stats
         validation_result.update(stats)
 
+        # Add 'valid' field to indicate if data passes validation
+        validation_result['valid'] = (
+            len(validation_result['missing_required_fields']) == 0 and
+            len(validation_result['type_mismatches']) == 0 and
+            validation_result['duplicate_records'] == 0
+        )
+
         return validation_result

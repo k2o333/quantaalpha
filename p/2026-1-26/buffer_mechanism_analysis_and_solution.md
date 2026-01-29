@@ -490,6 +490,40 @@ batch_size = 5000
 
 ### 方案2：统一使用buffer机制
 
+**⚠️ 风险提示**：此方案会暴露代码中隐藏的bug（processor.validate_data返回值缺少'valid'字段）。
+在实施方案2之前，请先修复该bug。
+
+**Bug修复步骤**：
+
+1. **问题描述**
+   - 错误信息：KeyError: 'valid'
+   - 错误位置：app4/core/storage.py:528
+   - 根本原因：processor.validate_data()返回的字典缺少'valid'字段
+
+2. **修复方案**（2选1）
+   
+   **推荐方案：修复processor.py**
+   ```python
+   # 在app4/core/processor.py的validate_data方法末尾添加：
+   validation_result['valid'] = (
+       len(validation_result['missing_required_fields']) == 0 and
+       len(validation_result['type_mismatches']) == 0 and
+       validation_result['duplicate_records'] == 0
+   )
+   ```
+   
+   **备选方案：修改storage.py**
+   ```python
+   # 修改app4/core/storage.py:528
+   # 从：if not validation_result['valid']:
+   # 改为：if validation_result.get('missing_required_fields') or validation_result.get('type_mismatches'):
+   ```
+
+3. **验证修复**
+   - 运行测试命令，确认无错误
+   - 检查数据文件正确生成
+   - 验证去重逻辑正常工作
+
 **原理**：完全依赖buffer机制，移除main.py的批量处理。
 
 **修改步骤**：
