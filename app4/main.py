@@ -255,22 +255,26 @@ def main():
 
     # [修改] 预加载全局交易日历 - 不再依赖 CacheManager
     def preload_global_trade_calendar(downloader, start_date='19900101', end_date=None):
-        """预加载全局交易日历，优先从Data目录读取，然后从API获取"""
+        """预加载全局交易日历，优先从内存缓存读取，然后Data目录，最后API获取"""
         if end_date is None:
             from datetime import datetime
             end_date = datetime.now().strftime('%Y%m%d')
 
         logger.info(f"Preloading global trade calendar: {start_date} - {end_date}")
 
-        # 使用 downloader.get_trade_calendar 统一方法
-        # 这会自动处理 Mem -> Disk -> API 的回退，并且如果从Disk读取会自动更新Mem
-        # 但我们需要确保如果从API获取，也会保存到Disk
-        
-        # 1. 尝试通过标准路径获取（Mem -> Disk -> API）
-        # 这里直接调用 downloader.get_trade_calendar 会自动处理大部分逻辑
-        # 但 downloader 的 save 逻辑可能还没完善，所以我们手动处理一下以确保万无一失
-        
-        # 检查本地是否有数据
+        # [修复] 1. 首先检查内存缓存（CacheWarmer 已预加载）
+        cache_key = ('global',)
+        with downloader._cache_lock:
+            if cache_key in downloader._memory_cache['trade_cal']:
+                trade_calendar = downloader._memory_cache['trade_cal'][cache_key]
+                # 过滤出指定日期范围内的交易日
+                trade_days = [day for day in trade_calendar 
+                             if start_date <= day.get('cal_date', '') <= end_date and day.get('is_open', 0) == 1]
+                if trade_days:
+                    logger.info(f"Global trade calendar loaded from memory cache: {len(trade_days)} trade days")
+                    return trade_days
+
+        # 2. 检查本地磁盘数据
         trade_calendar = downloader._get_trade_calendar_from_data_dir(start_date, end_date)
         
         if trade_calendar:
@@ -281,7 +285,7 @@ def main():
                  downloader._memory_cache['trade_cal'][cache_key] = trade_calendar
              return trade_calendar
 
-        # Data目录未命中，请求 API
+        # 3. Data目录未命中，请求 API
         logger.info("Global trade calendar not found locally, fetching from API...")
         calendar_params = {
             'start_date': start_date,

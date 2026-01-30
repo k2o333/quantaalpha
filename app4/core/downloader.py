@@ -385,7 +385,7 @@ class GenericDownloader:
         try:
             # 读取目录下所有 parquet 文件 (Dataset 模式)
             try:
-                df = pl.read_parquet(dir_path)
+                df = pl.read_parquet(dir_path, extra_columns='ignore')
             except Exception:
                 return None
 
