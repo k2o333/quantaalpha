@@ -25,8 +25,9 @@ class CacheWarmer:
             return None
 
         try:
-            # 读取所有交易日历文件
-            df = pl.read_parquet(trade_cal_dir)
+            # ✅ 修复：使用scan_parquet并设置extra_columns='ignore'来处理schema不一致问题
+            df = pl.scan_parquet(trade_cal_dir,
+                                extra_columns='ignore').select(['cal_date', 'is_open', 'exchange']).collect()
 
             # 过滤有效交易日
             df = df.filter(
@@ -60,15 +61,21 @@ class CacheWarmer:
             return None
 
         try:
-            # 读取股票列表
-            df = pl.read_parquet(stock_basic_dir)
+            # ✅ 修复：读取时忽略额外列，只读取需要的字段
+            # 根据实际文件内容，包含存在的列
+            actual_columns = ['ts_code', 'symbol', 'name', 'area', 'industry', 'cnspell',
+                             'market', 'list_date', 'act_name', 'act_ent_type', 'exchange',
+                             'list_status', 'is_hs', 'list_date_dt', '_update_time']
+
+            # 先尝试读取实际存在的列
+            df = pl.read_parquet(stock_basic_dir, columns=actual_columns)
 
             # 过滤有效股票
-            # 检查 'status' 列是否存在，如果不存在则使用 'list_status'
-            if 'status' in df.columns:
-                df = df.filter(pl.col('status') == 'L')  # 只保留上市股票
-            elif 'list_status' in df.columns:
+            # 检查 'list_status' 列是否存在 (根据实际文件内容)
+            if 'list_status' in df.columns:
                 df = df.filter(pl.col('list_status') == 'L')  # 只保留上市股票
+            elif 'status' in df.columns:
+                df = df.filter(pl.col('status') == 'L')  # 只保留上市股票
             else:
                 # 如果两个字段都不存在，则不过滤，返回所有股票
                 logger.warning("Neither 'status' nor 'list_status' column found, returning all stocks")
