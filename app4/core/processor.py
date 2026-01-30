@@ -245,6 +245,8 @@ class DataProcessor:
         existing_keys = [key for key in primary_keys if key in df.columns]
 
         if existing_keys:
+            original_count = len(df)
+
             # 如果有更新时间字段，按此字段排序以便保留最新记录
             if '_update_time' in df.columns:
                 df = df.sort('_update_time', descending=False)
@@ -252,6 +254,14 @@ class DataProcessor:
             else:
                 # 按主键去重，保留最后一条记录
                 df = df.unique(subset=existing_keys, keep='last')
+
+            removed_count = original_count - len(df)
+            if removed_count > 0:
+                logger.info(f"Batch deduplication for {interface_config.get('api_name', 'unknown')}: "
+                           f"removed {removed_count} duplicates within batch, "
+                           f"keys={existing_keys}")
+            else:
+                logger.debug(f"No duplicates found within batch for {interface_config.get('api_name', 'unknown')}")
 
         # 如果指定了排序字段，则进行排序
         sort_by = output_config.get('sort_by', [])

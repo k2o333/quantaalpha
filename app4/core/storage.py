@@ -377,10 +377,15 @@ class StorageManager:
             logger.error(f"Error reading interface data for {interface_name}: {str(e)}")
             raise
 
-    def add_to_buffer(self, interface_name: str, data: List[Dict[str, Any]]) -> None:
+    def add_to_buffer(self, interface_name: str, data: List[Dict[str, Any]],
+                      flush_immediately: bool = False) -> None:
         """
         Add data to buffer with optimized lock usage.
-        The lock is held only for minimal operations; I/O happens outside the critical section.
+
+        Args:
+            interface_name: 接口名称
+            data: 数据列表
+            flush_immediately: 是否立即刷新（适用于小数据量场景）
         """
         data_to_process = None
         interface_to_process = None
@@ -392,17 +397,20 @@ class StorageManager:
             buffer['count'] += len(data)
 
             # Check if we should flush the buffer
-            if buffer['count'] >= self.buffer_threshold:
-                # Take ownership of the data outside of the lock
+            should_flush = (
+                buffer['count'] >= self.buffer_threshold or
+                flush_immediately or
+                buffer['count'] < 100  # 小数据量立即处理
+            )
+
+            if should_flush:
                 data_to_process = buffer['data']
                 interface_to_process = interface_name
-                # Reset buffer with new empty list
                 buffer['data'] = []
                 buffer['count'] = 0
 
         # Process the data outside the lock to avoid blocking other threads
         if data_to_process:
-            # Add to processing queue - this might block briefly if queue is full
             item = {
                 'interface': interface_to_process,
                 'data': data_to_process,
@@ -410,9 +418,11 @@ class StorageManager:
             }
             self.process_queue.put(item)
 
-            # Update statistics outside of lock
             self.total_buffered_items = getattr(self, 'total_buffered_items', 0) + len(data_to_process)
             self.last_processed_time = time.time()
+
+            if flush_immediately or len(data_to_process) < 100:
+                logger.debug(f"Immediately processed {len(data_to_process)} records for {interface_to_process}")
 
     def _get_or_create_buffer(self, interface_name: str) -> Dict[str, Any]:
         """
@@ -460,12 +470,25 @@ class StorageManager:
 
     def _process_worker(self):
         """处理线程：数据去重、验证、放入写入队列"""
+        dedup_stats_total = {
+            'total_processed': 0,
+            'total_deduped': 0,
+            'interfaces': set()
+        }
+
         while self.running:
             try:
                 task = self.process_queue.get(timeout=1)
 
                 # 检查停止信号
                 if task is None:
+                    # 线程结束时输出统计
+                    if dedup_stats_total['total_processed'] > 0:
+                        dedup_rate = (dedup_stats_total['total_deduped'] / dedup_stats_total['total_processed']) * 100
+                        logger.info(f"Process worker summary: processed {dedup_stats_total['total_processed']} records, "
+                                   f"deduped {dedup_stats_total['total_deduped']} ({dedup_rate:.2f}%), "
+                                   f"interfaces={len(dedup_stats_total['interfaces'])}")
+
                     logger.info("Process worker received stop signal")
                     break
 
@@ -554,6 +577,11 @@ class StorageManager:
                                     primary_keys=primary_keys
                                 )
 
+                                # 累加统计
+                                dedup_stats_total['total_processed'] += dedup_stats.input_rows
+                                dedup_stats_total['total_deduped'] += dedup_stats.removed_rows
+                                dedup_stats_total['interfaces'].add(interface_name)
+
                                 logger.info(f"Deduplication completed for {interface_name}: "
                                            f"input={dedup_stats.input_rows}, "
                                            f"output={dedup_stats.output_rows}, "
@@ -628,7 +656,7 @@ class StorageManager:
             # 如果数据包含 '_update_time' 字段，说明已经处理过，直接放入 data_queue
             # 如果数据未处理，放入 process_queue 由 _process_worker 处理
             data_already_processed = (
-                data and isinstance(data, list) and 
+                data and isinstance(data, list) and
                 len(data) > 0 and '_update_time' in data[0]
             )
 
@@ -644,15 +672,8 @@ class StorageManager:
                     logger.warning(f"Storage queue is full, dropping data for {interface_name}")
             else:
                 # 数据未处理，放入处理队列
-                try:
-                    self.process_queue.put({
-                        'interface': interface_name,
-                        'data': data,
-                        'timestamp': time.time()
-                    }, block=False)
-                    logger.debug(f"Queued unprocessed data ({len(data)} records) for processing: {interface_name}")
-                except queue.Full:
-                    logger.warning(f"Process queue is full, dropping data for {interface_name}")
+                # 使用 add_to_buffer 方法，它会根据数据量决定是否立即处理
+                self.add_to_buffer(interface_name, data, flush_immediately=(len(data) < 100))
         else:
             # 同步写入：直接写入
             self._write_interface_data(interface_name, data)

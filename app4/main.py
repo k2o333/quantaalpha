@@ -730,8 +730,16 @@ def main():
         logger.info("正在停止调度器...")
         if 'scheduler' in locals(): scheduler.stop()
 
-        logger.info("正在关闭存储写入...")
-        if 'storage_manager' in locals(): storage_manager.stop_writer()
+        logger.info("正在刷新并关闭存储写入...")
+        if 'storage_manager' in locals():
+            # 先显示缓存统计
+            buffer_stats = storage_manager.get_buffer_stats()
+            if buffer_stats['total_interfaces'] > 0:
+                for iface, stats in buffer_stats['interface_stats'].items():
+                    if stats['buffer_count'] > 0:
+                        logger.info(f"  - 接口 {iface}: {stats['buffer_count']} 条记录待写入")
+
+            storage_manager.stop_writer()
 
         # 生成性能报告
         if 'print_performance_report' in locals():

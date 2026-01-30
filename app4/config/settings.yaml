@@ -29,12 +29,18 @@ storage:
   base_dir: "data"
   format: "parquet"
   batch_size: 10000  # [优化] 从 1000 增大到 10000
+  # 新增：小数据量阈值，低于此值立即处理
+  small_batch_threshold: 100
+  # 新增：是否启用小数据量立即处理
+  enable_small_batch_flush: true
 
 logging:
   level: "INFO"
   file: "log/app4.log"
   max_size_mb: 100
   backup_count: 5
+  # 新增：详细日志模式（调试用）
+  verbose_dedup: true  # 启用详细去重日志
 
 groups:
   # 需要股票循环的接口组（默认起始日期19900101）

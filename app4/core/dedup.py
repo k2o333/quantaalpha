@@ -158,8 +158,12 @@ class DataDeduplicator:
             self.stats.add_warning("No duplicates found in data")
 
         if self.config['enable_stats']:
-            self.logger.debug(f"Deduplication completed: {self.stats.input_rows} -> {self.stats.output_rows} rows "
-                            f"({self.stats.get_dedup_rate():.2f}% dedup rate)")
+            # 使用 INFO 级别记录去重结果，提高可观测性
+            import logging
+            log_level = logging.INFO if self.stats.removed_rows > 0 else logging.DEBUG
+            self.logger.log(log_level,
+                           f"Deduplication completed: {self.stats.input_rows} -> {self.stats.output_rows} rows "
+                           f"({self.stats.get_dedup_rate():.2f}% dedup rate)")
 
         return result_df, self.stats
 
