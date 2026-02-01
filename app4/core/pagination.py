@@ -160,12 +160,12 @@ class ParameterGenerator:
     ) -> Iterator[Tuple[Dict[str, Any], Dict[str, Any]]]:
         """
         生成股票循环分页参数
-        
+
         Args:
             base_params: 基础参数
             existing_stocks_checker: 可选的回调函数，用于检查股票数据是否存在
                                      签名: (interface_name: str, ts_code: str) -> bool
-        
+
         Yields:
             (股票参数, 股票信息) 元组
         """
@@ -185,12 +185,23 @@ class ParameterGenerator:
             stock_params = base_params.copy()
             stock_params['ts_code'] = ts_code
 
-            # 设置日期范围
-            if 'start_date' not in stock_params:
+            # 检查接口配置
+            parameter_config = self.context.interface_config.get('parameters', {})
+
+            # [修正] 只设置 start_date，不自动填充 end_date
+            if 'start_date' in parameter_config and 'start_date' not in stock_params:
                 list_date = stock.get('list_date', '20050101')
                 stock_params['start_date'] = list_date
-            if 'end_date' not in stock_params:
-                stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
+
+            # [修正] 不自动填充 end_date
+            # if 'end_date' in parameter_config and 'end_date' not in stock_params:
+            #     stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
+
+            # 移除不支持的参数
+            if 'start_date' not in parameter_config:
+                stock_params.pop('start_date', None)
+            if 'end_date' not in parameter_config:
+                stock_params.pop('end_date', None)
 
             yield stock_params, stock
 

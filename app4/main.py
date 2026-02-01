@@ -619,6 +619,12 @@ def main():
                 if pagination_config.get('enabled', False) and pagination_config.get('mode') == 'stock_loop':
                     logger.info(f"Using stock_loop mode for {interface_name}")
 
+                    # [修正] stock_loop 模式：不传递日期参数，让接口返回全历史
+                    params = {}
+                    if args.ts_code:
+                        params['ts_code'] = args.ts_code
+                    logger.info(f"Using stock_loop mode for {interface_name}, fetching full history")
+
                     # 使用统一的股票列表准备方法
                     stock_list = _prepare_stock_list(downloader, args, params)
                     if stock_list is None:
@@ -652,67 +658,47 @@ def main():
                     pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
 
                     logger.info(f"Downloading data for {interface_name}, pagination mode: {pagination_mode}")
+                    # 普通模式，使用同步下载
+                    # 特殊接口处理：broker_recommend需要month参数
+                    if interface_name == 'broker_recommend':
+                        import polars as pl
+                        from datetime import datetime
+                        # 转换日期范围为月份列表，循环调用
+                        start = datetime.strptime(params['start_date'], '%Y%m%d')
+                        end = datetime.strptime(params['end_date'], '%Y%m%d')
+                        months = pl.date_range(start, end, '1mo', eager=True).dt.strftime('%Y%m').to_list()
 
-                    # 如果是股票循环模式，使用并发下载
-                    if pagination_mode == 'stock_loop':
-                        logger.info(f"Using concurrent download for stock_loop mode")
-
-                        # 使用统一的股票列表准备方法
-                        stock_list = _prepare_stock_list(downloader, args, params)
-                        if stock_list is None:
-                            logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
-                            continue
-
-                        # 使用并发下载
-                        all_data = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)
+                        all_data = []
+                        for month in months:
+                            month_params = {'month': month}
+                            if 'ts_code' in params:
+                                month_params['ts_code'] = params['ts_code']
+                            data = downloader.download(interface_name, month_params)
+                            if data:
+                                all_data.extend(data)
 
                         if all_data:
-                            logger.info(f"Successfully downloaded {len(all_data)} total records for {interface_name}")
+                            logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
                             process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
                         else:
                             logger.warning(f"No data downloaded for {interface_name}")
+                        continue  # 跳过普通下载逻辑
+
+                    # 使用接口配置的 rate_limit，如果没有则使用全局默认
+                    interface_rate_limit = interface_config.get('permissions', {}).get('rate_limit', global_rate_limit)
+                    interface_rate_limiter = RateLimiter(interface_rate_limit)
+
+                    # 等待获取令牌
+                    interface_rate_limiter.wait_for_tokens(1)
+
+                    # 下载数据
+                    data = downloader.download(interface_name, params)
+
+                    if data:
+                        logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
+                        process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
                     else:
-                        # 普通模式，使用同步下载
-                        # 特殊接口处理：broker_recommend需要month参数
-                        if interface_name == 'broker_recommend':
-                            import polars as pl
-                            from datetime import datetime
-                            # 转换日期范围为月份列表，循环调用
-                            start = datetime.strptime(params['start_date'], '%Y%m%d')
-                            end = datetime.strptime(params['end_date'], '%Y%m%d')
-                            months = pl.date_range(start, end, '1mo', eager=True).dt.strftime('%Y%m').to_list()
-
-                            all_data = []
-                            for month in months:
-                                month_params = {'month': month}
-                                if 'ts_code' in params:
-                                    month_params['ts_code'] = params['ts_code']
-                                data = downloader.download(interface_name, month_params)
-                                if data:
-                                    all_data.extend(data)
-
-                            if all_data:
-                                logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
-                                process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
-                            else:
-                                logger.warning(f"No data downloaded for {interface_name}")
-                            continue  # 跳过普通下载逻辑
-
-                        # 使用接口配置的 rate_limit，如果没有则使用全局默认
-                        interface_rate_limit = interface_config.get('permissions', {}).get('rate_limit', global_rate_limit)
-                        interface_rate_limiter = RateLimiter(interface_rate_limit)
-
-                        # 等待获取令牌
-                        interface_rate_limiter.wait_for_tokens(1)
-
-                        # 下载数据
-                        data = downloader.download(interface_name, params)
-
-                        if data:
-                            logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
-                            process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
-                        else:
-                            logger.warning(f"No data downloaded for {interface_name}")
+                        logger.warning(f"No data downloaded for {interface_name}")
 
             except Exception as e:
                 import traceback

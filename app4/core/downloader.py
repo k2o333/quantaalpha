@@ -438,14 +438,25 @@ class GenericDownloader:
             stock_params = params.copy()
             stock_params['ts_code'] = stock['ts_code']
 
-            # 设置日期范围
-            if 'start_date' not in stock_params:
-                # 如果没有指定起始日期，使用该股票的上市日期
+            # 根据接口配置决定是否设置日期参数
+            parameter_config = interface_config.get('parameters', {})
+
+            # [修正] 只设置 start_date（如果接口支持且用户未显式指定）
+            # 不自动填充 end_date，因为它的语义在不同接口中可能不同
+            if 'start_date' in parameter_config and 'start_date' not in stock_params:
                 list_date = stock.get('list_date', '20050101')
                 stock_params['start_date'] = list_date
-            if 'end_date' not in stock_params:
-                from datetime import datetime
-                stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
+
+            # [修正] 不自动填充 end_date
+            # if 'end_date' in parameter_config and 'end_date' not in stock_params:
+            #     from datetime import datetime
+            #     stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
+
+            # 对于不支持日期参数的接口，移除被意外添加的日期参数
+            if 'start_date' not in parameter_config:
+                stock_params.pop('start_date', None)
+            if 'end_date' not in parameter_config:
+                stock_params.pop('end_date', None)
 
             # [新增] 检查覆盖率，如果已存在则跳过
             should_skip = False
@@ -459,7 +470,7 @@ class GenericDownloader:
                     logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (already exists)")
                     return []
 
-            logger.info(f"Downloading data for stock {stock['ts_code']}, date range: {stock_params.get('start_date')} - {stock_params.get('end_date')}")
+            logger.info(f"Downloading data for stock {stock['ts_code']}, params: {stock_params}")
 
             # 创建分页上下文
             pagination_config = interface_config.get('pagination', {})

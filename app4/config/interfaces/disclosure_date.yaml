@@ -15,11 +15,6 @@ derived_fields:
     format: '%Y%m%d'
     source: end_date
     type: date
-  modify_date_dt:
-    description: 日期类型的modify_date
-    format: '%Y%m%d'
-    source: modify_date
-    type: date
   pre_date_dt:
     description: 日期类型的pre_date
     format: '%Y%m%d'
