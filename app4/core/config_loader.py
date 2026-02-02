@@ -138,8 +138,13 @@ class ConfigLoader:
 
                 with open(interface_path, 'r', encoding='utf-8') as f:
                     config = yaml.safe_load(f)
-                    configs[interface_name] = config
-                    logger.debug(f"Loaded interface configuration: {interface_name}")
+                    # 检查 enabled 字段，默认为 True
+                    is_enabled = config.get('enabled', True)
+                    if is_enabled:
+                        configs[interface_name] = config
+                        logger.debug(f"Loaded interface configuration: {interface_name}")
+                    else:
+                        logger.debug(f"Skipped disabled interface: {interface_name}")
 
         logger.info(f"Loaded {len(configs)} interface configurations")
         return configs
