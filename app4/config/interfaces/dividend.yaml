@@ -17,6 +17,7 @@ output:
   - ts_code
   - end_date
   - ann_date
+  - div_proc
   sort_by:
   - ann_date
 pagination:

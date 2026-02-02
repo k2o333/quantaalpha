@@ -15,10 +15,10 @@ name: top10_holders
 output:
   primary_key:
   - ts_code
-  - period
+  - end_date
   - holder_name
   sort_by:
-  - period
+  - end_date
   - ts_code
 pagination:
   enabled: true

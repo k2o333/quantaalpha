@@ -17,6 +17,7 @@ output:
   - ts_code
   - ann_date
   - end_date
+  - update_flag
   sort_by:
   - ann_date
   - end_date

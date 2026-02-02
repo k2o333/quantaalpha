@@ -28,6 +28,8 @@ output:
   - ann_date
   - holder_name
   - start_date
+  - pledge_amount
+  - is_release
   sort_by:
   - ann_date
   - ts_code

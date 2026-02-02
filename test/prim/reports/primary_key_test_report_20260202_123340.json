@@ -1,0 +1,1628 @@
+{
+  "timestamp": "20260202_123340",
+  "summary": {
+    "total_interfaces": 16,
+    "passed": 6,
+    "passed_with_duplicates": 1,
+    "failed": 7,
+    "error": 2
+  },
+  "results": [
+    {
+      "interface": "balancesheet_vip",
+      "status": "failed",
+      "details": {
+        "total_records": 151,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 38,
+        "problematic_groups": 38,
+        "samples": [
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20140307",
+              "end_date": "20131231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20141027",
+              "end_date": "20140930"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20160314",
+              "end_date": "20151231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20100810",
+              "end_date": "20100630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20160822",
+              "end_date": "20160630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20150331",
+              "end_date": "20141231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20070828",
+              "end_date": "20070630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20230831",
+              "end_date": "20230630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "total_share",
+                "values": [
+                  11630709471.0,
+                  11930709471.0
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20130228",
+              "end_date": "20121231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20130807",
+              "end_date": "20130630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          }
+        ]
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "cashflow_vip",
+      "status": "failed",
+      "details": {
+        "total_records": 95,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 15,
+        "problematic_groups": 15,
+        "samples": [
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20180821",
+              "end_date": "20180630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20251031",
+              "end_date": "20250930"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20200318",
+              "end_date": "20191231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20200828",
+              "end_date": "20200630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20250401",
+              "end_date": "20241231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20230831",
+              "end_date": "20230630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20190326",
+              "end_date": "20181231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20191025",
+              "end_date": "20190930"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20250430",
+              "end_date": "20250331"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20230331",
+              "end_date": "20221231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          }
+        ]
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "disclosure_date",
+      "status": "passed",
+      "details": {
+        "total_records": 104,
+        "primary_key": [
+          "ts_code",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "dividend",
+      "status": "failed",
+      "details": {
+        "total_records": 57,
+        "primary_key": [
+          "ts_code",
+          "end_date",
+          "ann_date"
+        ],
+        "duplicate_groups": 7,
+        "problematic_groups": 7,
+        "samples": [
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "end_date": "20191231",
+              "ann_date": "20200318"
+            },
+            "record_count": 3,
+            "conflict_fields": [
+              {
+                "field": "div_proc",
+                "values": [
+                  "实施",
+                  "预案",
+                  "股东大会通过"
+                ],
+                "value_count": 3
+              },
+              {
+                "field": "cash_div",
+                "values": [
+                  0.0,
+                  1.0166131
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "cash_div_tax",
+                "values": [
+                  1.016613,
+                  1.0166131,
+                  1.045
+                ],
+                "value_count": 3
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "end_date": "20241231",
+              "ann_date": "20250401"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "div_proc",
+                "values": [
+                  "预案",
+                  "股东大会通过"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "end_date": "20211231",
+              "ann_date": "20220331"
+            },
+            "record_count": 4,
+            "conflict_fields": [
+              {
+                "field": "div_proc",
+                "values": [
+                  "预案",
+                  "股东大会通过",
+                  "实施"
+                ],
+                "value_count": 3
+              },
+              {
+                "field": "cash_div",
+                "values": [
+                  0.0,
+                  0.9761257
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "cash_div_tax",
+                "values": [
+                  0.97,
+                  0.976125,
+                  0.9761257
+                ],
+                "value_count": 3
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "end_date": "20231231",
+              "ann_date": "20240329"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "div_proc",
+                "values": [
+                  "预案",
+                  "股东大会通过"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "end_date": "20181231",
+              "ann_date": "20190326"
+            },
+            "record_count": 4,
+            "conflict_fields": [
+              {
+                "field": "div_proc",
+                "values": [
+                  "实施",
+                  "预案",
+                  "股东大会通过"
+                ],
+                "value_count": 3
+              },
+              {
+                "field": "cash_div",
+                "values": [
+                  0.0,
+                  1.045102
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "cash_div_tax",
+                "values": [
+                  1.045102,
+                  1.07
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "end_date": "20221231",
+              "ann_date": "20230331"
+            },
+            "record_count": 3,
+            "conflict_fields": [
+              {
+                "field": "div_proc",
+                "values": [
+                  "预案",
+                  "股东大会通过",
+                  "实施"
+                ],
+                "value_count": 3
+              },
+              {
+                "field": "cash_div",
+                "values": [
+                  0.0,
+                  0.68
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "end_date": "20201231",
+              "ann_date": "20210331"
+            },
+            "record_count": 3,
+            "conflict_fields": [
+              {
+                "field": "div_proc",
+                "values": [
+                  "预案",
+                  "股东大会通过",
+                  "实施"
+                ],
+                "value_count": 3
+              },
+              {
+                "field": "cash_div",
+                "values": [
+                  0.0,
+                  1.25
+                ],
+                "value_count": 2
+              }
+            ]
+          }
+        ]
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date",
+        "ann_date"
+      ]
+    },
+    {
+      "interface": "express_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 1,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "fina_audit",
+      "status": "passed",
+      "details": {
+        "total_records": 26,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "fina_indicator_vip",
+      "status": "failed",
+      "details": {
+        "total_records": 219,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 105,
+        "problematic_groups": 100,
+        "samples": [
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20021028",
+              "end_date": "20020930"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20120424",
+              "end_date": "20120331"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "19960828",
+              "end_date": "19960630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20130423",
+              "end_date": "20130331"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "19940426",
+              "end_date": "19931231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20040417",
+              "end_date": "20040331"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "19990818",
+              "end_date": "19990630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20080321",
+              "end_date": "20071231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20121024",
+              "end_date": "20120930"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "19980408",
+              "end_date": "19971231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          }
+        ]
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "fina_mainbz_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 1027,
+        "primary_key": [
+          "ts_code",
+          "end_date",
+          "bz_item"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date",
+        "bz_item"
+      ]
+    },
+    {
+      "interface": "forecast_vip",
+      "status": "failed",
+      "details": {
+        "total_records": 23,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 3,
+        "problematic_groups": 3,
+        "samples": [
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20260131",
+              "end_date": "20251231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20250127",
+              "end_date": "20241231"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "summary",
+                "values": [
+                  "预计:净利润-4500000",
+                  "预计净利润-4500000万"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20240710",
+              "end_date": "20240630"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "update_flag",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          }
+        ]
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "income_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 124,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date",
+          "update_flag"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date",
+        "update_flag"
+      ]
+    },
+    {
+      "interface": "pledge_detail",
+      "status": "failed",
+      "details": {
+        "total_records": 148,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "holder_name",
+          "start_date"
+        ],
+        "duplicate_groups": 51,
+        "problematic_groups": 18,
+        "samples": [
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20170328",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20151103"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "pledge_amount",
+                "values": [
+                  1513.9,
+                  7586.1
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20181018",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20170309"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "pledge_amount",
+                "values": [
+                  4713.7576,
+                  13486.2424
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "is_release",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20220909",
+              "holder_name": "深圳盈嘉众实业合伙企业(有限合伙)",
+              "start_date": "20210902"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "pledge_amount",
+                "values": [
+                  7368.4211,
+                  12631.5789
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "release_date",
+                "values": [
+                  "20220906",
+                  "20220907"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20180109",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20171013"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "pledge_amount",
+                "values": [
+                  301.3504,
+                  6669.6496
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "is_release",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20220909",
+              "holder_name": "深圳盈嘉众实业合伙企业(有限合伙)",
+              "start_date": "20210430"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "release_date",
+                "values": [
+                  "20220907",
+                  "20220906"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20181008",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20180928"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "is_buyback",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20170606",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20151109"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "pledge_amount",
+                "values": [
+                  210.5907,
+                  8889.4093
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20181130",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20171201"
+            },
+            "record_count": 3,
+            "conflict_fields": [
+              {
+                "field": "pledge_amount",
+                "values": [
+                  2283.8872,
+                  4532.5418
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "is_release",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20190111",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20170309"
+            },
+            "record_count": 3,
+            "conflict_fields": [
+              {
+                "field": "pledge_amount",
+                "values": [
+                  5409.399,
+                  8076.8434
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "is_release",
+                "values": [
+                  "1",
+                  "0"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "ann_date": "20190122",
+              "holder_name": "深圳市钜盛华股份有限公司",
+              "start_date": "20190118"
+            },
+            "record_count": 3,
+            "conflict_fields": [
+              {
+                "field": "is_buyback",
+                "values": [
+                  "0",
+                  "1"
+                ],
+                "value_count": 2
+              }
+            ]
+          }
+        ]
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "holder_name",
+        "start_date"
+      ]
+    },
+    {
+      "interface": "pledge_stat",
+      "status": "passed_with_duplicates",
+      "details": {
+        "total_records": 724,
+        "primary_key": [
+          "ts_code",
+          "end_date"
+        ],
+        "duplicate_groups": 112,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "stk_factor_pro",
+      "status": "passed",
+      "details": {
+        "total_records": 8282,
+        "primary_key": [
+          "ts_code",
+          "trade_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "trade_date"
+      ]
+    },
+    {
+      "interface": "stk_rewards",
+      "status": "failed",
+      "details": {
+        "total_records": 1498,
+        "primary_key": [
+          "ts_code",
+          "name",
+          "ann_date"
+        ],
+        "duplicate_groups": 80,
+        "problematic_groups": 35,
+        "samples": [
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "郁亮",
+              "ann_date": "20170327"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20161231",
+                  "20151231"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "reward",
+                "values": [
+                  9790000.0,
+                  9988000.0
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "张力",
+              "ann_date": "20080321"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20061231",
+                  "20071231"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "reward",
+                "values": [
+                  1500000.0,
+                  2280000.0
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "王石",
+              "ann_date": "20170327"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20151231",
+                  "20161231"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "reward",
+                "values": [
+                  9988000.0,
+                  9990000.0
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "肖莉",
+              "ann_date": "20080321"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20071231",
+                  "20061231"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "title",
+                "values": [
+                  "董事",
+                  "董事,执行副总裁"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "reward",
+                "values": [
+                  2200000.0,
+                  3390000.0
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "hold_vol",
+                "values": [
+                  0.0,
+                  288432.0
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "解冻",
+              "ann_date": "20170825"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20170630",
+                  "20160630"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "title",
+                "values": [
+                  "监事会主席",
+                  "监事会主席,党委书记,工会主席"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "海闻",
+              "ann_date": "20170327"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20151231",
+                  "20161231"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "廖绮云",
+              "ann_date": "20170327"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20161231",
+                  "20151231"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "陈鹰",
+              "ann_date": "20170327"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20161231",
+                  "20151231"
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "王石",
+              "ann_date": "20090804"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20080630",
+                  "20090630"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "hold_vol",
+                "values": [
+                  1590136.0,
+                  6817201.0
+                ],
+                "value_count": 2
+              }
+            ]
+          },
+          {
+            "primary_key_value": {
+              "ts_code": "000002.SZ",
+              "name": "孙建一",
+              "ann_date": "20090804"
+            },
+            "record_count": 2,
+            "conflict_fields": [
+              {
+                "field": "end_date",
+                "values": [
+                  "20080630",
+                  "20090630"
+                ],
+                "value_count": 2
+              },
+              {
+                "field": "hold_vol",
+                "values": [
+                  692236.0,
+                  692336.0
+                ],
+                "value_count": 2
+              }
+            ]
+          }
+        ]
+      },
+      "primary_key": [
+        "ts_code",
+        "name",
+        "ann_date"
+      ]
+    },
+    {
+      "interface": "top10_floatholders",
+      "status": "error",
+      "details": {
+        "total_records": 804,
+        "primary_key": [
+          "ts_code",
+          "period",
+          "holder_name"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": [],
+        "error": "主键字段不存在: ['period']"
+      },
+      "primary_key": [
+        "ts_code",
+        "period",
+        "holder_name"
+      ]
+    },
+    {
+      "interface": "top10_holders",
+      "status": "error",
+      "details": {
+        "total_records": 193,
+        "primary_key": [
+          "ts_code",
+          "period",
+          "holder_name"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": [],
+        "error": "主键字段不存在: ['period']"
+      },
+      "primary_key": [
+        "ts_code",
+        "period",
+        "holder_name"
+      ]
+    }
+  ]
+}

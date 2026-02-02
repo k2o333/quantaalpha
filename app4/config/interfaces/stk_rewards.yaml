@@ -17,6 +17,7 @@ output:
   - ts_code
   - name
   - ann_date
+  - end_date
   sort_by:
   - ann_date
   - ts_code

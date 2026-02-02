@@ -1,0 +1,215 @@
+{
+  "timestamp": "20260202_121932",
+  "summary": {
+    "total_interfaces": 16,
+    "passed": 3,
+    "passed_with_duplicates": 0,
+    "failed": 0,
+    "error": 13
+  },
+  "results": [
+    {
+      "interface": "balancesheet_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 113,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "cashflow_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 80,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "disclosure_date",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "end_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/disclosure_date.parquet"
+    },
+    {
+      "interface": "dividend",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "end_date",
+        "ann_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/dividend.parquet"
+    },
+    {
+      "interface": "express_vip",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/express_vip.parquet"
+    },
+    {
+      "interface": "fina_audit",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/fina_audit.parquet"
+    },
+    {
+      "interface": "fina_indicator_vip",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/fina_indicator_vip.parquet"
+    },
+    {
+      "interface": "fina_mainbz_vip",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "end_date",
+        "bz_item"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/fina_mainbz_vip.parquet"
+    },
+    {
+      "interface": "forecast_vip",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/forecast_vip.parquet"
+    },
+    {
+      "interface": "income_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 124,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date",
+          "update_flag"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date",
+        "update_flag"
+      ]
+    },
+    {
+      "interface": "pledge_detail",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "holder_name",
+        "start_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/pledge_detail.parquet"
+    },
+    {
+      "interface": "pledge_stat",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "end_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/pledge_stat.parquet"
+    },
+    {
+      "interface": "stk_factor_pro",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "trade_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/stk_factor_pro.parquet"
+    },
+    {
+      "interface": "stk_rewards",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "name",
+        "ann_date"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/stk_rewards.parquet"
+    },
+    {
+      "interface": "top10_floatholders",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "period",
+        "holder_name"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/top10_floatholders.parquet"
+    },
+    {
+      "interface": "top10_holders",
+      "status": "no_data",
+      "details": {},
+      "primary_key": [
+        "ts_code",
+        "period",
+        "holder_name"
+      ],
+      "error": "数据文件不存在: /home/quan/testdata/aspipe_v4/test/prim/data/top10_holders.parquet"
+    }
+  ]
+}
