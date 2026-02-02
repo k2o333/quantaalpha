@@ -385,3 +385,155 @@ class PaginationExecutor:
             # 使用覆盖率管理器检查
             return coverage_manager.check_stock_coverage(interface_name, ts_code)
         return False
+
+    def execute_reverse_date_range_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext,
+        make_request_callback: Callable,
+        coverage_manager: Optional[Any] = None,
+        force_download: bool = False,
+        get_trade_calendar_callback: Optional[Callable] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        执行反向日期范围分页（从最近日期往前下载）
+
+        特性：
+        1. 从end_date往start_date方向下载（倒序）
+        2. 支持窗口大小配置
+        3. 连续无数据天数达到阈值时自动终止
+        4. 支持覆盖率检查
+
+        Args:
+            interface_config: 接口配置
+            params: 请求参数（包含start_date, end_date）
+            context: 分页上下文
+            make_request_callback: 请求回调函数
+            coverage_manager: 覆盖率管理器
+            force_download: 是否强制下载
+            get_trade_calendar_callback: 获取交易日历的回调
+
+        Returns:
+            下载的数据列表
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        interface_name = interface_config['name']
+        pagination_config = interface_config.get('pagination', {})
+
+        # 获取配置参数
+        window_size_days = pagination_config.get('window_size_days', 30)
+        empty_threshold_days = pagination_config.get('empty_threshold_days', 90)
+
+        start_date = params.get('start_date', '20050101')
+        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+
+        logger.info(f"Starting reverse date range pagination for {interface_name}")
+        logger.info(f"Date range: {start_date} to {end_date}, window size: {window_size_days} days")
+        logger.info(f"Empty threshold: {empty_threshold_days} consecutive days without data will stop the download")
+
+        # 获取交易日历
+        if hasattr(context, 'trade_calendar') and context.trade_calendar:
+            trade_calendar = context.trade_calendar
+        else:
+            trade_calendar = self._get_trade_calendar(start_date, end_date, get_trade_calendar_callback)
+            context.trade_calendar = trade_calendar
+
+        if not trade_calendar:
+            logger.warning("Failed to get trade calendar, falling back to regular date_range")
+            return self.execute_date_range_pagination(
+                interface_config, params, context, make_request_callback,
+                coverage_manager, force_download, get_trade_calendar_callback
+            )
+
+        # 过滤交易日并按倒序排列（从最近到最远）
+        trade_days = [
+            day for day in trade_calendar
+            if day.get('is_open', 0) == 1 and
+               start_date <= day['cal_date'] <= end_date
+        ]
+
+        if not trade_days:
+            logger.warning(f"No trade days found in range {start_date} - {end_date}")
+            return []
+
+        # 按日期倒序排列（从最近到最远）
+        trade_days.sort(key=lambda x: x['cal_date'], reverse=True)
+
+        total_days = len(trade_days)
+        logger.info(f"Total trade days to process: {total_days}")
+
+        # 生成倒序窗口
+        windows = []
+        for i in range(0, total_days, window_size_days):
+            window_days = trade_days[i:i + window_size_days]
+            if not window_days:
+                continue
+
+            # 窗口的start和end需要重新排序（因为我们是倒序遍历）
+            # 例如：倒序窗口 [20240131, 20240130, ... 20240102]
+            # 实际请求的start_date应该是20240102, end_date是20240131
+            window_dates = [d['cal_date'] for d in window_days]
+            window_start = min(window_dates)  # 窗口内最早的日期
+            window_end = max(window_dates)    # 窗口内最晚的日期
+
+            windows.append((window_start, window_end))
+
+        logger.info(f"Generated {len(windows)} windows for reverse download")
+
+        # 顺序执行（从最近到最远）
+        all_data = []
+        consecutive_empty_days = 0
+        processed_windows = 0
+
+        for window_start, window_end in windows:
+            processed_windows += 1
+
+            # 构建窗口参数
+            window_params = params.copy()
+            window_params['start_date'] = window_start
+            window_params['end_date'] = window_end
+
+            # 计算当前窗口的天数
+            window_days_count = sum(1 for d in trade_days if window_start <= d['cal_date'] <= window_end)
+
+            logger.info(f"[{processed_windows}/{len(windows)}] Processing window {window_start} - {window_end} ({window_days_count} days)")
+
+            # 覆盖率检查
+            should_skip = False
+            if coverage_manager and not force_download:
+                should_skip = coverage_manager.should_skip(
+                    interface_config['api_name'],
+                    window_params,
+                    strategy='date_range'
+                )
+
+            if should_skip:
+                logger.info(f"  Skipping window {window_start} - {window_end} (already exists)")
+                # 重置连续无数据计数（因为数据已存在）
+                consecutive_empty_days = 0
+                continue
+
+            # 发起请求
+            window_data = make_request_callback(interface_config, window_params)
+
+            if window_data:
+                all_data.extend(window_data)
+                logger.info(f"  Got {len(window_data)} records, reset empty counter")
+                # 有数据，重置连续无数据计数
+                consecutive_empty_days = 0
+            else:
+                # 无数据，累加连续无数据天数
+                consecutive_empty_days += window_days_count
+                logger.info(f"  No data, consecutive empty days: {consecutive_empty_days}")
+
+                # 检查是否达到终止阈值
+                if consecutive_empty_days >= empty_threshold_days:
+                    logger.info(f"Reached empty threshold ({empty_threshold_days} days), stopping download")
+                    logger.info(f"Total windows processed: {processed_windows}/{len(windows)}")
+                    break
+
+        logger.info(f"Reverse pagination completed. Total records: {len(all_data)}")
+        return all_data

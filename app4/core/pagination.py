@@ -268,10 +268,10 @@ class ParameterGenerator:
     ) -> Iterator[Tuple[Dict[str, Any], Tuple[str, str]]]:
         """
         生成周期性时间范围分页参数
-        
+
         Args:
             period_type: 周期类型 ('week', 'month', 'quarter', 'year')
-        
+
         Yields:
             (周期参数, (range_start, range_end)) 元组
         """
@@ -284,13 +284,74 @@ class ParameterGenerator:
 
             yield range_params, (range_start, range_end)
 
+    def generate_reverse_date_range_params(
+        self,
+        base_params: Dict[str, Any],
+        start_date: str,
+        end_date: str
+    ) -> Iterator[Tuple[Dict[str, Any], Tuple[str, str]]]:
+        """
+        生成反向日期范围分页参数（从最近日期往前）
+
+        Args:
+            base_params: 基础参数
+            start_date: 开始日期 YYYYMMDD（最老的日期）
+            end_date: 结束日期 YYYYMMDD（最近的日期）
+
+        Yields:
+            (窗口参数, (window_start, window_end)) 元组，按倒序排列
+        """
+        if not self.context.trade_calendar:
+            logger.warning("Trade calendar not provided, yielding single request")
+            yield base_params.copy(), (start_date, end_date)
+            return
+
+        # 过滤交易日
+        trade_days = [
+            day for day in self.context.trade_calendar
+            if day.get('is_open', 0) == 1 and
+               start_date <= day['cal_date'] <= end_date
+        ]
+
+        if not trade_days:
+            logger.warning(f"No trade days found in range {start_date} - {end_date}")
+            return
+
+        # 按日期倒序排列（从最近到最远）
+        trade_days.sort(key=lambda x: x['cal_date'], reverse=True)
+
+        # 获取窗口大小
+        window_size = get_window_size_for_interface(
+            self.context.interface_name,
+            self.context.interface_config
+        )
+
+        logger.info(f"Generating reverse windows for {len(trade_days)} trade days with window size {window_size}")
+
+        # 生成倒序窗口
+        for i in range(0, len(trade_days), window_size):
+            window_days = trade_days[i:i + window_size]
+            if not window_days:
+                continue
+
+            # 窗口内日期重新排序，确保start < end
+            window_dates = [d['cal_date'] for d in window_days]
+            window_start = min(window_dates)
+            window_end = max(window_dates)
+
+            window_params = base_params.copy()
+            window_params['start_date'] = window_start
+            window_params['end_date'] = window_end
+
+            yield window_params, (window_start, window_end)
+
 
 # ==================== 辅助函数（模块级别） ====================
 
 def get_window_size_for_interface(interface_name: str, config: Dict[str, Any] = None) -> int:
     """
     根据接口类型确定窗口大小
-    
+
     不同接口的数据量差异很大，需要使用不同的窗口大小
     以避免单次请求数据过大或请求次数过多
     """
@@ -301,12 +362,15 @@ def get_window_size_for_interface(interface_name: str, config: Dict[str, Any] = 
             mode = pagination_config.get('mode', 'offset')
             if mode == 'date_range_daily':
                 return 1  # 每次处理一天
+            elif mode == 'reverse_date_range':
+                # 反向日期范围模式，默认30天
+                return pagination_config.get('window_size_days', 30)
             elif mode == 'stock_loop':
                 # 可以根据需要调整，比如一次处理30天的数据
                 return pagination_config.get('window_size_days', 30)
             else:
                 return pagination_config.get('window_size_days', 365)
-    
+
     data_volume_config = {
         'small': ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date'],
         'medium': ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend',

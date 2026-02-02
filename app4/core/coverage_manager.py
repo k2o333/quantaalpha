@@ -193,8 +193,8 @@ class CoverageManager:
             if strategy == 'auto':
                 pagination_config = interface_config.get('pagination', {})
                 pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
-                
-                if pagination_mode == 'date_range':
+
+                if pagination_mode in ['date_range', 'reverse_date_range']:  # 添加reverse_date_range支持
                     strategy = 'date_range'
                 elif pagination_mode == 'period_range':
                     strategy = 'period'

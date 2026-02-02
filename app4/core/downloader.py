@@ -277,6 +277,13 @@ class GenericDownloader:
                 coverage_manager=self.coverage_manager, force_download=self.force_download,
                 get_trade_calendar_callback=self.get_trade_calendar
             )
+        elif mode == 'reverse_date_range':
+            # 新增：反向日期范围分页
+            return self.pagination_executor.execute_reverse_date_range_pagination(
+                interface_config, params, context, self._make_request,
+                coverage_manager=self.coverage_manager, force_download=self.force_download,
+                get_trade_calendar_callback=self.get_trade_calendar
+            )
         else:
             return self._make_request(interface_config, params)
 

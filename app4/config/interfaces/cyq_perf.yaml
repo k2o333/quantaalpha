@@ -15,8 +15,9 @@ output:
   - trade_date
 pagination:
   enabled: true
-  mode: date_range_daily
-  window_size_days: 1
+  mode: reverse_date_range    # 改为反向日期范围模式
+  window_size_days: 1         # 每天一个窗口（该接口适合按天下载）
+  empty_threshold_days: 90    # 连续90天无数据停止
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD

@@ -16,8 +16,9 @@ output:
   - price
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 30
+  mode: reverse_date_range    # 改为反向日期范围模式
+  window_size_days: 30        # 每30天一个窗口
+  empty_threshold_days: 90    # 连续90天无数据停止
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
