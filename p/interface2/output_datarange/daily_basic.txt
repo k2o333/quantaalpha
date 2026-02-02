@@ -1,0 +1,62 @@
+2026-02-02 16:46:49,834 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-02 16:46:49,834 - __main__ - INFO - 预热全局缓存...
+2026-02-02 16:46:49,834 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
+2026-02-02 16:46:49,834 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
+2026-02-02 16:46:49,835 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260202
+2026-02-02 16:46:49,835 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-02-02 16:46:50,395 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:46:50,395 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:46:50,421 - __main__ - INFO - Saving 8576 trade days to storage
+2026-02-02 16:46:50,471 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12830
+2026-02-02 16:46:50,480 - core.storage - INFO - Wrote 12830 records to data/trade_cal/trade_cal_19901219_20260202_1770022010421_a84f6184.parquet
+2026-02-02 16:46:50,480 - __main__ - INFO - Preloaded 8576 trade days from API
+2026-02-02 16:46:50,480 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-02 16:46:50,481 - core.storage - INFO - Storage writer and process threads started
+2026-02-02 16:46:50,481 - __main__ - INFO - Interfaces to run: ['daily_basic']
+2026-02-02 16:46:50,483 - __main__ - INFO - Downloading data for daily_basic, pagination mode: date_range
+2026-02-02 16:46:50,483 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260202-20260202
+2026-02-02 16:46:50,976 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:46:50,976 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:46:50,976 - core.pagination - INFO - Generating windows for 1 trade days with window size 365
+2026-02-02 16:46:53,194 - core.downloader - INFO - API returned 18 fields for daily_basic
+2026-02-02 16:46:53,195 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv']
+2026-02-02 16:46:53,225 - __main__ - INFO - Successfully downloaded 5464 records for daily_basic
+2026-02-02 16:46:53,377 - core.processor - INFO - Processed 5464 records for daily_basic
+2026-02-02 16:46:53,402 - __main__ - INFO - No existing data found for daily_basic, skipping deduplication
+2026-02-02 16:46:53,402 - __main__ - INFO - Processed 5464 records for daily_basic
+2026-02-02 16:46:53,419 - __main__ - INFO - 正在停止调度器...
+2026-02-02 16:46:53,419 - core.scheduler - INFO - Task scheduler stopped
+2026-02-02 16:46:53,424 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-02 16:46:53,435 - core.storage - INFO - Process worker received stop signal
+2026-02-02 16:46:53,477 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for daily_basic，记录数: 5464
+2026-02-02 16:46:53,493 - core.storage - INFO - Wrote 5464 records to data/daily_basic/daily_basic_20260202_20260202_1770022013419_b06d71fa.parquet
+2026-02-02 16:46:53,495 - core.storage - INFO - Storage threads stopped
+2026-02-02 16:46:53,495 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260202_164653.md
+2026-02-02 16:46:53,495 - __main__ - INFO - 性能报告已生成: log/performance_report_20260202_164653.md
+2026-02-02 16:46:53,496 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 3.66秒
+总请求数: 3
+接口数量: 2
+------------------------------
+接口: trade_cal
+  - 请求次数: 2
+  - 总记录数: 12831
+  - 成功率: 100.0%
+  - 平均请求时间: 0.16秒
+  - P50/P90/P99: 0.23/0.23/0.23秒
+  - 平均记录数: 6416条
+
+接口: daily_basic
+  - 请求次数: 1
+  - 总记录数: 5464
+  - 成功率: 100.0%
+  - 平均请求时间: 1.90秒
+  - P50/P90/P99: 1.90/1.90/1.90秒
+  - 平均记录数: 5464条
+
+==============================
+

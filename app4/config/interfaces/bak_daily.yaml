@@ -6,6 +6,7 @@ derived_fields:
     source: trade_date
     type: date
 description: 备用行情
+enabled: false
 name: bak_daily
 output:
   primary_key:

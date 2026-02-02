@@ -1,0 +1,52 @@
+2026-02-02 16:47:46,526 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-02 16:47:46,526 - __main__ - INFO - 预热全局缓存...
+2026-02-02 16:47:46,526 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
+2026-02-02 16:47:46,526 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
+2026-02-02 16:47:46,526 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260202
+2026-02-02 16:47:46,527 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-02-02 16:47:47,163 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:47:47,163 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:47:47,209 - __main__ - INFO - Saving 8576 trade days to storage
+2026-02-02 16:47:47,261 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12830
+2026-02-02 16:47:47,269 - core.storage - INFO - Wrote 12830 records to data/trade_cal/trade_cal_19901219_20260202_1770022067209_f15a2c86.parquet
+2026-02-02 16:47:47,269 - __main__ - INFO - Preloaded 8576 trade days from API
+2026-02-02 16:47:47,269 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-02 16:47:47,270 - core.storage - INFO - Storage writer and process threads started
+2026-02-02 16:47:47,270 - __main__ - INFO - Interfaces to run: ['trade_cal']
+2026-02-02 16:47:47,271 - __main__ - INFO - Downloading data for trade_cal, pagination mode: date_range
+2026-02-02 16:47:47,271 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260202-20260202
+2026-02-02 16:47:47,559 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:47:47,560 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:47:47,560 - core.pagination - INFO - Generating windows for 1 trade days with window size 365
+2026-02-02 16:47:47,888 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:47:47,888 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:47:47,888 - __main__ - INFO - Successfully downloaded 1 records for trade_cal
+2026-02-02 16:47:47,905 - core.processor - INFO - Processed 1 records for trade_cal
+2026-02-02 16:47:47,947 - __main__ - INFO - Deduplication completed for trade_cal: input=1, compared=12830, output=0, removed=1, dedup_rate=100.00%
+2026-02-02 16:47:47,947 - __main__ - INFO - All records already exist for trade_cal, skipping save
+2026-02-02 16:47:47,947 - __main__ - INFO - 正在停止调度器...
+2026-02-02 16:47:47,947 - core.scheduler - INFO - Task scheduler stopped
+2026-02-02 16:47:47,947 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-02 16:47:47,948 - core.storage - INFO - Process worker received stop signal
+2026-02-02 16:47:47,948 - core.storage - INFO - Storage threads stopped
+2026-02-02 16:47:47,948 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260202_164747.md
+2026-02-02 16:47:47,949 - __main__ - INFO - 性能报告已生成: log/performance_report_20260202_164747.md
+2026-02-02 16:47:47,949 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 1.42秒
+总请求数: 3
+接口数量: 1
+------------------------------
+接口: trade_cal
+  - 请求次数: 3
+  - 总记录数: 12832
+  - 成功率: 100.0%
+  - 平均请求时间: 0.21秒
+  - P50/P90/P99: 0.11/0.39/0.39秒
+  - 平均记录数: 4277条
+
+==============================
+

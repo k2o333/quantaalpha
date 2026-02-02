@@ -1,0 +1,62 @@
+2026-02-02 16:47:39,673 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-02 16:47:39,674 - __main__ - INFO - 预热全局缓存...
+2026-02-02 16:47:39,674 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
+2026-02-02 16:47:39,674 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
+2026-02-02 16:47:39,674 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260202
+2026-02-02 16:47:39,674 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-02-02 16:47:40,250 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:47:40,250 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:47:40,278 - __main__ - INFO - Saving 8576 trade days to storage
+2026-02-02 16:47:40,325 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12830
+2026-02-02 16:47:40,334 - core.storage - INFO - Wrote 12830 records to data/trade_cal/trade_cal_19901219_20260202_1770022060278_9dd0837b.parquet
+2026-02-02 16:47:40,335 - __main__ - INFO - Preloaded 8576 trade days from API
+2026-02-02 16:47:40,335 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-02 16:47:40,335 - core.storage - INFO - Storage writer and process threads started
+2026-02-02 16:47:40,335 - __main__ - INFO - Interfaces to run: ['moneyflow_ths']
+2026-02-02 16:47:40,337 - __main__ - INFO - Downloading data for moneyflow_ths, pagination mode: date_range
+2026-02-02 16:47:40,337 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260202-20260202
+2026-02-02 16:47:40,645 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:47:40,645 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:47:40,646 - core.pagination - INFO - Generating windows for 1 trade days with window size 365
+2026-02-02 16:47:42,753 - core.downloader - INFO - API returned 13 fields for moneyflow_ths
+2026-02-02 16:47:42,754 - core.downloader - INFO - Returned fields: ['trade_date', 'ts_code', 'name', 'pct_change', 'latest', 'net_amount', 'net_d5_amount', 'buy_lg_amount', 'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 'buy_sm_amount_rate']
+2026-02-02 16:47:42,765 - __main__ - INFO - Successfully downloaded 2791 records for moneyflow_ths
+2026-02-02 16:47:42,859 - core.processor - INFO - Processed 2791 records for moneyflow_ths
+2026-02-02 16:47:42,871 - __main__ - INFO - No existing data found for moneyflow_ths, skipping deduplication
+2026-02-02 16:47:42,871 - __main__ - INFO - Processed 2791 records for moneyflow_ths
+2026-02-02 16:47:42,879 - __main__ - INFO - 正在停止调度器...
+2026-02-02 16:47:42,879 - core.scheduler - INFO - Task scheduler stopped
+2026-02-02 16:47:42,898 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-02 16:47:42,898 - core.storage - INFO - Process worker received stop signal
+2026-02-02 16:47:42,911 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for moneyflow_ths，记录数: 2791
+2026-02-02 16:47:42,936 - core.storage - INFO - Wrote 2791 records to data/moneyflow_ths/moneyflow_ths_20260202_20260202_1770022062879_2e8bdcd7.parquet
+2026-02-02 16:47:42,938 - core.storage - INFO - Storage threads stopped
+2026-02-02 16:47:42,938 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260202_164742.md
+2026-02-02 16:47:42,938 - __main__ - INFO - 性能报告已生成: log/performance_report_20260202_164742.md
+2026-02-02 16:47:42,939 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 3.26秒
+总请求数: 3
+接口数量: 2
+------------------------------
+接口: trade_cal
+  - 请求次数: 2
+  - 总记录数: 12831
+  - 成功率: 100.0%
+  - 平均请求时间: 0.19秒
+  - P50/P90/P99: 0.27/0.27/0.27秒
+  - 平均记录数: 6416条
+
+接口: moneyflow_ths
+  - 请求次数: 1
+  - 总记录数: 2791
+  - 成功率: 100.0%
+  - 平均请求时间: 1.93秒
+  - P50/P90/P99: 1.93/1.93/1.93秒
+  - 平均记录数: 2791条
+
+==============================
+

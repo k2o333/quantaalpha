@@ -1,0 +1,57 @@
+2026-02-02 16:46:40,659 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-02 16:46:40,660 - __main__ - INFO - 预热全局缓存...
+2026-02-02 16:46:40,660 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
+2026-02-02 16:46:40,660 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
+2026-02-02 16:46:40,660 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260202
+2026-02-02 16:46:40,660 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-02-02 16:46:41,288 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:46:41,289 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:46:41,311 - __main__ - INFO - Saving 8576 trade days to storage
+2026-02-02 16:46:41,349 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12830
+2026-02-02 16:46:41,357 - core.storage - INFO - Wrote 12830 records to data/trade_cal/trade_cal_19901219_20260202_1770022001311_a7c58beb.parquet
+2026-02-02 16:46:41,357 - __main__ - INFO - Preloaded 8576 trade days from API
+2026-02-02 16:46:41,357 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-02 16:46:41,358 - core.storage - INFO - Storage writer and process threads started
+2026-02-02 16:46:41,358 - __main__ - INFO - Interfaces to run: ['report_rc']
+2026-02-02 16:46:41,359 - __main__ - INFO - Downloading data for report_rc, pagination mode: date_range
+2026-02-02 16:46:41,360 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260202-20260202
+2026-02-02 16:46:41,882 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-02 16:46:41,882 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-02 16:46:41,882 - core.pagination - INFO - Generating windows for 1 trade days with window size 365
+2026-02-02 16:46:42,851 - core.downloader - INFO - API returned 21 fields for report_rc
+2026-02-02 16:46:42,851 - core.downloader - INFO - Returned fields: ['ts_code', 'name', 'report_date', 'report_title', 'report_type', 'classify', 'org_name', 'author_name', 'quarter', 'op_rt', 'op_pr', 'tp', 'np', 'eps', 'pe', 'rd', 'roe', 'ev_ebitda', 'rating', 'max_price', 'min_price']
+2026-02-02 16:46:42,852 - __main__ - WARNING - No data downloaded for report_rc
+2026-02-02 16:46:42,852 - __main__ - INFO - 正在停止调度器...
+2026-02-02 16:46:42,852 - core.scheduler - INFO - Task scheduler stopped
+2026-02-02 16:46:42,853 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-02 16:46:42,853 - core.storage - INFO - Process worker received stop signal
+2026-02-02 16:46:42,853 - core.storage - INFO - Storage threads stopped
+2026-02-02 16:46:42,854 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260202_164642.md
+2026-02-02 16:46:42,855 - __main__ - INFO - 性能报告已生成: log/performance_report_20260202_164642.md
+2026-02-02 16:46:42,855 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 2.19秒
+总请求数: 3
+接口数量: 2
+------------------------------
+接口: trade_cal
+  - 请求次数: 2
+  - 总记录数: 12831
+  - 成功率: 100.0%
+  - 平均请求时间: 0.21秒
+  - P50/P90/P99: 0.30/0.30/0.30秒
+  - 平均记录数: 6416条
+
+接口: report_rc
+  - 请求次数: 1
+  - 总记录数: 0
+  - 成功率: 0.0%
+  - 平均请求时间: 0.58秒
+  - P50/P90/P99: 0.58/0.58/0.58秒
+  - 平均记录数: 0条
+
+==============================
+

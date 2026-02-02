@@ -11,6 +11,7 @@ derived_fields:
     source: trade_date
     type: date
 description: 备用基础数据
+enabled: false
 name: bak_basic
 output:
   primary_key:
