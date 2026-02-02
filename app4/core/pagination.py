@@ -287,13 +287,26 @@ class ParameterGenerator:
 
 # ==================== 辅助函数（模块级别） ====================
 
-def get_window_size_for_interface(interface_name: str) -> int:
+def get_window_size_for_interface(interface_name: str, config: Dict[str, Any] = None) -> int:
     """
     根据接口类型确定窗口大小
     
     不同接口的数据量差异很大，需要使用不同的窗口大小
     以避免单次请求数据过大或请求次数过多
     """
+    # 如果提供了配置，优先使用配置中的设置
+    if config:
+        pagination_config = config.get('pagination', {})
+        if pagination_config.get('enabled', False):
+            mode = pagination_config.get('mode', 'offset')
+            if mode == 'date_range_daily':
+                return 1  # 每次处理一天
+            elif mode == 'stock_loop':
+                # 可以根据需要调整，比如一次处理30天的数据
+                return pagination_config.get('window_size_days', 30)
+            else:
+                return pagination_config.get('window_size_days', 365)
+    
     data_volume_config = {
         'small': ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date'],
         'medium': ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend',

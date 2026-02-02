@@ -271,6 +271,12 @@ class GenericDownloader:
             return self.pagination_executor.execute_periodic_pagination(
                 interface_config, params, context, self._make_request
             )
+        elif mode == 'date_range_daily':
+            return self.pagination_executor.execute_date_range_daily_pagination(
+                interface_config, params, context, self._make_request,
+                coverage_manager=self.coverage_manager, force_download=self.force_download,
+                get_trade_calendar_callback=self.get_trade_calendar
+            )
         else:
             return self._make_request(interface_config, params)
 

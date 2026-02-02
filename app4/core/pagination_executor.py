@@ -317,6 +317,68 @@ class PaginationExecutor:
             return get_trade_calendar_callback(start_date, end_date)
         return []
 
+    def execute_date_range_daily_pagination(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        context: PaginationContext,
+        make_request_callback: Callable,
+        coverage_manager=None,
+        force_download: bool = False,
+        get_trade_calendar_callback: Optional[Callable] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        按日遍历的分页模式 - 适用于cyq_perf等接口
+        将日期范围分解为单个交易日，逐日请求
+        """
+        start_date = params.get('start_date')
+        end_date = params.get('end_date')
+
+        if not start_date or not end_date:
+            # 如果没有提供日期范围，直接请求
+            return make_request_callback(interface_config, params)
+
+        # 获取交易日历
+        if get_trade_calendar_callback:
+            trade_days = get_trade_calendar_callback(start_date, end_date)
+            trade_dates = [day['cal_date'] for day in trade_days if day.get('is_open', 0) == 1]
+        else:
+            # 如果没有交易日历回调，假设所有日期都是交易日
+            from datetime import datetime, timedelta
+            start = datetime.strptime(start_date, '%Y%m%d')
+            end = datetime.strptime(end_date, '%Y%m%d')
+            trade_dates = []
+            current = start
+            while current <= end:
+                trade_dates.append(current.strftime('%Y%m%d'))
+                current += timedelta(days=1)
+
+        all_data = []
+        for trade_date in trade_dates:
+            # 为每一天创建新的参数
+            daily_params = params.copy()
+            daily_params['trade_date'] = trade_date
+            # 移除可能冲突的日期范围参数
+            daily_params.pop('start_date', None)
+            daily_params.pop('end_date', None)
+
+            # 检查覆盖率，如果已存在则跳过
+            if coverage_manager and not force_download:
+                should_skip = coverage_manager.should_skip(
+                    interface_config['api_name'],
+                    daily_params,
+                    strategy='daily'
+                )
+                if should_skip:
+                    continue
+
+            # 发起请求
+            daily_data = make_request_callback(interface_config, daily_params)
+            if daily_data:
+                all_data.extend(daily_data)
+
+        return all_data
+
     def _is_stock_data_exists(self, interface_name: str, ts_code: str, coverage_manager: Optional[Any] = None) -> bool:
         """内部方法：检查股票数据是否存在"""
         if coverage_manager:
