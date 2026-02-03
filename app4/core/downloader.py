@@ -284,6 +284,11 @@ class GenericDownloader:
                 coverage_manager=self.coverage_manager, force_download=self.force_download,
                 get_trade_calendar_callback=self.get_trade_calendar
             )
+        elif mode == 'type_split':
+            # 新增：按类型分割分页（适用于stock_hsgt等接口）
+            return self.pagination_executor.execute_type_split_pagination(
+                interface_config, params, context, self._make_request
+            )
         else:
             return self._make_request(interface_config, params)
 

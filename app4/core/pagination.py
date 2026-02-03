@@ -345,6 +345,30 @@ class ParameterGenerator:
 
             yield window_params, (window_start, window_end)
 
+    def generate_type_split_params(
+        self,
+        base_params: Dict[str, Any]
+    ) -> Iterator[Tuple[Dict[str, Any], str]]:
+        """
+        生成按类型分割的分页参数（适用于stock_hsgt等接口）
+
+        Args:
+            base_params: 基础参数
+
+        Yields:
+            (类型参数, type_value) 元组
+        """
+        # 获取接口配置中的类型值
+        type_values = self.context.interface_config.get('type_values', ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK'])
+        logger.info(f"Generating type split parameters for types: {type_values}")
+
+        for type_val in type_values:
+            type_params = base_params.copy()
+            # 添加或替换type参数
+            type_params['type'] = type_val
+
+            yield type_params, type_val
+
 
 # ==================== 辅助函数（模块级别） ====================
 

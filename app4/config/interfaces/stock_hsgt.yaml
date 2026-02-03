@@ -17,8 +17,8 @@ output:
   - ts_code
 pagination:
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: type_split
+type_values: ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK']
 parameters:
   end_date:
     description: 结束时间
