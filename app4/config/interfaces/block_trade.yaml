@@ -18,7 +18,7 @@ output:
 pagination:
   enabled: true
   mode: date_range
-  window_size_days: 365
+  window_size_days: 1
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD

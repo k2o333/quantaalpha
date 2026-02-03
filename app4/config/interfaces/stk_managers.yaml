@@ -5,21 +5,6 @@ derived_fields:
     format: '%Y%m%d'
     source: ann_date
     type: date
-  begin_date_dt:
-    description: 日期类型的begin_date
-    format: '%Y%m%d'
-    source: begin_date
-    type: date
-  birthday_dt:
-    description: 日期类型的birthday
-    format: '%Y%m%d'
-    source: birthday
-    type: date
-  end_date_dt:
-    description: 日期类型的end_date
-    format: '%Y%m%d'
-    source: end_date
-    type: date
 description: 上市公司管理层
 name: stk_managers
 output:
@@ -31,25 +16,12 @@ output:
   - ann_date
   - ts_code
 pagination:
-  date_field: ann_date
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: reverse_date_range
+  window_size_days: 1
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
-    required: false
-    type: string
-  end_date:
-    description: 公告结束日期 YYYYMMDD
-    required: false
-    type: string
-  start_date:
-    description: 公告开始日期 YYYYMMDD
-    required: false
-    type: string
-  ts_code:
-    description: 股票代码
     required: false
     type: string
 permissions:

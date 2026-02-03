@@ -134,7 +134,10 @@ class ParameterGenerator:
         trade_days.sort(key=lambda x: x['cal_date'])
 
         # 智能窗口大小
-        window_size = get_window_size_for_interface(self.context.interface_name)
+        window_size = get_window_size_for_interface(
+            self.context.interface_name,
+            self.context.interface_config
+        )
 
         logger.info(f"Generating windows for {len(trade_days)} trade days with window size {window_size}")
 
