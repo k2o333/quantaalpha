@@ -42,4 +42,4 @@ permissions:
 request:
   extra_path: ''
   method: POST
-  timeout: 30
+2 timeout: 30
