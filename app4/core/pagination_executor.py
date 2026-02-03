@@ -543,34 +543,37 @@ class PaginationExecutor:
         interface_config: Dict[str, Any],
         params: Dict[str, Any],
         context: PaginationContext,
-        make_request_callback: Callable
+        make_request_callback: Callable,
+        get_trade_calendar_callback: Optional[Callable] = None  # 新增参数
     ) -> List[Dict[str, Any]]:
         """
         执行按类型分割的分页模式（适用于stock_hsgt等接口）
-        
+
         特性：
         1. 按接口支持的不同类型分别请求
-        2. 适用于有type参数且单次请求有2000条记录限制的接口
+        2. 支持 window_size_days 配置，可按日期窗口分批请求
         3. 避免因数据量超限导致的截断问题
-        
-        Args:
-            interface_config: 接口配置
-            params: 请求参数
-            context: 分页上下文
-            make_request_callback: 请求回调函数
-
-        Returns:
-            合并后的数据列表
         """
         import logging
         logger = logging.getLogger(__name__)
 
         interface_name = interface_config['name']
+        pagination_config = interface_config.get('pagination', {})
+
+        # 获取窗口大小配置，默认 None（不分窗）
+        window_size_days = pagination_config.get('window_size_days')
+
         logger.info(f"Starting type split pagination for {interface_name}")
+        if window_size_days:
+            logger.info(f"Using window size: {window_size_days} days")
 
         # 获取接口配置中定义的类型选项
-        type_values = interface_config.get('type_values', ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK'])  # 默认为stock_hsgt的类型
+        type_values = interface_config.get('type_values', ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK'])
         logger.info(f"Type values to iterate: {type_values}")
+
+        # 获取日期范围
+        start_date = params.get('start_date')
+        end_date = params.get('end_date')
 
         all_data = []
         successful_requests = 0
@@ -582,20 +585,58 @@ class PaginationExecutor:
             type_params = params.copy()
             type_params['type'] = type_val
 
-            # 从参数配置中移除type，因为它现在是固定的
-            if 'type' in interface_config.get('parameters', {}) and interface_config['parameters']['type'].get('required', False):
-                type_params['type'] = type_val
+            if window_size_days and start_date and end_date:
+                # 需要按日期窗口分批请求
+                # 获取交易日历
+                trade_calendar = self._get_trade_calendar(start_date, end_date, get_trade_calendar_callback)
 
-            # 发起请求
-            logger.info(f"Making request for {interface_name} with type={type_val}")
-            type_data = make_request_callback(interface_config, type_params)
+                if trade_calendar:
+                    # 过滤交易日
+                    trade_days = [
+                        day for day in trade_calendar
+                        if day.get('is_open', 0) == 1 and
+                           start_date <= day['cal_date'] <= end_date
+                    ]
+                    trade_days.sort(key=lambda x: x['cal_date'])
 
-            if type_data:
-                all_data.extend(type_data)
-                successful_requests += 1
-                logger.info(f"Got {len(type_data)} records for type {type_val}")
+                    # 按窗口大小分批
+                    for i in range(0, len(trade_days), window_size_days):
+                        window_days = trade_days[i:i + window_size_days]
+                        if not window_days:
+                            continue
+
+                        window_start = window_days[0]['cal_date']
+                        window_end = window_days[-1]['cal_date']
+
+                        window_params = type_params.copy()
+                        window_params['start_date'] = window_start
+                        window_params['end_date'] = window_end
+
+                        logger.info(f"Making request for {interface_name} with type={type_val}, window={window_start}-{window_end}")
+                        window_data = make_request_callback(interface_config, window_params)
+
+                        if window_data:
+                            all_data.extend(window_data)
+                            successful_requests += 1
+                            logger.info(f"Got {len(window_data)} records for type {type_val}, window {window_start}-{window_end}")
+                else:
+                    # 没有交易日历，直接请求
+                    logger.info(f"Making request for {interface_name} with type={type_val}")
+                    type_data = make_request_callback(interface_config, type_params)
+
+                    if type_data:
+                        all_data.extend(type_data)
+                        successful_requests += 1
+                        logger.info(f"Got {len(type_data)} records for type {type_val}")
             else:
-                logger.info(f"No data for type {type_val}")
+                # 不需要分窗，直接请求
+                logger.info(f"Making request for {interface_name} with type={type_val}")
+                type_data = make_request_callback(interface_config, type_params)
+
+                if type_data:
+                    all_data.extend(type_data)
+                    successful_requests += 1
+                    logger.info(f"Got {len(type_data)} records for type {type_val}")
 
         logger.info(f"Type split pagination completed. Total records: {len(all_data)}, Successful requests: {successful_requests}")
         return all_data

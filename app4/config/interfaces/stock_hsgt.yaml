@@ -18,6 +18,7 @@ output:
 pagination:
   enabled: true
   mode: type_split
+  window_size_days: 1  # 每天每个分类请求一次，确保不超过 2000 条限制
 type_values: ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK']
 parameters:
   end_date:

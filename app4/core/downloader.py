@@ -287,7 +287,8 @@ class GenericDownloader:
         elif mode == 'type_split':
             # 新增：按类型分割分页（适用于stock_hsgt等接口）
             return self.pagination_executor.execute_type_split_pagination(
-                interface_config, params, context, self._make_request
+                interface_config, params, context, self._make_request,
+                get_trade_calendar_callback=self.get_trade_calendar  # 新增参数
             )
         else:
             return self._make_request(interface_config, params)
