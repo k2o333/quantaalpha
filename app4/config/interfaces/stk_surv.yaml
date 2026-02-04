@@ -15,7 +15,7 @@ output:
   sort_by:
   - surv_date
 pagination:
-  default_limit: 5000
+  default_limit: 400
   enabled: true
   limit_key: limit
   mode: offset

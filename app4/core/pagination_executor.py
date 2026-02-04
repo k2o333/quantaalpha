@@ -23,17 +23,35 @@ class PaginationExecutor:
         """执行offset分页，通过回调函数执行请求"""
         all_data = []
         limit = context.pagination_config.get('default_limit', 5000)
+        limit_key = context.pagination_config.get('limit_key', 'limit')
+        offset_key = context.pagination_config.get('offset_key', 'offset')
+        interface_name = interface_config.get('name', 'unknown')
+
+        logger.info(f"[{interface_name}] Offset分页开始 - 配置限额: limit={limit}, limit_key={limit_key}, offset_key={offset_key}")
+
         param_gen = ParameterGenerator(context)
+        page_num = 0
 
         for page_params in param_gen.generate_offset_params(params):
+            current_offset = page_params.get(offset_key, 0)
+            page_num += 1
+
             page_data = make_request_callback(interface_config, page_params)
 
             if not page_data:
+                logger.info(f"[{interface_name}] 第{page_num}页请求无数据 - offset={current_offset}, limit={limit}")
                 break
+
+            data_count = len(page_data)
             all_data.extend(page_data)
 
-            if len(page_data) < limit:
+            logger.info(f"[{interface_name}] 第{page_num}页完成 - offset={current_offset}, 请求limit={limit}, 实际返回={data_count}条")
+
+            if data_count < limit:
+                logger.info(f"[{interface_name}] 分页完成 - 最后1页返回{data_count}条 < 限额{limit}，停止请求")
                 break
+
+        logger.info(f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={len(all_data)}")
 
         return all_data
 

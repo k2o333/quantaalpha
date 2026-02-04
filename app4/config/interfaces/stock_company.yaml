@@ -13,7 +13,7 @@ output:
   sort_by:
   - ts_code
 pagination:
-  default_limit: 5000
+  default_limit: 7000
   enabled: true
   limit_key: limit
   mode: offset
