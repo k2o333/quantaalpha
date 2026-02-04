@@ -33,6 +33,7 @@ parameters:
     description: 报告期结束日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
   period:
     description: 报告期 YYYYMMDD
     required: false
@@ -41,6 +42,7 @@ parameters:
     description: 报告期开始日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
   ts_code:
     description: TS代码
     required: false

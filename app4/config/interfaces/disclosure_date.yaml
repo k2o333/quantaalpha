@@ -42,6 +42,7 @@ parameters:
     description: 最新披露公告日 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true  # 标识为日期锚定参数
   end_date:
     description: 财报周期 YYYYMMDD
     required: false

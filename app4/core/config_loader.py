@@ -196,22 +196,24 @@ class ConfigLoader:
             # 但不是所有接口都必须有 derived_fields
             pass  # 在新架构中不强制要求特定的字段配置
 
+        logger.info("Configuration validation passed")
+        return True
+
     def _validate_date_anchor_parameters(self, interface_config: Dict[str, Any]) -> bool:
         """
         验证日期锚定参数配置
         
         规则：
         1. 一个接口只能有一个日期锚定参数
-        2. 日期锚定参数不能是 start_date 或 end_date
+        2. start_date 和 end_date 可以作为日期锚定参数（如果配置了 is_date_anchor）
+           - 如果配置了 is_date_anchor，则按锚定参数处理
+           - 如果没有配置 is_date_anchor，则作为普通参数透传
         """
         parameter_config = interface_config.get('parameters', {})
         date_anchor_params = []
         
         for param_name, param_def in parameter_config.items():
             if param_def.get('is_date_anchor', False):
-                if param_name in ['start_date', 'end_date']:
-                    logger.error(f"Invalid date anchor parameter '{param_name}' in interface {interface_config.get('name')}: start_date and end_date cannot be date anchors")
-                    return False
                 date_anchor_params.append(param_name)
         
         if len(date_anchor_params) > 1:

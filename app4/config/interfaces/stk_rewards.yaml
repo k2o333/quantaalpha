@@ -30,6 +30,7 @@ parameters:
     description: 报告期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true  # 标识为日期锚定参数
   ts_code:
     description: TS股票代码
     required: true

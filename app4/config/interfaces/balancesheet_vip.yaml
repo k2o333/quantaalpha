@@ -12,6 +12,13 @@ derived_fields:
     type: date
 description: 资产负债表(VIP) - 按季度获取全部上市公司数据
 name: balancesheet_vip
+
+# 配置说明：
+# 此接口配置为场景1：支持 start_date/end_date 参数
+# 在 stock_loop 模式下，命令行的 --start_date 和 --end_date 参数将直接透传给接口
+# 每只股票会执行一次请求，包含用户指定的日期范围
+# 使用方式：
+# python app4/main.py --start_date 20230101 --end_date 20231231 --interface balancesheet_vip
 output:
   primary_key:
   - ts_code
@@ -21,11 +28,33 @@ output:
   sort_by:
   - ann_date
   - end_date
+
+# 统一的去重配置
+dedup_enabled: true
+
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 3650
+  window_size_days: 9999
 parameters:
+  ts_code:
+    description: 股票代码(可选，不填则获取全部股票)
+    required: false
+    type: string
+  start_date:
+    description: 公告开始日期 YYYYMMDD
+    required: false
+    type: string
+    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
+  end_date:
+    description: 公告结束日期 YYYYMMDD
+    required: false
+    type: string
+    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
+  period:
+    description: 报告期 YYYYMMDD
+    required: false
+    type: string
   ann_date:
     description: 公告日期 YYYYMMDD
     required: false
@@ -34,24 +63,8 @@ parameters:
     description: 公司类型
     required: false
     type: string
-  end_date:
-    description: 公告结束日期 YYYYMMDD
-    required: false
-    type: string
-  period:
-    description: 报告期 YYYYMMDD
-    required: false
-    type: string
   report_type:
     description: 报告类型
-    required: false
-    type: string
-  start_date:
-    description: 公告开始日期 YYYYMMDD
-    required: false
-    type: string
-  ts_code:
-    description: 股票代码(可选，不填则获取全部股票)
     required: false
     type: string
 permissions:
