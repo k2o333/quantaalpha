@@ -17,7 +17,6 @@ pagination:
   enabled: true
   limit_key: limit
   mode: offset
-  offset_key: offset
 parameters:
   exchange:
     description: 交易所代码 SSE上交所 SZSE深交所 BSE北交所
