@@ -372,6 +372,134 @@ class ParameterGenerator:
 
             yield type_params, type_val
 
+    def generate_stock_date_anchor_params(
+        self,
+        base_params: Dict[str, Any],
+        existing_stocks_checker: Optional[Callable[[str, str], bool]] = None
+    ) -> Iterator[Tuple[Dict[str, Any], Dict[str, Any]]]:
+        """
+        生成股票循环+日期锚定参数遍历
+        
+        场景：接口使用 period/ann_date/trade_date 等日期锚定参数，
+             需要在命令行指定的日期范围内按窗口遍历
+        
+        Args:
+            base_params: 基础参数（包含 start_date, end_date, _date_anchor_param）
+            existing_stocks_checker: 可选的回调函数，用于检查股票数据是否存在
+        
+        Yields:
+            (参数, 股票信息) 元组，参数包含日期锚定参数的当前窗口值
+        """
+        if not self.context.stock_list:
+            logger.error("Stock list not provided for stock loop pagination")
+            return
+        
+        # 提取日期范围和锚定参数
+        start_date = base_params.get('start_date')
+        end_date = base_params.get('end_date')
+        date_anchor_param = base_params.get('_date_anchor_param')
+        
+        if not start_date or not end_date or not date_anchor_param:
+            logger.error(f"Missing required params: start_date={start_date}, end_date={end_date}, date_anchor_param={date_anchor_param}")
+            return
+        
+        # 获取窗口大小
+        window_size = self.context.pagination_config.get('window_size_days', 365)
+        
+        # 生成日期点
+        date_points = self._generate_date_points_by_type(start_date, end_date, date_anchor_param, window_size)
+        
+        logger.info(f"Generated {len(date_points)} date points for anchor parameter '{date_anchor_param}'")
+        
+        # 为每只股票生成日期锚定参数遍历
+        for stock in self.context.stock_list:
+            ts_code = stock['ts_code']
+            
+            # 前置去重检查
+            if not self.context.force_download and existing_stocks_checker:
+                if existing_stocks_checker(self.context.interface_name, ts_code):
+                    logger.debug(f"Skipping stock {ts_code} (data exists)")
+                    continue
+            
+            # 为每个日期点生成参数
+            for date_point in date_points:
+                stock_params = base_params.copy()
+                stock_params['ts_code'] = ts_code
+                
+                # 移除内部标记和日期范围参数
+                stock_params.pop('_date_anchor_param', None)
+                stock_params.pop('start_date', None)
+                stock_params.pop('end_date', None)
+                
+                # 设置日期锚定参数
+                stock_params[date_anchor_param] = date_point
+                
+                yield stock_params, stock
+
+    def _generate_date_points_by_type(self, start_date: str, end_date: str, 
+                                      anchor_param: str, window_size: int) -> List[str]:
+        """
+        根据日期锚定参数类型生成日期点
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            anchor_param: 锚定参数名称
+            window_size: 窗口大小
+        
+        Returns:
+            日期点列表
+        """
+        if anchor_param == 'period':
+            # 季度末日期
+            return generate_quarter_end_dates(start_date, end_date)
+        elif anchor_param in ['ann_date', 'end_date']:
+            # 按窗口大小遍历交易日历
+            if self.context.trade_calendar:
+                trade_days = [
+                    day for day in self.context.trade_calendar
+                    if day.get('is_open', 0) == 1 and
+                       start_date <= day['cal_date'] <= end_date
+                ]
+                trade_days.sort(key=lambda x: x['cal_date'])
+                date_points = []
+                for i in range(0, len(trade_days), window_size):
+                    window = trade_days[i:i + window_size]
+                    if window:
+                        date_points.append(window[-1]['cal_date'])
+                return date_points
+            else:
+                # 退化为简单的日期遍历
+                start_dt = datetime.strptime(start_date, '%Y%m%d')
+                end_dt = datetime.strptime(end_date, '%Y%m%d')
+                current = start_dt
+                date_points = []
+                while current <= end_dt:
+                    date_points.append(current.strftime('%Y%m%d'))
+                    current += timedelta(days=window_size)
+                return date_points
+        elif anchor_param == 'trade_date':
+            # 每个交易日
+            if self.context.trade_calendar:
+                return [
+                    day['cal_date'] for day in self.context.trade_calendar
+                    if day.get('is_open', 0) == 1 and
+                       start_date <= day['cal_date'] <= end_date
+                ]
+            else:
+                # 退化为每日遍历
+                start_dt = datetime.strptime(start_date, '%Y%m%d')
+                end_dt = datetime.strptime(end_date, '%Y%m%d')
+                current = start_dt
+                date_points = []
+                while current <= end_dt:
+                    date_points.append(current.strftime('%Y%m%d'))
+                    current += timedelta(days=1)
+                return date_points
+        else:
+            # 默认使用窗口遍历
+            return self._generate_date_points_by_type(start_date, end_date, 'ann_date', window_size)
+
 
 # ==================== 辅助函数（模块级别） ====================
 

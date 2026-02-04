@@ -626,12 +626,45 @@ def main():
                 pagination_config = interface_config.get('pagination', {})
                 if pagination_config.get('enabled', False) and pagination_config.get('mode') == 'stock_loop':
                     logger.info(f"Using stock_loop mode for {interface_name}")
-
-                    # [修正] stock_loop 模式：不传递日期参数，让接口返回全历史
-                    params = {}
-                    if args.ts_code:
-                        params['ts_code'] = args.ts_code
-                    logger.info(f"Using stock_loop mode for {interface_name}, fetching full history")
+                    
+                    # [增强] 检查接口是否支持 start_date/end_date 参数
+                    parameter_config = interface_config.get('parameters', {})
+                    has_start_end = 'start_date' in parameter_config and 'end_date' in parameter_config
+                    
+                    # 检查是否有日期锚定参数
+                    date_anchor_param = None
+                    for param_name, param_def in parameter_config.items():
+                        if param_def.get('is_date_anchor', False):
+                            if date_anchor_param:
+                                logger.warning(f"Multiple date anchor parameters found for {interface_name}: {date_anchor_param}, {param_name}. Using first: {date_anchor_param}")
+                            else:
+                                date_anchor_param = param_name
+                    
+                    if has_start_end:
+                        # 场景 1：接口支持 start_date/end_date，直接透传命令行参数
+                        params = {
+                            'start_date': args.start_date,
+                            'end_date': args.end_date
+                        }
+                        if args.ts_code:
+                            params['ts_code'] = args.ts_code
+                        logger.info(f"Using start_date/end_date for {interface_name}: {args.start_date} - {args.end_date}")
+                    elif date_anchor_param:
+                        # 场景 2：接口使用日期锚定参数，传递范围供遍历
+                        params = {
+                            'start_date': args.start_date,
+                            'end_date': args.end_date,
+                            '_date_anchor_param': date_anchor_param  # 内部标记，用于分页执行器
+                        }
+                        if args.ts_code:
+                            params['ts_code'] = args.ts_code
+                        logger.info(f"Using date anchor parameter '{date_anchor_param}' for {interface_name}: {args.start_date} - {args.end_date}")
+                    else:
+                        # 原有逻辑：没有日期参数，获取全历史
+                        params = {}
+                        if args.ts_code:
+                            params['ts_code'] = args.ts_code
+                        logger.info(f"Using stock_loop mode for {interface_name}, fetching full history (no date parameters)")
 
                     # 使用统一的股票列表准备方法
                     stock_list = _prepare_stock_list(downloader, args, params)

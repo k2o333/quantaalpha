@@ -1,0 +1,44 @@
+name: stock_holdertrade_example
+api_name: stock_holdertrade
+description: "示例：持股变动信息 - 支持 start_date/end_date 参数"
+
+permissions:
+  min_points: 2000
+  rate_limit: 500
+  query_limit: 5000
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+  window_size_days: 365
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  start_date:
+    type: string
+    required: false
+    description: "开始日期 YYYYMMDD"
+    is_date_anchor: false  # 默认值，可省略
+  end_date:
+    type: string
+    required: false
+    description: "结束日期 YYYYMMDD"
+    is_date_anchor: false  # 默认值，可省略
+
+output:
+  primary_key: ["ts_code", "ann_date", "holder_code"]
+  sort_by: ["ann_date"]
+
+# 统一的去重配置
+dedup_enabled: true
+
+# 新增：衍生字段配置
+derived_fields:
+  ann_date_dt:
+    source: ann_date
+    type: date
+    format: '%Y%m%d'
+    description: "日期类型的公告日期"

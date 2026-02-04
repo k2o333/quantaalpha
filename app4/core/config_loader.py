@@ -185,6 +185,10 @@ class ConfigLoader:
                 logger.error(f"Interface '{interface_name}' dedup_enabled must be boolean, got {type(dedup_enabled).__name__}")
                 return False
 
+            # 验证日期锚定参数配置
+            if not self._validate_date_anchor_parameters(config):
+                return False
+
             # 验证 derived_fields 配置（新架构）或 columns 配置（旧架构）
             # 在新架构中，derived_fields 是可选的，不需要强制存在
             # 如果需要原始字段类型验证，则配置中可能仍包含其他验证逻辑
@@ -192,5 +196,25 @@ class ConfigLoader:
             # 但不是所有接口都必须有 derived_fields
             pass  # 在新架构中不强制要求特定的字段配置
 
-        logger.info("Configuration validation passed")
+    def _validate_date_anchor_parameters(self, interface_config: Dict[str, Any]) -> bool:
+        """
+        验证日期锚定参数配置
+        
+        规则：
+        1. 一个接口只能有一个日期锚定参数
+        2. 日期锚定参数不能是 start_date 或 end_date
+        """
+        parameter_config = interface_config.get('parameters', {})
+        date_anchor_params = []
+        
+        for param_name, param_def in parameter_config.items():
+            if param_def.get('is_date_anchor', False):
+                if param_name in ['start_date', 'end_date']:
+                    logger.error(f"Invalid date anchor parameter '{param_name}' in interface {interface_config.get('name')}: start_date and end_date cannot be date anchors")
+                    return False
+                date_anchor_params.append(param_name)
+        
+        if len(date_anchor_params) > 1:
+            logger.warning(f"Multiple date anchor parameters found in interface {interface_config.get('name')}: {date_anchor_params}. Only the first one will be used")
+        
         return True

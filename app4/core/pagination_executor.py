@@ -201,30 +201,61 @@ class PaginationExecutor:
         all_data = []
         results = []
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {}
+        # [新增] 检查是否有日期锚定参数标记
+        if '_date_anchor_param' in params:
+            logger.info(f"Using date anchor parameter: {params['_date_anchor_param']}")
+            
+            # 使用日期锚定参数遍历
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {}
+                
+                for stock_params, stock_info in param_gen.generate_stock_date_anchor_params(
+                    params,
+                    existing_stocks_checker=lambda name, code: self._is_stock_data_exists(name, code, coverage_manager)
+                ):
+                    future = executor.submit(
+                        make_request_callback,
+                        interface_config,
+                        stock_params
+                    )
+                    futures[future] = (stock_info['ts_code'], stock_params)
+                
+                for future in as_completed(futures):
+                    ts_code, stock_params = futures[future]
+                    try:
+                        data = future.result()
+                        if data:
+                            all_data.extend(data)
+                            logger.info(f"Downloaded {len(data)} records for {ts_code}")
+                            results.append((ts_code, data))
+                    except Exception as e:
+                        logger.error(f"Error downloading stock {ts_code}: {e}")
+        else:
+            # [原有逻辑] 普通股票循环
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {}
 
-            for stock_params, stock_info in param_gen.generate_stock_params(
-                params,
-                existing_stocks_checker=lambda name, code: self._is_stock_data_exists(name, code, coverage_manager)
-            ):
-                future = executor.submit(
-                    make_request_callback,
-                    interface_config,
-                    stock_params
-                )
-                futures[future] = (stock_info['ts_code'], stock_params)
+                for stock_params, stock_info in param_gen.generate_stock_params(
+                    params,
+                    existing_stocks_checker=lambda name, code: self._is_stock_data_exists(name, code, coverage_manager)
+                ):
+                    future = executor.submit(
+                        make_request_callback,
+                        interface_config,
+                        stock_params
+                    )
+                    futures[future] = (stock_info['ts_code'], stock_params)
 
-            for future in as_completed(futures):
-                ts_code, stock_params = futures[future]
-                try:
-                    data = future.result()
-                    if data:
-                        all_data.extend(data)
-                        logger.info(f"Downloaded {len(data)} records for {ts_code}")
-                        results.append((ts_code, data))
-                except Exception as e:
-                    logger.error(f"Error downloading stock {ts_code}: {e}")
+                for future in as_completed(futures):
+                    ts_code, stock_params = futures[future]
+                    try:
+                        data = future.result()
+                        if data:
+                            all_data.extend(data)
+                            logger.info(f"Downloaded {len(data)} records for {ts_code}")
+                            results.append((ts_code, data))
+                    except Exception as e:
+                        logger.error(f"Error downloading stock {ts_code}: {e}")
 
         return all_data
 
