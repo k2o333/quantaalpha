@@ -196,6 +196,10 @@ def main():
                         help='强制覆盖已存在的数据')
     parser.add_argument('--incremental', action='store_true',
                         help='增量模式 - 只下载缺失的时间段')
+    parser.add_argument('--no-performance-report', action='store_true',
+                        help='禁用性能报告生成')
+    parser.add_argument('--performance-report-dir', type=str,
+                        help='指定性能报告输出目录')
 
     args = parser.parse_args()
 
@@ -218,6 +222,10 @@ def main():
 
     logger = logging.getLogger(__name__)
     logger.info("Starting aspipe_v4 App4 - Configuration-driven architecture")
+
+    # 初始化性能监控器配置
+    performance_config = config_loader.global_config.get('performance', {})
+    performance_enabled = performance_config.get('enabled', True)
 
     # 初始化其他组件
     scheduler = TaskScheduler(
@@ -728,18 +736,39 @@ def main():
             storage_manager.stop_writer()
 
         # 生成性能报告
-        if 'print_performance_report' in locals():
+        perf_report_enabled = (
+            performance_config.get('auto_generate_report', True) and
+            not args.no_performance_report
+        )
+
+        if perf_report_enabled and performance_enabled:
             print_performance_report()
 
         # 保存性能报告到文件
-        if 'downloader' in locals() and hasattr(downloader, 'performance_monitor') and downloader.performance_monitor:
+        if (perf_report_enabled and performance_enabled and
+            'downloader' in locals() and
+            hasattr(downloader, 'performance_monitor') and
+            downloader.performance_monitor):
+
             import os
             from datetime import datetime
-            # 确保日志目录存在
-            log_dir = os.path.dirname(logging_config.get('file', 'log/app4.log'))
-            os.makedirs(log_dir, exist_ok=True)
+
+            # 使用配置的输出目录，或命令行参数覆盖，或默认目录
+            report_dir = getattr(args, 'performance_report_dir', None)
+            if not report_dir:
+                report_dir = performance_config.get('output_dir', 'log/')
+
+            os.makedirs(report_dir, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            performance_file = os.path.join(log_dir, f"performance_report_{timestamp}.md")
+
+            filename_prefix = performance_config.get('report_filename_prefix', 'performance_report')
+            output_format = performance_config.get('output_format', 'markdown')
+
+            if output_format == 'json':
+                performance_file = os.path.join(report_dir, f"{filename_prefix}_{timestamp}.json")
+            else:
+                performance_file = os.path.join(report_dir, f"{filename_prefix}_{timestamp}.md")
+
             downloader.performance_monitor.save_report(performance_file)
             logger.info(f"性能报告已生成: {performance_file}")
 

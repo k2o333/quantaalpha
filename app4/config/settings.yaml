@@ -42,6 +42,14 @@ logging:
   # 新增：详细日志模式（调试用）
   verbose_dedup: true  # 启用详细去重日志
 
+# 性能监控和报告配置
+performance:
+  enabled: true
+  auto_generate_report: true
+  output_format: "markdown"
+  output_dir: "log/reports/"
+  report_filename_prefix: "performance_report"
+
 groups:
   # 需要股票循环的接口组（默认起始日期19900101）
   tscode_historical:
