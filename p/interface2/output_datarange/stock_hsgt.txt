@@ -1,62 +1,93 @@
-2026-02-02 16:47:33,903 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
-2026-02-02 16:47:33,903 - __main__ - INFO - 预热全局缓存...
-2026-02-02 16:47:33,903 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
-2026-02-02 16:47:33,903 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
-2026-02-02 16:47:33,904 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260202
-2026-02-02 16:47:33,904 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
-2026-02-02 16:47:34,655 - core.downloader - INFO - API returned 4 fields for trade_cal
-2026-02-02 16:47:34,655 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
-2026-02-02 16:47:34,683 - __main__ - INFO - Saving 8576 trade days to storage
-2026-02-02 16:47:34,731 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12830
-2026-02-02 16:47:34,740 - core.storage - INFO - Wrote 12830 records to data/trade_cal/trade_cal_19901219_20260202_1770022054683_e2979d9c.parquet
-2026-02-02 16:47:34,740 - __main__ - INFO - Preloaded 8576 trade days from API
-2026-02-02 16:47:34,740 - core.scheduler - INFO - Task scheduler started with 4 workers
-2026-02-02 16:47:34,741 - core.storage - INFO - Storage writer and process threads started
-2026-02-02 16:47:34,741 - __main__ - INFO - Interfaces to run: ['stock_hsgt']
-2026-02-02 16:47:34,743 - __main__ - INFO - Downloading data for stock_hsgt, pagination mode: date_range
-2026-02-02 16:47:34,743 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260202-20260202
-2026-02-02 16:47:34,956 - core.downloader - INFO - API returned 4 fields for trade_cal
-2026-02-02 16:47:34,956 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
-2026-02-02 16:47:34,957 - core.pagination - INFO - Generating windows for 1 trade days with window size 365
-2026-02-02 16:47:36,214 - core.downloader - INFO - API returned 5 fields for stock_hsgt
-2026-02-02 16:47:36,214 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'type', 'name', 'type_name']
-2026-02-02 16:47:36,218 - __main__ - INFO - Successfully downloaded 2000 records for stock_hsgt
-2026-02-02 16:47:36,256 - core.processor - INFO - Processed 2000 records for stock_hsgt
-2026-02-02 16:47:36,264 - __main__ - INFO - No existing data found for stock_hsgt, skipping deduplication
-2026-02-02 16:47:36,264 - __main__ - INFO - Processed 2000 records for stock_hsgt
-2026-02-02 16:47:36,268 - __main__ - INFO - 正在停止调度器...
-2026-02-02 16:47:36,269 - core.scheduler - INFO - Task scheduler stopped
-2026-02-02 16:47:36,278 - __main__ - INFO - 正在刷新并关闭存储写入...
-2026-02-02 16:47:36,278 - core.storage - INFO - Process worker received stop signal
-2026-02-02 16:47:36,284 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for stock_hsgt，记录数: 2000
-2026-02-02 16:47:36,291 - core.storage - INFO - Wrote 2000 records to data/stock_hsgt/stock_hsgt_20260202_20260202_1770022056269_744d1c0c.parquet
-2026-02-02 16:47:36,291 - core.storage - INFO - Storage threads stopped
-2026-02-02 16:47:36,292 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260202_164736.md
-2026-02-02 16:47:36,292 - __main__ - INFO - 性能报告已生成: log/performance_report_20260202_164736.md
-2026-02-02 16:47:36,292 - __main__ - INFO - 资源清理完毕，程序退出。
+2026-02-03 23:08:04,179 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-03 23:08:04,179 - __main__ - INFO - 预热全局缓存...
+2026-02-03 23:08:04,179 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
+2026-02-03 23:08:04,179 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
+2026-02-03 23:08:04,179 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260203
+2026-02-03 23:08:04,180 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-02-03 23:08:06,057 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:06,057 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:06,099 - __main__ - INFO - Saving 8577 trade days to storage
+2026-02-03 23:08:06,149 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12831
+2026-02-03 23:08:06,158 - core.storage - INFO - Wrote 12831 records to data/trade_cal/trade_cal_19901219_20260203_1770131286100_7407f103.parquet
+2026-02-03 23:08:06,158 - __main__ - INFO - Preloaded 8577 trade days from API
+2026-02-03 23:08:06,158 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-03 23:08:06,159 - core.storage - INFO - Storage writer and process threads started
+2026-02-03 23:08:06,159 - __main__ - INFO - Interfaces to run: ['stock_hsgt']
+2026-02-03 23:08:06,161 - __main__ - INFO - Downloading data for stock_hsgt, pagination mode: type_split
+2026-02-03 23:08:06,161 - core.pagination_executor - INFO - Starting type split pagination for stock_hsgt
+2026-02-03 23:08:06,161 - core.pagination_executor - INFO - Using window size: 1 days
+2026-02-03 23:08:06,161 - core.pagination_executor - INFO - Type values to iterate: ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK']
+2026-02-03 23:08:06,161 - core.pagination_executor - INFO - Processing type: HK_SZ
+2026-02-03 23:08:06,161 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260203-20260203
+2026-02-03 23:08:06,698 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:06,699 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:06,699 - core.pagination_executor - INFO - Making request for stock_hsgt with type=HK_SZ, window=20260203-20260203
+2026-02-03 23:08:09,320 - core.downloader - INFO - API returned 5 fields for stock_hsgt
+2026-02-03 23:08:09,320 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'type', 'name', 'type_name']
+2026-02-03 23:08:09,323 - core.pagination_executor - INFO - Got 1726 records for type HK_SZ, window 20260203-20260203
+2026-02-03 23:08:09,323 - core.pagination_executor - INFO - Processing type: SZ_HK
+2026-02-03 23:08:09,323 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260203-20260203
+2026-02-03 23:08:09,871 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:09,871 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:09,871 - core.pagination_executor - INFO - Making request for stock_hsgt with type=SZ_HK, window=20260203-20260203
+2026-02-03 23:08:11,492 - core.downloader - INFO - API returned 5 fields for stock_hsgt
+2026-02-03 23:08:11,493 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'type', 'name', 'type_name']
+2026-02-03 23:08:11,495 - core.pagination_executor - INFO - Got 564 records for type SZ_HK, window 20260203-20260203
+2026-02-03 23:08:11,495 - core.pagination_executor - INFO - Processing type: HK_SH
+2026-02-03 23:08:11,495 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260203-20260203
+2026-02-03 23:08:11,723 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:11,723 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:11,723 - core.pagination_executor - INFO - Making request for stock_hsgt with type=HK_SH, window=20260203-20260203
+2026-02-03 23:08:12,636 - core.downloader - INFO - API returned 5 fields for stock_hsgt
+2026-02-03 23:08:12,636 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'type', 'name', 'type_name']
+2026-02-03 23:08:12,640 - core.pagination_executor - INFO - Got 1539 records for type HK_SH, window 20260203-20260203
+2026-02-03 23:08:12,640 - core.pagination_executor - INFO - Processing type: SH_HK
+2026-02-03 23:08:12,640 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260203-20260203
+2026-02-03 23:08:13,332 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:13,332 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:13,332 - core.pagination_executor - INFO - Making request for stock_hsgt with type=SH_HK, window=20260203-20260203
+2026-02-03 23:08:14,785 - core.downloader - INFO - API returned 5 fields for stock_hsgt
+2026-02-03 23:08:14,786 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'type', 'name', 'type_name']
+2026-02-03 23:08:14,788 - core.pagination_executor - INFO - Got 564 records for type SH_HK, window 20260203-20260203
+2026-02-03 23:08:14,788 - core.pagination_executor - INFO - Type split pagination completed. Total records: 4393, Successful requests: 4
+2026-02-03 23:08:14,788 - __main__ - INFO - Successfully downloaded 4393 records for stock_hsgt
+2026-02-03 23:08:14,877 - core.processor - INFO - Processed 4393 records for stock_hsgt
+2026-02-03 23:08:14,906 - __main__ - INFO - Deduplication completed for stock_hsgt: input=4393, compared=2000, output=4393, removed=0, dedup_rate=0.00%
+2026-02-03 23:08:14,907 - __main__ - WARNING - Deduplication warning for stock_hsgt: No existing duplicates found
+2026-02-03 23:08:14,907 - __main__ - INFO - Processed 4393 records for stock_hsgt
+2026-02-03 23:08:14,916 - __main__ - INFO - 正在停止调度器...
+2026-02-03 23:08:14,916 - core.scheduler - INFO - Task scheduler stopped
+2026-02-03 23:08:14,921 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-03 23:08:14,947 - core.storage - INFO - Process worker received stop signal
+2026-02-03 23:08:14,961 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for stock_hsgt，记录数: 4393
+2026-02-03 23:08:14,973 - core.storage - INFO - Wrote 4393 records to data/stock_hsgt/stock_hsgt_20260203_20260203_1770131294916_d4ed8750.parquet
+2026-02-03 23:08:14,974 - core.storage - INFO - Storage threads stopped
+2026-02-03 23:08:14,975 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260203_230814.md
+2026-02-03 23:08:14,975 - __main__ - INFO - 性能报告已生成: log/performance_report_20260203_230814.md
+2026-02-03 23:08:14,975 - __main__ - INFO - 资源清理完毕，程序退出。
 
 ==============================
       性能监控报告
 ==============================
-总运行时间: 2.39秒
-总请求数: 3
+总运行时间: 10.80秒
+总请求数: 9
 接口数量: 2
 ------------------------------
 接口: trade_cal
-  - 请求次数: 2
-  - 总记录数: 12831
+  - 请求次数: 5
+  - 总记录数: 12835
   - 成功率: 100.0%
-  - 平均请求时间: 0.25秒
-  - P50/P90/P99: 0.38/0.38/0.38秒
-  - 平均记录数: 6416条
+  - 平均请求时间: 0.50秒
+  - P50/P90/P99: 0.11/1.77/1.77秒
+  - 平均记录数: 2567条
 
 接口: stock_hsgt
-  - 请求次数: 1
-  - 总记录数: 2000
+  - 请求次数: 4
+  - 总记录数: 4393
   - 成功率: 100.0%
-  - 平均请求时间: 0.89秒
-  - P50/P90/P99: 0.89/0.89/0.89秒
-  - 平均记录数: 2000条
+  - 平均请求时间: 1.42秒
+  - P50/P90/P99: 1.39/2.32/2.32秒
+  - 平均记录数: 1098条
 
 ==============================
 

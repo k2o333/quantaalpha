@@ -14,7 +14,7 @@ output:
   - trade_date
 pagination:
   enabled: true
-  mode: date_range
+  mode: reverse_date_range
   window_size_days: 365
 parameters:
   end_date:

@@ -1,56 +1,63 @@
-2026-02-02 16:47:31,619 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
-2026-02-02 16:47:31,620 - __main__ - INFO - 预热全局缓存...
-2026-02-02 16:47:31,620 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
-2026-02-02 16:47:31,620 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
-2026-02-02 16:47:31,620 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260202
-2026-02-02 16:47:31,620 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
-2026-02-02 16:47:32,118 - core.downloader - INFO - API returned 4 fields for trade_cal
-2026-02-02 16:47:32,119 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
-2026-02-02 16:47:32,162 - __main__ - INFO - Saving 8576 trade days to storage
-2026-02-02 16:47:32,213 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12830
-2026-02-02 16:47:32,223 - core.storage - INFO - Wrote 12830 records to data/trade_cal/trade_cal_19901219_20260202_1770022052163_2a9bfe1e.parquet
-2026-02-02 16:47:32,223 - __main__ - INFO - Preloaded 8576 trade days from API
-2026-02-02 16:47:32,223 - core.scheduler - INFO - Task scheduler started with 4 workers
-2026-02-02 16:47:32,223 - core.storage - INFO - Storage writer and process threads started
-2026-02-02 16:47:32,223 - __main__ - INFO - Interfaces to run: ['stk_managers']
-2026-02-02 16:47:32,225 - __main__ - INFO - Downloading data for stk_managers, pagination mode: date_range
-2026-02-02 16:47:32,225 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260202-20260202
-2026-02-02 16:47:32,524 - core.downloader - INFO - API returned 4 fields for trade_cal
-2026-02-02 16:47:32,524 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
-2026-02-02 16:47:32,524 - core.pagination - INFO - Generating windows for 1 trade days with window size 365
-2026-02-02 16:47:33,199 - core.downloader - INFO - API returned 11 fields for stk_managers
-2026-02-02 16:47:33,199 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'name', 'gender', 'lev', 'title', 'edu', 'national', 'birthday', 'begin_date', 'end_date']
-2026-02-02 16:47:33,199 - __main__ - WARNING - No data downloaded for stk_managers
-2026-02-02 16:47:33,200 - __main__ - INFO - 正在停止调度器...
-2026-02-02 16:47:33,200 - core.scheduler - INFO - Task scheduler stopped
-2026-02-02 16:47:33,200 - __main__ - INFO - 正在刷新并关闭存储写入...
-2026-02-02 16:47:33,200 - core.storage - INFO - Process worker received stop signal
-2026-02-02 16:47:33,201 - core.storage - INFO - Storage threads stopped
-2026-02-02 16:47:33,201 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260202_164733.md
-2026-02-02 16:47:33,202 - __main__ - INFO - 性能报告已生成: log/performance_report_20260202_164733.md
-2026-02-02 16:47:33,202 - __main__ - INFO - 资源清理完毕，程序退出。
+2026-02-03 23:07:59,711 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-03 23:07:59,712 - __main__ - INFO - 预热全局缓存...
+2026-02-03 23:07:59,712 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
+2026-02-03 23:07:59,712 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
+2026-02-03 23:07:59,712 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260203
+2026-02-03 23:07:59,712 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-02-03 23:08:00,422 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:00,422 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:00,445 - __main__ - INFO - Saving 8577 trade days to storage
+2026-02-03 23:08:00,483 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12831
+2026-02-03 23:08:00,491 - core.storage - INFO - Wrote 12831 records to data/trade_cal/trade_cal_19901219_20260203_1770131280445_9abce358.parquet
+2026-02-03 23:08:00,492 - __main__ - INFO - Preloaded 8577 trade days from API
+2026-02-03 23:08:00,492 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-03 23:08:00,492 - core.storage - INFO - Storage writer and process threads started
+2026-02-03 23:08:00,492 - __main__ - INFO - Interfaces to run: ['stk_managers']
+2026-02-03 23:08:00,494 - __main__ - INFO - Downloading data for stk_managers, pagination mode: reverse_date_range
+2026-02-03 23:08:00,494 - core.pagination_executor - INFO - Starting reverse date range pagination for stk_managers
+2026-02-03 23:08:00,494 - core.pagination_executor - INFO - Date range: 20260203 to 20260203, window size: 1 days
+2026-02-03 23:08:00,494 - core.pagination_executor - INFO - Empty threshold: 90 consecutive days without data will stop the download
+2026-02-03 23:08:00,494 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260203-20260203
+2026-02-03 23:08:01,180 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:01,180 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:01,180 - core.pagination_executor - INFO - Total trade days to process: 1
+2026-02-03 23:08:01,180 - core.pagination_executor - INFO - Generated 1 windows for reverse download
+2026-02-03 23:08:01,180 - core.pagination_executor - INFO - [1/1] Processing window 20260203 - 20260203 (1 days)
+2026-02-03 23:08:03,483 - core.downloader - INFO - API returned 11 fields for stk_managers
+2026-02-03 23:08:03,483 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'name', 'gender', 'lev', 'title', 'edu', 'national', 'birthday', 'begin_date', 'end_date']
+2026-02-03 23:08:03,483 - core.pagination_executor - INFO -   No data, consecutive empty days: 1
+2026-02-03 23:08:03,483 - core.pagination_executor - INFO - Reverse pagination completed. Total records: 0
+2026-02-03 23:08:03,483 - __main__ - WARNING - No data downloaded for stk_managers
+2026-02-03 23:08:03,484 - __main__ - INFO - 正在停止调度器...
+2026-02-03 23:08:03,484 - core.scheduler - INFO - Task scheduler stopped
+2026-02-03 23:08:03,484 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-03 23:08:03,484 - core.storage - INFO - Process worker received stop signal
+2026-02-03 23:08:03,484 - core.storage - INFO - Storage threads stopped
+2026-02-03 23:08:03,485 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260203_230803.md
+2026-02-03 23:08:03,485 - __main__ - INFO - 性能报告已生成: log/performance_report_20260203_230803.md
+2026-02-03 23:08:03,485 - __main__ - INFO - 资源清理完毕，程序退出。
 
 ==============================
       性能监控报告
 ==============================
-总运行时间: 1.58秒
+总运行时间: 3.77秒
 总请求数: 3
 接口数量: 2
 ------------------------------
 接口: trade_cal
   - 请求次数: 2
-  - 总记录数: 12831
+  - 总记录数: 12832
   - 成功率: 100.0%
-  - 平均请求时间: 0.20秒
-  - P50/P90/P99: 0.30/0.30/0.30秒
+  - 平均请求时间: 0.34秒
+  - P50/P90/P99: 0.35/0.35/0.35秒
   - 平均记录数: 6416条
 
 接口: stk_managers
   - 请求次数: 1
   - 总记录数: 0
   - 成功率: 0.0%
-  - 平均请求时间: 0.55秒
-  - P50/P90/P99: 0.55/0.55/0.55秒
+  - 平均请求时间: 2.08秒
+  - P50/P90/P99: 2.08/2.08/2.08秒
   - 平均记录数: 0条
 
 ==============================

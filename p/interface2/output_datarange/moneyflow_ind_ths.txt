@@ -1,61 +1,69 @@
-2026-02-02 16:47:36,967 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
-2026-02-02 16:47:36,967 - __main__ - INFO - 预热全局缓存...
-2026-02-02 16:47:36,968 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
-2026-02-02 16:47:36,968 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
-2026-02-02 16:47:36,968 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260202
-2026-02-02 16:47:36,968 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
-2026-02-02 16:47:37,555 - core.downloader - INFO - API returned 4 fields for trade_cal
-2026-02-02 16:47:37,556 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
-2026-02-02 16:47:37,598 - __main__ - INFO - Saving 8576 trade days to storage
-2026-02-02 16:47:37,648 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12830
-2026-02-02 16:47:37,657 - core.storage - INFO - Wrote 12830 records to data/trade_cal/trade_cal_19901219_20260202_1770022057598_e33d7952.parquet
-2026-02-02 16:47:37,657 - __main__ - INFO - Preloaded 8576 trade days from API
-2026-02-02 16:47:37,657 - core.scheduler - INFO - Task scheduler started with 4 workers
-2026-02-02 16:47:37,658 - core.storage - INFO - Storage writer and process threads started
-2026-02-02 16:47:37,658 - __main__ - INFO - Interfaces to run: ['moneyflow_ind_ths']
-2026-02-02 16:47:37,660 - __main__ - INFO - Downloading data for moneyflow_ind_ths, pagination mode: date_range
-2026-02-02 16:47:37,660 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260202-20260202
-2026-02-02 16:47:38,014 - core.downloader - INFO - API returned 4 fields for trade_cal
-2026-02-02 16:47:38,014 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
-2026-02-02 16:47:38,014 - core.pagination - INFO - Generating windows for 1 trade days with window size 365
-2026-02-02 16:47:38,948 - core.downloader - INFO - API returned 12 fields for moneyflow_ind_ths
-2026-02-02 16:47:38,948 - core.downloader - INFO - Returned fields: ['trade_date', 'ts_code', 'industry', 'lead_stock', 'close', 'pct_change', 'company_num', 'pct_change_stock', 'close_price', 'net_buy_amount', 'net_sell_amount', 'net_amount']
-2026-02-02 16:47:38,949 - __main__ - INFO - Successfully downloaded 90 records for moneyflow_ind_ths
-2026-02-02 16:47:38,965 - core.processor - INFO - Processed 90 records for moneyflow_ind_ths
-2026-02-02 16:47:38,966 - __main__ - INFO - No existing data found for moneyflow_ind_ths, skipping deduplication
-2026-02-02 16:47:38,966 - __main__ - INFO - Processed 90 records for moneyflow_ind_ths
-2026-02-02 16:47:38,966 - __main__ - INFO - 正在停止调度器...
-2026-02-02 16:47:38,967 - core.scheduler - INFO - Task scheduler stopped
-2026-02-02 16:47:38,968 - __main__ - INFO - 正在刷新并关闭存储写入...
-2026-02-02 16:47:38,968 - core.storage - INFO - Process worker received stop signal
-2026-02-02 16:47:38,973 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for moneyflow_ind_ths，记录数: 90
-2026-02-02 16:47:38,982 - core.storage - INFO - Wrote 90 records to data/moneyflow_ind_ths/moneyflow_ind_ths_20260202_20260202_1770022058967_9bf2aaf0.parquet
-2026-02-02 16:47:38,982 - core.storage - INFO - Storage threads stopped
-2026-02-02 16:47:38,983 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260202_164738.md
-2026-02-02 16:47:38,983 - __main__ - INFO - 性能报告已生成: log/performance_report_20260202_164738.md
-2026-02-02 16:47:38,983 - __main__ - INFO - 资源清理完毕，程序退出。
+2026-02-03 23:08:15,707 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-03 23:08:15,708 - __main__ - INFO - 预热全局缓存...
+2026-02-03 23:08:15,708 - core.cache_warmer - ERROR - 预加载交易日历失败: scan_parquet() got an unexpected keyword argument 'extra_columns'
+2026-02-03 23:08:15,708 - core.cache_warmer - WARNING - 股票列表目录不存在: data/stock_basic
+2026-02-03 23:08:15,708 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260203
+2026-02-03 23:08:15,708 - __main__ - INFO - Global trade calendar not found locally, fetching from API...
+2026-02-03 23:08:16,463 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:16,463 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:16,505 - __main__ - INFO - Saving 8577 trade days to storage
+2026-02-03 23:08:16,554 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for trade_cal，记录数: 12831
+2026-02-03 23:08:16,563 - core.storage - INFO - Wrote 12831 records to data/trade_cal/trade_cal_19901219_20260203_1770131296506_0a8089b8.parquet
+2026-02-03 23:08:16,563 - __main__ - INFO - Preloaded 8577 trade days from API
+2026-02-03 23:08:16,564 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-03 23:08:16,564 - core.storage - INFO - Storage writer and process threads started
+2026-02-03 23:08:16,564 - __main__ - INFO - Interfaces to run: ['moneyflow_ind_ths']
+2026-02-03 23:08:16,566 - __main__ - INFO - Downloading data for moneyflow_ind_ths, pagination mode: reverse_date_range
+2026-02-03 23:08:16,566 - core.pagination_executor - INFO - Starting reverse date range pagination for moneyflow_ind_ths
+2026-02-03 23:08:16,566 - core.pagination_executor - INFO - Date range: 20260203 to 20260203, window size: 365 days
+2026-02-03 23:08:16,566 - core.pagination_executor - INFO - Empty threshold: 90 consecutive days without data will stop the download
+2026-02-03 23:08:16,566 - core.downloader - INFO - Trade calendar not found locally, fetching from API: 20260203-20260203
+2026-02-03 23:08:16,903 - core.downloader - INFO - API returned 4 fields for trade_cal
+2026-02-03 23:08:16,904 - core.downloader - INFO - Returned fields: ['exchange', 'cal_date', 'is_open', 'pretrade_date']
+2026-02-03 23:08:16,904 - core.pagination_executor - INFO - Total trade days to process: 1
+2026-02-03 23:08:16,904 - core.pagination_executor - INFO - Generated 1 windows for reverse download
+2026-02-03 23:08:16,904 - core.pagination_executor - INFO - [1/1] Processing window 20260203 - 20260203 (1 days)
+2026-02-03 23:08:18,126 - core.downloader - INFO - API returned 12 fields for moneyflow_ind_ths
+2026-02-03 23:08:18,126 - core.downloader - INFO - Returned fields: ['trade_date', 'ts_code', 'industry', 'lead_stock', 'close', 'pct_change', 'company_num', 'pct_change_stock', 'close_price', 'net_buy_amount', 'net_sell_amount', 'net_amount']
+2026-02-03 23:08:18,127 - core.pagination_executor - INFO -   Got 90 records, reset empty counter
+2026-02-03 23:08:18,128 - core.pagination_executor - INFO - Reverse pagination completed. Total records: 90
+2026-02-03 23:08:18,128 - __main__ - INFO - Successfully downloaded 90 records for moneyflow_ind_ths
+2026-02-03 23:08:18,148 - core.processor - INFO - Processed 90 records for moneyflow_ind_ths
+2026-02-03 23:08:18,159 - __main__ - INFO - Deduplication completed for moneyflow_ind_ths: input=90, compared=90, output=90, removed=0, dedup_rate=0.00%
+2026-02-03 23:08:18,159 - __main__ - WARNING - Deduplication warning for moneyflow_ind_ths: No existing duplicates found
+2026-02-03 23:08:18,159 - __main__ - INFO - Processed 90 records for moneyflow_ind_ths
+2026-02-03 23:08:18,160 - __main__ - INFO - 正在停止调度器...
+2026-02-03 23:08:18,160 - core.scheduler - INFO - Task scheduler stopped
+2026-02-03 23:08:18,161 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-03 23:08:18,161 - core.storage - INFO - Process worker received stop signal
+2026-02-03 23:08:18,166 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for moneyflow_ind_ths，记录数: 90
+2026-02-03 23:08:18,174 - core.storage - INFO - Wrote 90 records to data/moneyflow_ind_ths/moneyflow_ind_ths_20260203_20260203_1770131298160_be40173b.parquet
+2026-02-03 23:08:18,174 - core.storage - INFO - Storage threads stopped
+2026-02-03 23:08:18,175 - core.performance_monitor - INFO - 性能报告已保存: log/performance_report_20260203_230818.md
+2026-02-03 23:08:18,175 - __main__ - INFO - 性能报告已生成: log/performance_report_20260203_230818.md
+2026-02-03 23:08:18,175 - __main__ - INFO - 资源清理完毕，程序退出。
 
 ==============================
       性能监控报告
 ==============================
-总运行时间: 2.01秒
+总运行时间: 2.47秒
 总请求数: 3
 接口数量: 2
 ------------------------------
 接口: trade_cal
   - 请求次数: 2
-  - 总记录数: 12831
+  - 总记录数: 12832
   - 成功率: 100.0%
-  - 平均请求时间: 0.20秒
-  - P50/P90/P99: 0.30/0.30/0.30秒
+  - 平均请求时间: 0.23秒
+  - P50/P90/P99: 0.34/0.34/0.34秒
   - 平均记录数: 6416条
 
 接口: moneyflow_ind_ths
   - 请求次数: 1
   - 总记录数: 90
   - 成功率: 100.0%
-  - 平均请求时间: 0.58秒
-  - P50/P90/P99: 0.58/0.58/0.58秒
+  - 平均请求时间: 1.07秒
+  - P50/P90/P99: 1.07/1.07/1.07秒
   - 平均记录数: 90条
 
 ==============================

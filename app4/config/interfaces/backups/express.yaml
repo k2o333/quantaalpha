@@ -1,4 +1,4 @@
-api_name: income
+api_name: express
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -10,14 +10,9 @@ derived_fields:
     format: '%Y%m%d'
     source: end_date
     type: date
-  f_ann_date_dt:
-    description: 日期类型的f_ann_date
-    format: '%Y%m%d'
-    source: f_ann_date
-    type: date
-description: 利润表 (已禁用，请使用 income_vip)
+description: 业绩快报 (已禁用，请使用 express_vip)
 enabled: false
-name: income
+name: express
 output:
   primary_key:
   - ts_code
@@ -25,10 +20,10 @@ output:
   - end_date
   sort_by:
   - ann_date
-  - end_date
 pagination:
+  date_field: ann_date
   enabled: true
-  mode: date_range
+  mode: reverse_date_range
   window_size_days: 365
 parameters:
   ann_date:
@@ -36,11 +31,7 @@ parameters:
     required: false
     type: string
   end_date:
-    description: 报告期结束日期 YYYYMMDD
-    required: false
-    type: string
-  f_ann_date:
-    description: 实际公告日期 YYYYMMDD
+    description: 公告结束日期 YYYYMMDD
     required: false
     type: string
   period:
@@ -48,16 +39,16 @@ parameters:
     required: false
     type: string
   start_date:
-    description: 报告期开始日期 YYYYMMDD
+    description: 公告开始日期 YYYYMMDD
     required: false
     type: string
   ts_code:
-    description: 证券代码
-    required: false
+    description: 股票代码
+    required: true
     type: string
 permissions:
   min_points: 2000
-  note: 此接口已禁用，如需获取全部股票数据，请使用 income_vip 接口（需5000积分）
+  note: 此接口已禁用，如需获取全部股票数据，请使用 express_vip 接口（需5000积分）
   query_limit: 10000
   rate_limit: 60
 request:

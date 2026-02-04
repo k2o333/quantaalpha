@@ -9,10 +9,10 @@
 | cyq_chips | ✓ | 0 | ✗ | 0 | 0 | 0 | - | - |
 | moneyflow_mkt_dc | ✓ | 1 | ✓ | 1 | 0 | 0 | - | - |
 | stk_holdertrade | ✓ | 1 | ✓ | 1 | 0 | 0 | - | - |
-| stk_premarket | ✗ | 0 | ✗ | 0 | 0 | 0 | - | - |
+
 | daily | ✓ | 5,464 | ✓ | 5,464 | 0 | 0 | - | - |
 | suspend_d | ✓ | 17 | ✓ | 17 | 0 | 0 | - | - |
-| block_trade | ✗ | 0 | ✗ | 0 | 0 | 0 | - | - |
+| block_trade | ✓ | 0 | ✗ | 0 | 0 | 0 | - | - |
 | moneyflow_ind_dc | ✓ | 560 | ✓ | 560 | 0 | 0 | - | - |
 | moneyflow | ✓ | 0 | ✗ | 0 | 0 | 0 | - | - |
 | repurchase | ✓ | 6 | ✓ | 6 | 0 | 0 | - | - |
