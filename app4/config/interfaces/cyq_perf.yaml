@@ -19,18 +19,11 @@ pagination:
   window_size_days: 1         # 每天一个窗口（该接口适合按天下载）
   empty_threshold_days: 90    # 连续90天无数据停止
 parameters:
-  end_date:
-    description: 结束日期 YYYYMMDD
-    required: false
-    type: string
-  start_date:
-    description: 开始日期 YYYYMMDD
-    required: false
-    type: string
   trade_date:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true  # 标识为日期锚定参数
   ts_code:
     description: 股票代码
     required: false

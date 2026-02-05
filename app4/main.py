@@ -120,6 +120,135 @@ def validate_and_adjust_date(start_date: str, end_date: Optional[str]) -> Tuple[
     return start_date, end_date
 
 
+def run_update_mode(args):
+    """运行增量更新模式
+    
+    Args:
+        args: 命令行参数
+        
+    Returns:
+        int: 退出码 (0=成功, 1=失败)
+    """
+    from update import (
+        UpdateManager, UpdateOptions, ReportFormat
+    )
+    
+    # 初始化配置加载器
+    import os
+    config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
+    config_loader = ConfigLoader(config_dir=config_dir_path)
+    
+    # 验证配置
+    if not config_loader.validate_config():
+        print("Configuration validation failed")
+        return 1
+    
+    # 设置日志
+    logging_config = config_loader.global_config.get('logging', {})
+    if args.log_level:
+        logging_config['level'] = args.log_level
+    setup_logging(logging_config)
+    
+    logger = logging.getLogger(__name__)
+    logger.info("Starting aspipe_v4 App4 - Incremental Update Mode")
+    
+    # 初始化组件
+    scheduler = TaskScheduler(
+        max_workers=config_loader.global_config.get('concurrency', {}).get('max_workers', 4),
+        max_queue_size=config_loader.global_config.get('concurrency', {}).get('max_queue_size', 1000)
+    )
+    
+    processor = DataProcessor()
+    storage_manager = StorageManager(
+        processor=processor,
+        config_loader=config_loader,
+        storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
+        format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
+        batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)
+    )
+    
+    # 初始化缓存预热器
+    data_dir = config_loader.get_global_config()['storage']['base_dir']
+    cache_warmer = CacheWarmer(data_dir)
+    
+    # 预热缓存
+    logger.info("预热全局缓存...")
+    trade_cal_cache = cache_warmer.preload_trade_calendar()
+    stock_list_cache = cache_warmer.preload_stock_list()
+    
+    # 创建下载器
+    downloader = GenericDownloader(
+        config_loader=config_loader,
+        storage_manager=storage_manager,
+        trade_calendar_cache=trade_cal_cache,
+        stock_list_cache=stock_list_cache,
+        force_download=args.update_force if hasattr(args, 'update_force') else False,
+        incremental_mode=True
+    )
+    
+    # 创建全局速率限制器
+    global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
+    global_rate_limiter = RateLimiter(global_rate_limit)
+    
+    # 启动组件
+    scheduler.start()
+    storage_manager.start_writer()
+    
+    try:
+        # 创建更新选项
+        update_options = UpdateOptions(
+            interfaces=args.update_interfaces if hasattr(args, 'update_interfaces') else None,
+            exclude=args.update_exclusions if hasattr(args, 'update_exclusions') else [],
+            groups=args.update_groups if hasattr(args, 'update_groups') else [],
+            start_date=args.start_date if args.start_date != '20230101' else None,
+            end_date=args.end_date,
+            force=args.update_force if hasattr(args, 'update_force') else False,
+            dry_run=args.update_dry_run if hasattr(args, 'update_dry_run') else False,
+            report_format=ReportFormat(args.update_report_format) if hasattr(args, 'update_report_format') else ReportFormat.MARKDOWN,
+            report_file=args.update_report_file if hasattr(args, 'update_report_file') else None,
+            max_workers=config_loader.global_config.get('concurrency', {}).get('max_workers', 4),
+            log_level=args.log_level
+        )
+        
+        # 创建更新管理器并执行更新
+        update_manager = UpdateManager(
+            config_loader=config_loader,
+            storage_manager=storage_manager,
+            downloader=downloader,
+            scheduler=scheduler,
+            processor=processor,
+            global_rate_limiter=global_rate_limiter
+        )
+        
+        result = update_manager.run_update(update_options)
+        
+        # 返回退出码
+        if result.failed_count == 0:
+            logger.info(f"更新成功完成: {result.success_count} 成功, {result.skipped_count} 跳过")
+            return 0
+        else:
+            logger.warning(f"更新完成但有失败: {result.success_count} 成功, {result.failed_count} 失败, {result.skipped_count} 跳过")
+            return 1
+            
+    except KeyboardInterrupt:
+        logger.warning("\n用户手动中断执行 (Ctrl+C detected)")
+        return 130  # 标准的中断退出码
+    except Exception as e:
+        logger.error(f"更新过程中发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+    finally:
+        # 清理资源
+        logger.info("正在停止调度器...")
+        scheduler.stop()
+        
+        logger.info("正在刷新并关闭存储写入...")
+        storage_manager.stop_writer()
+        
+        logger.info("资源清理完毕，程序退出。")
+
+
 def setup_logging(log_config: dict):
     """设置日志配置
 
@@ -196,12 +325,61 @@ def main():
                         help='强制覆盖已存在的数据')
     parser.add_argument('--incremental', action='store_true',
                         help='增量模式 - 只下载缺失的时间段')
+    
+    # 新增增量更新模块参数
+    parser.add_argument('--update', 
+                        action='store_true',
+                        help='启用增量更新模式（推荐）')
+    parser.add_argument('--update-interface', 
+                        type=str, 
+                        action='append',
+                        dest='update_interfaces',
+                        help='指定要更新的接口（可多次使用）')
+    parser.add_argument('--update-group', 
+                        type=str, 
+                        action='append',
+                        dest='update_groups',
+                        help='指定要更新的接口组（可多次使用）')
+    parser.add_argument('--update-exclude', 
+                        type=str, 
+                        action='append',
+                        dest='update_exclusions',
+                        help='排除特定接口（可多次使用）')
+    parser.add_argument('--update-force', 
+                        action='store_true',
+                        dest='update_force',
+                        help='强制更新（忽略现有数据）')
+    parser.add_argument('--update-dry-run', 
+                        action='store_true',
+                        dest='update_dry_run',
+                        help='预览模式（不实际执行）')
+    parser.add_argument('--update-report-format', 
+                        type=str,
+                        choices=['markdown', 'json', 'html'],
+                        default='markdown',
+                        dest='update_report_format',
+                        help='报告格式')
+    parser.add_argument('--update-report-file', 
+                        type=str,
+                        dest='update_report_file',
+                        help='报告输出文件路径')
+    
     parser.add_argument('--no-performance-report', action='store_true',
                         help='禁用性能报告生成')
     parser.add_argument('--performance-report-dir', type=str,
                         help='指定性能报告输出目录')
 
     args = parser.parse_args()
+    
+    # 处理 --incremental 与 --update 的兼容性
+    if args.incremental and not args.update:
+        logger = logging.getLogger(__name__)
+        logger.warning("--incremental 已弃用，请使用 --update")
+        args.update = True
+    
+    # 如果是更新模式，执行增量更新
+    if args.update:
+        return run_update_mode(args)
 
     # 初始化配置加载器（需要在设置日志之前）
     import os

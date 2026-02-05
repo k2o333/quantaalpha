@@ -542,8 +542,30 @@ class PaginationExecutor:
 
             # 构建窗口参数
             window_params = params.copy()
-            window_params['start_date'] = window_start
-            window_params['end_date'] = window_end
+            
+            # 检查是否配置了日期锚定参数（如 trade_date, ann_date 等）
+            date_anchor_param = None
+            parameter_config = interface_config.get('parameters', {})
+            for param_name, param_def in parameter_config.items():
+                if param_def.get('is_date_anchor', False):
+                    date_anchor_param = param_name
+                    break
+            
+            if date_anchor_param:
+                # 使用日期锚定参数：window_size_days=1 时只传单个日期
+                if window_size_days == 1 and window_start == window_end:
+                    window_params[date_anchor_param] = window_start
+                    # 移除 start_date 和 end_date
+                    window_params.pop('start_date', None)
+                    window_params.pop('end_date', None)
+                else:
+                    # 多天窗口，使用 start_date 和 end_date
+                    window_params['start_date'] = window_start
+                    window_params['end_date'] = window_end
+            else:
+                # 没有日期锚定参数，使用 start_date 和 end_date
+                window_params['start_date'] = window_start
+                window_params['end_date'] = window_end
 
             # 计算当前窗口的天数
             window_days_count = sum(1 for d in trade_days if window_start <= d['cal_date'] <= window_end)

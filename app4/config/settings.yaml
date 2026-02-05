@@ -156,3 +156,107 @@ groups:
     - stk_holdertrade
     - stk_managers
     - stk_surv
+
+# 增量更新模块配置
+update:
+  enabled: true
+
+  # 默认更新策略
+  default_strategy:
+    start_date: "20000101"      # 默认起始日期
+    lookback_days: 7            # 回溯天数（处理数据延迟）
+    end_date: "today"           # 结束日期，支持 "today" 或具体日期
+
+  # 特殊接口配置
+  special_interfaces:
+    trade_cal:
+      start_date: "19900101"
+      update_frequency: "weekly"
+      date_column: "cal_date"
+
+    stock_basic:
+      start_date: "19900101"
+      update_frequency: "daily"
+      date_column: "list_date"
+
+    daily:
+      start_date: "20000101"
+      date_column: "trade_date"
+
+    daily_basic:
+      start_date: "20000101"
+      date_column: "trade_date"
+
+    # 财务数据类
+    income_vip:
+      date_column: "end_date"
+    balancesheet_vip:
+      date_column: "end_date"
+    cashflow_vip:
+      date_column: "end_date"
+    fina_indicator_vip:
+      date_column: "end_date"
+
+    # 股东数据类
+    top10_holders:
+      date_column: "end_date"
+    top10_floatholders:
+      date_column: "end_date"
+    stk_rewards:
+      date_column: "end_date"
+
+  # 排除接口（不自动更新）
+  excluded_interfaces:
+    - stock_basic      # 基础数据通常不需要频繁更新
+    - trade_cal        # 交易日历更新频率低
+
+  # 更新顺序（按依赖关系）
+  # 未在此列表中的接口按字母顺序排在最后
+  update_order:
+    - trade_cal
+    - stock_basic
+    - daily_basic
+    - moneyflow
+    - income_vip
+    - balancesheet_vip
+    - cashflow_vip
+    - fina_indicator_vip
+    - fina_mainbz_vip
+    - express_vip
+    - forecast_vip
+    - fina_audit
+    - disclosure_date
+    - top10_holders
+    - top10_floatholders
+    - pledge_stat
+    - pledge_detail
+    - dividend
+    - stk_rewards
+
+  # 并发配置
+  concurrency:
+    max_parallel_interfaces: 1  # 同时更新的接口数
+    retry_failed: true          # 失败时是否重试
+    max_retries: 3
+    retry_delay: 2.0            # 重试延迟（秒）
+
+  # 报告配置
+  reporting:
+    enabled: true
+    output_format: "markdown"
+    save_report: true
+    report_dir: "log/update_reports/"
+    console_output: true
+
+  # 容错配置
+  fault_tolerance:
+    skip_on_error: true         # 出错时跳过继续
+    stop_on_storage_error: true # 存储错误时停止
+    max_consecutive_errors: 5   # 最大连续错误数
+
+  # 断点续传配置
+  checkpoint:
+    enabled: true               # 启用断点续传
+    file: "data/.update_checkpoint.json"  # 断点文件路径
+    interval: 10                # 每N个接口保存一次断点
+    auto_resume: true           # 启动时自动检测并恢复断点

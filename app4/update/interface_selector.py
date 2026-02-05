@@ -138,12 +138,17 @@ class InterfaceSelector:
         Returns:
             List[str]: 过滤后的接口列表
         """
-        if not options.exclude:
-            return interfaces
-        
         # 获取配置中排除的接口
         config_exclusions = self.update_config.get('excluded_interfaces', [])
-        all_exclusions = set(config_exclusions + options.exclude)
+        
+        # 合并所有排除项
+        all_exclusions = set(config_exclusions)
+        if options.exclude:
+            all_exclusions.update(options.exclude)
+        
+        # 如果没有排除项，直接返回
+        if not all_exclusions:
+            return interfaces
         
         filtered = []
         for iface in interfaces:

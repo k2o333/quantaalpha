@@ -19,6 +19,7 @@ from .date_calculator import DateCalculator
 from .interface_selector import InterfaceSelector
 from .update_reporter import UpdateReporter
 from .checkpoint_manager import CheckpointManager
+from core.pagination import PaginationContext
 
 logger = logging.getLogger(__name__)
 
@@ -371,12 +372,11 @@ class UpdateManager:
         pagination_config = interface_config.get('pagination', {})
         mode = pagination_config.get('mode', 'offset')
         
-        # 构建上下文
-        context = {
-            'interface_name': interface_name,
-            'config': interface_config,
-            'global_rate_limiter': self.global_rate_limiter
-        }
+        # 构建上下文 - 使用 PaginationContext 对象
+        context = PaginationContext(
+            interface_config=interface_config,
+            force_download=options.force
+        )
         
         # 根据分页模式执行下载
         if mode == 'date_range':
