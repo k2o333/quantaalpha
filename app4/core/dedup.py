@@ -194,10 +194,16 @@ class DataDeduplicator:
                 # Keep the row with the latest date in the specified date field
                 date_field = self.config['date_field']
                 if date_field in df.columns:
-                    # Sort by date field in descending order and keep first
-                    deduplicated_df = df.sort(date_field, descending=True).unique(
+                    # Sort by primary keys first, then by date field in descending order
+                    # This ensures we keep the latest date for each unique combination of primary keys
+                    sort_cols = primary_keys + [date_field]
+                    sort_descending = [False] * len(primary_keys) + [True]  # Ascending for primary keys, descending for date
+                    deduplicated_df = df.sort(sort_cols, descending=sort_descending).unique(
                         subset=primary_keys, keep='first'
-                    ).sort(date_field, descending=False)  # Re-sort to ascending order
+                    )
+                    # Now sort back to a logical order (by date ascending)
+                    if date_field in deduplicated_df.columns:
+                        deduplicated_df = deduplicated_df.sort(date_field, descending=False)
                 else:
                     # Fallback to 'first' strategy if date field is missing
                     self.logger.warning(f"Date field '{date_field}' not found, using 'first' strategy")
