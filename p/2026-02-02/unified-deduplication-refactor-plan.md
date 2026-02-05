@@ -418,39 +418,783 @@ deduplicator = DataDeduplicator({
 ### Phase 3: 测试验证
 
 #### 3.1 单元测试
-对每个改造的方法添加单元测试：
+
+**测试文件位置**: `test/test_unified_deduplication.py`
+
 ```python
-def test_remove_duplicates_with_update_time():
-    """测试带 _update_time 的去重"""
-    pass
+#!/usr/bin/env python
+"""
+统一去重功能重构测试
+测试 DataDeduplicator 及 processor、downloader、storage、cache_warmer 中的去重逻辑
+"""
 
-def test_remove_duplicates_without_update_time():
-    """测试无 _update_time 的去重"""
-    pass
+import pytest
+import polars as pl
+import tempfile
+import os
+from datetime import datetime
+from app4.core.dedup import DataDeduplicator, DedupStats, deduplicate_against_existing
+from app4.core.processor import DataProcessor
+from app4.core.storage import StorageManager
 
-def test_handle_primary_keys_detection_only():
-    """测试 _handle_primary_keys 仅检测职责"""
-    pass
 
-def test_deduplicator_auto_sort():
-    """测试 DataDeduplicator 自动排序功能"""
-    pass
+class TestDataDeduplicator:
+    """测试 DataDeduplicator 核心功能"""
+    
+    def test_deduplicate_with_update_time_auto_sort(self):
+        """测试带 _update_time 字段的自动排序去重"""
+        # 创建测试数据：相同主键，不同更新时间
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000002.SZ'],
+            'trade_date': ['20230101', '20230101', '20230101'],
+            'close': [10.0, 10.5, 20.0],
+            '_update_time': [
+                datetime(2023, 1, 1, 10, 0, 0),
+                datetime(2023, 1, 1, 11, 0, 0),  # 更新的记录
+                datetime(2023, 1, 1, 10, 0, 0)
+            ]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last',
+            'enable_stats': True,
+            'sort_by_update_time': True,
+            'sort_ascending': True
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        # 验证去重结果：保留更新的记录
+        assert len(result_df) == 2
+        assert stats.input_rows == 3
+        assert stats.output_rows == 2
+        assert stats.removed_rows == 1
+        
+        # 验证保留了更新时间的记录（close=10.5）
+        record = result_df.filter(
+            (pl.col('ts_code') == '000001.SZ') & 
+            (pl.col('trade_date') == '20230101')
+        )
+        assert len(record) == 1
+        assert record['close'][0] == 10.5
+    
+    def test_deduplicate_without_update_time(self):
+        """测试无 _update_time 字段的标准去重"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000002.SZ'],
+            'trade_date': ['20230101', '20230101', '20230101'],
+            'close': [10.0, 10.5, 20.0]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last',
+            'enable_stats': True
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 2
+        assert stats.input_rows == 3
+        assert stats.output_rows == 2
+        assert stats.removed_rows == 1
+        
+        # 验证去重率计算
+        assert stats.get_dedup_rate() == 33.33  # 1/3 * 100
+    
+    def test_deduplicate_empty_dataframe(self):
+        """测试空 DataFrame 的处理"""
+        df = pl.DataFrame({
+            'ts_code': [],
+            'trade_date': [],
+            'close': []
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last'
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 0
+        assert stats.input_rows == 0
+        assert stats.output_rows == 0
+        assert stats.removed_rows == 0
+    
+    def test_deduplicate_no_duplicates(self):
+        """测试无重复数据的场景"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000002.SZ', '000003.SZ'],
+            'trade_date': ['20230101', '20230102', '20230103'],
+            'close': [10.0, 20.0, 30.0]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last',
+            'enable_stats': True
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 3
+        assert stats.input_rows == 3
+        assert stats.output_rows == 3
+        assert stats.removed_rows == 0
+        assert stats.get_dedup_rate() == 0.0
+    
+    def test_deduplicate_missing_primary_key(self):
+        """测试缺少主键字段的处理"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ'],
+            'close': [10.0, 10.5]
+            # 缺少 'trade_date' 主键
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last',
+            'enable_stats': True
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        # 应该返回原始数据并记录错误
+        assert len(result_df) == 2
+        assert len(stats.errors) > 0
+        assert 'trade_date' in stats.errors[0]
+    
+    def test_deduplicate_different_strategies(self):
+        """测试不同 keep_strategy 的效果"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000001.SZ'],
+            'trade_date': ['20230101', '20230101', '20230101'],
+            'close': [10.0, 11.0, 12.0]
+        })
+        
+        # 测试 keep='first'
+        dedup_first = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'first'
+        })
+        result_first, _ = dedup_first.deduplicate(df)
+        assert result_first['close'][0] == 10.0
+        
+        # 测试 keep='last'
+        dedup_last = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last'
+        })
+        result_last, _ = dedup_last.deduplicate(df)
+        assert result_last['close'][0] == 12.0
+
+
+class TestProcessorDeduplication:
+    """测试 Processor 中的去重逻辑"""
+    
+    def test_remove_duplicates_with_update_time(self):
+        """测试 processor._remove_duplicates 带 _update_time"""
+        processor = DataProcessor()
+        
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ'],
+            'trade_date': ['20230101', '20230101'],
+            'close': [10.0, 11.0],
+            '_update_time': [
+                datetime(2023, 1, 1, 10, 0, 0),
+                datetime(2023, 1, 1, 11, 0, 0)
+            ]
+        })
+        
+        interface_config = {
+            'api_name': 'daily',
+            'output': {
+                'primary_key': ['ts_code', 'trade_date'],
+                'sort_by': ['trade_date']
+            }
+        }
+        
+        result_df = processor._remove_duplicates(df, interface_config)
+        
+        assert len(result_df) == 1
+        assert result_df['close'][0] == 11.0  # 保留最新记录
+    
+    def test_remove_duplicates_without_update_time(self):
+        """测试 processor._remove_duplicates 无 _update_time"""
+        processor = DataProcessor()
+        
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000002.SZ'],
+            'trade_date': ['20230101', '20230101', '20230101'],
+            'close': [10.0, 11.0, 20.0]
+        })
+        
+        interface_config = {
+            'api_name': 'daily',
+            'output': {
+                'primary_key': ['ts_code', 'trade_date']
+            }
+        }
+        
+        result_df = processor._remove_duplicates(df, interface_config)
+        
+        assert len(result_df) == 2
+    
+    def test_handle_primary_keys_detection_only(self):
+        """测试 _handle_primary_keys 仅检测职责，不执行去重"""
+        processor = DataProcessor()
+        
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000002.SZ'],
+            'trade_date': ['20230101', '20230101', '20230102'],
+            'close': [10.0, 11.0, 20.0]
+        })
+        
+        interface_config = {
+            'api_name': 'daily',
+            'output': {
+                'primary_key': ['ts_code', 'trade_date']
+            }
+        }
+        
+        result_df = processor._handle_primary_keys(df, interface_config)
+        
+        # _handle_primary_keys 应该保留所有记录（仅检测）
+        assert len(result_df) == 3
+
+
+class TestStorageDeduplication:
+    """测试 Storage 中的去重逻辑"""
+    
+    def test_read_interface_data_deduplication(self):
+        """测试 storage._read_interface_data 去重"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = StorageManager(storage_dir=temp_dir)
+            
+            # 创建测试数据并保存
+            df = pl.DataFrame({
+                'ts_code': ['000001.SZ', '000001.SZ'],
+                'trade_date': ['20230101', '20230101'],
+                'close': [10.0, 11.0],
+                '_update_time': [
+                    datetime(2023, 1, 1, 10, 0, 0),
+                    datetime(2023, 1, 1, 11, 0, 0)
+                ]
+            })
+            
+            interface_dir = os.path.join(temp_dir, 'daily')
+            os.makedirs(interface_dir, exist_ok=True)
+            df.write_parquet(os.path.join(interface_dir, 'test.parquet'))
+            
+            # 读取并去重
+            result_df = storage._read_interface_data('daily', columns=['ts_code', 'trade_date', 'close'])
+            
+            # 应该根据主键去重
+            assert len(result_df) == 1
+
+
+class TestDeduplicationIntegration:
+    """集成测试"""
+    
+    def test_full_pipeline_with_duplicates(self):
+        """测试完整数据处理流程中的去重"""
+        processor = DataProcessor()
+        
+        # 模拟从API获取的重复数据
+        raw_data = [
+            {'ts_code': '000001.SZ', 'trade_date': '20230101', 'close': 10.0, '_update_time': '2023-01-01 10:00:00'},
+            {'ts_code': '000001.SZ', 'trade_date': '20230101', 'close': 10.5, '_update_time': '2023-01-01 11:00:00'},
+            {'ts_code': '000002.SZ', 'trade_date': '20230101', 'close': 20.0, '_update_time': '2023-01-01 10:00:00'}
+        ]
+        
+        interface_config = {
+            'api_name': 'daily',
+            'output': {
+                'primary_key': ['ts_code', 'trade_date']
+            }
+        }
+        
+        # 使用 process_data 完整流程
+        result_df = processor.process_data(raw_data, interface_config)
+        
+        # 验证最终去重结果
+        assert len(result_df) == 2
+        
+        # 验证保留的是最新记录
+        record = result_df.filter(
+            (pl.col('ts_code') == '000001.SZ') & 
+            (pl.col('trade_date') == '20230101')
+        )
+        assert len(record) == 1
+
+
+class TestDeduplicationBackwardCompatibility:
+    """向后兼容性测试"""
+    
+    def test_keep_last_behavior_unchanged(self):
+        """验证 keep='last' 行为与改造前一致"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000001.SZ'],
+            'trade_date': ['20230101', '20230101', '20230101'],
+            'close': [10.0, 11.0, 12.0]
+        })
+        
+        # 改造前的方式
+        old_result = df.unique(subset=['ts_code', 'trade_date'], keep='last')
+        
+        # 改造后的方式
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last'
+        })
+        new_result, _ = deduplicator.deduplicate(df)
+        
+        # 验证结果一致
+        assert len(old_result) == len(new_result)
+        assert old_result['close'][0] == new_result['close'][0]
+    
+    def test_deduplicate_against_existing_function(self):
+        """测试 deduplicate_against_existing 函数"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            existing_file = os.path.join(temp_dir, 'existing.parquet')
+            
+            # 创建已存在的数据
+            existing_df = pl.DataFrame({
+                'ts_code': ['000001.SZ', '000002.SZ'],
+                'trade_date': ['20230101', '20230101'],
+                'close': [10.0, 20.0]
+            })
+            existing_df.write_parquet(existing_file)
+            
+            # 新数据包含重复和新增
+            new_df = pl.DataFrame({
+                'ts_code': ['000001.SZ', '000003.SZ'],
+                'trade_date': ['20230101', '20230101'],
+                'close': [11.0, 30.0]
+            })
+            
+            result_df, stats = deduplicate_against_existing(
+                new_df, 
+                existing_file,
+                primary_keys=['ts_code', 'trade_date']
+            )
+            
+            # 应该只保留新增的记录
+            assert len(result_df) == 1
+            assert result_df['ts_code'][0] == '000003.SZ'
+            assert stats.removed_rows == 1
+
+
+class TestDeduplicationPerformance:
+    """性能测试"""
+    
+    @pytest.mark.slow
+    def test_large_dataset_performance(self):
+        """测试大数据集的去重性能"""
+        import time
+        
+        # 创建100万行测试数据，其中10%是重复的
+        n_rows = 1000000
+        data = {
+            'ts_code': [f'{i:06d}.SZ' for i in range(n_rows)],
+            'trade_date': ['20230101'] * n_rows,
+            'close': [float(i) for i in range(n_rows)]
+        }
+        
+        # 添加重复数据
+        for i in range(0, n_rows, 10):
+            data['ts_code'][i] = '000001.SZ'
+        
+        df = pl.DataFrame(data)
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last',
+            'enable_stats': True
+        })
+        
+        start_time = time.time()
+        result_df, stats = deduplicator.deduplicate(df)
+        elapsed_time = time.time() - start_time
+        
+        # 验证性能：100万行数据应在5秒内完成
+        assert elapsed_time < 5.0
+        assert stats.input_rows == n_rows
+        assert stats.output_rows < n_rows
+        
+        print(f"Performance test: {n_rows} rows deduplicated in {elapsed_time:.2f}s")
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])
 ```
 
 #### 3.2 边界测试
-- 空 DataFrame 处理
-- 大量数据（>100万行）性能测试
-- 无主键字段场景
-- 无 _update_time 字段场景
+
+**测试文件**: `test/test_deduplication_edge_cases.py`
+
+```python
+#!/usr/bin/env python
+"""
+去重功能边界测试
+"""
+
+import pytest
+import polars as pl
+from app4.core.dedup import DataDeduplicator
+
+
+class TestEdgeCases:
+    """边界情况测试"""
+    
+    def test_single_row_dataframe(self):
+        """测试单行数据"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ'],
+            'trade_date': ['20230101'],
+            'close': [10.0]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last'
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 1
+        assert stats.removed_rows == 0
+    
+    def test_all_duplicates(self):
+        """测试全部行都是重复的情况"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ'] * 100,
+            'trade_date': ['20230101'] * 100,
+            'close': [float(i) for i in range(100)]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last'
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 1
+        assert stats.removed_rows == 99
+        assert stats.get_dedup_rate() == 99.0
+    
+    def test_null_primary_key_values(self):
+        """测试主键包含空值的情况"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', None, '000001.SZ'],
+            'trade_date': ['20230101', '20230102', '20230101'],
+            'close': [10.0, 20.0, 11.0]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last'
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        # 空值应该被视为有效的不同值
+        assert len(result_df) >= 2
+    
+    def test_unicode_and_special_chars(self):
+        """测试包含Unicode和特殊字符的数据"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000001.中文'],
+            'name': ['股票A', '股票A', '股票B'],
+            'value': [1.0, 2.0, 3.0]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code'],
+            'keep_strategy': 'last'
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 2
+        assert '000001.中文' in result_df['ts_code'].to_list()
+    
+    def test_various_data_types(self):
+        """测试不同数据类型的去重"""
+        df = pl.DataFrame({
+            'string_col': ['A', 'A', 'B'],
+            'int_col': [1, 1, 2],
+            'float_col': [1.5, 1.5, 2.5],
+            'bool_col': [True, True, False]
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['string_col', 'int_col'],
+            'keep_strategy': 'last'
+        })
+        
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 2
+        assert stats.removed_rows == 1
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])
+```
 
 #### 3.3 集成测试
-- 运行完整的数据下载流程
-- 验证去重统计信息正确输出
-- 验证日志格式统一
+
+**测试文件**: `test/test_deduplication_integration.py`
+
+```python
+#!/usr/bin/env python
+"""
+去重功能集成测试
+测试完整数据下载和存储流程中的去重
+"""
+
+import pytest
+import polars as pl
+import tempfile
+import os
+from datetime import datetime
+from app4.core.config_loader import ConfigLoader
+from app4.core.downloader import GenericDownloader
+from app4.core.storage import StorageManager
+from app4.core.processor import DataProcessor
+from app4.core.cache_warmer import CacheWarmer
+
+
+class TestDownloaderDeduplication:
+    """测试 Downloader 中的去重"""
+    
+    def test_get_stock_list_deduplication(self):
+        """测试股票列表获取时的去重"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 创建模拟的股票基础数据
+            os.makedirs(os.path.join(temp_dir, 'stock_basic'), exist_ok=True)
+            
+            df = pl.DataFrame({
+                'ts_code': ['000001.SZ', '000001.SZ', '000002.SZ'],  # 有重复
+                'symbol': ['000001', '000001', '000002'],
+                'name': ['平安银行', '平安银行', '万科A'],
+                'list_status': ['L', 'L', 'L']
+            })
+            df.write_parquet(os.path.join(temp_dir, 'stock_basic', 'data.parquet'))
+            
+            config_loader = ConfigLoader('app4/config')
+            downloader = GenericDownloader(config_loader)
+            
+            # 通过 downloader 获取股票列表
+            stock_list = downloader._get_stock_list_from_data_dir()
+            
+            # 验证去重：应该有2只股票
+            assert stock_list is not None
+            assert len(stock_list) == 2
+            ts_codes = [s['ts_code'] for s in stock_list]
+            assert '000001.SZ' in ts_codes
+            assert '000002.SZ' in ts_codes
+
+
+class TestCacheWarmerDeduplication:
+    """测试 CacheWarmer 中的去重"""
+    
+    def test_preload_trade_calendar_deduplication(self):
+        """测试交易日历预加载时的去重"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 创建模拟的交易日历数据
+            os.makedirs(os.path.join(temp_dir, 'trade_cal'), exist_ok=True)
+            
+            df = pl.DataFrame({
+                'cal_date': ['20230101', '20230101', '20230102', '20230103'],  # 有重复
+                'is_open': [1, 1, 1, 1],
+                'exchange': ['SSE', 'SSE', 'SSE', 'SSE']
+            })
+            df.write_parquet(os.path.join(temp_dir, 'trade_cal', 'data.parquet'))
+            
+            cache_warmer = CacheWarmer(temp_dir)
+            calendar = cache_warmer.preload_trade_calendar()
+            
+            # 验证去重：应该有3个交易日
+            assert calendar is not None
+            assert len(calendar) == 3
+            dates = [c['cal_date'] for c in calendar]
+            assert dates == ['20230101', '20230102', '20230103']  # 已排序
+
+
+class TestEndToEndDeduplication:
+    """端到端测试"""
+    
+    def test_full_download_and_storage_with_duplicates(self):
+        """测试完整下载和存储流程中的去重"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 创建组件
+            storage = StorageManager(storage_dir=temp_dir)
+            storage.start_writer()
+            
+            processor = DataProcessor()
+            
+            # 模拟API返回的重复数据
+            api_data = [
+                {'ts_code': '000001.SZ', 'trade_date': '20230101', 'close': 10.0, '_update_time': '2023-01-01 10:00:00'},
+                {'ts_code': '000001.SZ', 'trade_date': '20230101', 'close': 10.5, '_update_time': '2023-01-01 11:00:00'},
+                {'ts_code': '000002.SZ', 'trade_date': '20230101', 'close': 20.0, '_update_time': '2023-01-01 10:00:00'}
+            ]
+            
+            interface_config = {
+                'api_name': 'daily',
+                'output': {
+                    'primary_key': ['ts_code', 'trade_date']
+                }
+            }
+            
+            # 处理数据
+            df = processor.process_data(api_data, interface_config)
+            
+            # 验证去重结果
+            assert len(df) == 2
+            
+            # 保存数据
+            # storage.save_data('daily', df)  # 假设有此方法
+            
+            storage.stop_writer()
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])
+```
 
 #### 3.4 向后兼容性测试
-- 对比改造前后的输出结果一致性
-- 验证日志级别符合预期
+
+**测试文件**: `test/test_deduplication_compatibility.py`
+
+```python
+#!/usr/bin/env python
+"""
+去重功能向后兼容性测试
+验证改造前后的行为一致性
+"""
+
+import pytest
+import polars as pl
+from app4.core.dedup import DataDeduplicator
+
+
+class TestBackwardCompatibility:
+    """向后兼容性测试"""
+    
+    def test_old_vs_new_api_compatibility(self):
+        """测试旧API与新API的兼容性"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000002.SZ'],
+            'trade_date': ['20230101', '20230101', '20230101'],
+            'close': [10.0, 11.0, 20.0]
+        })
+        
+        # 模拟旧的直接调用方式
+        old_way_result = df.unique(subset=['ts_code', 'trade_date'], keep='last')
+        
+        # 新的统一去重方式
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'keep_strategy': 'last'
+        })
+        new_way_result, stats = deduplicator.deduplicate(df)
+        
+        # 验证结果完全一致
+        assert old_way_result.shape == new_way_result.shape
+        assert old_way_result['close'].to_list() == new_way_result['close'].to_list()
+    
+    def test_default_config_behavior(self):
+        """测试默认配置行为"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ'],
+            'trade_date': ['20230101', '20230101'],
+            'close': [10.0, 11.0]
+        })
+        
+        # 使用默认配置
+        deduplicator = DataDeduplicator()
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        # 默认应该使用配置中的主键和策略
+        assert len(result_df) == 1
+        assert stats.input_rows == 2
+        assert stats.output_rows == 1
+    
+    def test_config_override_behavior(self):
+        """测试配置覆盖行为"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ', '000001.SZ', '000002.SZ'],
+            'trade_date': ['20230101', '20230101', '20230101'],
+            'close': [10.0, 11.0, 20.0]
+        })
+        
+        # 初始化时配置
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code'],
+            'keep_strategy': 'first'
+        })
+        
+        # 调用时覆盖主键
+        result_df, stats = deduplicator.deduplicate(
+            df, 
+            primary_keys=['ts_code', 'trade_date']
+        )
+        
+        # 应该使用调用时的主键
+        assert len(result_df) == 2  # 按ts_code+trade_date去重
+    
+    def test_error_handling_compatibility(self):
+        """测试错误处理兼容性"""
+        df = pl.DataFrame({
+            'ts_code': ['000001.SZ'],
+            'close': [10.0]
+            # 缺少 trade_date 主键
+        })
+        
+        deduplicator = DataDeduplicator({
+            'primary_keys': ['ts_code', 'trade_date'],
+            'enable_stats': True
+        })
+        
+        # 应该优雅处理，返回原始数据
+        result_df, stats = deduplicator.deduplicate(df)
+        
+        assert len(result_df) == 1  # 返回原始数据
+        assert len(stats.errors) > 0  # 记录错误
+        assert 'trade_date' in stats.errors[0]
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])
+```
+
+### 测试执行命令
+
+```bash
+# 运行所有去重测试
+pytest test/test_unified_deduplication.py -v
+
+# 运行边界测试
+pytest test/test_deduplication_edge_cases.py -v
+
+# 运行集成测试
+pytest test/test_deduplication_integration.py -v
+
+# 运行兼容性测试
+pytest test/test_deduplication_compatibility.py -v
+
+# 运行性能测试（较慢）
+pytest test/test_unified_deduplication.py::TestDeduplicationPerformance -v --slow
+
+# 运行所有去重相关测试
+pytest test/test_*deduplication*.py -v
+```
 
 ### Phase 4: 文档更新
 1. 在 `dedup.py` 顶部添加详细的使用示例
