@@ -19,7 +19,7 @@ from .date_calculator import DateCalculator
 from .interface_selector import InterfaceSelector
 from .update_reporter import UpdateReporter
 from .checkpoint_manager import CheckpointManager
-from core.pagination import PaginationContext
+from core.pagination import PaginationContext, create_context_with_legacy_support, migrate_legacy_config
 
 logger = logging.getLogger(__name__)
 
@@ -344,21 +344,21 @@ class UpdateManager:
             return True, None
     
     def _execute_download(
-        self, 
-        interface_name: str, 
+        self,
+        interface_name: str,
         interface_config: Dict[str, Any],
         date_range: DateRange,
         options: UpdateOptions
     ) -> int:
         """
         执行下载
-        
+
         Args:
             interface_name: 接口名称
             interface_config: 接口配置
             date_range: 日期范围
             options: 更新选项
-            
+
         Returns:
             int: 下载的记录数
         """
@@ -367,95 +367,55 @@ class UpdateManager:
             'start_date': date_range.start_date,
             'end_date': date_range.end_date
         }
-        
-        # 获取分页配置
-        pagination_config = interface_config.get('pagination', {})
-        mode = pagination_config.get('mode', 'offset')
-        
-        # 构建上下文 - 使用 PaginationContext 对象
-        context = PaginationContext(
+
+        # 先转换旧版分页配置为新版格式
+        pagination_config = migrate_legacy_config(interface_config)
+
+        # 获取交易日历和股票列表（如果需要）
+        trade_calendar = None
+        stock_list = None
+
+        if pagination_config.get('enabled', False):
+            # 检查是否需要交易日历
+            if pagination_config.get('time_range', {}).get('enabled', False):
+                trade_calendar = self.downloader.get_trade_calendar(
+                    date_range.start_date,
+                    date_range.end_date
+                )
+
+            # 检查是否需要股票列表
+            if pagination_config.get('stock_loop', {}).get('enabled', False):
+                stock_list = self.downloader._get_stock_list()
+
+        # 构建上下文 - 使用 create_context_with_legacy_support 以支持旧版配置格式
+        context = create_context_with_legacy_support(
             interface_config=interface_config,
+            trade_calendar=trade_calendar,
+            stock_list=stock_list,
+            coverage_manager=self.coverage_manager,
             force_download=options.force
         )
-        
-        # 根据分页模式执行下载
-        if mode == 'date_range':
-            result_data = self.pagination_executor.execute_date_range_pagination(
-                interface_config, 
-                params, 
-                context, 
-                self.downloader._make_request,
-                coverage_manager=self.coverage_manager,
-                force_download=options.force,
-                get_trade_calendar_callback=self.downloader.get_trade_calendar
-            )
-        elif mode == 'stock_loop':
-            result_data = self.pagination_executor.execute_stock_loop_pagination(
-                interface_config, 
-                params, 
-                context,
-                self.downloader._make_request,
-                get_stock_list_callback=self.downloader._get_stock_list,
-                coverage_manager=self.coverage_manager,
-                force_download=options.force
-            )
-        elif mode == 'period_range':
-            result_data = self.pagination_executor.execute_period_range_pagination(
-                interface_config, 
-                params, 
-                context,
-                self.downloader._make_request,
-                coverage_manager=self.coverage_manager,
-                force_download=options.force
-            )
-        elif mode == 'quarterly_range':
-            result_data = self.pagination_executor.execute_quarterly_pagination(
-                interface_config, 
-                params, 
-                context,
-                self.downloader._make_request,
-                coverage_manager=self.coverage_manager,
-                force_download=options.force
-            )
-        elif mode == 'periodic_range':
-            result_data = self.pagination_executor.execute_periodic_pagination(
-                interface_config, 
-                params, 
-                context,
-                self.downloader._make_request,
-                coverage_manager=self.coverage_manager,
-                force_download=options.force
-            )
-        elif mode == 'reverse_date_range':
-            result_data = self.pagination_executor.execute_reverse_date_range_pagination(
-                interface_config, 
-                params, 
-                context,
-                self.downloader._make_request,
-                coverage_manager=self.coverage_manager,
-                force_download=options.force,
-                get_trade_calendar_callback=self.downloader.get_trade_calendar
-            )
-        else:
-            # 默认使用 offset 模式
-            result_data = self.pagination_executor.execute_offset_pagination(
-                interface_config, 
-                params, 
-                context,
-                self.downloader._make_request
-            )
-        
+
+        # 使用统一的分页执行入口
+        result_data = self.pagination_executor.execute(
+            interface_config=interface_config,
+            base_params=params,
+            context=context,
+            make_request=self.downloader._make_request,
+            coverage_manager=self.coverage_manager
+        )
+
         # 处理和保存数据
         if result_data and len(result_data) > 0:
             # 使用 processor 处理数据
-            df = self.processor.process_data(result_data, interface_name, interface_config)
-            
+            df = self.processor.process_data(result_data, interface_config)
+
             # 保存到 storage
             if not df.is_empty():
                 self.storage_manager.write_interface_data(interface_name, df)
-            
+
             return len(result_data)
-        
+
         return 0
     
     def _create_result(self) -> UpdateResult:

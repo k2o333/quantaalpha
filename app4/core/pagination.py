@@ -320,7 +320,7 @@ def migrate_legacy_config(interface_config: Dict[str, Any]) -> Dict[str, Any]:
     elif mode == 'reverse_date_range':
         new_config['time_range'] = {
             'enabled': True,
-            'window': f"{old_pagination.get('window_size_days', 30)}d",
+            'window': window_str,
             'reverse': True,
             'stop_on_empty': old_pagination.get('empty_threshold_days', 90)
         }

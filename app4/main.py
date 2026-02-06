@@ -195,9 +195,19 @@ def run_update_mode(args):
     storage_manager.start_writer()
     
     try:
+        # 合并 --interface 和 --update-interface 参数
+        interfaces_to_update = None
+        if hasattr(args, 'update_interfaces') and args.update_interfaces:
+            interfaces_to_update = args.update_interfaces.copy()
+        if hasattr(args, 'interface') and args.interface:
+            if interfaces_to_update is None:
+                interfaces_to_update = [args.interface]
+            else:
+                interfaces_to_update.append(args.interface)
+
         # 创建更新选项
         update_options = UpdateOptions(
-            interfaces=args.update_interfaces if hasattr(args, 'update_interfaces') else None,
+            interfaces=interfaces_to_update,
             exclude=args.update_exclusions if hasattr(args, 'update_exclusions') else [],
             groups=args.update_groups if hasattr(args, 'update_groups') else [],
             start_date=args.start_date if args.start_date != '20230101' else None,

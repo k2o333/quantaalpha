@@ -120,6 +120,10 @@ class GenericDownloader:
         # [新增] 存储管理器引用，用于buffer机制
         self.storage_manager = storage_manager
 
+        # [新增] 分页执行器，供 UpdateManager 复用
+        from .pagination_executor import PaginationExecutor
+        self.pagination_executor = PaginationExecutor()
+
     def _create_session_with_retries(self):
         """创建配置了重试策略的 Session"""
         session = requests.Session()

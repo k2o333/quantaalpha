@@ -73,20 +73,31 @@ class StorageManager:
             # 处理剩余的数据
             self.flush_remaining_data()
 
+            # 等待处理队列中的数据被消费完毕
+            logger.info("Waiting for process queue to empty...")
+            while not self.process_queue.empty():
+                time.sleep(0.1)
+
             # 停止处理线程
             self.process_queue.put(None)  # 发送哨兵
             if self.process_thread:
-                self.process_thread.join()
+                self.process_thread.join(timeout=60)
+                if self.process_thread.is_alive():
+                    logger.warning("Process thread did not stop within timeout")
 
-            # 停止写入线程
+            # 停止写入线程 - 直接发送哨兵，让writer线程自己处理剩余数据
+            logger.info("Stopping writer thread...")
             self.data_queue.put(None)  # 发送哨兵
             if self.writer_thread:
-                self.writer_thread.join()
+                self.writer_thread.join(timeout=120)
+                if self.writer_thread.is_alive():
+                    logger.warning("Writer thread did not stop within timeout")
 
             logger.info("Storage threads stopped")
 
     def _writer_worker(self):
         """写入工作者线程"""
+        pending_stop = False
         while True:
             try:
                 # 从队列中获取数据批次
@@ -94,14 +105,11 @@ class StorageManager:
                 try:
                     # 尝试获取第一个元素
                     item = self.data_queue.get(timeout=1)
-                    
+
                     # 检查哨兵
                     if item is None:
                         # 收到停止信号，处理完当前批次（如果还有剩余）后退出
-                        # 但这里我们设计的是单个哨兵结束整个循环，
-                        # 且由于是一个个get，收到None说明前面没有数据了（如果队列FIFO）
-                        # 或者有数据但被None隔开了。
-                        # 为了安全起见，收到None后，我们将队列中剩余所有非None项取出处理
+                        # 将队列中剩余所有非None项取出处理
                         while not self.data_queue.empty():
                             try:
                                 extra_item = self.data_queue.get_nowait()
@@ -109,7 +117,7 @@ class StorageManager:
                                     batch_data.append(extra_item)
                             except queue.Empty:
                                 break
-                        
+
                         if batch_data:
                             self._write_batch(batch_data)
                         break
@@ -122,8 +130,8 @@ class StorageManager:
                             item = self.data_queue.get_nowait()
                             if item is None:
                                 # 如果在批次收集中遇到None，说明要结束
-                                # 将None放回队列，以便外层循环处理退出逻辑
-                                self.data_queue.put(None)
+                                # 标记收到停止信号，处理完当前批次后退出
+                                pending_stop = True
                                 break
                             batch_data.append(item)
                         except queue.Empty:
@@ -132,6 +140,10 @@ class StorageManager:
                     # 处理批次数据
                     if batch_data:
                         self._write_batch(batch_data)
+
+                    # 如果之前收到停止信号，退出循环
+                    if pending_stop:
+                        break
 
                 except queue.Empty:
                     # 如果队列为空且收到停止信号（通过self.running判断作为双重保障）
@@ -677,6 +689,36 @@ class StorageManager:
         else:
             # 同步写入：直接写入
             self._write_interface_data(interface_name, data)
+
+    def write_interface_data(self, interface_name: str, df: pl.DataFrame) -> None:
+        """
+        写入接口数据 - 供 UpdateManager 使用
+
+        Args:
+            interface_name: 接口名称
+            df: 要写入的 DataFrame
+        """
+        if df.is_empty():
+            logger.warning(f"DataFrame is empty for {interface_name}, skipping write")
+            return
+
+        try:
+            # 将 DataFrame 转换为字典列表
+            data = df.to_dicts()
+
+            # 添加 _update_time 字段标记数据已处理
+            current_time = int(time.time() * 1000)
+            for item in data:
+                item['_update_time'] = current_time
+
+            # 使用异步写入
+            self.save_data(interface_name, data, async_write=True)
+
+            logger.info(f"Queued {len(data)} records for {interface_name} via write_interface_data")
+
+        except Exception as e:
+            logger.error(f"Error in write_interface_data for {interface_name}: {str(e)}")
+            raise
 
     def get_storage_info(self) -> Dict[str, Any]:
         """获取存储信息"""
