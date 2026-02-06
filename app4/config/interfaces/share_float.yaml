@@ -17,6 +17,7 @@ output:
   - ts_code
   - ann_date
   - float_date
+  - float_share
   - holder_name
   sort_by:
   - float_date
@@ -24,7 +25,7 @@ pagination:
   date_field: float_date
   enabled: true
   mode: reverse_date_range
-  window_size_days: 365
+  window_size_days: 1
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD

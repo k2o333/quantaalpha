@@ -16,12 +16,7 @@ from .config_loader import ConfigLoader
 from .coverage_manager import CoverageManager
 from .processor import DataProcessor
 from .schema_manager import SchemaManager
-from .pagination import (
-    ParameterGenerator,
-    PaginationContext,
-    get_window_size_for_interface
-)
-from .pagination_executor import PaginationExecutor
+# 分页相关导入在 _execute_pagination 方法中动态导入
 import polars as pl
 
 # Import the new PerformanceMonitor class
@@ -121,9 +116,6 @@ class GenericDownloader:
             self.coverage_manager = CoverageManager(storage_manager, config_loader, downloader=self)
         else:
             self.coverage_manager = None
-
-        # [新增] 分页执行器
-        self.pagination_executor = PaginationExecutor()
 
         # [新增] 存储管理器引用，用于buffer机制
         self.storage_manager = storage_manager
@@ -228,70 +220,42 @@ class GenericDownloader:
 
         职责：
         1. 创建分页上下文
-        2. 根据模式选择执行方法
-        3. 委托给分页执行器执行
+        2. 使用统一入口执行分页
+        3. 处理结果
         """
         pagination_config = interface_config.get('pagination', {})
         if not pagination_config.get('enabled', False):
             return self._make_request(interface_config, params)
 
-        mode = pagination_config.get('mode', 'offset')
-        context = PaginationContext(
+        # 新架构：统一入口，自动处理所有模式
+        from .pagination import create_context_with_legacy_support
+        from .pagination_executor import PaginationExecutor
+        
+        # 获取交易日历
+        start_date = params.get('start_date', '20050101')
+        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+        trade_calendar = self.get_trade_calendar(start_date, end_date)
+        
+        # 创建支持向后兼容的上下文
+        pagination_context = create_context_with_legacy_support(
             interface_config=interface_config,
+            trade_calendar=trade_calendar,
+            stock_list=self._get_stock_list(),
+            coverage_manager=self.coverage_manager,
             force_download=self.force_download
         )
-
-        # 委托给分页执行器，传递回调函数而非self实例
-        if mode == 'offset':
-            return self.pagination_executor.execute_offset_pagination(
-                interface_config, params, context, self._make_request
-            )
-        elif mode == 'date_range':
-            return self.pagination_executor.execute_date_range_pagination(
-                interface_config, params, context, self._make_request,
-                coverage_manager=self.coverage_manager, force_download=self.force_download,
-                get_trade_calendar_callback=self.get_trade_calendar
-            )
-        elif mode == 'stock_loop':
-            return self.pagination_executor.execute_stock_loop_pagination(
-                interface_config, params, context, self._make_request,
-                get_stock_list_callback=self._get_stock_list,
-                coverage_manager=self.coverage_manager, force_download=self.force_download
-            )
-        elif mode == 'period_range':
-            return self.pagination_executor.execute_period_range_pagination(
-                interface_config, params, context, self._make_request,
-                coverage_manager=self.coverage_manager, force_download=self.force_download
-            )
-        elif mode == 'quarterly_range':
-            return self.pagination_executor.execute_quarterly_pagination(
-                interface_config, params, context, self._make_request
-            )
-        elif mode == 'periodic_range':
-            return self.pagination_executor.execute_periodic_pagination(
-                interface_config, params, context, self._make_request
-            )
-        elif mode == 'date_range_daily':
-            return self.pagination_executor.execute_date_range_daily_pagination(
-                interface_config, params, context, self._make_request,
-                coverage_manager=self.coverage_manager, force_download=self.force_download,
-                get_trade_calendar_callback=self.get_trade_calendar
-            )
-        elif mode == 'reverse_date_range':
-            # 新增：反向日期范围分页
-            return self.pagination_executor.execute_reverse_date_range_pagination(
-                interface_config, params, context, self._make_request,
-                coverage_manager=self.coverage_manager, force_download=self.force_download,
-                get_trade_calendar_callback=self.get_trade_calendar
-            )
-        elif mode == 'type_split':
-            # 新增：按类型分割分页（适用于stock_hsgt等接口）
-            return self.pagination_executor.execute_type_split_pagination(
-                interface_config, params, context, self._make_request,
-                get_trade_calendar_callback=self.get_trade_calendar  # 新增参数
-            )
-        else:
-            return self._make_request(interface_config, params)
+        
+        # 创建分页执行器
+        executor = PaginationExecutor()
+        
+        # 统一执行（自动识别并转换旧配置）
+        return executor.execute(
+            interface_config=interface_config,
+            base_params=params,
+            context=pagination_context,
+            make_request=self._make_request,
+            coverage_manager=self.coverage_manager
+        )
 
     def _get_stock_list(self) -> Optional[List[Dict[str, Any]]]:
         """获取股票列表的统一方法"""
@@ -491,36 +455,35 @@ class GenericDownloader:
 
             logger.info(f"Downloading data for stock {stock['ts_code']}, params: {stock_params}")
 
-            # 创建分页上下文
-            pagination_config = interface_config.get('pagination', {})
-            context = PaginationContext(
+            # 使用新的统一分页执行入口
+            from .pagination import create_context_with_legacy_support
+            from .pagination_executor import PaginationExecutor
+            
+            # 获取交易日历
+            start_date = stock_params.get('start_date', '20050101')
+            end_date = stock_params.get('end_date', datetime.now().strftime('%Y%m%d'))
+            trade_calendar = self.get_trade_calendar(start_date, end_date)
+            
+            # 创建支持向后兼容的上下文
+            pagination_context = create_context_with_legacy_support(
                 interface_config=interface_config,
+                trade_calendar=trade_calendar,
+                stock_list=[stock],  # 只包含当前股票
+                coverage_manager=self.coverage_manager,
                 force_download=self.force_download
             )
-
-            # 为单个股票执行分页下载 - 使用分页执行器
-            # 对于股票循环模式，通常会使用日期范围分页来获取单个股票的历史数据
-            pagination_config = interface_config.get('pagination', {})
-
-            if pagination_config.get('enabled', False):
-                mode = pagination_config.get('mode', 'offset')
-
-                if mode == 'date_range':
-                    stock_data = self.pagination_executor.execute_date_range_pagination(
-                        interface_config, stock_params, context, self._make_request,
-                        coverage_manager=self.coverage_manager, force_download=self.force_download,
-                        get_trade_calendar_callback=self.get_trade_calendar
-                    )
-                elif mode == 'offset':
-                    stock_data = self.pagination_executor.execute_offset_pagination(
-                        interface_config, stock_params, context, self._make_request
-                    )
-                else:
-                    # 对于其他模式或未知模式，直接请求
-                    stock_data = self._make_request(interface_config, stock_params)
-            else:
-                # 如果分页未启用，直接请求
-                stock_data = self._make_request(interface_config, stock_params)
+            
+            # 创建分页执行器
+            executor = PaginationExecutor()
+            
+            # 统一执行（自动识别并转换旧配置）
+            stock_data = executor.execute(
+                interface_config=interface_config,
+                base_params=stock_params,
+                context=pagination_context,
+                make_request=self._make_request,
+                coverage_manager=self.coverage_manager
+            )
 
             if stock_data:
                 logger.info(f"Downloaded {len(stock_data)} records for {stock['ts_code']}")
@@ -652,7 +615,7 @@ class GenericDownloader:
                 fields = result.get('data', {}).get('fields', [])
                 items = result.get('data', {}).get('items', [])
 
-                # 调试日志：记录API实际返回的字段
+                # 调试日志：记录API实际返回的字段和记录数
                 logger.info(f"API returned {len(fields)} fields for {api_name}")
                 if len(fields) < 50:  # 如果字段少，全部显示
                     logger.info(f"Returned fields: {fields}")
@@ -668,6 +631,9 @@ class GenericDownloader:
                             field_name = str(field_name) if field_name is not None else f"field_{i}"
                             row_dict[field_name] = item[i]
                     converted_data.append(row_dict)
+
+                # 记录本次请求下载的记录数
+                logger.info(f"Downloaded {len(converted_data)} records for {api_name}")
 
                 duration = time.time() - start_time
 

@@ -14,10 +14,9 @@ output:
   sort_by:
   - trade_date
 pagination:
-  date_field: trade_date
   enabled: true
   mode: reverse_date_range
-  window_size_days: 365
+  window_size_days: 1
 parameters:
   content_type:
     description: 资金类型(行业、概念、地域)

@@ -24,7 +24,7 @@ output:
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  window_size_days: 9999  # 每个股票请求10年数据
 parameters:
   end_date:
     description: 报告期 YYYYMMDD

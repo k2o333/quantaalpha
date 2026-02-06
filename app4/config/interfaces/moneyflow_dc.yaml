@@ -15,8 +15,8 @@ output:
   - trade_date
 pagination:
   enabled: true
-  mode: reverse_date_range
-  window_size_days: 365
+  mode: stock_loop
+  window_size_days: 9999
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD

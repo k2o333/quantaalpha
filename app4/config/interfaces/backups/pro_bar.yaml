@@ -21,7 +21,7 @@ pagination:
   limit_key: limit
   mode: stock_loop
   offset_key: offset
-  window_size_days: 5000
+  window_size_days: 9999
 parameters:
   adj:
     default: qfq
