@@ -32,28 +32,14 @@ output:
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 9999  # 每个股票请求10年数据
+  window_size_days: 9 # 每个股票请求10年数据
 parameters:
   actual_date:
     description: 实际披露日期 YYYYMMDD
-    required: false
-    type: string
-  ann_date:
-    description: 最新披露公告日 YYYYMMDD
-    required: false
     type: string
     is_date_anchor: true  # 标识为日期锚定参数
-  end_date:
-    description: 财报周期 YYYYMMDD
-    required: false
-    type: string
-  pre_date:
-    description: 计划披露日期 YYYYMMDD
-    required: false
-    type: string
   ts_code:
     description: TS股票代码
-    required: false
     type: string
 permissions:
   min_points: 500
