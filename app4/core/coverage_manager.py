@@ -4,19 +4,45 @@
 """
 import logging
 import threading
-from typing import Dict, Any, Optional, Set
-from collections import defaultdict
+from typing import Dict, Any, Optional, Set, List
+from collections import defaultdict, OrderedDict
 import polars as pl
-from datetime import datetime
+from datetime import datetime, timedelta
 from .storage import StorageManager
 from .config_loader import ConfigLoader
 
 logger = logging.getLogger(__name__)
 
+
+class DateRange:
+    """日期范围数据类"""
+
+    def __init__(self, start_date: str, end_date: str):
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def __str__(self) -> str:
+        return f"{self.start_date} ~ {self.end_date}"
+
+    def __repr__(self) -> str:
+        return f"DateRange({self.start_date}, {self.end_date})"
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, DateRange):
+            return False
+        return self.start_date == other.start_date and self.end_date == other.end_date
+
+    def days_between(self) -> int:
+        """计算日期范围的天数"""
+        start = datetime.strptime(self.start_date, '%Y%m%d')
+        end = datetime.strptime(self.end_date, '%Y%m%d')
+        return (end - start).days + 1
+
+
 class CoverageManager:
     """覆盖率管理器 - 实现重复数据检测功能"""
 
-    def __init__(self, storage_manager: StorageManager, config_loader: ConfigLoader, downloader=None):
+    def __init__(self, storage_manager: StorageManager, config_loader: ConfigLoader, downloader=None, cache_size: int = 128):
         self.storage_manager = storage_manager
         self.config_loader = config_loader
         self.downloader = downloader  # 添加downloader引用用于API请求
@@ -24,6 +50,11 @@ class CoverageManager:
         self._cache = {}
         self._coverage_cache = {}  # 用于缓存覆盖率检测结果
         self._cache_lock = threading.RLock()  # [新增] 线程锁
+
+        # [新增] 已有日期缓存（LRU实现）
+        self._existing_dates_cache = OrderedDict()
+        self._cache_size = cache_size
+        self._existing_dates_lock = threading.RLock()
 
     def get_coverage_status(self, interface_name: str, start_date: str, end_date: str) -> Dict[str, Any]:
         """
@@ -398,4 +429,283 @@ class CoverageManager:
             
         except Exception as e:
             logger.warning(f"Stock existence check failed for {interface_name}: {e}")
+            return False
+
+    # ============================================================================
+    # 缺口检测功能（增量更新增强）
+    # ============================================================================
+
+    def detect_gaps(
+        self,
+        interface_name: str,
+        target_range: DateRange,
+        trade_calendar: List[Dict[str, Any]],
+        min_gap_days: int = 1,
+        max_gaps: int = 50
+    ) -> List[DateRange]:
+        """
+        检测缺失的日期段
+
+        Args:
+            interface_name: 接口名称
+            target_range: 目标日期范围
+            trade_calendar: 交易日历列表（包含is_open字段的dict列表）
+            min_gap_days: 最小缺口天数（小于此值的缺口忽略）
+            max_gaps: 最大缺口数量（超过则返回整个范围）
+
+        Returns:
+            List[DateRange]: 缺失的日期段列表
+        """
+        logger.info(f"检测缺口: {interface_name} ({target_range})")
+
+        # 1. 获取已有日期（带缓存）
+        existing_dates = self._get_existing_dates_cached(interface_name)
+        logger.info(f"已有数据: {len(existing_dates)} 天")
+
+        # 2. 计算期望日期集合（只包含交易日）
+        expected_dates = set()
+        for day in trade_calendar:
+            cal_date = day.get('cal_date')
+            is_open = day.get('is_open', 0)
+            if cal_date and is_open == 1:
+                if target_range.start_date <= cal_date <= target_range.end_date:
+                    expected_dates.add(cal_date)
+
+        logger.info(f"期望交易日: {len(expected_dates)} 天")
+
+        # 3. 快速路径检查
+        if not existing_dates:
+            logger.info("无已有数据，需要完整下载")
+            return [target_range]
+
+        if existing_dates >= expected_dates:
+            logger.info("数据已完整覆盖，无需下载")
+            return []
+
+        # 4. 找出缺失日期
+        missing_dates = expected_dates - existing_dates
+
+        if not missing_dates:
+            logger.info("无缺失数据")
+            return []
+
+        logger.info(f"缺失日期: {len(missing_dates)} 天")
+
+        # 5. 合并连续缺失日期为段
+        gaps = self._merge_continuous_dates(sorted(missing_dates), min_gap_days)
+        logger.info(f"合并为 {len(gaps)} 个缺口段")
+
+        # 6. 如果缺口太多，合并为大范围
+        if len(gaps) > max_gaps:
+            logger.warning(f"缺口数量({len(gaps)})超过限制({max_gaps})，合并为完整范围下载")
+            return [target_range]
+
+        # 7. 输出缺口详情
+        for i, gap in enumerate(gaps):
+            logger.info(f"  [{i+1}] {gap} ({gap.days_between()} 天)")
+
+        return gaps
+
+    def _get_existing_dates_cached(self, interface_name: str) -> Set[str]:
+        """获取已有日期（带LRU缓存）"""
+        with self._existing_dates_lock:
+            if interface_name in self._existing_dates_cache:
+                # 移动到末尾表示最近使用
+                dates = self._existing_dates_cache.pop(interface_name)
+                self._existing_dates_cache[interface_name] = dates
+                logger.debug(f"{interface_name}: 从缓存读取已有日期（{len(dates)} 天）")
+                return dates
+
+        # 缓存未命中，从存储读取
+        dates = self._get_existing_dates_from_storage(interface_name)
+
+        # 写入缓存（带锁）
+        with self._existing_dates_lock:
+            # LRU淘汰
+            if len(self._existing_dates_cache) >= self._cache_size:
+                oldest_key = next(iter(self._existing_dates_cache))
+                self._existing_dates_cache.pop(oldest_key)
+                logger.debug(f"LRU淘汰: {oldest_key}")
+
+            self._existing_dates_cache[interface_name] = dates
+
+        logger.debug(f"{interface_name}: 从存储读取已有日期（{len(dates)} 天）")
+        return dates
+
+    def _get_existing_dates_from_storage(self, interface_name: str) -> Set[str]:
+        """从存储中读取已有日期"""
+        try:
+            # 获取接口配置
+            interface_config = self.config_loader.get_interface_config(interface_name)
+
+            # 智能检测日期列优先级：
+            # 1. duplicate_detection.date_column
+            # 2. output.sort_by 中的第一个字段（通常是日期）
+            # 3. 查找常见的日期字段名
+            date_column = self._detect_date_column(interface_config)
+
+            if not date_column:
+                logger.warning(f"{interface_name}: 无法检测到日期列，跳过缺口检测")
+                return set()
+
+            logger.debug(f"{interface_name}: 使用日期列 '{date_column}'")
+
+            # 读取所有数据（只读取日期列）
+            df = self.storage_manager.read_interface_data(
+                interface_name,
+                columns=[date_column]
+            )
+
+            if df.is_empty():
+                return set()
+
+            # 提取日期并标准化
+            dates = set()
+            for date_val in df[date_column]:
+                if isinstance(date_val, str):
+                    dates.add(date_val)
+                elif hasattr(date_val, 'strftime'):
+                    dates.add(date_val.strftime('%Y%m%d'))
+                else:
+                    dates.add(str(date_val))
+
+            return dates
+
+        except Exception as e:
+            logger.warning(f"读取已有日期失败 {interface_name}: {e}")
+            return set()
+
+    def _detect_date_column(self, interface_config: Dict[str, Any]) -> Optional[str]:
+        """
+        智能检测日期列名称
+
+        优先级：
+        1. duplicate_detection.date_column
+        2. output.sort_by 中的第一个字段
+        3. 常见日期字段名匹配
+        """
+        # 1. 检查 duplicate_detection 配置
+        detection_config = interface_config.get('duplicate_detection', {})
+        if 'date_column' in detection_config:
+            return detection_config['date_column']
+
+        # 2. 检查 output.sort_by（通常是日期字段）
+        output_config = interface_config.get('output', {})
+        sort_by = output_config.get('sort_by', [])
+        if sort_by:
+            # sort_by 的第一个字段通常是日期
+            first_sort = sort_by[0]
+            common_date_patterns = ['date', 'time', 'period', 'quarter']
+            if any(pattern in first_sort.lower() for pattern in common_date_patterns):
+                return first_sort
+
+        # 3. 从 fields 中查找常见日期字段
+        fields = interface_config.get('fields', {})
+        priority_fields = [
+            'trade_date', 'report_date', 'ann_date', 'end_date',
+            'create_time', 'update_time', 'quarter', 'period'
+        ]
+        for field in priority_fields:
+            if field in fields:
+                return field
+
+        return None
+
+    def _merge_continuous_dates(
+        self,
+        sorted_dates: List[str],
+        min_gap_days: int
+    ) -> List[DateRange]:
+        """将连续日期合并为段"""
+        if not sorted_dates:
+            return []
+
+        gaps = []
+        gap_start = sorted_dates[0]
+        gap_end = sorted_dates[0]
+
+        for date in sorted_dates[1:]:
+            if self._is_next_trade_day(gap_end, date):
+                # 连续日期，扩展当前段
+                gap_end = date
+            else:
+                # 不连续，保存当前段（如果满足最小天数）
+                if self._days_between(gap_start, gap_end) >= min_gap_days:
+                    gaps.append(DateRange(gap_start, gap_end))
+                # 开始新段
+                gap_start = date
+                gap_end = date
+
+        # 保存最后一个段
+        if self._days_between(gap_start, gap_end) >= min_gap_days:
+            gaps.append(DateRange(gap_start, gap_end))
+
+        return gaps
+
+    def _is_next_trade_day(self, current: str, next_date: str) -> bool:
+        """检查是否是连续的交易日（考虑周末和节假日）"""
+        try:
+            current_dt = datetime.strptime(current, '%Y%m%d')
+            next_dt = datetime.strptime(next_date, '%Y%m%d')
+
+            # 计算日期差
+            delta = (next_dt - current_dt).days
+
+            # 如果是连续的（相差1天）或者是跨周末的连续交易日
+            if delta == 1:
+                return True
+
+            # 如果不是连续的，可能中间有周末或节假日
+            # 使用trade_calendar验证会更准确，这里简化处理
+            return False
+
+        except (ValueError, TypeError):
+            return False
+
+    def _days_between(self, start_date: str, end_date: str) -> int:
+        """计算两个日期之间的天数（包含首尾）"""
+        try:
+            start = datetime.strptime(start_date, '%Y%m%d')
+            end = datetime.strptime(end_date, '%Y%m%d')
+            return (end - start).days + 1
+        except (ValueError, TypeError):
+            return 0
+
+    def clear_dates_cache(self, interface_name: str = None):
+        """清除日期缓存
+
+        Args:
+            interface_name: 指定接口名称则清除该接口缓存，None则清除所有
+        """
+        with self._existing_dates_lock:
+            if interface_name:
+                self._existing_dates_cache.pop(interface_name, None)
+                logger.debug(f"清除缓存: {interface_name}")
+            else:
+                self._existing_dates_cache.clear()
+                logger.debug("清除所有日期缓存")
+
+    def is_time_range_mode(self, interface_name: str) -> bool:
+        """检查接口是否支持时间范围模式（可用于缺口检测）"""
+        try:
+            interface_config = self.config_loader.get_interface_config(interface_name)
+            pagination_config = interface_config.get('pagination', {})
+
+            if not pagination_config.get('enabled', False):
+                return False
+
+            mode = pagination_config.get('mode', '')
+            if mode not in ['date_range', 'reverse_date_range']:
+                return False
+
+            # 额外检查：必须有可检测的日期列
+            date_column = self._detect_date_column(interface_config)
+            if not date_column:
+                logger.debug(f"{interface_name}: 支持时间范围模式但无日期列，跳过缺口检测")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.warning(f"检查接口模式失败 {interface_name}: {e}")
             return False

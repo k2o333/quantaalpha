@@ -50,22 +50,27 @@ class UpdateOptions:
     interfaces: Optional[List[str]] = None
     exclude: List[str] = field(default_factory=list)
     groups: List[str] = field(default_factory=list)
-    
+
     # 日期范围（强制指定时覆盖智能计算）
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    
+
     # 更新模式
     force: bool = False           # 强制更新（忽略现有数据）
     dry_run: bool = False         # 预览模式（不实际执行）
-    
+
+    # 缺口检测配置
+    gap_detection_enabled: bool = True   # 是否启用缺口检测
+    min_gap_days: int = 1                # 最小缺口天数（小于此值的缺口忽略）
+    max_gaps: int = 50                   # 最大缺口数量（超过则全量下载）
+
     # 报告配置
     report_format: ReportFormat = ReportFormat.MARKDOWN
     report_file: Optional[str] = None
-    
+
     # 并发配置
     max_workers: int = 1
-    
+
     # 其他
     log_level: str = "INFO"
 

@@ -214,50 +214,35 @@ class UpdateManager:
             raise
     
     def update_interface(
-        self, 
-        interface_name: str, 
+        self,
+        interface_name: str,
         options: UpdateOptions
     ) -> InterfaceUpdateResult:
         """
         更新单个接口
-        
+
         Args:
             interface_name: 接口名称
             options: 更新选项
-            
+
         Returns:
             InterfaceUpdateResult: 接口更新结果
         """
         start_time = time.time()
-        
+
         try:
             # 获取接口配置
             interface_config = self.config_loader.get_interface_config(interface_name)
-            
+
             # 计算日期范围
             date_range = self.date_calculator.calculate_update_range(
                 interface_name,
                 forced_start=options.start_date,
                 forced_end=options.end_date
             )
-            
-            # 检查是否需要更新
-            should_update, skip_reason = self.should_update_interface(
-                interface_name, 
-                date_range, 
-                options
-            )
-            
-            if not should_update:
-                logger.info(f"接口 {interface_name} 已是最新，跳过")
-                return InterfaceUpdateResult(
-                    interface_name=interface_name,
-                    status=UpdateStatus.SKIPPED,
-                    date_range=date_range,
-                    skip_reason=skip_reason,
-                    duration_seconds=time.time() - start_time
-                )
-            
+
+            logger.info(f"开始更新 {interface_name}: {date_range}")
+
             # 预览模式
             if options.dry_run:
                 logger.info(f"[预览模式] 接口 {interface_name} 需要更新: {date_range}")
@@ -268,14 +253,86 @@ class UpdateManager:
                     skip_reason="预览模式",
                     duration_seconds=time.time() - start_time
                 )
-            
+
+            # 【新增】缺口检测：检查是否支持并启用
+            if (options.gap_detection_enabled and
+                self.coverage_manager and
+                self.coverage_manager.is_time_range_mode(interface_name)):
+
+                # 获取交易日历
+                trade_calendar = self.downloader.get_trade_calendar(
+                    date_range.start_date,
+                    date_range.end_date
+                )
+
+                if trade_calendar:
+                    # 检测缺口
+                    from core.coverage_manager import DateRange as GapDateRange
+                    gaps = self.coverage_manager.detect_gaps(
+                        interface_name=interface_name,
+                        target_range=GapDateRange(date_range.start_date, date_range.end_date),
+                        trade_calendar=trade_calendar,
+                        min_gap_days=options.min_gap_days,
+                        max_gaps=options.max_gaps
+                    )
+
+                    if not gaps:
+                        logger.info(f"接口 {interface_name} 数据已完整，跳过")
+                        return InterfaceUpdateResult(
+                            interface_name=interface_name,
+                            status=UpdateStatus.SKIPPED,
+                            date_range=date_range,
+                            skip_reason="数据已完整覆盖",
+                            duration_seconds=time.time() - start_time
+                        )
+
+                    # 逐个下载缺口
+                    total_records = 0
+                    for i, gap in enumerate(gaps):
+                        logger.info(f"下载缺口 [{i+1}/{len(gaps)}]: {gap}")
+                        gap_date_range = DateRange(gap.start_date, gap.end_date)
+                        records = self._execute_download(
+                            interface_name, interface_config, gap_date_range, options
+                        )
+                        total_records += records
+
+                    duration = time.time() - start_time
+                    logger.info(f"接口 {interface_name} 更新完成，共 {total_records} 条记录，耗时 {duration:.2f}秒")
+
+                    return InterfaceUpdateResult(
+                        interface_name=interface_name,
+                        status=UpdateStatus.SUCCESS,
+                        date_range=date_range,
+                        record_count=total_records,
+                        duration_seconds=duration
+                    )
+                else:
+                    logger.warning(f"无法获取交易日历，回退到原有逻辑")
+
+            # 原有逻辑（缺口检测关闭或不支持时）
+            should_update, skip_reason = self.should_update_interface(
+                interface_name,
+                date_range,
+                options
+            )
+
+            if not should_update:
+                logger.info(f"接口 {interface_name} 已是最新，跳过")
+                return InterfaceUpdateResult(
+                    interface_name=interface_name,
+                    status=UpdateStatus.SKIPPED,
+                    date_range=date_range,
+                    skip_reason=skip_reason,
+                    duration_seconds=time.time() - start_time
+                )
+
             # 执行实际下载
             logger.info(f"开始下载 {interface_name}: {date_range}")
             record_count = self._execute_download(interface_name, interface_config, date_range, options)
-            
+
             duration = time.time() - start_time
             logger.info(f"接口 {interface_name} 更新完成，共 {record_count} 条记录，耗时 {duration:.2f}秒")
-            
+
             return InterfaceUpdateResult(
                 interface_name=interface_name,
                 status=UpdateStatus.SUCCESS,
@@ -283,7 +340,7 @@ class UpdateManager:
                 record_count=record_count,
                 duration_seconds=duration
             )
-            
+
         except Exception as e:
             duration = time.time() - start_time
             logger.error(f"接口 {interface_name} 更新失败: {e}")

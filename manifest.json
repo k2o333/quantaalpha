@@ -1,0 +1,85 @@
+{
+  "project_name": "aspipe_v4",
+  "created_at": "2026-02-06T18:38:18.199883",
+  "root_target": "增量更新缺口检测功能实施",
+  "schemes": {
+    "phase1_mvp": {
+      "description": "Phase 1: 基础缺口检测功能 (date_range/reverse_date_range)",
+      "atoms": [
+        "update_options_ext",
+        "update_manager_mod",
+        "coverage_manager_ext"
+      ],
+      "status": "pending"
+    },
+    "phase2_testing": {
+      "description": "Phase 2: 测试验证",
+      "atoms": [
+        "integration_tests",
+        "unit_tests"
+      ],
+      "status": "pending"
+    },
+    "hotfix_date_column": {
+      "description": "Hotfix: 修复日期列检测问题",
+      "atoms": [
+        "date_column_detection_fix"
+      ],
+      "status": "success"
+    }
+  },
+  "assumptions": {
+    "coverage_manager_ext": {
+      "description": "CoverageManager 扩展 - 添加 detect_gaps() 方法和 LRU 缓存",
+      "parent_scheme": "phase1_mvp",
+      "status": "pending",
+      "type": "atomic"
+    },
+    "update_manager_mod": {
+      "description": "UpdateManager 修改 - 支持缺口检测的更新逻辑",
+      "parent_scheme": "phase1_mvp",
+      "status": "pending",
+      "type": "atomic"
+    },
+    "update_options_ext": {
+      "description": "UpdateOptions 扩展 - 添加 gap_detection_enabled 配置",
+      "parent_scheme": "phase1_mvp",
+      "status": "pending",
+      "type": "atomic"
+    },
+    "unit_tests": {
+      "description": "单元测试 - 缺口检测核心逻辑测试",
+      "parent_scheme": "phase2_testing",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/unit_tests.py",
+      "timestamp": "2026-02-06T18:38:26.664751",
+      "metrics": {
+        "total_tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "success_rate": 1.0
+      }
+    },
+    "integration_tests": {
+      "description": "集成测试 - 端到端增量更新流程测试",
+      "parent_scheme": "phase2_testing",
+      "status": "pending",
+      "type": "atomic"
+    },
+    "date_column_detection_fix": {
+      "description": "修复：智能检测日期列，支持 report_date 等非标准日期列",
+      "parent_scheme": "hotfix_date_column",
+      "status": "success",
+      "type": "atomic",
+      "code_path": "src/atoms/date_column_detection_fix.py",
+      "timestamp": "2026-02-06T18:43:34.101040",
+      "metrics": {
+        "total_tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "success_rate": 1.0
+      }
+    }
+  }
+}
