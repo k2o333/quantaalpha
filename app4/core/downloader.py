@@ -585,6 +585,7 @@ class GenericDownloader:
                     retry_count = attempt
 
                 logger.debug(f"Making {method} request to {api_url} for {api_name} (attempt {attempt+1})")
+                logger.debug(f"Request params: {params}")
 
                 if method.upper() == 'POST':
                     response = self.session.post(api_url, json=req_params, timeout=timeout)
@@ -617,6 +618,7 @@ class GenericDownloader:
 
                 # 调试日志：记录API实际返回的字段和记录数
                 logger.info(f"API returned {len(fields)} fields for {api_name}")
+                logger.debug(f"API returned {len(items)} items for {api_name}")
                 if len(fields) < 50:  # 如果字段少，全部显示
                     logger.info(f"Returned fields: {fields}")
                 else:

@@ -317,7 +317,7 @@ class DataProcessor:
 
         # 检查必填字段 - 现在基于primary_key字段和其他原始字段
         # 从primary_key配置中获取需要检查的字段
-        primary_keys = output_config.get('primary_key', [])
+        primary_keys = output_config.get('primary_key', []) or []
         for column_name in primary_keys:
             if column_name in df.columns:
                 missing_count = df[column_name].null_count()

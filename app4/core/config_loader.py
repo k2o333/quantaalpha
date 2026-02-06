@@ -175,9 +175,13 @@ class ConfigLoader:
 
             # 验证 output 配置
             output_config = config.get('output', {})
+            # primary_key 现在是可选的，如果没有配置则不进行去重
             if 'primary_key' not in output_config or not output_config.get('primary_key', []):
-                logger.error(f"Interface '{interface_name}' must have non-empty primary_key")
-                return False
+                logger.warning(f"Interface '{interface_name}' has no primary_key, deduplication will be disabled")
+                # 确保 dedup 配置中禁用去重
+                if 'dedup' not in config:
+                    config['dedup'] = {}
+                config['dedup']['dedup_enabled'] = False
 
             # 验证 dedup_enabled 是否为布尔类型（如果存在）
             dedup_enabled = config.get('dedup_enabled')

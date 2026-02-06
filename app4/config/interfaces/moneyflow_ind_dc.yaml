@@ -16,12 +16,13 @@ output:
 pagination:
   enabled: true
   mode: reverse_date_range
-  window_size_days: 1
+  window_size_days: 10
 parameters:
   content_type:
     description: 资金类型(行业、概念、地域)
     required: false
     type: string
+    default: 行业
   end_date:
     description: 结束日期 YYYYMMDD
     required: false

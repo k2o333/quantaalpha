@@ -5,6 +5,11 @@ derived_fields:
     format: '%Y%m%d'
     source: report_date
     type: date
+  create_time_dt:
+    description: 日期时间类型的create_time
+    format: '%Y-%m-%d %H:%M:%S'
+    source: create_time
+    type: datetime
 description: 卖方盈利预测数据
 name: report_rc
 output:
@@ -12,12 +17,15 @@ output:
   - ts_code
   - report_date
   - org_name
+  - report_title
+
   sort_by:
   - report_date
 pagination:
   enabled: true
   mode: reverse_date_range
-  window_size_days: 365
+  window_size_days: 1
+  empty_threshold_days: 90 
 parameters:
   end_date:
     description: 报告结束日期 YYYYMMDD
@@ -43,3 +51,28 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+
+fields:
+  ts_code: string
+  name: string
+  report_date: string
+  report_title: string
+  report_type: string
+  classify: string
+  org_name: string
+  author_name: string
+  quarter: string
+  op_rt: float
+  op_pr: float
+  tp: float
+  np: float
+  eps: float
+  pe: float
+  rd: float
+  roe: float
+  ev_ebitda: float
+  rating: string
+  max_price: float
+  min_price: float
+  imp_dg: string
+  create_time: string
