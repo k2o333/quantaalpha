@@ -464,12 +464,9 @@ class UpdateManager:
 
         # 处理和保存数据
         if result_data and len(result_data) > 0:
-            # 使用 processor 处理数据
-            df = self.processor.process_data(result_data, interface_config)
-
-            # 保存到 storage
-            if not df.is_empty():
-                self.storage_manager.write_interface_data(interface_name, df)
+            # 直接传入原始数据，让 _process_worker 统一处理（包括去重）
+            # 避免重复处理：不在此处调用 processor，由 storage 的处理线程完成
+            self.storage_manager.save_data(interface_name, result_data, async_write=True)
 
             return len(result_data)
 
