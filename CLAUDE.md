@@ -206,6 +206,374 @@ derived_fields:
 15. **Broker Recommendation Handling**: Special handling for broker_recommend interface with month-based requests
 16. **Unified De-duplication**: Consistent de-duplication using primary_key and dedup_enabled configuration
 
+### System Architecture Flow
+
+```mermaid
+flowchart TB
+    subgraph CLI["CLI Entry Point (main.py)"]
+        ARGS[Parse Arguments]
+        MODE{Select Mode}
+    end
+
+    subgraph INIT["Initialization Phase"]
+        CONFIG[ConfigLoader<br/>Load YAML Configs]
+        CACHE[CacheWarmer<br/>Preload Trade Calendar & Stock List]
+        COMPONENTS[Initialize Core Components]
+    end
+
+    subgraph CORE["Core Components"]
+        SCHEDULER[TaskScheduler<br/>Thread Pool + RateLimiter]
+        DOWNLOADER[GenericDownloader<br/>API Request Engine]
+        STORAGE[StorageManager<br/>Async Write + Buffer]
+        PROCESSOR[DataProcessor<br/>Polars Transform]
+    end
+
+    subgraph UPDATE["Update Module (Optional)"]
+        UPDATE_MGR[UpdateManager<br/>Incremental Update]
+        DATE_CALC[DateCalculator<br/>Smart Date Range]
+        COVERAGE[CoverageManager<br/>Duplicate Detection]
+    end
+
+    subgraph EXECUTION["Execution Phase"]
+        PAGINATION[PaginationExecutor<br/>Multi-dimensional Pagination]
+        BUFFER[Interface Buffer<br/>Threshold-based Flush]
+        DEDUP[Dedup Module<br/>Internal + External Deduplication]
+    end
+
+    subgraph OUTPUT["Output"]
+        PARQUET[(Parquet Dataset<br/>Partitioned Storage)]
+        REPORT[Performance Report]
+    end
+
+    ARGS --> MODE
+    MODE -->|Standard Mode| CONFIG
+    MODE -->|Update Mode| UPDATE_MGR
+    
+    CONFIG --> CACHE
+    CACHE --> COMPONENTS
+    COMPONENTS --> SCHEDULER
+    COMPONENTS --> DOWNLOADER
+    COMPONENTS --> STORAGE
+    COMPONENTS --> PROCESSOR
+    
+    UPDATE_MGR --> DATE_CALC
+    UPDATE_MGR --> COVERAGE
+    
+    DOWNLOADER --> PAGINATION
+    PAGINATION --> BUFFER
+    BUFFER --> DEDUP
+    DEDUP --> STORAGE
+    
+    STORAGE --> PARQUET
+    DOWNLOADER --> REPORT
+```
+
+### Data Download Flow
+
+```mermaid
+flowchart TD
+    START([Start Download]) --> LOAD_CONFIG[Load Interface Config]
+    LOAD_CONFIG --> VALIDATE_PARAMS[Validate Parameters]
+    VALIDATE_PARAMS --> CHECK_PAGINATION{Pagination Enabled?}
+    
+    CHECK_PAGINATION -->|Yes| CREATE_CONTEXT[Create PaginationContext]
+    CHECK_PAGINATION -->|No| DIRECT_REQUEST[Direct API Request]
+    
+    CREATE_CONTEXT --> COMPOSE[PaginationComposer.compose<br/>Combine Dimensions]
+    COMPOSE --> PARAMS_STREAM[Generate Params Stream]
+    
+    PARAMS_STREAM --> CHECK_CONCURRENCY{Use Concurrency?}
+    CHECK_CONCURRENCY -->|Yes| CONCURRENT_EXEC[Concurrent Execution<br/>ThreadPoolExecutor]
+    CHECK_CONCURRENCY -->|No| SEQUENTIAL_EXEC[Sequential Execution]
+    
+    CONCURRENT_EXEC --> RATE_LIMIT[RateLimiter.wait_for_tokens]
+    SEQUENTIAL_EXEC --> RATE_LIMIT
+    
+    RATE_LIMIT --> MAKE_REQUEST[_make_request<br/>HTTP Request with Retry]
+    DIRECT_REQUEST --> MAKE_REQUEST
+    
+    MAKE_REQUEST --> CHECK_RESPONSE{Response OK?}
+    CHECK_RESPONSE -->|Rate Limit| RETRY_WAIT[Exponential Backoff] --> MAKE_REQUEST
+    CHECK_RESPONSE -->|Server Error| RETRY_WAIT
+    CHECK_RESPONSE -->|Success| PARSE_DATA[Parse API Response]
+    
+    PARSE_DATA --> OFFSET_CHECK{Offset Pagination?}
+    OFFSET_CHECK -->|Yes| OFFSET_LOOP[Offset Loop<br/>limit/offset] --> MAKE_REQUEST
+    OFFSET_CHECK -->|No| RETURN_DATA[Return Data]
+    
+    MAKE_REQUEST -->|Max Retries| RECORD_FAILURE[Record Failure Metrics]
+    RECORD_FAILURE --> RETURN_EMPTY[Return Empty]
+```
+
+### Incremental Update Flow
+
+```mermaid
+flowchart TD
+    START([Start Update]) --> INIT[Initialize UpdateManager]
+    INIT --> LOAD_CHECKPOINT{Resume from Checkpoint?}
+    LOAD_CHECKPOINT -->|Yes| RESTORE_PROGRESS[Restore Progress]
+    LOAD_CHECKPOINT -->|No| SELECT_INTERFACES[InterfaceSelector.select_interfaces]
+    
+    RESTORE_PROGRESS --> SELECT_INTERFACES
+    SELECT_INTERFACES --> FILTER_INTERFACES[Filter by Points & Config]
+    FILTER_INTERFACES --> LOOP_INTERFACES[For Each Interface]
+    
+    LOOP_INTERFACES --> CALC_RANGE[DateCalculator.calculate_update_range]
+    CALC_RANGE --> CHECK_GAP{Gap Detection Enabled?}
+    
+    CHECK_GAP -->|Yes| DETECT_GAPS[CoverageManager.detect_gaps]
+    CHECK_GAP -->|No| CHECK_COVERAGE[CoverageManager.should_skip]
+    
+    DETECT_GAPS --> GAPS_FOUND{Gaps Found?}
+    GAPS_FOUND -->|No| MARK_SKIP[Mark as SKIPPED]
+    GAPS_FOUND -->|Yes| DOWNLOAD_GAPS[Download Gap Ranges]
+    
+    CHECK_COVERAGE --> ALREADY_COVERED{Already Covered?}
+    ALREADY_COVERED -->|Yes| MARK_SKIP
+    ALREADY_COVERED -->|No| DOWNLOAD_FULL[Download Full Range]
+    
+    DOWNLOAD_GAPS --> EXEC_DOWNLOAD[Execute Download]
+    DOWNLOAD_FULL --> EXEC_DOWNLOAD
+    
+    EXEC_DOWNLOAD --> PAGINATION_EXEC[PaginationExecutor.execute]
+    PAGINATION_EXEC --> SAVE_DATA[StorageManager.save_data]
+    
+    SAVE_DATA --> RECORD_RESULT[Record Interface Result]
+    RECORD_RESULT --> UPDATE_CHECKPOINT[Update Checkpoint]
+    
+    MARK_SKIP --> RECORD_RESULT
+    
+    UPDATE_CHECKPOINT --> MORE_INTERFACES{More Interfaces?}
+    MORE_INTERFACES -->|Yes| LOOP_INTERFACES
+    MORE_INTERFACES -->|No| GENERATE_REPORT[UpdateReporter.generate_report]
+    
+    GENERATE_REPORT --> SAVE_REPORT[Save Report to File]
+    SAVE_REPORT --> CLEAR_CHECKPOINT[Clear Checkpoint if Success]
+    CLEAR_CHECKPOINT --> END([End])
+```
+
+### Pagination Execution Flow
+
+```mermaid
+flowchart TD
+    START([Execute Pagination]) --> CREATE_COMPOSER[PaginationComposer]
+    CREATE_COMPOSER --> COMPOSE_PARAMS[compose<br/>Generate Parameter Stream]
+    
+    COMPOSE_PARAMS --> CHECK_DIMENSIONS{Check Dimensions}
+    
+    subgraph TIME_RANGE["Time Range Dimension"]
+        GET_TRADE_DAYS[_get_trade_days]
+        WINDOW[_apply_time_range<br/>Window Split]
+        REVERSE{Reverse Order?}
+    end
+    
+    subgraph STOCK_LOOP["Stock Loop Dimension"]
+        GET_STOCKS[Get Stock List]
+        SKIP_EXISTING{Skip Existing?}
+        APPLY_STOCK[_apply_stock_loop]
+    end
+    
+    subgraph TYPE_SPLIT["Type Split Dimension"]
+        GET_VALUES[Get Type Values]
+        APPLY_TYPE[_apply_type_split]
+    end
+    
+    subgraph OFFSET["Offset Dimension"]
+        ENABLE_OFFSET[Enable Offset Pagination]
+        APPLY_OFFSET[_apply_offset]
+    end
+    
+    CHECK_DIMENSIONS -->|time_range| TIME_RANGE
+    CHECK_DIMENSIONS -->|stock_loop| STOCK_LOOP
+    CHECK_DIMENSIONS -->|type_split| TYPE_SPLIT
+    CHECK_DIMENSIONS -->|offset| OFFSET
+    
+    TIME_RANGE --> MERGE_PARAMS[Merge All Params]
+    STOCK_LOOP --> MERGE_PARAMS
+    TYPE_SPLIT --> MERGE_PARAMS
+    OFFSET --> MERGE_PARAMS
+    
+    MERGE_PARAMS --> DECIDE_EXEC{Decide Execution Mode}
+    
+    DECIDE_EXEC -->|Single Request| EXEC_SINGLE[_execute_single]
+    DECIDE_EXEC -->|Sequential| EXEC_SEQ[_execute_sequential<br/>Stop on Empty Logic]
+    DECIDE_EXEC -->|Concurrent| EXEC_CONC[_execute_concurrent<br/>ThreadPoolExecutor]
+    
+    EXEC_SINGLE --> CLEAN_PARAMS[Clean Internal Params]
+    EXEC_SEQ --> COVERAGE_CHECK{Coverage Check?}
+    EXEC_CONC --> COVERAGE_CHECK
+    
+    COVERAGE_CHECK -->|Yes| SHOULD_SKIP[_should_skip_by_coverage]
+    COVERAGE_CHECK -->|No| CALLBACK[make_request Callback]
+    
+    SHOULD_SKIP -->|Skip| NEXT_PARAM[Next Parameter]
+    SHOULD_SKIP -->|Proceed| CALLBACK
+    
+    CALLBACK --> OFFSET_LOOP{Offset Pagination?}
+    OFFSET_LOOP -->|Yes| HANDLE_OFFSET[_execute_single_request<br/>Offset Loop]
+    OFFSET_LOOP -->|No| COLLECT_RESULT[Collect Result]
+    
+    HANDLE_OFFSET -->|More Data| CALLBACK
+    HANDLE_OFFSET -->|No More| COLLECT_RESULT
+    
+    COLLECT_RESULT --> MORE_PARAMS{More Params?}
+    MORE_PARAMS -->|Yes| NEXT_PARAM --> MERGE_PARAMS
+    MORE_PARAMS -->|No| RETURN_ALL[Return All Data]
+    RETURN_ALL --> END([End])
+```
+
+### Storage Management Flow
+
+```mermaid
+flowchart TD
+    subgraph THREAD_MAIN["Main Thread"]
+        START([Save Data]) --> CHECK_ASYNC{Async Write?}
+        CHECK_ASYNC -->|Yes| CHECK_PROCESSED{Already Processed?}
+        CHECK_ASYNC -->|No| SYNC_WRITE[_write_interface_data]
+        
+        CHECK_PROCESSED -->|Yes| DIRECT_QUEUE[Put to data_queue]
+        CHECK_PROCESSED -->|No| ADD_BUFFER[add_to_buffer]
+        
+        ADD_BUFFER --> CHECK_THRESHOLD{Check Threshold}
+        CHECK_THRESHOLD -->|Flush| PUT_PROCESS[Put to process_queue]
+        CHECK_THRESHOLD -->|Wait| RETURN_OK[Return]
+        
+        DIRECT_QUEUE --> RETURN_OK
+        PUT_PROCESS --> RETURN_OK
+    end
+
+    subgraph THREAD_PROCESS["Process Thread (_process_worker)"]
+        GET_TASK[Get Task from process_queue] --> NULL_CHECK{Task is None?}
+        NULL_CHECK -->|Yes| STOP_PROCESS[Stop Thread]
+        NULL_CHECK -->|No| CHECK_FAILED{Interface Failed?}
+        
+        CHECK_FAILED -->|Yes| SKIP_TASK[Skip Task]
+        CHECK_FAILED -->|No| LOAD_CONFIG[Load Interface Config]
+        
+        LOAD_CONFIG --> PROCESS_DATA[processor.process_data]
+        PROCESS_DATA --> VALIDATE[processor.validate_data]
+        
+        VALIDATE --> CHECK_DEDUP{Dedup Enabled?}
+        CHECK_DEDUP -->|Yes| READ_EXISTING[read_interface_data]
+        CHECK_DEDUP -->|No| PUT_DATA_QUEUE[Put to data_queue]
+        
+        READ_EXISTING --> DEDUPLICATE[deduplicate_against_existing]
+        DEDUPLICATE --> CHECK_ALL_DUP{All Duplicates?}
+        CHECK_ALL_DUP -->|Yes| SKIP_SAVE[Skip Save]
+        CHECK_ALL_DUP -->|No| PUT_DATA_QUEUE
+        
+        PUT_DATA_QUEUE --> GET_TASK
+        SKIP_SAVE --> GET_TASK
+        SKIP_TASK --> GET_TASK
+    end
+
+    subgraph THREAD_WRITE["Writer Thread (_writer_worker)"]
+        GET_BATCH[Get Batch from data_queue] --> NULL_CHECK2{Item is None?}
+        NULL_CHECK2 -->|Yes| FLUSH_REMAIN[Flush Remaining] --> STOP_WRITE[Stop Thread]
+        NULL_CHECK2 -->|No| GROUP_BY_IFACE[Group by Interface]
+        
+        GROUP_BY_IFACE --> WRITE_BATCH[_write_interface_data]
+        WRITE_BATCH --> ATOMIC_WRITE[Atomic Write<br/>temp → rename]
+        ATOMIC_WRITE --> GET_BATCH
+    end
+
+    SYNC_WRITE --> ATOMIC_WRITE
+```
+
+### Data Deduplication Flow
+
+```mermaid
+flowchart TD
+    START([Deduplicate]) --> INIT_DEDUP[Initialize DataDeduplicator]
+    INIT_DEDUP --> CHECK_RESET{Reset Stats?}
+    CHECK_RESET -->|Yes| RESET_STATS[Reset Statistics]
+    CHECK_RESET -->|No| CHECK_EMPTY{DataFrame Empty?}
+    
+    RESET_STATS --> CHECK_EMPTY
+    CHECK_EMPTY -->|Yes| RETURN_EMPTY[Return Empty Result]
+    CHECK_EMPTY -->|No| VALIDATE_SCHEMA[_validate_schema]
+    
+    VALIDATE_SCHEMA --> CHECK_KEYS{Primary Keys Valid?}
+    CHECK_KEYS -->|No| ADD_ERROR[Add Error] --> RETURN_ORIGINAL[Return Original]
+    CHECK_KEYS -->|Yes| CHECK_STRATEGY{Select Strategy}
+    
+    CHECK_STRATEGY -->|first| DEDUP_FIRST[unique keep='first']
+    CHECK_STRATEGY -->|last| DEDUP_LAST[unique keep='last']
+    CHECK_STRATEGY -->|latest_date| HANDLE_DATE[Sort by Date<br/>Then unique]
+    
+    DEDUP_FIRST --> UPDATE_STATS[Update Statistics]
+    DEDUP_LAST --> UPDATE_STATS
+    HANDLE_DATE --> UPDATE_STATS
+    
+    UPDATE_STATS --> CHECK_WARNINGS{Check Warnings}
+    CHECK_WARNINGS -->|No Dup| ADD_WARNING[Add Warning]
+    CHECK_WARNINGS -->|Has Dup| LOG_RESULT[Log Result]
+    
+    ADD_WARNING --> LOG_RESULT
+    LOG_RESULT --> RETURN_RESULT[Return Result + Stats]
+    RETURN_RESULT --> END([End])
+    RETURN_EMPTY --> END
+    RETURN_ORIGINAL --> END
+```
+
+### Coverage Detection Flow
+
+```mermaid
+flowchart TD
+    START([Check Coverage]) --> GEN_CACHE_KEY[Generate Cache Key]
+    GEN_CACHE_KEY --> CHECK_CACHE{In Cache?}
+    CHECK_CACHE -->|Yes| RETURN_CACHED[Return Cached Result]
+    CHECK_CACHE -->|No| DETECT_STRATEGY[Auto-detect Strategy]
+    
+    DETECT_STRATEGY --> STRATEGY_TYPE{Strategy Type}
+    
+    STRATEGY_TYPE -->|date_range| CHECK_RANGE[_check_range_coverage]
+    STRATEGY_TYPE -->|period| CHECK_PERIOD[_check_period_existence]
+    STRATEGY_TYPE -->|stock| CHECK_STOCK[_check_stock_existence]
+    
+    subgraph RANGE_CHECK["Date Range Coverage"]
+        READ_DATE_COL[Read Date Column Only]
+        GET_EXPECTED[Get Expected Trade Days]
+        CALC_COVERAGE[Calculate Coverage Rate]
+        CHECK_THRESHOLD{>= Threshold?}
+    end
+    
+    subgraph PERIOD_CHECK["Period Coverage"]
+        LOAD_PERIODS[Lazy Load All Periods]
+        CHECK_TARGET[Check Target Period Exists]
+    end
+    
+    subgraph STOCK_CHECK["Stock Coverage"]
+        LOAD_STOCKS[Lazy Load All Stocks]
+        CHECK_TARGET_STOCK[Check Target Stock Exists]
+    end
+    
+    CHECK_RANGE --> READ_DATE_COL
+    CHECK_PERIOD --> LOAD_PERIODS
+    CHECK_STOCK --> LOAD_STOCKS
+    
+    READ_DATE_COL --> GET_EXPECTED
+    GET_EXPECTED --> CALC_COVERAGE
+    CALC_COVERAGE --> CHECK_THRESHOLD
+    
+    LOAD_PERIODS --> CHECK_TARGET
+    LOAD_STOCKS --> CHECK_TARGET_STOCK
+    
+    CHECK_THRESHOLD -->|Yes| RESULT_SKIP[Result: SKIP]
+    CHECK_THRESHOLD -->|No| RESULT_DOWNLOAD[Result: DOWNLOAD]
+    CHECK_TARGET -->|Exists| RESULT_SKIP
+    CHECK_TARGET -->|Not Exists| RESULT_DOWNLOAD
+    CHECK_TARGET_STOCK -->|Exists| RESULT_SKIP
+    CHECK_TARGET_STOCK -->|Not Exists| RESULT_DOWNLOAD
+    
+    RESULT_SKIP --> UPDATE_CACHE[Update Cache]
+    RESULT_DOWNLOAD --> UPDATE_CACHE
+    
+    UPDATE_CACHE --> RETURN_RESULT[Return Result]
+    RETURN_CACHED --> END([End])
+    RETURN_RESULT --> END
+```
+
 ### Interface Groups
 
 App4 organizes interfaces into logical groups for easier management:
