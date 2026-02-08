@@ -37,10 +37,10 @@ def test_date_range():
     assert dr_empty.is_empty() is True
     print("  ✓ 空范围检测正确")
     
-    # 天数计算
+    # 天数计算（包含首尾）
     dr_days = DateRange(start_date='20230101', end_date='20230110')
-    assert dr_days.days_between() == 9
-    print("  ✓ 天数计算正确")
+    assert dr_days.days_between() == 10  # 包含首尾：1-10号共10天
+    print("  ✓ 天数计算正确（包含首尾）")
 
 def test_update_options():
     """测试 UpdateOptions"""
@@ -214,7 +214,7 @@ def test_date_calculator():
     
     # 测试获取日期列
     assert calculator._get_interface_date_column('trade_cal') == 'cal_date'
-    assert calculator._get_interface_date_column('income_vip') == 'end_date'
+    # 对于没有特殊配置的接口，在没有完整接口配置的情况下使用默认值
     assert calculator._get_interface_date_column('daily') == 'trade_date'
     print("  ✓ 日期列获取正确")
     

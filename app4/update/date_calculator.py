@@ -1,5 +1,5 @@
 """
-日期范围计算器
+日期范围计算器 - 重构后版本
 智能计算每个接口的更新日期范围
 """
 import logging
@@ -7,7 +7,12 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from .models import DateRange
+from core.date_utils import (
+    DateRange,
+    format_date,
+    detect_date_column,
+    calculate_start_with_lookback
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,88 +106,53 @@ class DateCalculator:
         return DateRange(start_date=start_date, end_date=end_date)
     
     def _get_existing_data_range(
-        self, 
+        self,
         interface_name: str
     ) -> Optional[DateRange]:
-        """
-        获取接口现有数据的日期范围
-        
-        Args:
-            interface_name: 接口名称
-            
-        Returns:
-            Optional[DateRange]: 日期范围，如果没有数据则返回None
-        """
+        """获取接口现有数据的日期范围 - 使用统一的日期工具"""
         try:
-            # 获取日期列名
-            date_column = self._get_interface_date_column(interface_name)
-            
-            # 读取接口数据，只获取日期列
+            interface_config = self.config_loader.get_interface_config(interface_name)
+            date_column = detect_date_column(interface_config)
+
+            if not date_column:
+                return None
+
             df = self.storage_manager.read_interface_data(
                 interface_name,
                 columns=[date_column]
             )
-            
+
             if df.is_empty():
                 return None
-            
-            # 获取最小和最大日期
+
             min_date = df[date_column].min()
             max_date = df[date_column].max()
-            
-            # 转换为字符串格式 YYYYMMDD
-            min_date_str = self._format_date(min_date)
-            max_date_str = self._format_date(max_date)
-            
+
+            min_date_str = format_date(min_date)
+            max_date_str = format_date(max_date)
+
             if min_date_str and max_date_str:
                 return DateRange(start_date=min_date_str, end_date=max_date_str)
-            
+
             return None
-            
+
         except Exception as e:
             logger.warning(f"获取 {interface_name} 的现有数据范围失败: {e}")
             return None
     
-    def _get_interface_date_column(self, interface_name: str) -> str:
-        """
-        获取接口的日期列名
-        
-        优先级：
-        1. 特殊接口配置中的 date_column
-        2. 接口配置中的 date_column
-        3. 默认 'trade_date'
-        
-        Args:
-            interface_name: 接口名称
-            
-        Returns:
-            str: 日期列名
-        """
-        # 从特殊接口配置中查找
+    def _get_interface_date_column(self, interface_name: str) -> Optional[str]:
+        """获取接口的日期列名 - 使用统一工具"""
+        # 首先检查特殊接口配置
         special_config = self.special_interfaces.get(interface_name, {})
         if 'date_column' in special_config:
             return special_config['date_column']
-        
-        # 尝试从接口配置中查找
+
+        # 然后使用统一工具从接口配置中检测
         try:
             interface_config = self.config_loader.get_interface_config(interface_name)
-            # 检查是否有输出配置中的日期列
-            output_config = interface_config.get('output', {})
-            if 'date_column' in output_config:
-                return output_config['date_column']
+            return detect_date_column(interface_config) or 'trade_date'
         except Exception:
-            pass
-        
-        # 根据接口名称推断日期列
-        if 'trade_cal' in interface_name:
-            return 'cal_date'
-        elif any(x in interface_name for x in ['income', 'balance', 'cashflow', 'fina_indicator']):
-            return 'end_date'
-        elif 'stock_basic' in interface_name:
-            return 'list_date'
-        
-        # 默认使用 trade_date
-        return 'trade_date'
+            return 'trade_date'
     
     def _get_default_start_date(self, interface_name: str) -> str:
         """
@@ -213,73 +183,18 @@ class DateCalculator:
         return '20000101'
     
     def _calculate_start_with_lookback(
-        self, 
-        end_date: str, 
+        self,
+        end_date: str,
         interface_name: str
     ) -> str:
-        """
-        计算带有回溯天数的起始日期
-        
-        Args:
-            end_date: 结束日期（YYYYMMDD）
-            interface_name: 接口名称
-            
-        Returns:
-            str: 起始日期（YYYYMMDD）
-        """
-        # 获取接口特定的回溯天数
+        """计算带有回溯天数的起始日期 - 使用统一工具"""
         special_config = self.special_interfaces.get(interface_name, {})
         lookback = special_config.get('lookback_days', self.lookback_days)
-        
-        # 解析日期
-        end_dt = datetime.strptime(end_date, '%Y%m%d')
-        
-        # 计算回溯后的日期
-        start_dt = end_dt - timedelta(days=lookback)
-        
-        return start_dt.strftime('%Y%m%d')
+        return calculate_start_with_lookback(end_date, lookback)
     
     def _format_date(self, date_value) -> Optional[str]:
-        """
-        将日期值格式化为 YYYYMMDD 字符串
-        
-        Args:
-            date_value: 日期值（可以是字符串、整数、日期对象等）
-            
-        Returns:
-            Optional[str]: 格式化后的日期字符串
-        """
-        if date_value is None:
-            return None
-        
-        try:
-            # 如果已经是字符串且格式正确
-            if isinstance(date_value, str):
-                # 检查是否已经是 YYYYMMDD 格式
-                if len(date_value) == 8 and date_value.isdigit():
-                    return date_value
-                # 尝试解析其他格式
-                for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%d/%m/%Y']:
-                    try:
-                        dt = datetime.strptime(date_value, fmt)
-                        return dt.strftime('%Y%m%d')
-                    except ValueError:
-                        continue
-            
-            # 如果是整数（如 20230101）
-            if isinstance(date_value, int):
-                return str(date_value)
-            
-            # 如果是日期/时间对象
-            if hasattr(date_value, 'strftime'):
-                return date_value.strftime('%Y%m%d')
-            
-            # 其他情况，转换为字符串
-            return str(date_value)
-            
-        except Exception as e:
-            logger.warning(f"日期格式化失败: {date_value}, 错误: {e}")
-            return None
+        """将日期值格式化为 YYYYMMDD 字符串 - 使用统一工具"""
+        return format_date(date_value)
     
     def is_update_needed(
         self, 

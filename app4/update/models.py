@@ -6,6 +6,9 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Optional, List, Dict, Any
 
+# 从 core 导入 DateRange
+from core.date_utils import DateRange
+
 
 class UpdateStatus(Enum):
     """更新状态"""
@@ -21,26 +24,6 @@ class ReportFormat(Enum):
     MARKDOWN = "markdown"
     JSON = "json"
     HTML = "html"
-
-
-@dataclass
-class DateRange:
-    """日期范围"""
-    start_date: str  # YYYYMMDD
-    end_date: str    # YYYYMMDD
-    
-    def is_empty(self) -> bool:
-        """是否为空范围"""
-        return self.start_date >= self.end_date
-    
-    def days_between(self) -> int:
-        """计算天数差"""
-        start = datetime.strptime(self.start_date, '%Y%m%d')
-        end = datetime.strptime(self.end_date, '%Y%m%d')
-        return (end - start).days
-    
-    def __str__(self) -> str:
-        return f"{self.start_date} ~ {self.end_date}"
 
 
 @dataclass

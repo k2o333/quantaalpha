@@ -129,10 +129,6 @@ def run_update_mode(args):
     Returns:
         int: 退出码 (0=成功, 1=失败)
     """
-    from update import (
-        UpdateManager, UpdateOptions, ReportFormat
-    )
-    
     # 初始化配置加载器
     import os
     config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
@@ -205,32 +201,151 @@ def run_update_mode(args):
             else:
                 interfaces_to_update.append(args.interface)
 
-        # 创建更新选项
-        update_options = UpdateOptions(
-            interfaces=interfaces_to_update,
-            exclude=args.update_exclusions if hasattr(args, 'update_exclusions') else [],
-            groups=args.update_groups if hasattr(args, 'update_groups') else [],
-            start_date=args.start_date if args.start_date != '20230101' else None,
-            end_date=args.end_date,
-            force=args.update_force if hasattr(args, 'update_force') else False,
-            dry_run=args.update_dry_run if hasattr(args, 'update_dry_run') else False,
-            report_format=ReportFormat(args.update_report_format) if hasattr(args, 'update_report_format') else ReportFormat.MARKDOWN,
-            report_file=args.update_report_file if hasattr(args, 'update_report_file') else None,
-            max_workers=config_loader.global_config.get('concurrency', {}).get('max_workers', 4),
-            log_level=args.log_level
-        )
-        
-        # 创建更新管理器并执行更新
-        update_manager = UpdateManager(
-            config_loader=config_loader,
-            storage_manager=storage_manager,
-            downloader=downloader,
-            scheduler=scheduler,
-            processor=processor,
-            global_rate_limiter=global_rate_limiter
-        )
-        
-        result = update_manager.run_update(update_options)
+        # 如果没有指定接口，则使用所有可用接口
+        if not interfaces_to_update:
+            available_interfaces = config_loader.get_available_interfaces()
+            interfaces_to_update = available_interfaces
+            logger.info(f"No interfaces specified, updating all {len(interfaces_to_update)} available interfaces")
+
+        logger.info(f"Interfaces to update: {interfaces_to_update}")
+
+        # 统计结果
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+
+        # 使用核心下载逻辑处理每个接口
+        for interface_name in interfaces_to_update:
+            try:
+                logger.info(f"\n{'='*60}")
+                logger.info(f"Processing interface: {interface_name}")
+                logger.info(f"{'='*60}")
+
+                # 获取接口配置
+                try:
+                    interface_config = config_loader.get_interface_config(interface_name)
+                except ValueError:
+                    logger.error(f"Interface '{interface_name}' not found in configuration, skipping...")
+                    failed_count += 1
+                    continue
+
+                # 检查积分要求
+                min_points = interface_config.get('permissions', {}).get('min_points', 0)
+                actual_points = int(os.getenv('TUSHARE_POINTS', '120'))
+                if min_points > actual_points:
+                    logger.warning(f"Insufficient points for interface {interface_name} (required: {min_points}, available: {actual_points}), skipping...")
+                    skipped_count += 1
+                    continue
+
+                # 验证和调整日期
+                args.start_date, args.end_date = validate_and_adjust_date(
+                    args.start_date,
+                    args.end_date
+                )
+
+                # 准备基础参数
+                params = {
+                    'start_date': args.start_date,
+                    'end_date': args.end_date
+                }
+
+                # 如果指定了股票代码，添加到参数中
+                if args.ts_code:
+                    params['ts_code'] = args.ts_code
+
+                # 检查是否使用股票循环模式
+                pagination_config = interface_config.get('pagination', {})
+                if pagination_config.get('enabled', False) and pagination_config.get('mode') == 'stock_loop':
+                    logger.info(f"Using stock_loop mode for {interface_name}")
+
+                    # 检查接口参数配置
+                    parameter_config = interface_config.get('parameters', {})
+                    has_start_end = 'start_date' in parameter_config and 'end_date' in parameter_config
+
+                    # 检查是否有日期锚定参数
+                    date_anchor_param = None
+                    for param_name, param_def in parameter_config.items():
+                        if param_def.get('is_date_anchor', False):
+                            if date_anchor_param:
+                                logger.warning(f"Multiple date anchor parameters found for {interface_name}: {date_anchor_param}, {param_name}. Using first: {date_anchor_param}")
+                            else:
+                                date_anchor_param = param_name
+
+                    if has_start_end:
+                        # 场景 1：接口支持 start_date/end_date，直接透传命令行参数
+                        params = {
+                            'start_date': args.start_date,
+                            'end_date': args.end_date
+                        }
+                        if args.ts_code:
+                            params['ts_code'] = args.ts_code
+                        logger.info(f"Using start_date/end_date for {interface_name}: {args.start_date} - {args.end_date}")
+                    elif date_anchor_param:
+                        # 场景 2：接口使用日期锚定参数，传递范围供遍历
+                        params = {
+                            'start_date': args.start_date,
+                            'end_date': args.end_date,
+                            '_date_anchor_param': date_anchor_param  # 内部标记，用于分页执行器
+                        }
+                        if args.ts_code:
+                            params['ts_code'] = args.ts_code
+                        logger.info(f"Using date anchor parameter '{date_anchor_param}' for {interface_name}: {args.start_date} - {args.end_date}")
+                    else:
+                        # 场景 3：没有日期参数，获取全历史
+                        params = {}
+                        if args.ts_code:
+                            params['ts_code'] = args.ts_code
+                        logger.info(f"Using stock_loop mode for {interface_name}, fetching full history (no date parameters)")
+
+                    # 使用统一的股票列表准备方法
+                    stock_list = _prepare_stock_list(downloader, args, params)
+                    if stock_list is None:
+                        logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
+                        skipped_count += 1
+                        continue
+
+                    # 使用并发下载
+                    downloaded_count = run_concurrent_stock_download(
+                        downloader, scheduler, interface_name, interface_config,
+                        params, stock_list, global_rate_limiter, storage_manager, processor
+                    )
+
+                    if downloaded_count > 0:
+                        logger.info(f"Successfully downloaded {downloaded_count} total records for {interface_name}")
+                        success_count += 1
+                    else:
+                        logger.warning(f"No data downloaded for {interface_name}")
+                        skipped_count += 1
+
+                else:
+                    # 非 stock_loop 模式，直接使用 downloader.download
+                    logger.info(f"Using direct download for {interface_name}")
+
+                    # 清理内部标记参数
+                    clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
+
+                    data = downloader.download(interface_name, clean_params)
+
+                    if data and len(data) > 0:
+                        logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
+                        success_count += 1
+                    else:
+                        logger.warning(f"No data downloaded for {interface_name}")
+                        skipped_count += 1
+
+            except Exception as e:
+                logger.error(f"Error processing interface {interface_name}: {e}")
+                import traceback
+                traceback.print_exc()
+                failed_count += 1
+
+        # 返回退出码
+        if failed_count == 0:
+            logger.info(f"\n更新成功完成: {success_count} 成功, {skipped_count} 跳过")
+            return 0
+        else:
+            logger.warning(f"\n更新完成但有失败: {success_count} 成功, {failed_count} 失败, {skipped_count} 跳过")
+            return 1
         
         # 返回退出码
         if result.failed_count == 0:

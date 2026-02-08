@@ -10,33 +10,15 @@ import polars as pl
 from datetime import datetime, timedelta
 from .storage import StorageManager
 from .config_loader import ConfigLoader
+from .date_utils import (
+    DateRange,
+    format_date,
+    detect_date_column,
+    days_between,
+    is_next_trade_day
+)
 
 logger = logging.getLogger(__name__)
-
-
-class DateRange:
-    """日期范围数据类"""
-
-    def __init__(self, start_date: str, end_date: str):
-        self.start_date = start_date
-        self.end_date = end_date
-
-    def __str__(self) -> str:
-        return f"{self.start_date} ~ {self.end_date}"
-
-    def __repr__(self) -> str:
-        return f"DateRange({self.start_date}, {self.end_date})"
-
-    def __eq__(self, other) -> bool:
-        if not isinstance(other, DateRange):
-            return False
-        return self.start_date == other.start_date and self.end_date == other.end_date
-
-    def days_between(self) -> int:
-        """计算日期范围的天数"""
-        start = datetime.strptime(self.start_date, '%Y%m%d')
-        end = datetime.strptime(self.end_date, '%Y%m%d')
-        return (end - start).days + 1
 
 
 class CoverageManager:
@@ -533,24 +515,15 @@ class CoverageManager:
         return dates
 
     def _get_existing_dates_from_storage(self, interface_name: str) -> Set[str]:
-        """从存储中读取已有日期"""
+        """从存储中读取已有日期 - 使用统一的日期工具"""
         try:
-            # 获取接口配置
             interface_config = self.config_loader.get_interface_config(interface_name)
-
-            # 智能检测日期列优先级：
-            # 1. duplicate_detection.date_column
-            # 2. output.sort_by 中的第一个字段（通常是日期）
-            # 3. 查找常见的日期字段名
-            date_column = self._detect_date_column(interface_config)
+            date_column = detect_date_column(interface_config)
 
             if not date_column:
-                logger.warning(f"{interface_name}: 无法检测到日期列，跳过缺口检测")
+                logger.warning(f"{interface_name}: 无法检测到日期列")
                 return set()
 
-            logger.debug(f"{interface_name}: 使用日期列 '{date_column}'")
-
-            # 读取所有数据（只读取日期列）
             df = self.storage_manager.read_interface_data(
                 interface_name,
                 columns=[date_column]
@@ -559,15 +532,12 @@ class CoverageManager:
             if df.is_empty():
                 return set()
 
-            # 提取日期并标准化
+            # 使用统一的日期格式化
             dates = set()
             for date_val in df[date_column]:
-                if isinstance(date_val, str):
-                    dates.add(date_val)
-                elif hasattr(date_val, 'strftime'):
-                    dates.add(date_val.strftime('%Y%m%d'))
-                else:
-                    dates.add(str(date_val))
+                formatted = format_date(date_val)
+                if formatted:
+                    dates.add(formatted)
 
             return dates
 
@@ -576,40 +546,8 @@ class CoverageManager:
             return set()
 
     def _detect_date_column(self, interface_config: Dict[str, Any]) -> Optional[str]:
-        """
-        智能检测日期列名称
-
-        优先级：
-        1. duplicate_detection.date_column
-        2. output.sort_by 中的第一个字段
-        3. 常见日期字段名匹配
-        """
-        # 1. 检查 duplicate_detection 配置
-        detection_config = interface_config.get('duplicate_detection', {})
-        if 'date_column' in detection_config:
-            return detection_config['date_column']
-
-        # 2. 检查 output.sort_by（通常是日期字段）
-        output_config = interface_config.get('output', {})
-        sort_by = output_config.get('sort_by', [])
-        if sort_by:
-            # sort_by 的第一个字段通常是日期
-            first_sort = sort_by[0]
-            common_date_patterns = ['date', 'time', 'period', 'quarter']
-            if any(pattern in first_sort.lower() for pattern in common_date_patterns):
-                return first_sort
-
-        # 3. 从 fields 中查找常见日期字段
-        fields = interface_config.get('fields', {})
-        priority_fields = [
-            'trade_date', 'report_date', 'ann_date', 'end_date',
-            'create_time', 'update_time', 'quarter', 'period'
-        ]
-        for field in priority_fields:
-            if field in fields:
-                return field
-
-        return None
+        """智能检测日期列名称 - 使用统一工具"""
+        return detect_date_column(interface_config)
 
     def _merge_continuous_dates(
         self,
@@ -643,33 +581,12 @@ class CoverageManager:
         return gaps
 
     def _is_next_trade_day(self, current: str, next_date: str) -> bool:
-        """检查是否是连续的交易日（考虑周末和节假日）"""
-        try:
-            current_dt = datetime.strptime(current, '%Y%m%d')
-            next_dt = datetime.strptime(next_date, '%Y%m%d')
-
-            # 计算日期差
-            delta = (next_dt - current_dt).days
-
-            # 如果是连续的（相差1天）或者是跨周末的连续交易日
-            if delta == 1:
-                return True
-
-            # 如果不是连续的，可能中间有周末或节假日
-            # 使用trade_calendar验证会更准确，这里简化处理
-            return False
-
-        except (ValueError, TypeError):
-            return False
+        """检查是否是连续的交易日 - 使用统一工具"""
+        return is_next_trade_day(current, next_date)
 
     def _days_between(self, start_date: str, end_date: str) -> int:
-        """计算两个日期之间的天数（包含首尾）"""
-        try:
-            start = datetime.strptime(start_date, '%Y%m%d')
-            end = datetime.strptime(end_date, '%Y%m%d')
-            return (end - start).days + 1
-        except (ValueError, TypeError):
-            return 0
+        """计算两个日期之间的天数 - 使用统一工具"""
+        return days_between(start_date, end_date)
 
     def clear_dates_cache(self, interface_name: str = None):
         """清除日期缓存
