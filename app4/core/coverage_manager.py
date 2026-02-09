@@ -328,35 +328,42 @@ class CoverageManager:
         """
         interface_config = self.config_loader.get_interface_config(interface_name)
         detection_config = interface_config.get('duplicate_detection', {})
-        key_column = detection_config.get('key_column', 'period')
+        key_columns = detection_config.get('key_columns') or detection_config.get('key_column', 'period')
+        if isinstance(key_columns, str):
+            key_columns = [key_columns]
 
-        target_period = params.get(key_column) or params.get('period')
-        if not target_period:
-            logger.debug(f"Missing period parameter for {interface_name}, skipping period check")
-            return False
+        target_key = tuple(params.get(col) for col in key_columns)
+        if any(v is None for v in target_key):
+            if 'period' in params and key_columns == ['period']:
+                target_key = (params.get('period'),)
+            else:
+                logger.debug(f"Missing key parameters for {interface_name}, skipping period check")
+                return False
         
         # 获取检测列，默认为period
         
         try:
-            # Lazy load all periods for this interface
-            cache_key = f"{interface_name}_periods"
+            cache_key = f"{interface_name}_periods_{'_'.join(key_columns)}"
             
             # 使用锁保护缓存读写
             with self._cache_lock:
                 if cache_key not in self._cache:
                     logger.debug(f"Loading all periods for {interface_name}")
-                    df = self.storage_manager.read_interface_data(interface_name, columns=[key_column])
+                    df = self.storage_manager.read_interface_data(interface_name, columns=key_columns)
                     
                     if not df.is_empty():
-                        self._cache[cache_key] = set(df[key_column].to_list())
+                        if len(key_columns) == 1:
+                            self._cache[cache_key] = set(df[key_columns[0]].to_list())
+                        else:
+                            self._cache[cache_key] = set(tuple(row) for row in df.select(key_columns).iter_rows())
                         logger.info(f"Loaded {len(self._cache[cache_key])} existing periods for {interface_name}")
                     else:
                         self._cache[cache_key] = set()
                         logger.debug(f"No existing periods found for {interface_name}")
                 
-                result = target_period in self._cache[cache_key]
+                result = target_key in self._cache[cache_key]
                 
-            logger.debug(f"Period {target_period} {'exists' if result else 'does not exist'} for {interface_name}")
+            logger.debug(f"Period {target_key} {'exists' if result else 'does not exist'} for {interface_name}")
             return result
             
         except Exception as e:

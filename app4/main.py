@@ -28,6 +28,7 @@ from core.storage import StorageManager
 from core.processor import DataProcessor
 from core.dedup import deduplicate_against_existing
 from core.cache_warmer import CacheWarmer
+from update.date_calculator import DateCalculator
 import polars as pl
 import glob
 
@@ -120,6 +121,86 @@ def validate_and_adjust_date(start_date: str, end_date: Optional[str]) -> Tuple[
     return start_date, end_date
 
 
+def _prepare_stock_list(downloader, args, params, storage_manager, logger):
+    """统一的股票列表准备方法"""
+    # 获取股票列表 - 从Data目录或API获取
+    stock_list = downloader._get_stock_list_from_data_dir()
+    if stock_list is None:
+        logger.info("Data目录中未找到股票列表，正在从API获取...")
+        stock_params = {'list_status': 'L'}
+        stock_list = downloader.download('stock_basic', stock_params)
+        if stock_list:
+            logger.info(f"从API获取到 {len(stock_list)} 只股票")
+            # 保存到Data目录
+            storage_manager.save_data('stock_basic', stock_list, async_write=False)
+            # 清理旧的 stock_basic 文件
+            cleanup_old_stock_basic_files(storage_manager.storage_dir, keep_latest=1)
+        else:
+            logger.warning("未能从API获取股票列表")
+            return None
+
+    # 如果参数中指定了股票代码，则只下载该股票
+    if 'ts_code' in params:
+        target_code = params['ts_code']
+        stock_list = [stock for stock in stock_list if stock['ts_code'] == target_code]
+        logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
+
+    return stock_list
+
+
+def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter, storage_manager, processor, logger):
+    """运行并发股票下载 - 统一使用buffer机制"""
+    logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
+
+    # 创建包装函数，包含限流逻辑
+    def download_single_stock_with_rate_limit(interface_config, stock, params):
+        # 在工作线程中等待令牌
+        rate_limiter.wait_for_tokens(1)
+        return downloader.download_single_stock(interface_config, stock, params)
+
+    # 统一使用buffer机制，不再在主线程批量处理
+    total_records = 0
+
+    # 构建任务列表
+    tasks = []
+    for stock in stock_list:
+        task = {
+            'func': download_single_stock_with_rate_limit,
+            'args': (interface_config, stock, base_params),
+            'kwargs': {}
+        }
+        tasks.append(task)
+
+        # 每批提交一定数量的任务，避免内存溢出
+        if len(tasks) >= 100:
+            logger.info(f"Submitting batch of {len(tasks)} tasks")
+            results = scheduler.submit_tasks(tasks)
+
+            # buffer机制会自动处理数据，不再累积到all_data
+            for result in results:
+                if result:
+                    total_records += len(result)
+
+            logger.info(f"Completed batch, total records: {total_records}")
+            tasks = []
+
+    # 提交剩余任务
+    if tasks:
+        logger.info(f"Submitting final batch of {len(tasks)} tasks")
+        results = scheduler.submit_tasks(tasks)
+
+        for result in results:
+            if result:
+                total_records += len(result)
+
+        logger.info(f"Completed final batch, total records: {total_records}")
+
+    # 等待buffer机制处理完成
+    # buffer机制会自动处理数据的累积和写入
+
+    return total_records
+
+
 def run_update_mode(args):
     """运行增量更新模式
     
@@ -181,6 +262,8 @@ def run_update_mode(args):
         force_download=args.update_force if hasattr(args, 'update_force') else False,
         incremental_mode=True
     )
+
+    date_calculator = DateCalculator(config_loader, storage_manager)
     
     # 创建全局速率限制器
     global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
@@ -237,16 +320,19 @@ def run_update_mode(args):
                     skipped_count += 1
                     continue
 
-                # 验证和调整日期
-                args.start_date, args.end_date = validate_and_adjust_date(
-                    args.start_date,
-                    args.end_date
-                )
+                user_provided_dates = getattr(args, 'user_provided_dates', False)
+                if user_provided_dates:
+                    start_date, end_date = validate_and_adjust_date(
+                        args.start_date,
+                        args.end_date
+                    )
+                else:
+                    date_range = date_calculator.calculate_update_range(interface_name)
+                    start_date, end_date = date_range.start_date, date_range.end_date
 
-                # 准备基础参数
                 params = {
-                    'start_date': args.start_date,
-                    'end_date': args.end_date
+                    'start_date': start_date,
+                    'end_date': end_date
                 }
 
                 # 如果指定了股票代码，添加到参数中
@@ -274,12 +360,12 @@ def run_update_mode(args):
                     if has_start_end:
                         # 场景 1：接口支持 start_date/end_date，直接透传命令行参数
                         params = {
-                            'start_date': args.start_date,
-                            'end_date': args.end_date
+                            'start_date': start_date,
+                            'end_date': end_date
                         }
                         if args.ts_code:
                             params['ts_code'] = args.ts_code
-                        logger.info(f"Using start_date/end_date for {interface_name}: {args.start_date} - {args.end_date}")
+                        logger.info(f"Using start_date/end_date for {interface_name}: {start_date} - {end_date}")
                     elif date_anchor_param:
                         # 场景 2：接口使用日期锚定参数
                         # 如果用户未显式提供日期范围且指定了ts_code，则进行“单次全历史”请求（不设置日期锚点）
@@ -289,13 +375,13 @@ def run_update_mode(args):
                         else:
                             # 传递范围供遍历（按报告期锚点）
                             params = {
-                                'start_date': args.start_date,
-                                'end_date': args.end_date,
+                                'start_date': start_date,
+                                'end_date': end_date,
                                 '_date_anchor_param': date_anchor_param  # 内部标记，用于分页执行器
                             }
                             if args.ts_code:
                                 params['ts_code'] = args.ts_code
-                            logger.info(f"Using date anchor parameter '{date_anchor_param}' for {interface_name}: {args.start_date} - {args.end_date}")
+                            logger.info(f"Using date anchor parameter '{date_anchor_param}' for {interface_name}: {start_date} - {end_date}")
                     else:
                         # 场景 3：没有日期参数，获取全历史
                         params = {}
@@ -304,7 +390,7 @@ def run_update_mode(args):
                         logger.info(f"Using stock_loop mode for {interface_name}, fetching full history (no date parameters)")
 
                     # 使用统一的股票列表准备方法
-                    stock_list = _prepare_stock_list(downloader, args, params)
+                    stock_list = _prepare_stock_list(downloader, args, params, storage_manager, logger)
                     if stock_list is None:
                         logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
                         skipped_count += 1
@@ -313,7 +399,7 @@ def run_update_mode(args):
                     # 使用并发下载
                     downloaded_count = run_concurrent_stock_download(
                         downloader, scheduler, interface_name, interface_config,
-                        params, stock_list, global_rate_limiter, storage_manager, processor
+                        params, stock_list, global_rate_limiter, storage_manager, processor, logger
                     )
 
                     if downloaded_count > 0:
@@ -329,6 +415,19 @@ def run_update_mode(args):
 
                     # 清理内部标记参数
                     clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
+
+                    if downloader.coverage_manager and not args.update_force:
+                        try:
+                            if downloader.coverage_manager.should_skip(
+                                interface_name,
+                                clean_params,
+                                strategy='auto'
+                            ):
+                                logger.info(f"Skipping {interface_name} (already covered)")
+                                skipped_count += 1
+                                continue
+                        except Exception:
+                            pass
 
                     data = downloader.download(interface_name, clean_params)
 
@@ -504,6 +603,7 @@ def main():
     user_provided_start_date = '--start_date' in sys.argv
     user_provided_end_date = '--end_date' in sys.argv
     user_provided_dates = user_provided_start_date or user_provided_end_date
+    setattr(args, 'user_provided_dates', user_provided_dates)
     
     # 处理 --incremental 与 --update 的兼容性
     if args.incremental and not args.update:
@@ -770,84 +870,6 @@ def main():
 
         return df
 
-    def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter, storage_manager, processor):
-        """运行并发股票下载 - 统一使用buffer机制"""
-        logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
-
-        # 创建包装函数，包含限流逻辑
-        def download_single_stock_with_rate_limit(interface_config, stock, params):
-            # 在工作线程中等待令牌
-            rate_limiter.wait_for_tokens(1)
-            return downloader.download_single_stock(interface_config, stock, params)
-
-        # ✅ 统一使用buffer机制，不再在主线程批量处理
-        total_records = 0
-
-        # 构建任务列表
-        tasks = []
-        for stock in stock_list:
-            task = {
-                'func': download_single_stock_with_rate_limit,
-                'args': (interface_config, stock, base_params),
-                'kwargs': {}
-            }
-            tasks.append(task)
-
-            # 每批提交一定数量的任务，避免内存溢出
-            if len(tasks) >= 100:
-                logger.info(f"Submitting batch of {len(tasks)} tasks")
-                results = scheduler.submit_tasks(tasks)
-
-                # ✅ buffer机制会自动处理数据，不再累积到all_data
-                for result in results:
-                    if result:
-                        total_records += len(result)
-
-                logger.info(f"Completed batch, total records: {total_records}")
-                tasks = []
-
-        # 提交剩余任务
-        if tasks:
-            logger.info(f"Submitting final batch of {len(tasks)} tasks")
-            results = scheduler.submit_tasks(tasks)
-
-            for result in results:
-                if result:
-                    total_records += len(result)
-
-            logger.info(f"Completed final batch, total records: {total_records}")
-
-        # ✅ 等待buffer机制处理完成
-        # buffer机制会自动处理数据的累积和写入
-
-        return total_records
-
-    def _prepare_stock_list(downloader, args, params):
-        """统一的股票列表准备方法"""
-        # 获取股票列表 - 从Data目录或API获取
-        stock_list = downloader._get_stock_list_from_data_dir()
-        if stock_list is None:
-            logger.info("Data目录中未找到股票列表，正在从API获取...")
-            stock_params = {'list_status': 'L'}
-            stock_list = downloader.download('stock_basic', stock_params)
-            if stock_list:
-                logger.info(f"从API获取到 {len(stock_list)} 只股票")
-                # 保存到Data目录
-                storage_manager.save_data('stock_basic', stock_list, async_write=False)
-                # 清理旧的 stock_basic 文件
-                cleanup_old_stock_basic_files(storage_manager.storage_dir, keep_latest=1)
-            else:
-                logger.warning("未能从API获取股票列表")
-                return None
-
-        # 如果参数中指定了股票代码，则只下载该股票
-        if 'ts_code' in params:
-            target_code = params['ts_code']
-            stock_list = [stock for stock in stock_list if stock['ts_code'] == target_code]
-            logger.info(f"Filtered to specific stock: {target_code}, {len(stock_list)} stocks remaining")
-
-        return stock_list
-
     # [新增] try...finally 结构
     try:
         # 确定要执行的接口
@@ -987,13 +1009,13 @@ def main():
                         logger.info(f"Using stock_loop mode for {interface_name}, fetching full history (no date parameters)")
 
                     # 使用统一的股票列表准备方法
-                    stock_list = _prepare_stock_list(downloader, args, params)
+                    stock_list = _prepare_stock_list(downloader, args, params, storage_manager, logger)
                     if stock_list is None:
                         logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
                         continue
 
                     # 使用并发下载
-                    downloaded_count = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor)
+                    downloaded_count = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor, logger)
 
                     if downloaded_count > 0:
                         logger.info(f"Successfully downloaded {downloaded_count} total records for {interface_name}")

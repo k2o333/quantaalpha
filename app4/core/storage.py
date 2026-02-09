@@ -1,4 +1,5 @@
 import os
+import json
 import threading
 import queue
 import polars as pl
@@ -12,6 +13,52 @@ from .dedup import deduplicate_against_existing
 from .schema_manager import SchemaManager
 
 logger = logging.getLogger(__name__)
+
+class StorageMonitor:
+    def __init__(self):
+        self.successful_saves = 0
+        self.failed_saves = 0
+        self.duplicate_saves = 0
+        self.total_records_saved = 0
+        self.save_times = []
+        self.errors = []
+
+    def record_successful_save(self, record_count: int):
+        self.successful_saves += 1
+        self.total_records_saved += record_count
+        self.save_times.append(time.time())
+
+    def record_error(self, message: str):
+        self.failed_saves += 1
+        self.errors.append({
+            'message': message,
+            'timestamp': time.time()
+        })
+
+    def record_duplicate_save(self):
+        self.duplicate_saves += 1
+
+    def reset(self):
+        self.successful_saves = 0
+        self.failed_saves = 0
+        self.duplicate_saves = 0
+        self.total_records_saved = 0
+        self.save_times = []
+        self.errors = []
+
+    def get_summary(self) -> str:
+        average_records = (
+            self.total_records_saved / self.successful_saves
+            if self.successful_saves > 0 else 0
+        )
+        return "\n".join([
+            "Storage Operation Summary",
+            f"Successful Saves: {self.successful_saves}",
+            f"Failed Saves: {self.failed_saves}",
+            f"Duplicate Saves: {self.duplicate_saves}",
+            f"Total Records Saved: {self.total_records_saved}",
+            f"Average Records per Save: {average_records}"
+        ])
 
 class StorageManager:
     """存储管理器 - 支持接口缓存和异步处理"""
@@ -40,6 +87,8 @@ class StorageManager:
         self.buffer_threshold = 5000  # 触发阈值
         self.buffer_lock = threading.Lock()  # 缓存锁
         self.failed_interfaces = set()  # 失败接口集合
+        self.monitor = StorageMonitor()
+        self._last_save_signature = {}
 
         # 确保存储目录存在
         os.makedirs(storage_dir, exist_ok=True)
@@ -663,32 +712,50 @@ class StorageManager:
             data: 要保存的数据
             async_write: 是否异步写入
         """
-        if async_write:
-            # ✅ 修复：根据数据是否已处理来选择队列
-            # 如果数据包含 '_update_time' 字段，说明已经处理过，直接放入 data_queue
-            # 如果数据未处理，放入 process_queue 由 _process_worker 处理
-            data_already_processed = (
-                data and isinstance(data, list) and
-                len(data) > 0 and '_update_time' in data[0]
-            )
-
-            if data_already_processed:
-                # 数据已处理，直接放入写入队列
-                try:
-                    self.data_queue.put({
-                        'interface_name': interface_name,
-                        'data': data
-                    }, block=False)
-                    logger.debug(f"Queued processed data ({len(data)} records) for {interface_name}")
-                except queue.Full:
-                    logger.warning(f"Storage queue is full, dropping data for {interface_name}")
+        try:
+            if isinstance(data, pl.DataFrame):
+                data_records = data.to_dicts()
+            elif isinstance(data, dict):
+                data_records = [data]
             else:
-                # 数据未处理，放入处理队列
-                # 使用 add_to_buffer 方法，它会根据数据量决定是否立即处理
-                self.add_to_buffer(interface_name, data, flush_immediately=(len(data) < 100))
-        else:
-            # 同步写入：直接写入
-            self._write_interface_data(interface_name, data)
+                data_records = data or []
+
+            if not data_records:
+                return
+
+            signature = self._make_save_signature(data_records)
+            if self._last_save_signature.get(interface_name) == signature:
+                self.monitor.record_duplicate_save()
+            self._last_save_signature[interface_name] = signature
+            self.monitor.record_successful_save(len(data_records))
+
+            if async_write:
+                data_already_processed = (
+                    data_records and isinstance(data_records, list) and
+                    len(data_records) > 0 and '_update_time' in data_records[0]
+                )
+
+                if data_already_processed:
+                    try:
+                        self.data_queue.put({
+                            'interface_name': interface_name,
+                            'data': data_records
+                        }, block=False)
+                        logger.debug(f"Queued processed data ({len(data_records)} records) for {interface_name}")
+                    except queue.Full:
+                        logger.warning(f"Storage queue is full, dropping data for {interface_name}")
+                else:
+                    self.add_to_buffer(interface_name, data_records, flush_immediately=(len(data_records) < 100))
+            else:
+                self._write_interface_data(interface_name, data_records)
+        except Exception as e:
+            self.monitor.record_error(str(e))
+            raise
+
+    def _make_save_signature(self, data_records: List[Dict[str, Any]]) -> str:
+        normalized = [json.dumps(record, sort_keys=True, ensure_ascii=False) for record in data_records]
+        normalized.sort()
+        return "|".join(normalized)
 
     def write_interface_data(self, interface_name: str, df: pl.DataFrame) -> None:
         """

@@ -152,6 +152,12 @@ class DateCalculator:
             interface_config = self.config_loader.get_interface_config(interface_name)
             return detect_date_column(interface_config) or 'trade_date'
         except Exception:
+            if 'trade_cal' in interface_name:
+                return 'cal_date'
+            if any(x in interface_name for x in ['income', 'balance', 'cashflow', 'fina_indicator']):
+                return 'end_date'
+            if 'stock_basic' in interface_name:
+                return 'list_date'
             return 'trade_date'
     
     def _get_default_start_date(self, interface_name: str) -> str:

@@ -29,6 +29,11 @@ output:
   sort_by:
   - end_date
   dedup_enabled: true
+duplicate_detection:
+  enabled: true
+  key_columns:
+  - ts_code
+  - end_date
 pagination:
   enabled: true
   mode: stock_loop
