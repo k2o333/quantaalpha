@@ -6,7 +6,7 @@
 import logging
 from typing import Dict, Any, List, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from .pagination import PaginationComposer, PaginationContext
+from .pagination import PaginationComposer, PaginationContext, ParameterGenerator
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -70,8 +70,22 @@ class PaginationExecutor:
         Returns:
             所有请求的数据结果
         """
-        composer = PaginationComposer(context)
-        params_list = list(composer.compose(base_params))
+        if base_params.get('_date_anchor_param') and self._is_stock_loop_enabled(context.interface_config):
+            param_gen = ParameterGenerator(context)
+            params_with_stock = param_gen.generate_stock_date_anchor_params(base_params)
+            params_list = [params for params, _ in params_with_stock]
+        elif base_params.get('_stock_full_history') and self._is_stock_loop_enabled(context.interface_config):
+            stock_list = context.stock_list or []
+            params_list = []
+            for stock in stock_list:
+                ts_code = stock.get('ts_code')
+                if not ts_code:
+                    continue
+                p = {'ts_code': ts_code, '_stock_info': stock}
+                params_list.append(p)
+        else:
+            composer = PaginationComposer(context)
+            params_list = list(composer.compose(base_params))
         
         if len(params_list) <= 1:
             return self._execute_single(interface_config, params_list[0], make_request) if params_list else []
@@ -270,6 +284,12 @@ class PaginationExecutor:
         elif name in self.LOW_CONCURRENT_INTERFACES:
             return 2
         return self.max_workers
+
+    def _is_stock_loop_enabled(self, interface_config: Dict[str, Any]) -> bool:
+        pagination = interface_config.get('pagination', {})
+        if 'stock_loop' in pagination:
+            return pagination.get('stock_loop', {}).get('enabled', False)
+        return pagination.get('enabled', False) and pagination.get('mode') == 'stock_loop'
     
     def _get_stop_on_empty_config(self, interface_config: Dict[str, Any]) -> int:
         """
@@ -311,6 +331,17 @@ class PaginationExecutor:
         
         clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
         try:
+            # 如果接口定义了日期锚定参数且当前请求包含该参数，使用period策略
+            param_defs = interface_config.get('parameters', {})
+            date_anchor_param = None
+            for p_name, p_def in param_defs.items():
+                if p_def.get('is_date_anchor', False):
+                    date_anchor_param = p_name
+                    break
+            if date_anchor_param:
+                if date_anchor_param in clean_params:
+                    return coverage_manager.should_skip(api_name, clean_params, strategy='period')
+                return False
             return coverage_manager.should_skip(api_name, clean_params, strategy=strategy)
         except:
             return False

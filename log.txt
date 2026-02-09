@@ -1,0 +1,118 @@
+(get) root@rdq:/home/quan/testdata/aspipe_v4# python app4/main.py  --interface disclosure_date --ts_code 000001.SZ
+2026-02-09 10:37:42,488 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-09 10:37:42,488 - __main__ - INFO - 预热全局缓存...
+2026-02-09 10:37:42,543 - core.cache_warmer - INFO - 预加载交易日历成功: 8581条记录
+2026-02-09 10:37:42,572 - core.cache_warmer - INFO - 预加载股票列表成功: 5479只股票
+2026-02-09 10:37:42,574 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260209
+2026-02-09 10:37:42,576 - __main__ - INFO - Global trade calendar loaded from memory cache: 8581 trade days
+2026-02-09 10:37:42,576 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-09 10:37:42,577 - core.storage - INFO - Storage writer and process threads started
+2026-02-09 10:37:42,577 - __main__ - INFO - Interfaces to run: ['disclosure_date']
+2026-02-09 10:37:42,577 - __main__ - INFO - Using default date range for tscode_historical interface disclosure_date: 19900101 to today
+2026-02-09 10:37:42,579 - __main__ - INFO - Using stock_loop mode for disclosure_date
+2026-02-09 10:37:42,579 - __main__ - INFO - Using date anchor parameter 'end_date' for disclosure_date: 19900101 - 20260209
+2026-02-09 10:37:42,584 - core.downloader - INFO - 从本地获取了 5479 只股票
+2026-02-09 10:37:42,607 - __main__ - INFO - Filtered to specific stock: 000001.SZ, 1 stocks remaining
+2026-02-09 10:37:42,607 - __main__ - INFO - Starting concurrent download for disclosure_date with 1 stocks
+2026-02-09 10:37:42,607 - __main__ - INFO - Submitting final batch of 1 tasks
+2026-02-09 10:37:42,608 - core.downloader - INFO - Downloading data for stock 000001.SZ, params: {'start_date': '19900101', 'end_date': '20260209', '_date_anchor_param': 'end_date', 'ts_code': '000001.SZ'}
+2026-02-09 10:37:53,639 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:53,640 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:53,640 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:54,531 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:54,531 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:54,531 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:55,732 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:55,732 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:55,733 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:56,367 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:56,368 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:56,368 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:57,012 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:57,012 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:57,012 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:57,519 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:57,519 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:57,519 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:58,133 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:58,133 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:58,133 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:58,738 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:58,738 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:58,738 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:37:59,262 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:37:59,263 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:37:59,263 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:38:00,644 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:38:00,645 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:38:00,645 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:38:01,233 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:38:01,234 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:38:01,234 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+2026-02-09 10:38:01,852 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:38:01,852 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:38:01,852 - core.downloader - INFO - Downloaded 0 records for disclosure_date
+Bus error
+(get) root@rdq:/home/quan/testdata/aspipe_v4# python app4/main.py  --start_date 20250101  --interface disclosure_date --ts_code 000001.SZ
+2026-02-09 10:38:11,488 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-09 10:38:11,489 - __main__ - INFO - 预热全局缓存...
+2026-02-09 10:38:11,540 - core.cache_warmer - INFO - 预加载交易日历成功: 8581条记录
+2026-02-09 10:38:11,565 - core.cache_warmer - INFO - 预加载股票列表成功: 5479只股票
+2026-02-09 10:38:11,567 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260209
+2026-02-09 10:38:11,569 - __main__ - INFO - Global trade calendar loaded from memory cache: 8581 trade days
+2026-02-09 10:38:11,569 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-09 10:38:11,570 - core.storage - INFO - Storage writer and process threads started
+2026-02-09 10:38:11,570 - __main__ - INFO - Interfaces to run: ['disclosure_date']
+2026-02-09 10:38:11,571 - __main__ - INFO - Using stock_loop mode for disclosure_date
+2026-02-09 10:38:11,571 - __main__ - INFO - Using date anchor parameter 'end_date' for disclosure_date: 20250101 - 20260209
+2026-02-09 10:38:11,575 - core.downloader - INFO - 从本地获取了 5479 只股票
+2026-02-09 10:38:11,602 - __main__ - INFO - Filtered to specific stock: 000001.SZ, 1 stocks remaining
+2026-02-09 10:38:11,602 - __main__ - INFO - Starting concurrent download for disclosure_date with 1 stocks
+2026-02-09 10:38:11,603 - __main__ - INFO - Submitting final batch of 1 tasks
+2026-02-09 10:38:11,603 - core.downloader - INFO - Downloading data for stock 000001.SZ, params: {'start_date': '20250101', 'end_date': '20260209', '_date_anchor_param': 'end_date', 'ts_code': '000001.SZ'}
+2026-02-09 10:38:12,338 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:38:12,338 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:38:12,338 - core.downloader - INFO - Downloaded 1 records for disclosure_date
+2026-02-09 10:38:13,053 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:38:13,053 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:38:13,053 - core.downloader - INFO - Downloaded 1 records for disclosure_date
+2026-02-09 10:38:13,496 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:38:13,496 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:38:13,496 - core.downloader - INFO - Downloaded 1 records for disclosure_date
+2026-02-09 10:38:14,434 - core.downloader - INFO - API returned 5 fields for disclosure_date
+2026-02-09 10:38:14,434 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'pre_date', 'actual_date']
+2026-02-09 10:38:14,434 - core.downloader - INFO - Downloaded 1 records for disclosure_date
+2026-02-09 10:38:14,435 - core.downloader - INFO - Downloaded 4 records for 000001.SZ
+2026-02-09 10:38:14,436 - __main__ - INFO - Completed final batch, total records: 4
+2026-02-09 10:38:14,436 - __main__ - INFO - Successfully downloaded 4 total records for disclosure_date
+2026-02-09 10:38:14,436 - __main__ - INFO - 正在停止调度器...
+2026-02-09 10:38:14,448 - core.scheduler - INFO - Task scheduler stopped
+2026-02-09 10:38:14,448 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-09 10:38:14,448 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-09 10:38:14,461 - core.processor - INFO - Processed 4 records for disclosure_date
+2026-02-09 10:38:14,462 - core.storage - INFO - Processed and queued 4 records for disclosure_date
+2026-02-09 10:38:14,462 - core.storage - INFO - Stopping writer thread...
+2026-02-09 10:38:14,474 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for disclosure_date，记录数: 4
+2026-02-09 10:38:14,476 - core.storage - INFO - Wrote 4 records to data/disclosure_date/disclosure_date_20250401_20260101_1770604694462_b71bf840.parquet
+2026-02-09 10:38:14,476 - core.storage - INFO - Storage threads stopped
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 2.91秒
+总请求数: 4
+接口数量: 1
+------------------------------
+接口: disclosure_date
+  - 请求次数: 4
+  - 总记录数: 4
+  - 成功率: 100.0%
+  - 平均请求时间: 0.39秒
+  - P50/P90/P99: 0.46/0.53/0.53秒
+  - 平均记录数: 1条
+
+==============================
+
+2026-02-09 10:38:14,476 - core.performance_monitor - INFO - 性能报告已保存: log/reports/performance_report_20260209_103814.md
+2026-02-09 10:38:14,476 - __main__ - INFO - 性能报告已生成: log/reports/performance_report_20260209_103814.md
+2026-02-09 10:38:14,477 - __main__ - INFO - 资源清理完毕，程序退出。

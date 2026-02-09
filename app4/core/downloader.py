@@ -440,19 +440,27 @@ class GenericDownloader:
             #     stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
 
             # 对于不支持日期参数的接口，移除被意外添加的日期参数
-            if 'start_date' not in parameter_config:
-                stock_params.pop('start_date', None)
-            if 'end_date' not in parameter_config:
-                stock_params.pop('end_date', None)
+            # 但如果使用日期锚定参数，保留 start_date/end_date 供内部参数生成使用
+            if '_date_anchor_param' not in stock_params:
+                if 'start_date' not in parameter_config:
+                    stock_params.pop('start_date', None)
+                if 'end_date' not in parameter_config:
+                    stock_params.pop('end_date', None)
 
             # [新增] 检查覆盖率，如果已存在则跳过
             should_skip = False
             if self.coverage_manager and not self.force_download:
-                should_skip = self.coverage_manager.should_skip(
-                    interface_config['api_name'],
-                    stock_params,
-                    strategy='stock'
-                )
+                # 若是使用日期锚定模型的接口（存在 is_date_anchor 参数），统一不按股票级别跳过
+                param_defs = interface_config.get('parameters', {})
+                has_date_anchor = any(p_def.get('is_date_anchor', False) for p_def in param_defs.values())
+                if has_date_anchor:
+                    should_skip = False
+                else:
+                    should_skip = self.coverage_manager.should_skip(
+                        interface_config['api_name'],
+                        stock_params,
+                        strategy='stock'
+                    )
                 if should_skip:
                     logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (already exists)")
                     return []

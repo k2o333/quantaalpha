@@ -326,17 +326,16 @@ class CoverageManager:
         Returns:
             True表示已存在（应跳过），False表示不存在（应下载）
         """
-        target_period = params.get('period')
+        interface_config = self.config_loader.get_interface_config(interface_name)
+        detection_config = interface_config.get('duplicate_detection', {})
+        key_column = detection_config.get('key_column', 'period')
+
+        target_period = params.get(key_column) or params.get('period')
         if not target_period:
             logger.debug(f"Missing period parameter for {interface_name}, skipping period check")
             return False
-            
-        # 获取接口配置
-        interface_config = self.config_loader.get_interface_config(interface_name)
-        detection_config = interface_config.get('duplicate_detection', {})
         
         # 获取检测列，默认为period
-        key_column = detection_config.get('key_column', 'period')
         
         try:
             # Lazy load all periods for this interface

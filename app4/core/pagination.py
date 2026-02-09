@@ -6,7 +6,7 @@
 import logging
 from typing import Dict, Any, List, Iterator, Optional
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +285,149 @@ class PaginationComposer:
                 strategy='stock'
             )
         return False
+
+
+class ParameterGenerator:
+    def __init__(self, context: PaginationContext):
+        self.context = context
+        self.interface_config = context.interface_config
+        self.pagination_config = self.interface_config.get('pagination', {})
+        self.parameter_config = self.interface_config.get('parameters', {})
+
+    def generate_stock_date_anchor_params(self, base_params: Dict[str, Any], existing_stocks_checker=None):
+        start_date = base_params.get('start_date')
+        end_date = base_params.get('end_date')
+        date_anchor_param = base_params.get('_date_anchor_param')
+
+        if not start_date or not end_date or not date_anchor_param:
+            logger.error("Missing required parameters for date anchor generation")
+            return []
+
+        stock_list = self.context.stock_list
+        if not stock_list:
+            logger.error("Stock list not provided")
+            return []
+
+        window_size_days = self._get_window_size_days()
+        date_points = self._generate_date_points_by_type(start_date, end_date, date_anchor_param, window_size_days)
+
+        if not date_points:
+            logger.warning("No date points generated for date anchor parameters")
+            return []
+
+        generated = []
+        for stock in stock_list:
+            ts_code = stock.get('ts_code')
+            if not ts_code:
+                continue
+            if existing_stocks_checker and existing_stocks_checker(self.context.interface_name, ts_code):
+                continue
+
+            for date_point in date_points:
+                params = {k: v for k, v in base_params.items() if not k.startswith('_')}
+                params.pop('start_date', None)
+                params.pop('end_date', None)
+                params['ts_code'] = ts_code
+                params[date_anchor_param] = date_point
+                params['_stock_info'] = stock
+                generated.append((params, stock))
+
+        return generated
+
+    def _get_window_size_days(self) -> int:
+        window_size_days = self.pagination_config.get('window_size_days', 365)
+        try:
+            return int(window_size_days)
+        except Exception:
+            return 365
+
+    def _generate_date_points_by_type(self, start_date: str, end_date: str, date_anchor_param: str, window_size_days: int) -> List[str]:
+        if not date_anchor_param:
+            return []
+
+        if date_anchor_param == 'period' or self._is_report_period_anchor(date_anchor_param):
+            date_points = self._generate_quarter_end_dates(start_date, end_date)
+        elif date_anchor_param == 'trade_date':
+            date_points = self._get_trade_dates(start_date, end_date)
+        else:
+            date_points = self._generate_window_end_dates(start_date, end_date, window_size_days)
+
+        if self.pagination_config.get('date_anchor', {}).get('reverse', False):
+            date_points = list(reversed(date_points))
+
+        return date_points
+
+    def _is_report_period_anchor(self, date_anchor_param: str) -> bool:
+        if date_anchor_param != 'end_date':
+            return False
+        param_def = self.parameter_config.get('end_date', {})
+        description = str(param_def.get('description', ''))
+        if '报告期' in description or '季度' in description:
+            return True
+        return self.interface_config.get('name') == 'disclosure_date'
+
+    def _generate_quarter_end_dates(self, start_date: str, end_date: str) -> List[str]:
+        try:
+            start_dt = datetime.strptime(start_date, '%Y%m%d')
+            end_dt = datetime.strptime(end_date, '%Y%m%d')
+        except Exception:
+            return []
+
+        quarter_ends = []
+        for year in range(start_dt.year, end_dt.year + 1):
+            for month, day in [(3, 31), (6, 30), (9, 30), (12, 31)]:
+                try:
+                    q_dt = datetime(year, month, day)
+                except ValueError:
+                    continue
+                if start_dt <= q_dt <= end_dt:
+                    quarter_ends.append(q_dt.strftime('%Y%m%d'))
+        return quarter_ends
+
+    def _get_trade_dates(self, start_date: str, end_date: str) -> List[str]:
+        trade_days = self._get_trade_days(start_date, end_date)
+        if trade_days:
+            trade_days.sort(key=lambda x: x['cal_date'])
+            return [d['cal_date'] for d in trade_days]
+        return self._generate_daily_dates(start_date, end_date)
+
+    def _generate_window_end_dates(self, start_date: str, end_date: str, window_size_days: int) -> List[str]:
+        trade_days = self._get_trade_days(start_date, end_date)
+        if trade_days:
+            trade_days.sort(key=lambda x: x['cal_date'])
+            dates = [d['cal_date'] for d in trade_days]
+        else:
+            dates = self._generate_daily_dates(start_date, end_date)
+
+        if not dates:
+            return []
+
+        step = max(1, window_size_days)
+        window_ends = []
+        for i in range(0, len(dates), step):
+            window_ends.append(dates[min(i + step, len(dates)) - 1])
+        return window_ends
+
+    def _get_trade_days(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        if not self.context.trade_calendar:
+            return []
+        return [
+            day for day in self.context.trade_calendar
+            if day.get('is_open', 0) == 1 and start_date <= day['cal_date'] <= end_date
+        ]
+
+    def _generate_daily_dates(self, start_date: str, end_date: str) -> List[str]:
+        try:
+            current = datetime.strptime(start_date, '%Y%m%d')
+            end_dt = datetime.strptime(end_date, '%Y%m%d')
+        except Exception:
+            return []
+
+        dates = []
+        while current <= end_dt:
+            dates.append(current.strftime('%Y%m%d'))
+            current += timedelta(days=1)
+        return dates
 
 
 def migrate_legacy_config(interface_config: Dict[str, Any]) -> Dict[str, Any]:

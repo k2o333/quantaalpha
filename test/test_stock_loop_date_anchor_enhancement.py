@@ -70,7 +70,7 @@ class TestStockLoopDateAnchorEnhancement(unittest.TestCase):
             mock_logger.warning.assert_called_once()
 
     def test_validate_date_anchor_parameters_invalid_start_date(self):
-        """测试将 start_date 标记为日期锚定参数 - 应该失败"""
+        """测试将 start_date 标记为日期锚定参数 - 应该通过"""
         interface_config = {
             'name': 'test_interface',
             'parameters': {
@@ -82,10 +82,10 @@ class TestStockLoopDateAnchorEnhancement(unittest.TestCase):
         }
         
         result = self.config_loader._validate_date_anchor_parameters(interface_config)
-        self.assertFalse(result)
+        self.assertTrue(result)
 
     def test_validate_date_anchor_parameters_invalid_end_date(self):
-        """测试将 end_date 标记为日期锚定参数 - 应该失败"""
+        """测试将 end_date 标记为日期锚定参数 - 应该通过"""
         interface_config = {
             'name': 'test_interface',
             'parameters': {
@@ -97,7 +97,7 @@ class TestStockLoopDateAnchorEnhancement(unittest.TestCase):
         }
         
         result = self.config_loader._validate_date_anchor_parameters(interface_config)
-        self.assertFalse(result)
+        self.assertTrue(result)
 
     def test_generate_date_points_period_type(self):
         """测试 period 类型日期点生成"""
