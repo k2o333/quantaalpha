@@ -51,7 +51,7 @@ class TestDateRange:
     def test_days_between(self):
         """测试天数计算"""
         dr = DateRange(start_date='20230101', end_date='20230110')
-        assert dr.days_between() == 9
+        assert dr.days_between() == 10
 
 
 class TestUpdateOptions:

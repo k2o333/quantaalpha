@@ -27,10 +27,10 @@ class DateRange:
         return self.start_date == other.start_date and self.end_date == other.end_date
 
     def days_between(self) -> int:
-        """计算两个日期之间的天数（不包含结束日）"""
+        """计算两个日期之间的天数（包含首尾）"""
         start = datetime.strptime(self.start_date, '%Y%m%d')
         end = datetime.strptime(self.end_date, '%Y%m%d')
-        return (end - start).days
+        return (end - start).days + 1
 
     def contains(self, date_str: str) -> bool:
         """检查日期是否在范围内"""

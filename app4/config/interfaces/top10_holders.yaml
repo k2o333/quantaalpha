@@ -28,6 +28,7 @@ parameters:
   period:
     default: '20231231'
     description: 报告期 YYYYMMDD
+    is_date_anchor: true
     required: false
     type: string
   ts_code:
