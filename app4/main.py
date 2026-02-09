@@ -372,6 +372,9 @@ def run_update_mode(args):
                         if args.ts_code and not user_provided_dates:
                             params = {'ts_code': args.ts_code}
                             logger.info(f"Fetching full history for {interface_name} (single request by ts_code)")
+                        elif interface_name == 'disclosure_date' and not user_provided_dates and not args.ts_code:
+                            params = {'_stock_full_history': True}
+                            logger.info(f"Fetching full history per stock for {interface_name} (single request per stock)")
                         else:
                             # 传递范围供遍历（按报告期锚点）
                             params = {
