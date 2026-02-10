@@ -977,8 +977,10 @@ def main():
                             else:
                                 date_anchor_param = param_name
                     
-                    if has_start_end:
-                        # 场景 1：接口支持 start_date/end_date，直接透传命令行参数
+                    if not user_provided_dates and not args.ts_code:
+                        params = {'_stock_full_history': True}
+                        logger.info(f"Non-update mode: fetching full history per stock for {interface_name} (single request per stock)")
+                    elif has_start_end:
                         params = {
                             'start_date': args.start_date,
                             'end_date': args.end_date
@@ -987,7 +989,6 @@ def main():
                             params['ts_code'] = args.ts_code
                         logger.info(f"Using start_date/end_date for {interface_name}: {args.start_date} - {args.end_date}")
                     elif date_anchor_param:
-                        # 场景 2：接口使用日期锚定参数
                         if args.ts_code and not user_provided_dates:
                             params = {'ts_code': args.ts_code}
                             logger.info(f"Fetching full history for {interface_name} (single request by ts_code)")
@@ -995,17 +996,15 @@ def main():
                             params = {'_stock_full_history': True}
                             logger.info(f"Fetching full history per stock for {interface_name} (single request per stock)")
                         else:
-                            # 传递范围供遍历（按报告期锚点）
                             params = {
                                 'start_date': args.start_date,
                                 'end_date': args.end_date,
-                                '_date_anchor_param': date_anchor_param  # 内部标记，用于分页执行器
+                                '_date_anchor_param': date_anchor_param
                             }
                             if args.ts_code:
                                 params['ts_code'] = args.ts_code
                             logger.info(f"Using date anchor parameter '{date_anchor_param}' for {interface_name}: {args.start_date} - {args.end_date}")
                     else:
-                        # 原有逻辑：没有日期参数，获取全历史
                         params = {}
                         if args.ts_code:
                             params['ts_code'] = args.ts_code
