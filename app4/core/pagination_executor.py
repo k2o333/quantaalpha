@@ -89,7 +89,8 @@ class PaginationExecutor:
         
         if len(params_list) <= 1:
             return self._execute_single(interface_config, params_list[0], make_request) if params_list else []
-        
+
+        stop_on_empty = self._get_stop_on_empty_config(context.interface_config)
         if self._should_use_concurrency(interface_config):
             return self._execute_concurrent(
                 interface_config, params_list, make_request, coverage_manager, progress_callback

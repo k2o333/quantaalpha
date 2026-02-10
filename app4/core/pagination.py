@@ -495,6 +495,28 @@ def migrate_legacy_config(interface_config: Dict[str, Any]) -> Dict[str, Any]:
     
     return new_config
 
+def normalize_pagination_config(pagination_config: Dict[str, Any]) -> Dict[str, Any]:
+    if not pagination_config:
+        return pagination_config
+    normalized = dict(pagination_config)
+    time_range = dict(normalized.get('time_range', {}) or {})
+    stock_loop = dict(normalized.get('stock_loop', {}) or {})
+    has_time_range_keys = any(k in time_range for k in ['window', 'reverse', 'stop_on_empty'])
+    if time_range or has_time_range_keys:
+        if 'enabled' not in time_range:
+            time_range['enabled'] = True
+        if 'window' not in time_range:
+            window_size_days = normalized.get('window_size_days')
+            if window_size_days:
+                time_range['window'] = f"{window_size_days}d"
+        if 'reverse' not in time_range and stock_loop.get('enabled', False):
+            time_range['reverse'] = True
+        normalized['time_range'] = time_range
+    if stock_loop:
+        normalized['stock_loop'] = stock_loop
+    return normalized
+
+
 
 def create_context_with_legacy_support(interface_config: Dict[str, Any], **kwargs) -> PaginationContext:
     """
@@ -509,5 +531,5 @@ def create_context_with_legacy_support(interface_config: Dict[str, Any], **kwarg
     """
     config = interface_config.copy()
     if 'pagination' in config:
-        config['pagination'] = migrate_legacy_config(config)
+        config['pagination'] = normalize_pagination_config(migrate_legacy_config(config))
     return PaginationContext(interface_config=config, **kwargs)
