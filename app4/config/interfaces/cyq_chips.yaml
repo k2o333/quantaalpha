@@ -20,7 +20,7 @@ pagination:
   skip_time_range_in_full_history: false
   time_range:
     enabled: true 
-    window: 10d
+    window: 20d
     stop_on_empty: 90   # 连续90天无数据停止
 parameters:
   end_date:

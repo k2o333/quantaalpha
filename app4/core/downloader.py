@@ -21,6 +21,7 @@ import polars as pl
 
 # Import the new PerformanceMonitor class
 from .performance_monitor import PerformanceMonitor
+from .scheduler import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,8 @@ class GenericDownloader:
                  trade_calendar_cache=None, stock_list_cache=None, force_download=False, incremental_mode=False):
         self.config_loader = config_loader
         self.global_config = config_loader.get_global_config()
+        global_rate_limit = self.global_config.get('request', {}).get('rate_limit', 60)
+        self.global_rate_limiter = RateLimiter(global_rate_limit)
 
         # 存储管理器（外部传入）
         self.storage_manager = storage_manager
@@ -519,6 +522,8 @@ class GenericDownloader:
         # 读取重试配置
         req_config = self.global_config.get('request', {})
         max_retries = req_config.get('retries', 3)
+
+        self.global_rate_limiter.wait_for_tokens(1)
 
         # 随机延迟，错开多个线程的请求时刻
         time.sleep(random.uniform(

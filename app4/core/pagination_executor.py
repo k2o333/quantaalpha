@@ -274,6 +274,10 @@ class PaginationExecutor:
         Returns:
             是否使用并发
         """
+        pagination = interface_config.get('pagination', {})
+        time_range = pagination.get('time_range', {})
+        if time_range.get('reverse', False) and time_range.get('stop_on_empty', 0) > 0:
+            return False
         return interface_config.get('name') not in self.NON_CONCURRENT_INTERFACES
     
     def _get_max_workers(self, interface_config: Dict[str, Any]) -> int:

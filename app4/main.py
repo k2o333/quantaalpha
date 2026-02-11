@@ -148,14 +148,12 @@ def _prepare_stock_list(downloader, args, params, storage_manager, logger):
     return stock_list
 
 
-def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, rate_limiter, storage_manager, processor, logger):
+def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, storage_manager, processor, logger):
     """运行并发股票下载 - 统一使用buffer机制"""
     logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
 
     # 创建包装函数，包含限流逻辑
     def download_single_stock_with_rate_limit(interface_config, stock, params):
-        # 在工作线程中等待令牌
-        rate_limiter.wait_for_tokens(1)
         return downloader.download_single_stock(interface_config, stock, params)
 
     # 统一使用buffer机制，不再在主线程批量处理
@@ -402,7 +400,7 @@ def run_update_mode(args):
                     # 使用并发下载
                     downloaded_count = run_concurrent_stock_download(
                         downloader, scheduler, interface_name, interface_config,
-                        params, stock_list, global_rate_limiter, storage_manager, processor, logger
+                        params, stock_list, storage_manager, processor, logger
                     )
 
                     if downloaded_count > 0:
@@ -774,10 +772,6 @@ def main():
     # 预加载全局交易日历
     global_trade_calendar = preload_global_trade_calendar(downloader)
 
-    # 创建全局速率限制器（优先使用接口配置，否则使用全局默认）
-    global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
-    global_rate_limiter = RateLimiter(global_rate_limit)
-
     # 启动各组件
     scheduler.start()
     storage_manager.start_writer()
@@ -1017,7 +1011,7 @@ def main():
                         continue
 
                     # 使用并发下载
-                    downloaded_count = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, global_rate_limiter, storage_manager, processor, logger)
+                    downloaded_count = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, storage_manager, processor, logger)
 
                     if downloaded_count > 0:
                         logger.info(f"Successfully downloaded {downloaded_count} total records for {interface_name}")
@@ -1068,13 +1062,6 @@ def main():
                         else:
                             logger.warning(f"No data downloaded for {interface_name}")
                         continue  # 跳过普通下载逻辑
-
-                    # 使用接口配置的 rate_limit，如果没有则使用全局默认
-                    interface_rate_limit = interface_config.get('permissions', {}).get('rate_limit', global_rate_limit)
-                    interface_rate_limiter = RateLimiter(interface_rate_limit)
-
-                    # 等待获取令牌
-                    interface_rate_limiter.wait_for_tokens(1)
 
                     # 下载数据
                     data = downloader.download(interface_name, params)

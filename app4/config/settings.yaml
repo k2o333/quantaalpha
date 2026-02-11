@@ -16,6 +16,7 @@ concurrency:
   max_queue_size: 1000
 
 request:
+  rate_limit: 250
   max_retries: 3
   retry_delay: 1.0
   timeout: 30
