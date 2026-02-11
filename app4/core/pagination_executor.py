@@ -75,14 +75,21 @@ class PaginationExecutor:
             params_with_stock = param_gen.generate_stock_date_anchor_params(base_params)
             params_list = [params for params, _ in params_with_stock]
         elif base_params.get('_stock_full_history') and self._is_stock_loop_enabled(context.interface_config):
-            stock_list = context.stock_list or []
-            params_list = []
-            for stock in stock_list:
-                ts_code = stock.get('ts_code')
-                if not ts_code:
-                    continue
-                p = {'ts_code': ts_code, '_stock_info': stock}
-                params_list.append(p)
+            pagination_config = context.interface_config.get('pagination', {})
+            skip_time_range = pagination_config.get('skip_time_range_in_full_history', True)
+            if not skip_time_range:
+                cleaned_params = {k: v for k, v in base_params.items() if k != '_stock_full_history'}
+                composer = PaginationComposer(context)
+                params_list = list(composer.compose(cleaned_params))
+            else:
+                stock_list = context.stock_list or []
+                params_list = []
+                for stock in stock_list:
+                    ts_code = stock.get('ts_code')
+                    if not ts_code:
+                        continue
+                    p = {'ts_code': ts_code, '_stock_info': stock}
+                    params_list.append(p)
         else:
             composer = PaginationComposer(context)
             params_list = list(composer.compose(base_params))
