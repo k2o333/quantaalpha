@@ -30,7 +30,7 @@ parameters:
     description: 公告日 YYYYMMDD
     required: false
     type: string
-    is_date_anchor: true  # 标识为日期锚定参数
+    is_date_anchor: true
   ex_date:
     description: 除权除息日 YYYYMMDD
     required: false
@@ -55,3 +55,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: ann_date
+  stock_level_detection: true

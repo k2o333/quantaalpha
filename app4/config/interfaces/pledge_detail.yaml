@@ -21,6 +21,10 @@ derived_fields:
     source: start_date
     type: date
 description: 股权质押明细
+duplicate_detection:
+  enabled: true
+  date_column: "ann_date"
+  stock_level_detection: true
 name: pledge_detail
 output:
   primary_key:

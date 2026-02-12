@@ -144,7 +144,7 @@ class PaginationComposer:
     
     def _apply_stock_loop(self, params_stream: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
         """
-        应用股票循环维度
+        应用股票循环维度 - 增强版（支持四种缺口检测模式）
         
         Args:
             params_stream: 参数流
@@ -157,8 +157,11 @@ class PaginationComposer:
             logger.error("Stock list not provided")
             return
         
-        skip_existing = self.config['stock_loop'].get('skip_existing', False)
-        parameter_config = self.interface_config.get('parameters', {})
+        stock_loop_config = self.config.get('stock_loop', {})
+        skip_existing = stock_loop_config.get('skip_existing', False)
+        
+        detection_config = self.interface_config.get('duplicate_detection', {})
+        stock_level_detection = detection_config.get('stock_level_detection', False)
         
         for params in params_stream:
             for stock in stock_list:
@@ -166,6 +169,33 @@ class PaginationComposer:
                 if not ts_code:
                     continue
                 
+                # === 股票级别缺口检测 ===
+                if stock_level_detection and self.context.coverage_manager and not self.context.force_download:
+                    start_date = params.get('start_date', '20000101')
+                    end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+                    
+                    gap_tasks = self.context.coverage_manager.detect_stock_gaps(
+                        self.interface_config.get('api_name', ''),
+                        ts_code,
+                        start_date,
+                        end_date,
+                        self.interface_config
+                    )
+                    
+                    if not gap_tasks:
+                        logger.debug(f"Skipping {ts_code}, data already complete")
+                        continue
+                    
+                    for gap_params in gap_tasks:
+                        task_params = params.copy()
+                        task_params.update(gap_params)
+                        task_params['_stock_info'] = stock
+                        task_params['_gap_fill'] = True
+                        yield task_params
+                    
+                    continue
+                
+                # === 原有逻辑 ===
                 if skip_existing and not self.context.force_download:
                     if self._stock_data_exists(ts_code):
                         continue
@@ -173,15 +203,6 @@ class PaginationComposer:
                 stock_params = params.copy()
                 stock_params['ts_code'] = ts_code
                 stock_params['_stock_info'] = stock
-                
-                if 'start_date' in parameter_config and 'start_date' not in stock_params:
-                    stock_params['start_date'] = stock.get('list_date', '20050101')
-                
-                if 'start_date' not in parameter_config:
-                    stock_params.pop('start_date', None)
-                if 'end_date' not in parameter_config:
-                    stock_params.pop('end_date', None)
-                
                 yield stock_params
     
     def _apply_type_split(self, params_stream: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:

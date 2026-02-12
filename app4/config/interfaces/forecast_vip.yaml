@@ -39,7 +39,7 @@ parameters:
     description: 公告结束日期 YYYYMMDD
     required: false
     type: string
-    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
+    is_date_anchor: false
   period:
     description: 报告期 YYYYMMDD
     required: false
@@ -48,7 +48,7 @@ parameters:
     description: 公告开始日期 YYYYMMDD
     required: false
     type: string
-    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
+    is_date_anchor: false
   ts_code:
     description: 股票代码(可选，不填则获取全部股票)
     required: false
@@ -65,3 +65,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date
+  stock_level_detection: true

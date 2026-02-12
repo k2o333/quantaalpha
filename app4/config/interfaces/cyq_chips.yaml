@@ -6,6 +6,10 @@ derived_fields:
     source: trade_date
     type: date
 description: 每日筹码分布
+duplicate_detection:
+  enabled: true
+  date_column: "trade_date"
+  stock_level_detection: true
 name: cyq_chips
 output:
   primary_key:

@@ -44,3 +44,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date
+  stock_level_detection: true

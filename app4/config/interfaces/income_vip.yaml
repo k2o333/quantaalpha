@@ -18,8 +18,8 @@ derived_fields:
 description: 利润表(VIP) - 按季度获取全部上市公司数据
 duplicate_detection:
   enabled: true
-  key_column: period
-  mode: set
+  date_column: "end_date"
+  stock_level_detection: true
 name: income_vip
 output:
   dedup_enabled: true

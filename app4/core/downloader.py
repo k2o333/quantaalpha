@@ -450,55 +450,126 @@ class GenericDownloader:
                 if 'end_date' not in parameter_config:
                     stock_params.pop('end_date', None)
 
-            # [新增] 检查覆盖率，如果已存在则跳过
+            # [新增] 检查覆盖率，使用智能缺口检测（如果启用）
             should_skip = False
+            gap_tasks = None
             if self.coverage_manager and not self.force_download:
-                # 若是使用日期锚定模型的接口（存在 is_date_anchor 参数），统一不按股票级别跳过
-                param_defs = interface_config.get('parameters', {})
-                has_date_anchor = any(p_def.get('is_date_anchor', False) for p_def in param_defs.values())
-                if has_date_anchor:
-                    should_skip = False
-                else:
-                    should_skip = self.coverage_manager.should_skip(
+                detection_config = interface_config.get('duplicate_detection', {})
+                
+                # 检查是否启用股票级别缺口检测
+                if detection_config.get('stock_level_detection', False):
+                    # 使用智能缺口检测
+                    start_date = stock_params.get('start_date', '20050101')
+                    end_date = stock_params.get('end_date', datetime.now().strftime('%Y%m%d'))
+                    
+                    gap_tasks = self.coverage_manager.detect_stock_gaps(
                         interface_config['api_name'],
-                        stock_params,
-                        strategy='stock'
+                        stock['ts_code'],
+                        start_date,
+                        end_date,
+                        interface_config
                     )
-                if should_skip:
-                    logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (already exists)")
-                    return []
+                    
+                    if not gap_tasks:
+                        logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (data complete)")
+                        return []
+                    
+                    logger.info(f"[{stock['ts_code']}] Gap detection found {len(gap_tasks)} tasks to download")
+                    for task in gap_tasks:
+                        logger.info(f"  - {task}")
+                else:
+                    # 使用传统的股票级别跳过逻辑
+                    param_defs = interface_config.get('parameters', {})
+                    has_date_anchor = any(p_def.get('is_date_anchor', False) for p_def in param_defs.values())
+                    if has_date_anchor:
+                        should_skip = False
+                    else:
+                        should_skip = self.coverage_manager.should_skip(
+                            interface_config['api_name'],
+                            stock_params,
+                            strategy='stock'
+                        )
+                    if should_skip:
+                        logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (already exists)")
+                        return []
 
-            logger.info(f"Downloading data for stock {stock['ts_code']}, params: {stock_params}")
+            # 如果有缺口任务，遍历下载每个缺口
+            if gap_tasks:
+                logger.info(f"Downloading {len(gap_tasks)} gap tasks for stock {stock['ts_code']}")
+                all_stock_data = []
+                
+                for gap_task in gap_tasks:
+                    task_params = stock_params.copy()
+                    task_params.update(gap_task)
+                    
+                    logger.info(f"Downloading gap task for {stock['ts_code']}: {gap_task}")
+                    
+                    # 使用新的统一分页执行入口
+                    from .pagination import create_context_with_legacy_support
+                    from .pagination_executor import PaginationExecutor
+                    
+                    # 获取交易日历
+                    task_start = gap_task.get('start_date', stock_params.get('start_date', '20050101'))
+                    task_end = gap_task.get('end_date', stock_params.get('end_date', datetime.now().strftime('%Y%m%d')))
+                    trade_calendar = self.get_trade_calendar(task_start, task_end)
+                    
+                    # 创建支持向后兼容的上下文
+                    pagination_context = create_context_with_legacy_support(
+                        interface_config=interface_config,
+                        trade_calendar=trade_calendar,
+                        stock_list=[stock],
+                        coverage_manager=self.coverage_manager,
+                        force_download=self.force_download
+                    )
+                    
+                    # 创建分页执行器
+                    executor = PaginationExecutor()
+                    
+                    # 执行下载
+                    task_data = executor.execute(
+                        interface_config=interface_config,
+                        base_params=task_params,
+                        context=pagination_context,
+                        make_request=self._make_request,
+                        coverage_manager=self.coverage_manager
+                    )
+                    
+                    if task_data:
+                        all_stock_data.extend(task_data)
+                
+                stock_data = all_stock_data
+            else:
+                logger.info(f"Downloading data for stock {stock['ts_code']}, params: {stock_params}")
 
-            # 使用新的统一分页执行入口
-            from .pagination import create_context_with_legacy_support
-            from .pagination_executor import PaginationExecutor
-            
-            # 获取交易日历
-            start_date = stock_params.get('start_date', '20050101')
-            end_date = stock_params.get('end_date', datetime.now().strftime('%Y%m%d'))
-            trade_calendar = self.get_trade_calendar(start_date, end_date)
-            
-            # 创建支持向后兼容的上下文
-            pagination_context = create_context_with_legacy_support(
-                interface_config=interface_config,
-                trade_calendar=trade_calendar,
-                stock_list=[stock],  # 只包含当前股票
-                coverage_manager=self.coverage_manager,
-                force_download=self.force_download
-            )
-            
-            # 创建分页执行器
-            executor = PaginationExecutor()
-            
-            # 统一执行（自动识别并转换旧配置）
-            stock_data = executor.execute(
-                interface_config=interface_config,
-                base_params=stock_params,
-                context=pagination_context,
-                make_request=self._make_request,
-                coverage_manager=self.coverage_manager
-            )
+                # 使用新的统一分页执行入口
+                from .pagination import create_context_with_legacy_support
+                from .pagination_executor import PaginationExecutor
+                
+                # 获取交易日历
+                start_date = stock_params.get('start_date', '20050101')
+                end_date = stock_params.get('end_date', datetime.now().strftime('%Y%m%d'))
+                trade_calendar = self.get_trade_calendar(start_date, end_date)
+                
+                # 创建支持向后兼容的上下文
+                pagination_context = create_context_with_legacy_support(
+                    interface_config=interface_config,
+                    trade_calendar=trade_calendar,
+                    stock_list=[stock],  # 只包含当前股票
+                    coverage_manager=self.coverage_manager,
+                    force_download=self.force_download
+                )
+                
+                # 创建分页执行器
+                executor = PaginationExecutor()
+                
+                # 统一执行（自动识别并转换旧配置）
+                stock_data = executor.execute(
+                    interface_config=interface_config,
+                    base_params=stock_params,
+                    context=pagination_context,
+                    make_request=self._make_request,
+                    coverage_manager=self.coverage_manager
+                )
 
             if stock_data:
                 logger.info(f"Downloaded {len(stock_data)} records for {stock['ts_code']}")

@@ -31,9 +31,8 @@ output:
   dedup_enabled: true
 duplicate_detection:
   enabled: true
-  key_columns:
-  - ts_code
-  - end_date
+  date_column: "end_date"
+  stock_level_detection: true
 pagination:
   enabled: true
   mode: stock_loop

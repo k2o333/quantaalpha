@@ -632,3 +632,417 @@ class CoverageManager:
         except Exception as e:
             logger.warning(f"检查接口模式失败 {interface_name}: {e}")
             return False
+
+    # ============================================================================
+    # 股票级别日期缺口检测（新增功能 - Stock Loop 模式智能增量下载）
+    # ============================================================================
+
+    def get_stock_existing_dates(
+        self,
+        interface_name: str,
+        ts_code: str,
+        date_column: str = 'trade_date'
+    ) -> Set[str]:
+        """
+        获取指定股票已存在的所有日期
+
+        Args:
+            interface_name: 接口名称
+            ts_code: 股票代码
+            date_column: 日期列名
+
+        Returns:
+            已存在的日期集合（YYYYMMDD格式）
+        """
+        cache_key = f"{interface_name}:{ts_code}:dates"
+
+        with self._cache_lock:
+            if cache_key in self._cache:
+                return self._cache[cache_key]
+
+        try:
+            df = self.storage_manager.read_interface_data(
+                interface_name,
+                columns=[date_column, 'ts_code']
+            )
+
+            if df.is_empty():
+                return set()
+
+            import polars as pl
+            filtered = df.filter(pl.col('ts_code') == ts_code)
+
+            if filtered.is_empty():
+                return set()
+
+            dates = set()
+            for date_val in filtered[date_column]:
+                formatted = format_date(date_val)
+                if formatted:
+                    dates.add(formatted)
+
+            with self._cache_lock:
+                self._cache[cache_key] = dates
+
+            logger.debug(f"[{interface_name}/{ts_code}] 已有 {len(dates)} 条数据")
+            return dates
+
+        except Exception as e:
+            logger.warning(f"获取 {interface_name}/{ts_code} 的现有日期失败: {e}")
+            return set()
+
+    def detect_stock_gaps(
+        self,
+        interface_name: str,
+        ts_code: str,
+        start_date: str,
+        end_date: str,
+        interface_config: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        检测指定股票的数据缺口（统一入口）
+
+        根据接口配置自动选择检测方式：
+        - 类型 A：交易日历检测
+        - 类型 B：报告期检测
+        - 类型 C：日期锚定遍历
+        - 类型 D：无日期过滤
+
+        Args:
+            interface_name: 接口名称
+            ts_code: 股票代码
+            start_date: 起始日期
+            end_date: 结束日期
+            interface_config: 接口配置
+
+        Returns:
+            下载任务参数列表
+        """
+        detection_config = interface_config.get('duplicate_detection', {})
+        date_column = detection_config.get('date_column', 'trade_date')
+
+        # 判断接口类型
+        gap_mode = self._determine_gap_mode(interface_config)
+        logger.info(f"[{interface_name}/{ts_code}] 缺口检测模式: {gap_mode}")
+
+        if gap_mode == 'trade_date':
+            # 类型 A：交易日历检测
+            return self._detect_trade_date_gaps(
+                interface_name, ts_code, start_date, end_date, date_column
+            )
+        elif gap_mode == 'report_period':
+            # 类型 B：报告期检测
+            return self._detect_report_period_gaps(
+                interface_name, ts_code, start_date, end_date, date_column
+            )
+        elif gap_mode == 'date_anchor':
+            # 类型 C：日期锚定遍历
+            return self._detect_date_anchor_gaps(
+                interface_name, ts_code, start_date, end_date, date_column, interface_config
+            )
+        elif gap_mode == 'no_date_filter':
+            # 类型 D：无日期过滤
+            return self._detect_no_date_filter_gaps(
+                interface_name, ts_code, date_column
+            )
+        else:
+            # 未知类型，返回完整范围
+            return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+
+    def _determine_gap_mode(self, interface_config: Dict[str, Any]) -> str:
+        """
+        判断接口的缺口检测模式
+
+        判断顺序：
+        1. 有 is_date_anchor=true → 类型 C
+        2. 有 start_date + end_date → 类型 A 或 B（根据 date_column 区分）
+        3. 无任何日期参数 → 类型 D
+        4. 其他情况 → 根据 date_column 判断
+
+        Returns:
+            'trade_date'    - 类型 A：交易日历模式
+            'report_period' - 类型 B：报告期模式
+            'date_anchor'   - 类型 C：日期锚定模式
+            'no_date_filter' - 类型 D：无日期过滤模式
+        """
+        parameters = interface_config.get('parameters', {})
+        detection_config = interface_config.get('duplicate_detection', {})
+        date_column = detection_config.get('date_column', 'trade_date')
+
+        # 1. 检查是否有日期锚定参数（类型 C）
+        if any(p.get('is_date_anchor', False) for p in parameters.values()):
+            return 'date_anchor'
+
+        # 2. 检查是否有 start_date 和 end_date 参数（类型 A 或 B）
+        #    既然第1步已确认没有 is_date_anchor=true，这里必然是类型 A 或 B
+        if 'start_date' in parameters and 'end_date' in parameters:
+            return 'trade_date' if date_column == 'trade_date' else 'report_period'
+
+        # 3. 检查是否有任何日期参数
+        has_date_param = any(
+            p in parameters
+            for p in ['start_date', 'end_date', 'trade_date', 'period', 'ann_date']
+        )
+
+        if not has_date_param:
+            return 'no_date_filter'  # 类型 D
+
+        # 4. 有日期参数但没有 start_date + end_date，根据 date_column 判断
+        return 'trade_date' if date_column == 'trade_date' else 'report_period'
+
+    def _detect_trade_date_gaps(
+        self,
+        interface_name: str,
+        ts_code: str,
+        start_date: str,
+        end_date: str,
+        date_column: str
+    ) -> List[Dict[str, Any]]:
+        """
+        类型 A：交易日历缺口检测
+
+        适用于：cyq_chips, moneyflow_dc, stk_factor_pro
+        """
+        logger.info(f"[{interface_name}/{ts_code}] 交易日历缺口检测 ({start_date} ~ {end_date})")
+
+        existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
+
+        if not existing_dates:
+            return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+
+        if not self.downloader:
+            return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+
+        trade_calendar = self.downloader.get_trade_calendar(start_date, end_date)
+        if not trade_calendar:
+            return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+
+        trade_days = [
+            d['cal_date'] for d in trade_calendar
+            if d.get('is_open', 0) == 1 and start_date <= d['cal_date'] <= end_date
+        ]
+
+        missing_days = [d for d in trade_days if d not in existing_dates]
+
+        if not missing_days:
+            logger.info(f"[{ts_code}] 交易日数据已完整")
+            return []
+
+        logger.info(f"[{ts_code}] 缺失 {len(missing_days)} 个交易日")
+
+        ranges = self._merge_dates_to_ranges(missing_days)
+
+        return [
+            {'ts_code': ts_code, 'start_date': r[0], 'end_date': r[1]}
+            for r in ranges
+        ]
+
+    def _detect_report_period_gaps(
+        self,
+        interface_name: str,
+        ts_code: str,
+        start_date: str,
+        end_date: str,
+        date_column: str
+    ) -> List[Dict[str, Any]]:
+        """
+        类型 B：报告期缺口检测（优化版）
+
+        适用于：income_vip, balancesheet_vip, cashflow_vip 等
+
+        优化策略：
+        1. 如果缺失报告期数量 <= MAX_PRECISE_QUERIES，生成精确查询任务
+        2. 如果缺失报告期数量 > MAX_PRECISE_QUERIES，使用范围查询最小覆盖区间
+        """
+        logger.info(f"[{interface_name}/{ts_code}] 报告期缺口检测 ({start_date} ~ {end_date})")
+
+        existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
+        expected_periods = self._generate_report_periods(start_date, end_date)
+
+        if not existing_dates:
+            logger.info(f"[{ts_code}] 无现有数据，需要下载 {len(expected_periods)} 个报告期")
+            return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+
+        missing_periods = [p for p in expected_periods if p not in existing_dates]
+
+        if not missing_periods:
+            logger.info(f"[{ts_code}] 报告期数据已完整")
+            return []
+
+        logger.info(f"[{ts_code}] 缺失 {len(missing_periods)} 个报告期: {missing_periods}")
+
+        # ✅ 优化：根据缺失数量选择查询策略
+        MAX_PRECISE_QUERIES = 3  # 最多 3 个精确查询，超过则使用范围查询
+
+        if len(missing_periods) <= MAX_PRECISE_QUERIES:
+            # 策略 1：精确查询每个缺失的报告期
+            logger.info(f"[{ts_code}] 使用精确查询策略（{len(missing_periods)} 个缺失报告期）")
+
+            precise_tasks = []
+            for period in missing_periods:
+                # 报告期日期转开始/结束日期
+                # period 格式：YYYYMMDD，季度末日期
+                period_year = period[:4]
+                period_month_day = period[4:]
+
+                # 计算该季度的开始日期
+                quarter_start_map = {
+                    '0331': f'{period_year}0101',  # Q1: 1月1日
+                    '0630': f'{period_year}0401',  # Q2: 4月1日
+                    '0930': f'{period_year}0701',  # Q3: 7月1日
+                    '1231': f'{period_year}1001',  # Q4: 10月1日
+                }
+                period_start = quarter_start_map.get(period_month_day, f'{period_year}0101')
+
+                precise_tasks.append({
+                    'ts_code': ts_code,
+                    'start_date': period_start,
+                    'end_date': period
+                })
+                logger.info(f"  - 精确查询: {period_start} ~ {period}")
+
+            return precise_tasks
+
+        # 策略 2：范围查询（缺失较多时，减少 API 调用次数）
+        # 计算最小覆盖范围
+        min_period = min(missing_periods)
+        max_period = max(missing_periods)
+
+        # 计算最小覆盖范围的开始日期（该季度第一天）
+        min_year = min_period[:4]
+        min_month_day = min_period[4:]
+        quarter_start_map = {
+            '0331': f'{min_year}0101',
+            '0630': f'{min_year}0401',
+            '0930': f'{min_year}0701',
+            '1231': f'{min_year}1001',
+        }
+        min_start = quarter_start_map.get(min_month_day, f'{min_year}0101')
+
+        logger.info(f"[{ts_code}] 使用范围查询策略（{len(missing_periods)} 个缺失报告期 > {MAX_PRECISE_QUERIES}）")
+        logger.info(f"  - 最小覆盖范围: {min_start} ~ {max_period}")
+
+        return [{
+            'ts_code': ts_code,
+            'start_date': min_start,
+            'end_date': max_period
+        }]
+
+    def _detect_date_anchor_gaps(
+        self,
+        interface_name: str,
+        ts_code: str,
+        start_date: str,
+        end_date: str,
+        date_column: str,
+        interface_config: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        类型 C：日期锚定缺口检测
+
+        适用于：disclosure_date, top10_holders, dividend 等
+        """
+        logger.info(f"[{interface_name}/{ts_code}] 日期锚定缺口检测 ({start_date} ~ {end_date})")
+
+        parameters = interface_config.get('parameters', {})
+        anchor_param = None
+        for param_name, param_def in parameters.items():
+            if param_def.get('is_date_anchor', False):
+                anchor_param = param_name
+                break
+
+        if not anchor_param:
+            logger.warning(f"[{interface_name}] 未找到日期锚定参数")
+            return [{'ts_code': ts_code}]
+
+        existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
+        anchor_values = self._generate_anchor_values(start_date, end_date, anchor_param)
+
+        missing_anchors = [a for a in anchor_values if a not in existing_dates]
+
+        if not missing_anchors:
+            logger.info(f"[{ts_code}] 锚点数据已完整")
+            return []
+
+        logger.info(f"[{ts_code}] 缺失 {len(missing_anchors)} 个锚点值")
+
+        return [
+            {'ts_code': ts_code, anchor_param: anchor}
+            for anchor in missing_anchors
+        ]
+
+    def _detect_no_date_filter_gaps(
+        self,
+        interface_name: str,
+        ts_code: str,
+        date_column: str
+    ) -> List[Dict[str, Any]]:
+        """
+        类型 D：无日期过滤缺口检测
+
+        适用于：pledge_detail
+        """
+        logger.info(f"[{interface_name}/{ts_code}] 无日期过滤模式")
+
+        existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
+
+        if existing_dates:
+            logger.info(f"[{ts_code}] 已有数据，跳过")
+            return []
+
+        logger.info(f"[{ts_code}] 无数据，需要获取全量")
+        return [{'ts_code': ts_code}]
+
+    def _generate_report_periods(self, start_date: str, end_date: str) -> List[str]:
+        """生成报告期列表（季度末）"""
+        periods = []
+        start_year = int(start_date[:4])
+        end_year = int(end_date[:4])
+        quarter_ends = ['0331', '0630', '0930', '1231']
+
+        for year in range(start_year - 1, end_year + 2):
+            for qe in quarter_ends:
+                period = f"{year}{qe}"
+                if start_date <= period <= end_date:
+                    periods.append(period)
+
+        return sorted(periods)
+
+    def _generate_anchor_values(
+        self,
+        start_date: str,
+        end_date: str,
+        anchor_param: str
+    ) -> List[str]:
+        """生成锚点值列表"""
+        if anchor_param in ['end_date', 'period']:
+            return self._generate_report_periods(start_date, end_date)
+
+        return self._generate_report_periods(start_date, end_date)
+
+    def _merge_dates_to_ranges(self, dates: List[str]) -> List[tuple]:
+        """将日期列表合并为连续区间"""
+        if not dates:
+            return []
+
+        sorted_dates = sorted(dates)
+        ranges = []
+        range_start = sorted_dates[0]
+        range_end = sorted_dates[0]
+
+        for i in range(1, len(sorted_dates)):
+            curr = sorted_dates[i]
+            prev = sorted_dates[i-1]
+
+            curr_dt = datetime.strptime(curr, '%Y%m%d')
+            prev_dt = datetime.strptime(prev, '%Y%m%d')
+
+            if (curr_dt - prev_dt).days <= 3:
+                range_end = curr
+            else:
+                ranges.append((range_start, range_end))
+                range_start = curr
+                range_end = curr
+
+        ranges.append((range_start, range_end))
+        return ranges

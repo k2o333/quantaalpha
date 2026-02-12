@@ -24,7 +24,7 @@ parameters:
     description: 截止日期 YYYYMMDD
     required: false
     type: string
-    is_date_anchor: true  # 标识为日期锚定参数
+    is_date_anchor: true
   ts_code:
     description: 股票代码
     required: false
@@ -37,3 +37,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date
+  stock_level_detection: true
