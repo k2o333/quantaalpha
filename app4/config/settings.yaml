@@ -20,6 +20,8 @@ request:
   max_retries: 3
   retry_delay: 1.0
   timeout: 30
+  jitter_min: 0.05
+  jitter_max: 0.15
 
 cache:
   directory: "cache"

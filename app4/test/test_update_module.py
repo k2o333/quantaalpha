@@ -356,15 +356,13 @@ class TestUpdateManager:
         
         scheduler = Mock()
         processor = Mock()
-        rate_limiter = Mock()
         
         return {
             'config_loader': config_loader,
             'storage_manager': storage_manager,
             'downloader': downloader,
             'scheduler': scheduler,
-            'processor': processor,
-            'rate_limiter': rate_limiter
+            'processor': processor
         }
     
     def test_should_update_interface_force_mode(self, mock_components):

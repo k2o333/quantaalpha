@@ -521,7 +521,7 @@ class GenericDownloader:
 
         # 读取重试配置
         req_config = self.global_config.get('request', {})
-        max_retries = req_config.get('retries', 3)
+        max_retries = req_config.get('max_retries', 3)
 
         self.global_rate_limiter.wait_for_tokens(1)
 

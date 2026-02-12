@@ -152,10 +152,6 @@ def run_concurrent_stock_download(downloader, scheduler, interface_name, interfa
     """运行并发股票下载 - 统一使用buffer机制"""
     logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
 
-    # 创建包装函数，包含限流逻辑
-    def download_single_stock_with_rate_limit(interface_config, stock, params):
-        return downloader.download_single_stock(interface_config, stock, params)
-
     # 统一使用buffer机制，不再在主线程批量处理
     total_records = 0
 
@@ -163,7 +159,7 @@ def run_concurrent_stock_download(downloader, scheduler, interface_name, interfa
     tasks = []
     for stock in stock_list:
         task = {
-            'func': download_single_stock_with_rate_limit,
+            'func': downloader.download_single_stock,
             'args': (interface_config, stock, base_params),
             'kwargs': {}
         }
@@ -262,10 +258,6 @@ def run_update_mode(args):
     )
 
     date_calculator = DateCalculator(config_loader, storage_manager)
-    
-    # 创建全局速率限制器
-    global_rate_limit = config_loader.global_config.get('request', {}).get('rate_limit', 60)
-    global_rate_limiter = RateLimiter(global_rate_limit)
     
     # 启动组件
     scheduler.start()
@@ -476,7 +468,19 @@ def run_update_mode(args):
         
         logger.info("正在刷新并关闭存储写入...")
         storage_manager.stop_writer()
-        
+
+        if hasattr(downloader, 'global_rate_limiter'):
+            try:
+                stats = downloader.global_rate_limiter.get_stats()
+                logger.info(
+                    f"限流统计: 总请求={stats['total_requests']}, "
+                    f"总等待={stats['total_wait_time']}s, "
+                    f"平均等待={stats['average_wait_time']}s, "
+                    f"最大等待={stats['max_wait_time']}s"
+                )
+            except Exception as e:
+                logger.warning(f"获取限流统计失败: {e}")
+
         logger.info("资源清理完毕，程序退出。")
 
 
@@ -1135,6 +1139,18 @@ def main():
 
             downloader.performance_monitor.save_report(performance_file)
             logger.info(f"性能报告已生成: {performance_file}")
+
+        if 'downloader' in locals() and hasattr(downloader, 'global_rate_limiter'):
+            try:
+                stats = downloader.global_rate_limiter.get_stats()
+                logger.info(
+                    f"限流统计: 总请求={stats['total_requests']}, "
+                    f"总等待={stats['total_wait_time']}s, "
+                    f"平均等待={stats['average_wait_time']}s, "
+                    f"最大等待={stats['max_wait_time']}s"
+                )
+            except Exception as e:
+                logger.warning(f"获取限流统计失败: {e}")
 
         logger.info("资源清理完毕，程序退出。")
 

@@ -97,6 +97,9 @@ class RateLimiter:
         self.tokens = rate_limit
         self.last_refill = time.time()
         self.lock = threading.Lock()
+        self._total_requests = 0
+        self._total_wait_time = 0.0
+        self._max_wait_time = 0.0
 
     def acquire(self, tokens: int = 1) -> bool:
         """
@@ -133,8 +136,28 @@ class RateLimiter:
             tokens: 需要的令牌数
         """
         import random
+        wait_start = time.time()
         while not self.acquire(tokens):
-            # [修改] 添加随机性，避免所有线程同时唤醒
             sleep_time = self.time_window / self.rate_limit
-            random_jitter = random.uniform(0, sleep_time * 0.1)  # 添加 0-10% 的随机延迟
+            random_jitter = random.uniform(0, sleep_time * 0.1)
             time.sleep(sleep_time + random_jitter)
+        wait_duration = time.time() - wait_start
+        with self.lock:
+            self._total_requests += 1
+            if wait_duration > 0.01:
+                self._total_wait_time += wait_duration
+                self._max_wait_time = max(self._max_wait_time, wait_duration)
+
+    def get_stats(self) -> Dict[str, Any]:
+        with self.lock:
+            avg_wait = (self._total_wait_time / self._total_requests
+                        if self._total_requests > 0 else 0)
+            return {
+                'rate_limit': self.rate_limit,
+                'time_window': self.time_window,
+                'current_tokens': self.tokens,
+                'total_requests': self._total_requests,
+                'total_wait_time': round(self._total_wait_time, 2),
+                'average_wait_time': round(avg_wait, 4),
+                'max_wait_time': round(self._max_wait_time, 2)
+            }

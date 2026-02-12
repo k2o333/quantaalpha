@@ -33,9 +33,7 @@ class UpdateManager:
         storage_manager,
         downloader,
         scheduler,
-        processor,
-        global_rate_limiter=None,
-        rate_limiter=None
+        processor
     ):
         """
         初始化更新管理器
@@ -46,14 +44,12 @@ class UpdateManager:
             downloader: 通用下载器
             scheduler: 任务调度器
             processor: 数据处理器
-            global_rate_limiter: 全局速率限制器
         """
         self.config_loader = config_loader
         self.storage_manager = storage_manager
         self.downloader = downloader
         self.scheduler = scheduler
         self.processor = processor
-        self.global_rate_limiter = global_rate_limiter or rate_limiter
         
         # 子组件
         self.date_calculator = DateCalculator(config_loader, storage_manager)
