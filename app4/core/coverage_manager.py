@@ -808,7 +808,8 @@ class CoverageManager:
         existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
 
         if not existing_dates:
-            return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+            logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
+            return [{'ts_code': ts_code}]
 
         if not self.downloader:
             return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
@@ -860,8 +861,8 @@ class CoverageManager:
         expected_periods = self._generate_report_periods(start_date, end_date)
 
         if not existing_dates:
-            logger.info(f"[{ts_code}] 无现有数据，需要下载 {len(expected_periods)} 个报告期")
-            return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+            logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
+            return [{'ts_code': ts_code}]
 
         missing_periods = [p for p in expected_periods if p not in existing_dates]
 
@@ -956,6 +957,12 @@ class CoverageManager:
             return [{'ts_code': ts_code}]
 
         existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
+
+        # 股票无数据时，只传 ts_code 获取全历史
+        if not existing_dates:
+            logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
+            return [{'ts_code': ts_code}]
+
         anchor_values = self._generate_anchor_values(start_date, end_date, anchor_param)
 
         missing_anchors = [a for a in anchor_values if a not in existing_dates]

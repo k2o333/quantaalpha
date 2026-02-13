@@ -74,8 +74,12 @@ class PaginationComposer:
         """
         params_stream = [base_params]
         
-        # 1. 时间维度（最内层）
-        if self._is_enabled('time_range'):
+        # 检查是否是日期锚定接口（类型 C）
+        # 日期锚定接口不支持 start_date/end_date 参数，应跳过 time_range 处理
+        is_date_anchor_interface = self._is_date_anchor_interface()
+        
+        # 1. 时间维度（最内层）- 日期锚定接口跳过
+        if self._is_enabled('time_range') and not is_date_anchor_interface:
             params_stream = list(self._apply_time_range(params_stream))
         
         # 2. 股票维度
@@ -91,6 +95,19 @@ class PaginationComposer:
             params_stream = list(self._apply_offset(params_stream))
         
         yield from params_stream
+    
+    def _is_date_anchor_interface(self) -> bool:
+        """
+        检查是否是日期锚定接口（类型 C）
+        
+        日期锚定接口的特点：有参数标记为 is_date_anchor: true
+        这类接口不支持 start_date/end_date 范围查询
+        
+        Returns:
+            True 表示是日期锚定接口
+        """
+        parameters = self.interface_config.get('parameters', {})
+        return any(p.get('is_date_anchor', False) for p in parameters.values())
     
     def _is_enabled(self, dimension: str) -> bool:
         """
