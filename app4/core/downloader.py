@@ -426,29 +426,12 @@ class GenericDownloader:
         """
         try:
             stock_params = params.copy()
-            stock_params['ts_code'] = stock['ts_code']
-
-            # 根据接口配置决定是否设置日期参数
-            parameter_config = interface_config.get('parameters', {})
-
-            # [修正] 只设置 start_date（如果接口支持且用户未显式指定）
-            # 不自动填充 end_date，因为它的语义在不同接口中可能不同
-            if 'start_date' in parameter_config and 'start_date' not in stock_params:
-                list_date = stock.get('list_date', '20050101')
-                stock_params['start_date'] = list_date
-
-            # [修正] 不自动填充 end_date
-            # if 'end_date' in parameter_config and 'end_date' not in stock_params:
-            #     from datetime import datetime
-            #     stock_params['end_date'] = datetime.now().strftime('%Y%m%d')
-
-            # 对于不支持日期参数的接口，移除被意外添加的日期参数
-            # 但如果使用日期锚定参数，保留 start_date/end_date 供内部参数生成使用
-            if '_date_anchor_param' not in stock_params:
-                if 'start_date' not in parameter_config:
-                    stock_params.pop('start_date', None)
-                if 'end_date' not in parameter_config:
-                    stock_params.pop('end_date', None)
+            ts_code = stock_params.get('ts_code') or stock.get('ts_code')
+            if not ts_code:
+                logger.warning("Missing ts_code for stock download, skipping")
+                return []
+            if not stock:
+                stock = {'ts_code': ts_code}
 
             # [新增] 检查覆盖率，使用智能缺口检测（如果启用）
             should_skip = False
@@ -464,17 +447,17 @@ class GenericDownloader:
                     
                     gap_tasks = self.coverage_manager.detect_stock_gaps(
                         interface_config['api_name'],
-                        stock['ts_code'],
+                        ts_code,
                         start_date,
                         end_date,
                         interface_config
                     )
                     
                     if not gap_tasks:
-                        logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (data complete)")
+                        logger.info(f"Skipping stock {ts_code} for {interface_config['api_name']} (data complete)")
                         return []
                     
-                    logger.info(f"[{stock['ts_code']}] Gap detection found {len(gap_tasks)} tasks to download")
+                    logger.info(f"[{ts_code}] Gap detection found {len(gap_tasks)} tasks to download")
                     for task in gap_tasks:
                         logger.info(f"  - {task}")
                 else:
@@ -484,25 +467,26 @@ class GenericDownloader:
                     if has_date_anchor:
                         should_skip = False
                     else:
+                        coverage_params = stock_params if 'ts_code' in stock_params else {**stock_params, 'ts_code': ts_code}
                         should_skip = self.coverage_manager.should_skip(
                             interface_config['api_name'],
-                            stock_params,
+                            coverage_params,
                             strategy='stock'
                         )
                     if should_skip:
-                        logger.info(f"Skipping stock {stock['ts_code']} for {interface_config['api_name']} (already exists)")
+                        logger.info(f"Skipping stock {ts_code} for {interface_config['api_name']} (already exists)")
                         return []
 
             # 如果有缺口任务，遍历下载每个缺口
             if gap_tasks:
-                logger.info(f"Downloading {len(gap_tasks)} gap tasks for stock {stock['ts_code']}")
+                logger.info(f"Downloading {len(gap_tasks)} gap tasks for stock {ts_code}")
                 all_stock_data = []
                 
                 for gap_task in gap_tasks:
                     task_params = stock_params.copy()
                     task_params.update(gap_task)
                     
-                    logger.info(f"Downloading gap task for {stock['ts_code']}: {gap_task}")
+                    logger.info(f"Downloading gap task for {ts_code}: {gap_task}")
                     
                     # 使用新的统一分页执行入口
                     from .pagination import create_context_with_legacy_support
@@ -539,7 +523,7 @@ class GenericDownloader:
                 
                 stock_data = all_stock_data
             else:
-                logger.info(f"Downloading data for stock {stock['ts_code']}, params: {stock_params}")
+                logger.info(f"Downloading data for stock {ts_code}, params: {stock_params}")
 
                 # 使用新的统一分页执行入口
                 from .pagination import create_context_with_legacy_support
@@ -572,7 +556,7 @@ class GenericDownloader:
                 )
 
             if stock_data:
-                logger.info(f"Downloaded {len(stock_data)} records for {stock['ts_code']}")
+                logger.info(f"Downloaded {len(stock_data)} records for {ts_code}")
 
                 # [新增] 如果有storage_manager，将数据添加到缓存
                 if hasattr(self, 'storage_manager') and self.storage_manager:
@@ -581,7 +565,8 @@ class GenericDownloader:
             return stock_data or []
         except Exception as e:
             # [新增] 捕获异常，避免影响其他股票
-            logger.error(f"Error downloading stock {stock['ts_code']}: {str(e)}")
+            stock_ts_code = stock.get('ts_code') if stock else None
+            logger.error(f"Error downloading stock {stock_ts_code}: {str(e)}")
             import traceback
             logger.debug(f"Full traceback: {traceback.format_exc()}")
             return []  # 返回空列表，让其他股票继续下载

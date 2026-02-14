@@ -28,6 +28,7 @@ from core.storage import StorageManager
 from core.processor import DataProcessor
 from core.dedup import deduplicate_against_existing
 from core.cache_warmer import CacheWarmer
+from core.params_builder import ParamsBuilder
 from update.date_calculator import DateCalculator
 import polars as pl
 import glob
@@ -148,19 +149,22 @@ def _prepare_stock_list(downloader, args, params, storage_manager, logger):
     return stock_list
 
 
-def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, base_params, stock_list, storage_manager, processor, logger):
+def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params_list, stock_list, storage_manager, processor, logger):
     """运行并发股票下载 - 统一使用buffer机制"""
-    logger.info(f"Starting concurrent download for {interface_name} with {len(stock_list)} stocks")
+    logger.info(f"Starting concurrent download for {interface_name} with {len(params_list)} tasks")
 
     # 统一使用buffer机制，不再在主线程批量处理
     total_records = 0
 
     # 构建任务列表
+    stock_map = {stock.get('ts_code'): stock for stock in stock_list or [] if stock.get('ts_code')}
     tasks = []
-    for stock in stock_list:
+    for params in params_list:
+        ts_code = params.get('ts_code')
+        stock = stock_map.get(ts_code, {'ts_code': ts_code} if ts_code else {})
         task = {
             'func': downloader.download_single_stock,
-            'args': (interface_config, stock, base_params),
+            'args': (interface_config, stock, params),
             'kwargs': {}
         }
         tasks.append(task)
@@ -320,79 +324,24 @@ def run_update_mode(args):
                     date_range = date_calculator.calculate_update_range(interface_name)
                     start_date, end_date = date_range.start_date, date_range.end_date
 
-                params = {
-                    'start_date': start_date,
-                    'end_date': end_date
-                }
+                builder = ParamsBuilder(interface_config)
+                result = builder.build(
+                    args,
+                    mode='update',
+                    date_range={'start_date': start_date, 'end_date': end_date}
+                )
 
-                # 如果指定了股票代码，添加到参数中
-                if args.ts_code:
-                    params['ts_code'] = args.ts_code
-
-                # 检查是否使用股票循环模式
-                pagination_config = interface_config.get('pagination', {})
-                if pagination_config.get('enabled', False) and pagination_config.get('mode') == 'stock_loop':
-                    logger.info(f"Using stock_loop mode for {interface_name}")
-
-                    # 检查接口参数配置
-                    parameter_config = interface_config.get('parameters', {})
-                    has_start_end = 'start_date' in parameter_config and 'end_date' in parameter_config
-
-                    # 检查是否有日期锚定参数
-                    date_anchor_param = None
-                    for param_name, param_def in parameter_config.items():
-                        if param_def.get('is_date_anchor', False):
-                            if date_anchor_param:
-                                logger.warning(f"Multiple date anchor parameters found for {interface_name}: {date_anchor_param}, {param_name}. Using first: {date_anchor_param}")
-                            else:
-                                date_anchor_param = param_name
-
-                    if has_start_end:
-                        # 场景 1：接口支持 start_date/end_date，直接透传命令行参数
-                        params = {
-                            'start_date': start_date,
-                            'end_date': end_date
-                        }
-                        if args.ts_code:
-                            params['ts_code'] = args.ts_code
-                        logger.info(f"Using start_date/end_date for {interface_name}: {start_date} - {end_date}")
-                    elif date_anchor_param:
-                        # 场景 2：接口使用日期锚定参数
-                        # 如果用户未显式提供日期范围且指定了ts_code，则进行“单次全历史”请求（不设置日期锚点）
-                        if args.ts_code and not user_provided_dates:
-                            params = {'ts_code': args.ts_code}
-                            logger.info(f"Fetching full history for {interface_name} (single request by ts_code)")
-                        elif interface_name == 'disclosure_date' and not user_provided_dates and not args.ts_code:
-                            params = {'_stock_full_history': True}
-                            logger.info(f"Fetching full history per stock for {interface_name} (single request per stock)")
-                        else:
-                            # 传递范围供遍历（按报告期锚点）
-                            params = {
-                                'start_date': start_date,
-                                'end_date': end_date,
-                                '_date_anchor_param': date_anchor_param  # 内部标记，用于分页执行器
-                            }
-                            if args.ts_code:
-                                params['ts_code'] = args.ts_code
-                            logger.info(f"Using date anchor parameter '{date_anchor_param}' for {interface_name}: {start_date} - {end_date}")
-                    else:
-                        # 场景 3：没有日期参数，获取全历史
-                        params = {}
-                        if args.ts_code:
-                            params['ts_code'] = args.ts_code
-                        logger.info(f"Using stock_loop mode for {interface_name}, fetching full history (no date parameters)")
-
-                    # 使用统一的股票列表准备方法
-                    stock_list = _prepare_stock_list(downloader, args, params, storage_manager, logger)
+                if result.requires_stock_loop:
+                    stock_list = _prepare_stock_list(downloader, args, result.params, storage_manager, logger)
                     if stock_list is None:
                         logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
                         skipped_count += 1
                         continue
 
-                    # 使用并发下载
+                    params_list = builder.build_params_list(result, stock_list)
                     downloaded_count = run_concurrent_stock_download(
                         downloader, scheduler, interface_name, interface_config,
-                        params, stock_list, storage_manager, processor, logger
+                        params_list, stock_list, storage_manager, processor, logger
                     )
 
                     if downloaded_count > 0:
@@ -401,13 +350,23 @@ def run_update_mode(args):
                     else:
                         logger.warning(f"No data downloaded for {interface_name}")
                         skipped_count += 1
+                elif result.requires_month_loop:
+                    params_list = builder.build_params_list(result)
+                    all_data = []
+                    for params in params_list:
+                        data = downloader.download(interface_name, params)
+                        if data:
+                            all_data.extend(data)
 
+                    if all_data:
+                        logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
+                        success_count += 1
+                    else:
+                        logger.warning(f"No data downloaded for {interface_name}")
+                        skipped_count += 1
                 else:
-                    # 非 stock_loop 模式，直接使用 downloader.download
                     logger.info(f"Using direct download for {interface_name}")
-
-                    # 清理内部标记参数
-                    clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
+                    clean_params = result.params
 
                     if downloader.coverage_manager and not args.update_force:
                         try:
@@ -948,133 +907,53 @@ def main():
                     args.end_date
                 )
 
-                params = {
-                    'start_date': args.start_date,
-                    'end_date': args.end_date
-                }
+                builder = ParamsBuilder(interface_config)
+                result = builder.build(args)
 
-                # 如果指定了股票代码，添加到参数中
-                if args.ts_code:
-                    params['ts_code'] = args.ts_code
-
-                # 检查是否使用股票循环模式（根据配置文件中的 pagination.mode）
-                pagination_config = interface_config.get('pagination', {})
-                if pagination_config.get('enabled', False) and pagination_config.get('mode') == 'stock_loop':
-                    logger.info(f"Using stock_loop mode for {interface_name}")
-                    
-                    # [增强] 检查接口是否支持 start_date/end_date 参数
-                    parameter_config = interface_config.get('parameters', {})
-                    has_start_end = 'start_date' in parameter_config and 'end_date' in parameter_config
-                    
-                    # 检查是否有日期锚定参数
-                    date_anchor_param = None
-                    for param_name, param_def in parameter_config.items():
-                        if param_def.get('is_date_anchor', False):
-                            if date_anchor_param:
-                                logger.warning(f"Multiple date anchor parameters found for {interface_name}: {date_anchor_param}, {param_name}. Using first: {date_anchor_param}")
-                            else:
-                                date_anchor_param = param_name
-                    
-                    if not user_provided_dates and not args.ts_code:
-                        params = {'_stock_full_history': True}
-                        logger.info(f"Non-update mode: fetching full history per stock for {interface_name} (single request per stock)")
-                    elif has_start_end:
-                        params = {
-                            'start_date': args.start_date,
-                            'end_date': args.end_date
-                        }
-                        if args.ts_code:
-                            params['ts_code'] = args.ts_code
-                        logger.info(f"Using start_date/end_date for {interface_name}: {args.start_date} - {args.end_date}")
-                    elif date_anchor_param:
-                        if args.ts_code and not user_provided_dates:
-                            params = {'ts_code': args.ts_code}
-                            logger.info(f"Fetching full history for {interface_name} (single request by ts_code)")
-                        elif interface_name == 'disclosure_date' and not user_provided_dates and not args.ts_code:
-                            params = {'_stock_full_history': True}
-                            logger.info(f"Fetching full history per stock for {interface_name} (single request per stock)")
-                        else:
-                            params = {
-                                'start_date': args.start_date,
-                                'end_date': args.end_date,
-                                '_date_anchor_param': date_anchor_param
-                            }
-                            if args.ts_code:
-                                params['ts_code'] = args.ts_code
-                            logger.info(f"Using date anchor parameter '{date_anchor_param}' for {interface_name}: {args.start_date} - {args.end_date}")
-                    else:
-                        params = {}
-                        if args.ts_code:
-                            params['ts_code'] = args.ts_code
-                        logger.info(f"Using stock_loop mode for {interface_name}, fetching full history (no date parameters)")
-
-                    # 使用统一的股票列表准备方法
-                    stock_list = _prepare_stock_list(downloader, args, params, storage_manager, logger)
+                if result.requires_stock_loop:
+                    stock_list = _prepare_stock_list(downloader, args, result.params, storage_manager, logger)
                     if stock_list is None:
                         logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
                         continue
 
-                    # 使用并发下载
-                    downloaded_count = run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params, stock_list, storage_manager, processor, logger)
+                    params_list = builder.build_params_list(result, stock_list)
+                    downloaded_count = run_concurrent_stock_download(
+                        downloader, scheduler, interface_name, interface_config,
+                        params_list, stock_list, storage_manager, processor, logger
+                    )
 
                     if downloaded_count > 0:
                         logger.info(f"Successfully downloaded {downloaded_count} total records for {interface_name}")
                     else:
                         logger.warning(f"No data downloaded for {interface_name}")
-                    continue  # 继续处理下一个接口
-                else:
-                    # 对于pro_bar接口特殊处理
-                    if interface_name == 'pro_bar' and args.pro_bar_only:
-                        # pro_bar接口：如果用户没有指定日期参数，则不设置任何日期范围，让系统在股票循环中处理每个股票的完整历史
-                        if args.start_date == '20230101' and args.end_date is None:
-                            # 用户使用默认参数，不设置日期范围，让系统在股票循环中根据每只股票的上市日期自动处理
-                            logger.info("Downloading pro_bar full history for all stocks (from each stock's list date)")
-                            params = {}  # 清空日期参数，让系统自动处理
-                        else:
-                            # 用户指定了日期参数，使用用户指定的范围
-                            if args.end_date is None:
-                                params['end_date'] = datetime.now().strftime('%Y%m%d')
-                            logger.info(f"Downloading pro_bar data with date range: {params['start_date']} to {params['end_date']}")
+                    continue
 
-                    # 检查分页模式
-                    pagination_config = interface_config.get('pagination', {})
-                    pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
+                if result.requires_month_loop:
+                    params_list = builder.build_params_list(result)
+                    all_data = []
+                    for params in params_list:
+                        data = downloader.download(interface_name, params)
+                        if data:
+                            all_data.extend(data)
 
-                    logger.info(f"Downloading data for {interface_name}, pagination mode: {pagination_mode}")
-                    # 普通模式，使用同步下载
-                    # 特殊接口处理：broker_recommend需要month参数
-                    if interface_name == 'broker_recommend':
-                        import polars as pl
-                        from datetime import datetime
-                        # 转换日期范围为月份列表，循环调用
-                        start = datetime.strptime(params['start_date'], '%Y%m%d')
-                        end = datetime.strptime(params['end_date'], '%Y%m%d')
-                        months = pl.date_range(start, end, '1mo', eager=True).dt.strftime('%Y%m').to_list()
-
-                        all_data = []
-                        for month in months:
-                            month_params = {'month': month}
-                            if 'ts_code' in params:
-                                month_params['ts_code'] = params['ts_code']
-                            data = downloader.download(interface_name, month_params)
-                            if data:
-                                all_data.extend(data)
-
-                        if all_data:
-                            logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
-                            process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
-                        else:
-                            logger.warning(f"No data downloaded for {interface_name}")
-                        continue  # 跳过普通下载逻辑
-
-                    # 下载数据
-                    data = downloader.download(interface_name, params)
-
-                    if data:
-                        logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
-                        process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
+                    if all_data:
+                        logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
+                        process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
                     else:
                         logger.warning(f"No data downloaded for {interface_name}")
+                    continue
+
+                pagination_config = interface_config.get('pagination', {})
+                pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
+                logger.info(f"Downloading data for {interface_name}, pagination mode: {pagination_mode}")
+
+                data = downloader.download(interface_name, result.params)
+
+                if data:
+                    logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
+                    process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
+                else:
+                    logger.warning(f"No data downloaded for {interface_name}")
 
             except Exception as e:
                 import traceback
