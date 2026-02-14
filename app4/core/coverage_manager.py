@@ -697,7 +697,9 @@ class CoverageManager:
         ts_code: str,
         start_date: str,
         end_date: str,
-        interface_config: Dict[str, Any]
+        interface_config: Dict[str, Any],
+        user_provided_dates: bool = False,
+        stock_info: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         检测指定股票的数据缺口（统一入口）
@@ -714,6 +716,8 @@ class CoverageManager:
             start_date: 起始日期
             end_date: 结束日期
             interface_config: 接口配置
+            user_provided_dates: 用户是否显式提供日期
+            stock_info: 股票信息（用于获取上市日等）
 
         Returns:
             下载任务参数列表
@@ -723,22 +727,25 @@ class CoverageManager:
 
         # 判断接口类型
         gap_mode = self._determine_gap_mode(interface_config)
-        logger.info(f"[{interface_name}/{ts_code}] 缺口检测模式: {gap_mode}")
+        logger.info(f"[{interface_name}/{ts_code}] 缺口检测模式: {gap_mode}, 用户提供日期: {user_provided_dates}")
 
         if gap_mode == 'trade_date':
             # 类型 A：交易日历检测
             return self._detect_trade_date_gaps(
-                interface_name, ts_code, start_date, end_date, date_column
+                interface_name, ts_code, start_date, end_date, date_column,
+                user_provided_dates=user_provided_dates, stock_info=stock_info
             )
         elif gap_mode == 'report_period':
             # 类型 B：报告期检测
             return self._detect_report_period_gaps(
-                interface_name, ts_code, start_date, end_date, date_column
+                interface_name, ts_code, start_date, end_date, date_column,
+                user_provided_dates=user_provided_dates, stock_info=stock_info
             )
         elif gap_mode == 'date_anchor':
             # 类型 C：日期锚定遍历
             return self._detect_date_anchor_gaps(
-                interface_name, ts_code, start_date, end_date, date_column, interface_config
+                interface_name, ts_code, start_date, end_date, date_column, interface_config,
+                user_provided_dates=user_provided_dates, stock_info=stock_info
             )
         elif gap_mode == 'no_date_filter':
             # 类型 D：无日期过滤
@@ -796,21 +803,37 @@ class CoverageManager:
         ts_code: str,
         start_date: str,
         end_date: str,
-        date_column: str
+        date_column: str,
+        user_provided_dates: bool = False,
+        stock_info: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         类型 A：交易日历缺口检测
 
         适用于：cyq_chips, moneyflow_dc, stk_factor_pro
+
+        逻辑：
+        - 无已有数据 + 无用户日期 -> 只传 ts_code，从上市日下载到最新
+        - 无已有数据 + 有用户日期 -> 按用户指定范围下载
+        - 有已有数据 + 无用户日期 -> 检测现有数据之后的缺失日期（增量下载）
+        - 有已有数据 + 有用户日期 -> 检测用户范围内的缺失日期
         """
-        logger.info(f"[{interface_name}/{ts_code}] 交易日历缺口检测 ({start_date} ~ {end_date})")
+        logger.info(f"[{interface_name}/{ts_code}] 交易日历缺口检测 ({start_date} ~ {end_date}), 用户提供日期: {user_provided_dates}")
 
         existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
 
+        # 无已有数据的情况
         if not existing_dates:
-            logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
-            return [{'ts_code': ts_code}]
+            if user_provided_dates:
+                # 用户提供了日期，按指定范围下载
+                logger.info(f"[{ts_code}] 股票无数据，按用户指定范围下载: {start_date} ~ {end_date}")
+                return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+            else:
+                # 用户未提供日期，只传 ts_code 获取全历史（从上市日到最新）
+                logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
+                return [{'ts_code': ts_code}]
 
+        # 有已有数据，需要检测缺口
         if not self.downloader:
             return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
 
@@ -822,6 +845,13 @@ class CoverageManager:
             d['cal_date'] for d in trade_calendar
             if d.get('is_open', 0) == 1 and start_date <= d['cal_date'] <= end_date
         ]
+
+        if not user_provided_dates:
+            # 用户未提供日期，只检测现有数据之后的缺失日期（增量下载）
+            if existing_dates:
+                max_existing_date = max(existing_dates)
+                trade_days = [d for d in trade_days if d > max_existing_date]
+                logger.info(f"[{ts_code}] 用户未提供日期，只检测 {max_existing_date} 之后的缺失日期")
 
         missing_days = [d for d in trade_days if d not in existing_dates]
 
@@ -844,25 +874,46 @@ class CoverageManager:
         ts_code: str,
         start_date: str,
         end_date: str,
-        date_column: str
+        date_column: str,
+        user_provided_dates: bool = False,
+        stock_info: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         类型 B：报告期缺口检测（优化版）
 
         适用于：income_vip, balancesheet_vip, cashflow_vip 等
 
+        逻辑：
+        - 无已有数据 + 无用户日期 -> 只传 ts_code，从上市日下载到最新
+        - 无已有数据 + 有用户日期 -> 按用户指定报告期范围下载
+        - 有已有数据 + 无用户日期 -> 检测现有数据之后的缺失报告期（增量下载）
+        - 有已有数据 + 有用户日期 -> 检测用户范围内的缺失报告期
+
         优化策略：
         1. 如果缺失报告期数量 <= MAX_PRECISE_QUERIES，生成精确查询任务
         2. 如果缺失报告期数量 > MAX_PRECISE_QUERIES，使用范围查询最小覆盖区间
         """
-        logger.info(f"[{interface_name}/{ts_code}] 报告期缺口检测 ({start_date} ~ {end_date})")
+        logger.info(f"[{interface_name}/{ts_code}] 报告期缺口检测 ({start_date} ~ {end_date}), 用户提供日期: {user_provided_dates}")
 
         existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
         expected_periods = self._generate_report_periods(start_date, end_date)
 
+        # 无已有数据的情况
         if not existing_dates:
-            logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
-            return [{'ts_code': ts_code}]
+            if user_provided_dates:
+                # 用户提供了日期，按指定范围下载
+                logger.info(f"[{ts_code}] 股票无数据，按用户指定范围下载: {start_date} ~ {end_date}")
+                return [{'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date}]
+            else:
+                # 用户未提供日期，只传 ts_code 获取全历史
+                logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
+                return [{'ts_code': ts_code}]
+
+        # 用户未提供日期时，只检测现有数据之后的缺失报告期
+        if not user_provided_dates and existing_dates:
+            max_existing_date = max(existing_dates)
+            expected_periods = [p for p in expected_periods if p > max_existing_date]
+            logger.info(f"[{ts_code}] 用户未提供日期，只检测 {max_existing_date} 之后的缺失报告期")
 
         missing_periods = [p for p in expected_periods if p not in existing_dates]
 
@@ -936,14 +987,22 @@ class CoverageManager:
         start_date: str,
         end_date: str,
         date_column: str,
-        interface_config: Dict[str, Any]
+        interface_config: Dict[str, Any],
+        user_provided_dates: bool = False,
+        stock_info: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         类型 C：日期锚定缺口检测
 
         适用于：disclosure_date, top10_holders, dividend 等
+
+        逻辑：
+        - 无已有数据 + 无用户日期 -> 只传 ts_code，获取全历史
+        - 无已有数据 + 有用户日期 -> 生成日期区间内的所有锚点值，逐个查询
+        - 有已有数据 + 无用户日期 -> 检测现有数据之后的缺失锚点
+        - 有已有数据 + 有用户日期 -> 生成日期区间内的锚点值，跳过已有的，下载缺失的
         """
-        logger.info(f"[{interface_name}/{ts_code}] 日期锚定缺口检测 ({start_date} ~ {end_date})")
+        logger.info(f"[{interface_name}/{ts_code}] 日期锚定缺口检测 ({start_date} ~ {end_date}), 用户提供日期: {user_provided_dates}")
 
         parameters = interface_config.get('parameters', {})
         anchor_param = None
@@ -958,14 +1017,39 @@ class CoverageManager:
 
         existing_dates = self.get_stock_existing_dates(interface_name, ts_code, date_column)
 
-        # 股票无数据时，只传 ts_code 获取全历史
+        # 无已有数据的情况
         if not existing_dates:
-            logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
-            return [{'ts_code': ts_code}]
+            if user_provided_dates:
+                # 用户提供了日期，生成日期区间内的所有锚点值
+                logger.info(f"[{ts_code}] 股票无数据，按用户指定日期生成锚点值")
+                anchor_values = self._generate_anchor_values(start_date, end_date, anchor_param)
+                if not anchor_values:
+                    return []
+                return [
+                    {'ts_code': ts_code, anchor_param: anchor}
+                    for anchor in anchor_values
+                ]
+            else:
+                # 用户未提供日期，只传 ts_code 获取全历史
+                logger.info(f"[{ts_code}] 股票无数据，使用单次全历史请求（只传 ts_code）")
+                return [{'ts_code': ts_code}]
 
-        anchor_values = self._generate_anchor_values(start_date, end_date, anchor_param)
-
-        missing_anchors = [a for a in anchor_values if a not in existing_dates]
+        # 有已有数据
+        if user_provided_dates:
+            # 用户提供了日期，生成日期区间内的锚点值，跳过已有的
+            anchor_values = self._generate_anchor_values(start_date, end_date, anchor_param)
+            missing_anchors = [a for a in anchor_values if a not in existing_dates]
+        else:
+            # 用户未提供日期，检测现有数据之后的缺失锚点
+            max_existing_date = max(existing_dates) if existing_dates else None
+            if max_existing_date:
+                # 生成从最大已有日期到结束日期的锚点值
+                anchor_values = self._generate_anchor_values(max_existing_date, end_date, anchor_param)
+                # 排除最大已有日期本身（已经存在）
+                missing_anchors = [a for a in anchor_values if a > max_existing_date]
+                logger.info(f"[{ts_code}] 用户未提供日期，只检测 {max_existing_date} 之后的缺失锚点")
+            else:
+                missing_anchors = []
 
         if not missing_anchors:
             logger.info(f"[{ts_code}] 锚点数据已完整")

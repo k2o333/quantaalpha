@@ -438,19 +438,24 @@ class GenericDownloader:
             gap_tasks = None
             if self.coverage_manager and not self.force_download:
                 detection_config = interface_config.get('duplicate_detection', {})
-                
+
                 # 检查是否启用股票级别缺口检测
                 if detection_config.get('stock_level_detection', False):
                     # 使用智能缺口检测
                     start_date = stock_params.get('start_date', '20050101')
                     end_date = stock_params.get('end_date', datetime.now().strftime('%Y%m%d'))
-                    
+
+                    # 获取 user_provided_dates 标记（从参数或默认值）
+                    user_provided_dates = stock_params.get('_user_provided_dates', False)
+
                     gap_tasks = self.coverage_manager.detect_stock_gaps(
                         interface_config['api_name'],
                         ts_code,
                         start_date,
                         end_date,
-                        interface_config
+                        interface_config,
+                        user_provided_dates=user_provided_dates,
+                        stock_info=stock
                     )
                     
                     if not gap_tasks:

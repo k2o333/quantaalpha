@@ -190,13 +190,18 @@ class PaginationComposer:
                 if stock_level_detection and self.context.coverage_manager and not self.context.force_download:
                     start_date = params.get('start_date', '20000101')
                     end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-                    
+
+                    # 获取 user_provided_dates 标记（从参数或默认值）
+                    user_provided_dates = params.get('_user_provided_dates', False)
+
                     gap_tasks = self.context.coverage_manager.detect_stock_gaps(
                         self.interface_config.get('api_name', ''),
                         ts_code,
                         start_date,
                         end_date,
-                        self.interface_config
+                        self.interface_config,
+                        user_provided_dates=user_provided_dates,
+                        stock_info=stock
                     )
                     
                     if not gap_tasks:

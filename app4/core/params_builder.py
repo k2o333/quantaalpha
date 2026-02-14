@@ -24,6 +24,7 @@ class BuildResult:
     date_anchor_param: Optional[str] = None
     interface_config: Dict[str, Any] = field(default_factory=dict, repr=False)
     stock_list: List[Dict[str, Any]] = field(default_factory=list, repr=False)
+    user_provided_dates: bool = False  # 新增字段：标记用户是否显式提供日期
 
 
 class ParamsBuilder:
@@ -40,10 +41,19 @@ class ParamsBuilder:
         date_range: Optional[Dict[str, str]] = None,
         stock_list: Optional[List[Dict[str, Any]]] = None
     ) -> BuildResult:
+        # 获取用户是否显式提供日期的标记（从args获取原始值）
         user_provided_dates = getattr(args, 'user_provided_dates', False)
         ts_code = getattr(args, 'ts_code', None)
-        start_date = date_range.get('start_date') if date_range else getattr(args, 'start_date', '20230101')
-        end_date = date_range.get('end_date') if date_range else getattr(args, 'end_date', None)
+
+        # 根据 date_range 是否存在来确定日期值
+        if date_range is not None:
+            # 用户提供了日期，使用传入的 date_range
+            start_date = date_range.get('start_date', getattr(args, 'start_date', '20230101'))
+            end_date = date_range.get('end_date', getattr(args, 'end_date', None))
+        else:
+            # 用户未提供日期，使用args中的值或默认值
+            start_date = getattr(args, 'start_date', '20230101')
+            end_date = getattr(args, 'end_date', None)
 
         scenario = self._detect_scenario(ts_code, user_provided_dates, start_date, end_date)
 
@@ -62,6 +72,7 @@ class ParamsBuilder:
 
         result.interface_config = self.interface_config
         result.stock_list = stock_list or []
+        result.user_provided_dates = user_provided_dates  # 保存用户日期标记
         return result
 
     def _detect_scenario(
@@ -71,6 +82,19 @@ class ParamsBuilder:
         start_date: str,
         end_date: Optional[str]
     ) -> DownloadScenario:
+        """
+        检测下载场景
+
+        场景决策逻辑：
+        1. 特殊接口（broker_recommend, pro_bar）单独处理
+        2. 非股票循环接口 -> DIRECT
+        3. 有 start_date + end_date 参数 -> STOCK_LOOP_DATE_RANGE（Type A/B）
+        4. 有日期锚定参数（is_date_anchor=true）：
+           - 用户未提供日期 + 有ts_code -> STOCK_LOOP_FULL_HISTORY（全历史）
+           - 用户未提供日期 + 无ts_code -> STOCK_LOOP_FULL_HISTORY（全股票轮询）
+           - 用户提供日期 -> STOCK_LOOP_DATE_ANCHOR（按锚点遍历）
+        5. 其他情况 -> STOCK_LOOP_FULL_HISTORY
+        """
         if self.api_name == 'broker_recommend':
             return DownloadScenario.SPECIAL_BROKER_RECOMMEND
 
@@ -93,14 +117,21 @@ class ParamsBuilder:
 
         date_anchor_param = self._find_date_anchor_param()
 
+        # Type A/B 接口：有 start_date + end_date 参数
         if has_start_end:
             return DownloadScenario.STOCK_LOOP_DATE_RANGE
 
+        # Type C 接口：有日期锚定参数
         if date_anchor_param:
+            # disclosure_date 特殊处理：无日期且无ts_code时全量轮询
             if self.api_name == 'disclosure_date' and not user_provided_dates and not ts_code:
                 return DownloadScenario.STOCK_LOOP_FULL_HISTORY
-            if ts_code and not user_provided_dates:
+
+            # 用户未提供日期 -> 全历史模式（只传ts_code，获取全历史）
+            if not user_provided_dates:
                 return DownloadScenario.STOCK_LOOP_FULL_HISTORY
+
+            # 用户提供日期 -> 按锚点遍历模式
             return DownloadScenario.STOCK_LOOP_DATE_ANCHOR
 
         return DownloadScenario.STOCK_LOOP_FULL_HISTORY
@@ -214,18 +245,25 @@ class ParamsBuilder:
         scenario = result.scenario
 
         if scenario == DownloadScenario.SPECIAL_BROKER_RECOMMEND:
-            return self._build_broker_recommend_params_list(result)
-        if scenario == DownloadScenario.DIRECT:
-            return [result.params]
-        if scenario == DownloadScenario.STOCK_LOOP_DATE_RANGE:
-            return self._build_stock_loop_date_params_list(result, stock_list)
-        if scenario == DownloadScenario.STOCK_LOOP_DATE_ANCHOR:
-            return self._build_stock_loop_anchor_params_list(result, stock_list)
-        if scenario == DownloadScenario.STOCK_LOOP_FULL_HISTORY:
-            return self._build_stock_loop_full_params_list(result, stock_list)
-        if scenario == DownloadScenario.SPECIAL_PRO_BAR:
-            return self._build_pro_bar_params_list(result, stock_list)
-        return []
+            params_list = self._build_broker_recommend_params_list(result)
+        elif scenario == DownloadScenario.DIRECT:
+            params_list = [result.params]
+        elif scenario == DownloadScenario.STOCK_LOOP_DATE_RANGE:
+            params_list = self._build_stock_loop_date_params_list(result, stock_list)
+        elif scenario == DownloadScenario.STOCK_LOOP_DATE_ANCHOR:
+            params_list = self._build_stock_loop_anchor_params_list(result, stock_list)
+        elif scenario == DownloadScenario.STOCK_LOOP_FULL_HISTORY:
+            params_list = self._build_stock_loop_full_params_list(result, stock_list)
+        elif scenario == DownloadScenario.SPECIAL_PRO_BAR:
+            params_list = self._build_pro_bar_params_list(result, stock_list)
+        else:
+            params_list = []
+
+        # 在每个参数中添加 user_provided_dates 标记，供下游使用
+        for params in params_list:
+            params['_user_provided_dates'] = result.user_provided_dates
+
+        return params_list
 
     def _build_broker_recommend_params_list(self, result: BuildResult) -> List[Dict[str, Any]]:
         params_list = []

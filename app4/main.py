@@ -325,11 +325,19 @@ def run_update_mode(args):
                     start_date, end_date = date_range.start_date, date_range.end_date
 
                 builder = ParamsBuilder(interface_config)
-                result = builder.build(
-                    args,
-                    mode='update',
-                    date_range={'start_date': start_date, 'end_date': end_date}
-                )
+                # 只在用户提供日期时才传入 date_range，否则传入 None
+                if user_provided_dates:
+                    result = builder.build(
+                        args,
+                        mode='update',
+                        date_range={'start_date': start_date, 'end_date': end_date}
+                    )
+                else:
+                    result = builder.build(
+                        args,
+                        mode='update',
+                        date_range=None
+                    )
 
                 if result.requires_stock_loop:
                     stock_list = _prepare_stock_list(downloader, args, result.params, storage_manager, logger)
