@@ -23,6 +23,7 @@ class PaginationContext:
     stock_list: Optional[List[Dict[str, Any]]] = None
     coverage_manager: Optional[Any] = None
     force_download: bool = False
+    user_provided_dates: bool = False  # 用户是否显式提供了日期
     
     @property
     def pagination_config(self) -> Dict[str, Any]:
@@ -191,8 +192,8 @@ class PaginationComposer:
                     start_date = params.get('start_date', '20000101')
                     end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
 
-                    # 获取 user_provided_dates 标记（从参数或默认值）
-                    user_provided_dates = params.get('_user_provided_dates', False)
+                    # 从 context 获取 user_provided_dates 标记，支持向后兼容从 params 获取
+                    user_provided_dates = self.context.user_provided_dates or params.get('_user_provided_dates', False)
 
                     gap_tasks = self.context.coverage_manager.detect_stock_gaps(
                         self.interface_config.get('api_name', ''),

@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # 加载环境变量
 from dotenv import load_dotenv
-import os
 # 使用相对路径加载.env文件
 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
 load_dotenv(env_path)
@@ -30,6 +29,9 @@ from core.dedup import deduplicate_against_existing
 from core.cache_warmer import CacheWarmer
 from core.params_builder import ParamsBuilder
 from update.date_calculator import DateCalculator
+from update.update_manager import UpdateManager
+from update.models import UpdateOptions, ReportFormat
+from update.interface_selector import InterfaceSelector
 import polars as pl
 import glob
 
@@ -75,7 +77,77 @@ def cleanup_old_stock_basic_files(storage_dir: str, keep_latest: int = 1):
 
 import re
 from datetime import datetime
-from typing import Tuple, Optional
+from typing import Tuple, Optional, NamedTuple
+
+from collections import namedtuple
+
+# 组件容器 - 用于存储初始化后的核心组件
+AppComponents = namedtuple('AppComponents', [
+    'config_loader', 'storage_manager', 'downloader',
+    'scheduler', 'processor', 'cache_warmer',
+    'trade_cal_cache', 'stock_list_cache'
+])
+
+
+def create_app_components(args, force_download: bool = False, incremental_mode: bool = False) -> AppComponents:
+    """创建并初始化所有核心组件（共享工厂函数）
+
+    main() 和 run_update_mode() 都可以调用此函数，消除初始化代码重复。
+
+    Args:
+        args: 命令行参数对象
+        force_download: 是否强制下载（忽略覆盖率检查）
+        incremental_mode: 是否增量模式
+
+    Returns:
+        AppComponents: 包含所有初始化组件的命名元组
+    """
+    config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
+    config_loader = ConfigLoader(config_dir=config_dir_path)
+
+    if not config_loader.validate_config():
+        raise RuntimeError("Configuration validation failed")
+
+    processor = DataProcessor()
+    storage_config = config_loader.global_config.get('storage', {})
+    storage_manager = StorageManager(
+        processor=processor,
+        config_loader=config_loader,
+        storage_dir=storage_config.get('base_dir', '../data'),
+        format=storage_config.get('format', 'parquet'),
+        batch_size=storage_config.get('batch_size', 10000)
+    )
+
+    cache_warmer = CacheWarmer(storage_config.get('base_dir', '../data'))
+    trade_cal_cache = cache_warmer.preload_trade_calendar()
+    stock_list_cache = cache_warmer.preload_stock_list()
+
+    downloader = GenericDownloader(
+        config_loader=config_loader,
+        storage_manager=storage_manager,
+        trade_calendar_cache=trade_cal_cache,
+        stock_list_cache=stock_list_cache,
+        force_download=force_download,
+        incremental_mode=incremental_mode
+    )
+
+    concurrency_config = config_loader.global_config.get('concurrency', {})
+    scheduler = TaskScheduler(
+        max_workers=concurrency_config.get('max_workers', 4),
+        max_queue_size=concurrency_config.get('max_queue_size', 1000)
+    )
+
+    return AppComponents(
+        config_loader=config_loader,
+        storage_manager=storage_manager,
+        downloader=downloader,
+        scheduler=scheduler,
+        processor=processor,
+        cache_warmer=cache_warmer,
+        trade_cal_cache=trade_cal_cache,
+        stock_list_cache=stock_list_cache
+    )
+
 
 DATE_PATTERN = re.compile(r'^\d{8}$')
 
@@ -199,8 +271,178 @@ def run_concurrent_stock_download(downloader, scheduler, interface_name, interfa
     return total_records
 
 
+def preload_global_trade_calendar(downloader, storage_manager, logger, start_date='19900101', end_date=None):
+    """预加载全局交易日历，优先从内存缓存读取，然后Data目录，最后API获取
+    
+    Args:
+        downloader: 下载器实例
+        storage_manager: 存储管理器实例
+        logger: 日志记录器
+        start_date: 开始日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)，如果为None则使用当前日期
+        
+    Returns:
+        List[Dict]: 交易日历列表，如果失败则返回 None
+    """
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y%m%d')
+
+    logger.info(f"Preloading global trade calendar: {start_date} - {end_date}")
+
+    # 1. 首先检查内存缓存（CacheWarmer 已预加载）
+    cache_key = ('global',)
+    with downloader._cache_lock:
+        if cache_key in downloader._memory_cache['trade_cal']:
+            trade_calendar = downloader._memory_cache['trade_cal'][cache_key]
+            # 过滤出指定日期范围内的交易日
+            trade_days = [day for day in trade_calendar 
+                         if start_date <= day.get('cal_date', '') <= end_date and day.get('is_open', 0) == 1]
+            if trade_days:
+                logger.info(f"Global trade calendar loaded from memory cache: {len(trade_days)} trade days")
+                return trade_days
+
+    # 2. 检查本地磁盘数据
+    trade_calendar = downloader._get_trade_calendar_from_data_dir(start_date, end_date)
+    
+    if trade_calendar:
+        logger.info(f"Global trade calendar loaded from data directory: {len(trade_calendar)} trade days")
+        # 手动填充内存缓存
+        cache_key = (start_date, end_date)
+        with downloader._cache_lock:
+            downloader._memory_cache['trade_cal'][cache_key] = trade_calendar
+        return trade_calendar
+
+    # 3. Data目录未命中，请求 API
+    logger.info("Global trade calendar not found locally, fetching from API...")
+    calendar_params = {
+        'start_date': start_date,
+        'end_date': end_date,
+        'exchange': 'SSE'
+    }
+
+    trade_calendar = downloader._make_request(
+        downloader.config_loader.get_interface_config('trade_cal'),
+        calendar_params
+    )
+
+    if trade_calendar:
+        # 过滤出交易日
+        trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
+        trade_days = sorted(trade_days, key=lambda x: x['cal_date'])
+        
+        # 保存到存储
+        logger.info(f"Saving {len(trade_days)} trade days to storage")
+        storage_manager.save_data('trade_cal', trade_calendar, async_write=False)
+        
+        # 填充内存缓存
+        cache_key = (start_date, end_date)
+        with downloader._cache_lock:
+            downloader._memory_cache['trade_cal'][cache_key] = trade_calendar
+
+        logger.info(f"Preloaded {len(trade_days)} trade days from API")
+        return trade_days
+    else:
+        logger.warning("Failed to preload trade calendar")
+        return None
+
+
+def process_and_save_data(data, interface_name, interface_config, processor, storage_manager, logger):
+    """处理并保存数据的通用函数 - 使用异步处理模式
+
+    Args:
+        data: 原始数据列表
+        interface_name: 接口名称
+        interface_config: 接口配置
+        processor: 数据处理器
+        storage_manager: 存储管理器
+        logger: 日志记录器
+
+    Returns:
+        处理后的 DataFrame，如果处理失败则返回 None
+    """
+    import polars as pl
+    if not data:
+        logger.warning(f"No data to process for {interface_name}")
+        return None
+
+    # 处理数据
+    df = processor.process_data(data, interface_config)
+
+    if df.is_empty():
+        logger.warning(f"Processed empty DataFrame for {interface_name}")
+        return None
+
+    validation_result = processor.validate_data(df, interface_config)
+
+    # 使用接口配置获取主键和去重配置
+    output_config = interface_config.get('output', {})
+    primary_keys = output_config.get('primary_key', [])
+    dedup_config = interface_config.get('dedup', {'dedup_enabled': True})
+
+    # 如果去重功能启用且存在主键定义
+    if dedup_config.get('dedup_enabled', True) and primary_keys:
+        # 读取该接口的所有现有数据文件（支持Parquet Dataset模式）
+        try:
+            existing_df = storage_manager.read_interface_data(interface_name, columns=primary_keys)
+        except Exception as e:
+            logger.warning(f"无法读取现有数据进行去重: {e}")
+            existing_df = pl.DataFrame()
+
+        if not existing_df.is_empty():
+            # 使用临时文件进行去重
+            import tempfile
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
+                    existing_df.write_parquet(tmp_file.name)
+                    temp_path = tmp_file.name
+
+                # 使用统一的去重模块
+                df, dedup_stats = deduplicate_against_existing(
+                    new_data=df,
+                    existing_data_path=temp_path,
+                    primary_keys=primary_keys
+                )
+
+                logger.info(f"Deduplication completed for {interface_name}: "
+                           f"input={dedup_stats.input_rows}, "
+                           f"compared={dedup_stats.compared_rows}, "
+                           f"output={dedup_stats.output_rows}, "
+                           f"removed={dedup_stats.removed_rows}, "
+                           f"dedup_rate={dedup_stats.get_dedup_rate():.2f}%")
+
+                # 检查去重结果
+                if dedup_stats.errors:
+                    for error in dedup_stats.errors:
+                        logger.error(f"Deduplication error for {interface_name}: {error}")
+                if dedup_stats.warnings:
+                    for warning in dedup_stats.warnings:
+                        logger.warning(f"Deduplication warning for {interface_name}: {warning}")
+
+                # 如果所有数据都被过滤掉了，则直接返回
+                if len(df) == 0:
+                    logger.info(f"All records already exist for {interface_name}, skipping save")
+                    return df
+            finally:
+                if 'temp_path' in locals() and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+        else:
+            logger.info(f"No existing data found for {interface_name}, skipping deduplication")
+
+    logger.info(f"Processed {len(df)} records for {interface_name}")
+    if validation_result['duplicate_records'] > 0:
+        logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
+
+    # 使用异步保存模式，而不是直接调用 _write_interface_data
+    # 这样数据会被放入队列，由 _process_worker 线程统一处理
+    storage_manager.save_data(interface_name, df.to_dicts(), async_write=True)
+
+    return df
+
+
 def run_update_mode(args):
-    """运行增量更新模式
+    """运行增量更新模式（薄包装层）
+    
+    使用 UpdateManager 执行实际的更新逻辑，解锁断点续传、结构化报告等功能。
     
     Args:
         args: 命令行参数
@@ -209,7 +451,6 @@ def run_update_mode(args):
         int: 退出码 (0=成功, 1=失败)
     """
     # 初始化配置加载器
-    import os
     config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
     config_loader = ConfigLoader(config_dir=config_dir_path)
     
@@ -260,8 +501,6 @@ def run_update_mode(args):
         force_download=args.update_force if hasattr(args, 'update_force') else False,
         incremental_mode=True
     )
-
-    date_calculator = DateCalculator(config_loader, storage_manager)
     
     # 启动组件
     scheduler.start()
@@ -278,146 +517,53 @@ def run_update_mode(args):
             else:
                 interfaces_to_update.append(args.interface)
 
-        # 如果没有指定接口，则使用所有可用接口
-        if not interfaces_to_update:
-            available_interfaces = config_loader.get_available_interfaces()
-            interfaces_to_update = available_interfaces
-            logger.info(f"No interfaces specified, updating all {len(interfaces_to_update)} available interfaces")
-
-        logger.info(f"Interfaces to update: {interfaces_to_update}")
-
-        # 统计结果
-        success_count = 0
-        failed_count = 0
-        skipped_count = 0
-
-        # 使用核心下载逻辑处理每个接口
-        for interface_name in interfaces_to_update:
-            try:
-                logger.info(f"\n{'='*60}")
-                logger.info(f"Processing interface: {interface_name}")
-                logger.info(f"{'='*60}")
-
-                # 获取接口配置
-                try:
-                    interface_config = config_loader.get_interface_config(interface_name)
-                except ValueError:
-                    logger.error(f"Interface '{interface_name}' not found in configuration, skipping...")
-                    failed_count += 1
-                    continue
-
-                # 检查积分要求
-                min_points = interface_config.get('permissions', {}).get('min_points', 0)
-                actual_points = int(os.getenv('TUSHARE_POINTS', '120'))
-                if min_points > actual_points:
-                    logger.warning(f"Insufficient points for interface {interface_name} (required: {min_points}, available: {actual_points}), skipping...")
-                    skipped_count += 1
-                    continue
-
-                user_provided_dates = getattr(args, 'user_provided_dates', False)
-                if user_provided_dates:
-                    start_date, end_date = validate_and_adjust_date(
-                        args.start_date,
-                        args.end_date
-                    )
-                else:
-                    date_range = date_calculator.calculate_update_range(interface_name)
-                    start_date, end_date = date_range.start_date, date_range.end_date
-
-                builder = ParamsBuilder(interface_config)
-                # 只在用户提供日期时才传入 date_range，否则传入 None
-                if user_provided_dates:
-                    result = builder.build(
-                        args,
-                        mode='update',
-                        date_range={'start_date': start_date, 'end_date': end_date}
-                    )
-                else:
-                    result = builder.build(
-                        args,
-                        mode='update',
-                        date_range=None
-                    )
-
-                if result.requires_stock_loop:
-                    stock_list = _prepare_stock_list(downloader, args, result.params, storage_manager, logger)
-                    if stock_list is None:
-                        logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
-                        skipped_count += 1
-                        continue
-
-                    params_list = builder.build_params_list(result, stock_list)
-                    downloaded_count = run_concurrent_stock_download(
-                        downloader, scheduler, interface_name, interface_config,
-                        params_list, stock_list, storage_manager, processor, logger
-                    )
-
-                    if downloaded_count > 0:
-                        logger.info(f"Successfully downloaded {downloaded_count} total records for {interface_name}")
-                        success_count += 1
-                    else:
-                        logger.warning(f"No data downloaded for {interface_name}")
-                        skipped_count += 1
-                elif result.requires_month_loop:
-                    params_list = builder.build_params_list(result)
-                    all_data = []
-                    for params in params_list:
-                        data = downloader.download(interface_name, params)
-                        if data:
-                            all_data.extend(data)
-
-                    if all_data:
-                        logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
-                        success_count += 1
-                    else:
-                        logger.warning(f"No data downloaded for {interface_name}")
-                        skipped_count += 1
-                else:
-                    logger.info(f"Using direct download for {interface_name}")
-                    clean_params = result.params
-
-                    if downloader.coverage_manager and not args.update_force:
-                        try:
-                            if downloader.coverage_manager.should_skip(
-                                interface_name,
-                                clean_params,
-                                strategy='auto'
-                            ):
-                                logger.info(f"Skipping {interface_name} (already covered)")
-                                skipped_count += 1
-                                continue
-                        except Exception:
-                            pass
-
-                    data = downloader.download(interface_name, clean_params)
-
-                    if data and len(data) > 0:
-                        logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
-                        success_count += 1
-                    else:
-                        logger.warning(f"No data downloaded for {interface_name}")
-                        skipped_count += 1
-
-            except Exception as e:
-                logger.error(f"Error processing interface {interface_name}: {e}")
-                import traceback
-                traceback.print_exc()
-                failed_count += 1
-
-        # 返回退出码
-        if failed_count == 0:
-            logger.info(f"\n更新成功完成: {success_count} 成功, {skipped_count} 跳过")
-            return 0
+        # 根据用户积分过滤接口
+        actual_points = int(os.getenv('TUSHARE_POINTS', '120'))
+        interface_selector = InterfaceSelector(config_loader)
+        all_interfaces = config_loader.get_available_interfaces()
+        
+        if interfaces_to_update:
+            # 验证接口是否存在
+            valid_interfaces = [i for i in interfaces_to_update if i in all_interfaces]
+            for iface in interfaces_to_update:
+                if iface not in all_interfaces:
+                    logger.warning(f"指定的接口 '{iface}' 不存在，已忽略")
         else:
-            logger.warning(f"\n更新完成但有失败: {success_count} 成功, {failed_count} 失败, {skipped_count} 跳过")
-            return 1
+            valid_interfaces = all_interfaces
+            logger.info(f"No interfaces specified, updating all {len(valid_interfaces)} available interfaces")
+        
+        # 根据积分权限过滤
+        valid_interfaces = interface_selector.filter_by_permission(valid_interfaces, actual_points)
+        logger.info(f"Interfaces to update (after permission filter): {valid_interfaces}")
+
+        # 构建 UpdateOptions
+        user_provided_dates = getattr(args, 'user_provided_dates', False)
+        options = UpdateOptions(
+            interfaces=valid_interfaces,
+            start_date=args.start_date if user_provided_dates else None,
+            end_date=args.end_date if user_provided_dates else None,
+            force=getattr(args, 'update_force', False),
+            dry_run=getattr(args, 'dry_run', False),
+            gap_detection_enabled=True,
+        )
+
+        # 创建 UpdateManager 并执行更新
+        update_manager = UpdateManager(
+            config_loader=config_loader,
+            storage_manager=storage_manager,
+            downloader=downloader,
+            scheduler=scheduler,
+            processor=processor,
+        )
+        
+        result = update_manager.run_update(options)
         
         # 返回退出码
-        if result.failed_count == 0:
-            logger.info(f"更新成功完成: {result.success_count} 成功, {result.skipped_count} 跳过")
+        if result.is_success:
+            logger.info(f"\n更新成功完成: {result.success_count} 成功, {result.skipped_count} 跳过")
             return 0
         else:
-            logger.warning(f"更新完成但有失败: {result.success_count} 成功, {result.failed_count} 失败, {result.skipped_count} 跳过")
+            logger.warning(f"\n更新完成但有失败: {result.success_count} 成功, {result.failed_count} 失败, {result.skipped_count} 跳过")
             return 1
             
     except KeyboardInterrupt:
@@ -503,8 +649,6 @@ def main():
                         help='起始日期 (YYYYMMDD)')
     parser.add_argument('--end_date', type=str, default=None,
                         help='结束日期 (YYYYMMDD)')
-    parser.add_argument('--use_legacy', action='store_true',
-                        help='传统下载方式 (已移除，保留向后兼容)')
     parser.add_argument('--holders-data', action='store_true',
                         help='下载股东数据')
     parser.add_argument('--pro-bar-only', action='store_true',
@@ -525,9 +669,7 @@ def main():
                         help='指定股票代码 (如: 000001.SZ)')
     parser.add_argument('--force', action='store_true',
                         help='强制覆盖已存在的数据')
-    parser.add_argument('--incremental', action='store_true',
-                        help='增量模式 - 只下载缺失的时间段')
-    
+
     # 新增增量更新模块参数
     parser.add_argument('--update', 
                         action='store_true',
@@ -577,18 +719,11 @@ def main():
     user_provided_dates = user_provided_start_date or user_provided_end_date
     setattr(args, 'user_provided_dates', user_provided_dates)
     
-    # 处理 --incremental 与 --update 的兼容性
-    if args.incremental and not args.update:
-        logger = logging.getLogger(__name__)
-        logger.warning("--incremental 已弃用，请使用 --update")
-        args.update = True
-    
     # 如果是更新模式，执行增量更新
     if args.update:
         return run_update_mode(args)
 
     # 初始化配置加载器（需要在设置日志之前）
-    import os
     config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
     config_loader = ConfigLoader(config_dir=config_dir_path)
 
@@ -645,71 +780,6 @@ def main():
         incremental_mode=args.incremental       # 传递增量模式标志
     )
 
-    # [修改] 预加载全局交易日历 - 不再依赖 CacheManager
-    def preload_global_trade_calendar(downloader, start_date='19900101', end_date=None):
-        """预加载全局交易日历，优先从内存缓存读取，然后Data目录，最后API获取"""
-        if end_date is None:
-            from datetime import datetime
-            end_date = datetime.now().strftime('%Y%m%d')
-
-        logger.info(f"Preloading global trade calendar: {start_date} - {end_date}")
-
-        # [修复] 1. 首先检查内存缓存（CacheWarmer 已预加载）
-        cache_key = ('global',)
-        with downloader._cache_lock:
-            if cache_key in downloader._memory_cache['trade_cal']:
-                trade_calendar = downloader._memory_cache['trade_cal'][cache_key]
-                # 过滤出指定日期范围内的交易日
-                trade_days = [day for day in trade_calendar 
-                             if start_date <= day.get('cal_date', '') <= end_date and day.get('is_open', 0) == 1]
-                if trade_days:
-                    logger.info(f"Global trade calendar loaded from memory cache: {len(trade_days)} trade days")
-                    return trade_days
-
-        # 2. 检查本地磁盘数据
-        trade_calendar = downloader._get_trade_calendar_from_data_dir(start_date, end_date)
-        
-        if trade_calendar:
-             logger.info(f"Global trade calendar loaded from data directory: {len(trade_calendar)} trade days")
-             # 手动填充内存缓存
-             cache_key = (start_date, end_date)
-             with downloader._cache_lock:
-                 downloader._memory_cache['trade_cal'][cache_key] = trade_calendar
-             return trade_calendar
-
-        # 3. Data目录未命中，请求 API
-        logger.info("Global trade calendar not found locally, fetching from API...")
-        calendar_params = {
-            'start_date': start_date,
-            'end_date': end_date,
-            'exchange': 'SSE'
-        }
-
-        trade_calendar = downloader._make_request(
-            downloader.config_loader.get_interface_config('trade_cal'),
-            calendar_params
-        )
-
-        if trade_calendar:
-            # 过滤出交易日
-            trade_days = [day for day in trade_calendar if day.get('is_open', 0) == 1]
-            trade_days = sorted(trade_days, key=lambda x: x['cal_date'])
-            
-            # [新增] 保存到存储
-            logger.info(f"Saving {len(trade_days)} trade days to storage")
-            storage_manager.save_data('trade_cal', trade_calendar, async_write=False)
-            
-            # [新增] 填充内存缓存
-            cache_key = (start_date, end_date)
-            with downloader._cache_lock:
-                 downloader._memory_cache['trade_cal'][cache_key] = trade_calendar
-
-            logger.info(f"Preloaded {len(trade_days)} trade days from API")
-            return trade_days
-        else:
-            logger.warning("Failed to preload trade calendar")
-            return None
-
     def print_performance_report():
         """打印性能监控报告"""
         print("\n" + "="*30)
@@ -741,102 +811,11 @@ def main():
 
 
     # 预加载全局交易日历
-    global_trade_calendar = preload_global_trade_calendar(downloader)
+    global_trade_calendar = preload_global_trade_calendar(downloader, storage_manager, logger)
 
     # 启动各组件
     scheduler.start()
     storage_manager.start_writer()
-
-    def process_and_save_data(data, interface_name, interface_config, processor, storage_manager):
-        """处理并保存数据的通用函数 - 使用异步处理模式
-
-        Args:
-            data: 原始数据列表
-            interface_name: 接口名称
-            interface_config: 接口配置
-            processor: 数据处理器
-            storage_manager: 存储管理器
-
-        Returns:
-            处理后的 DataFrame，如果处理失败则返回 None
-        """
-        import polars as pl
-        if not data:
-            logger.warning(f"No data to process for {interface_name}")
-            return None
-
-        # 处理数据
-        df = processor.process_data(data, interface_config)
-
-        if df.is_empty():
-            logger.warning(f"Processed empty DataFrame for {interface_name}")
-            return None
-
-        validation_result = processor.validate_data(df, interface_config)
-
-        # 使用接口配置获取主键和去重配置
-        output_config = interface_config.get('output', {})
-        primary_keys = output_config.get('primary_key', [])
-        dedup_config = interface_config.get('dedup', {'dedup_enabled': True})
-
-        # 如果去重功能启用且存在主键定义
-        if dedup_config.get('dedup_enabled', True) and primary_keys:
-            # 读取该接口的所有现有数据文件（支持Parquet Dataset模式）
-            try:
-                existing_df = storage_manager.read_interface_data(interface_name, columns=primary_keys)
-            except Exception as e:
-                logger.warning(f"无法读取现有数据进行去重: {e}")
-                existing_df = pl.DataFrame()
-
-            if not existing_df.is_empty():
-                # 使用临时文件进行去重
-                import tempfile
-                try:
-                    with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
-                        existing_df.write_parquet(tmp_file.name)
-                        temp_path = tmp_file.name
-
-                    # 使用统一的去重模块
-                    df, dedup_stats = deduplicate_against_existing(
-                        new_data=df,
-                        existing_data_path=temp_path,
-                        primary_keys=primary_keys
-                    )
-
-                    logger.info(f"Deduplication completed for {interface_name}: "
-                               f"input={dedup_stats.input_rows}, "
-                               f"compared={dedup_stats.compared_rows}, "
-                               f"output={dedup_stats.output_rows}, "
-                               f"removed={dedup_stats.removed_rows}, "
-                               f"dedup_rate={dedup_stats.get_dedup_rate():.2f}%")
-
-                    # 检查去重结果
-                    if dedup_stats.errors:
-                        for error in dedup_stats.errors:
-                            logger.error(f"Deduplication error for {interface_name}: {error}")
-                    if dedup_stats.warnings:
-                        for warning in dedup_stats.warnings:
-                            logger.warning(f"Deduplication warning for {interface_name}: {warning}")
-
-                    # 如果所有数据都被过滤掉了，则直接返回
-                    if len(df) == 0:
-                        logger.info(f"All records already exist for {interface_name}, skipping save")
-                        return df
-                finally:
-                    if 'temp_path' in locals() and os.path.exists(temp_path):
-                        os.unlink(temp_path)
-            else:
-                logger.info(f"No existing data found for {interface_name}, skipping deduplication")
-
-        logger.info(f"Processed {len(df)} records for {interface_name}")
-        if validation_result['duplicate_records'] > 0:
-            logger.info(f"Found {validation_result['duplicate_records']} duplicate records for {interface_name}")
-
-        # ✅ 修复：使用异步保存模式，而不是直接调用 _write_interface_data
-        # 这样数据会被放入队列，由 _process_worker 线程统一处理
-        storage_manager.save_data(interface_name, df.to_dicts(), async_write=True)
-
-        return df
 
     # [新增] try...finally 结构
     try:
@@ -903,20 +882,28 @@ def main():
                 is_tscode_historical_interface = interface_name in tscode_historical_group
 
                 # [新增] 对于 tscode_historical 接口，如果用户使用默认日期，则改为 1990年1月1日
+                # 使用局部变量，不修改共享的 args 对象
+                loop_start_date = args.start_date
+                loop_end_date = args.end_date
+
                 if is_tscode_historical_interface and not user_provided_dates and not args.ts_code and interface_name != 'disclosure_date':
-                    if args.start_date == '20230101' and args.end_date is None:
+                    if loop_start_date == '20230101' and loop_end_date is None:
                         logger.info(f"Using default date range for tscode_historical interface {interface_name}: 19900101 to today")
-                        args.start_date = '19900101'
-                        args.end_date = datetime.now().strftime('%Y%m%d')
+                        loop_start_date = '19900101'
+                        loop_end_date = datetime.now().strftime('%Y%m%d')
 
                 # 准备请求参数
-                args.start_date, args.end_date = validate_and_adjust_date(
-                    args.start_date,
-                    args.end_date
+                loop_start_date, loop_end_date = validate_and_adjust_date(
+                    loop_start_date,
+                    loop_end_date
                 )
 
                 builder = ParamsBuilder(interface_config)
-                result = builder.build(args)
+                # 使用 date_range 参数传递当前循环的日期，避免污染 args 对象
+                result = builder.build(args, date_range={
+                    'start_date': loop_start_date,
+                    'end_date': loop_end_date
+                })
 
                 if result.requires_stock_loop:
                     stock_list = _prepare_stock_list(downloader, args, result.params, storage_manager, logger)
@@ -946,7 +933,7 @@ def main():
 
                     if all_data:
                         logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
-                        process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager)
+                        process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager, logger)
                     else:
                         logger.warning(f"No data downloaded for {interface_name}")
                     continue
@@ -959,7 +946,7 @@ def main():
 
                 if data:
                     logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
-                    process_and_save_data(data, interface_name, interface_config, processor, storage_manager)
+                    process_and_save_data(data, interface_name, interface_config, processor, storage_manager, logger)
                 else:
                     logger.warning(f"No data downloaded for {interface_name}")
 

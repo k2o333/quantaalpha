@@ -260,6 +260,7 @@ class ParamsBuilder:
             params_list = []
 
         # 在每个参数中添加 user_provided_dates 标记，供下游使用
+        # 注意：这是向后兼容的临时方案，未来应通过 DownloadContext 传递
         for params in params_list:
             params['_user_provided_dates'] = result.user_provided_dates
 
