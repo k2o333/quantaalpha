@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 import polars as pl
+from .constants import DEFAULT_START_DATE, DEFAULT_STOCK_START_DATE
+from .context import DownloadContext
 
 
 class DownloadScenario(Enum):
@@ -48,11 +50,11 @@ class ParamsBuilder:
         # 根据 date_range 是否存在来确定日期值
         if date_range is not None:
             # 用户提供了日期，使用传入的 date_range
-            start_date = date_range.get('start_date', getattr(args, 'start_date', '20230101'))
+            start_date = date_range.get('start_date', getattr(args, 'start_date', DEFAULT_START_DATE))
             end_date = date_range.get('end_date', getattr(args, 'end_date', None))
         else:
             # 用户未提供日期，使用args中的值或默认值
-            start_date = getattr(args, 'start_date', '20230101')
+            start_date = getattr(args, 'start_date', DEFAULT_START_DATE)
             end_date = getattr(args, 'end_date', None)
 
         scenario = self._detect_scenario(ts_code, user_provided_dates, start_date, end_date)
@@ -99,7 +101,7 @@ class ParamsBuilder:
             return DownloadScenario.SPECIAL_BROKER_RECOMMEND
 
         if self.api_name == 'pro_bar':
-            if start_date == '20230101' and end_date is None:
+            if start_date == DEFAULT_START_DATE and end_date is None:
                 return DownloadScenario.SPECIAL_PRO_BAR
 
         is_stock_loop = (
@@ -239,8 +241,9 @@ class ParamsBuilder:
     def build_params_list(
         self,
         result: BuildResult,
-        stock_list: Optional[List[Dict[str, Any]]] = None
-    ) -> List[Dict[str, Any]]:
+        stock_list: Optional[List[Dict[str, Any]]] = None,
+        force_download: bool = False
+    ) -> Tuple[List[Dict[str, Any]], DownloadContext]:
         stock_list = stock_list or result.stock_list
         scenario = result.scenario
 
@@ -258,13 +261,21 @@ class ParamsBuilder:
             params_list = self._build_pro_bar_params_list(result, stock_list)
         else:
             params_list = []
+        date_range = None
+        if 'start_date' in result.params or 'end_date' in result.params:
+            date_range = {
+                'start_date': result.params.get('start_date'),
+                'end_date': result.params.get('end_date')
+            }
 
-        # 在每个参数中添加 user_provided_dates 标记，供下游使用
-        # 注意：这是向后兼容的临时方案，未来应通过 DownloadContext 传递
-        for params in params_list:
-            params['_user_provided_dates'] = result.user_provided_dates
+        context = DownloadContext(
+            user_provided_dates=result.user_provided_dates,
+            force_download=force_download,
+            date_range=date_range,
+            interface_config=result.interface_config
+        )
 
-        return params_list
+        return params_list, context
 
     def _build_broker_recommend_params_list(self, result: BuildResult) -> List[Dict[str, Any]]:
         params_list = []
@@ -285,7 +296,7 @@ class ParamsBuilder:
             p = result.params.copy()
             p['ts_code'] = stock.get('ts_code', '')
             if 'start_date' not in p and 'start_date' in self.parameter_config:
-                p['start_date'] = stock.get('list_date', '20050101')
+                p['start_date'] = stock.get('list_date', DEFAULT_STOCK_START_DATE)
             params_list.append(p)
         return params_list
 
@@ -329,7 +340,7 @@ class ParamsBuilder:
         for stock in stock_list:
             p = {
                 'ts_code': stock.get('ts_code', ''),
-                'start_date': stock.get('list_date', '20050101')
+                'start_date': stock.get('list_date', DEFAULT_STOCK_START_DATE)
             }
             params_list.append(p)
         return params_list

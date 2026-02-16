@@ -22,6 +22,8 @@ import polars as pl
 # Import the new PerformanceMonitor class
 from .performance_monitor import PerformanceMonitor
 from .scheduler import RateLimiter
+from .constants import DEFAULT_STOCK_START_DATE, MIN_TRADE_CAL_RECORDS
+from .context import DownloadContext
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +75,7 @@ class GenericDownloader:
     """通用下载器 - 原子化的执行引擎"""
 
     def __init__(self, config_loader: ConfigLoader, storage_manager=None,
-                 trade_calendar_cache=None, stock_list_cache=None, force_download=False, incremental_mode=False):
+                 trade_calendar_cache=None, stock_list_cache=None, force_download=False):
         self.config_loader = config_loader
         self.global_config = config_loader.get_global_config()
         global_rate_limit = self.global_config.get('request', {}).get('rate_limit', 60)
@@ -86,9 +88,7 @@ class GenericDownloader:
         self.data_processor = DataProcessor()
         self.schema_manager = SchemaManager()
 
-        # 下载模式标志
         self.force_download = force_download
-        self.incremental_mode = incremental_mode
 
         # 初始化性能监控器
         self.performance_monitor = PerformanceMonitor()
@@ -123,7 +123,6 @@ class GenericDownloader:
         # [新增] 存储管理器引用，用于buffer机制
         self.storage_manager = storage_manager
 
-        # [新增] 分页执行器，供 UpdateManager 复用
         from .pagination_executor import PaginationExecutor
         self.pagination_executor = PaginationExecutor()
 
@@ -239,7 +238,7 @@ class GenericDownloader:
         from .pagination_executor import PaginationExecutor
         
         # 获取交易日历
-        start_date = params.get('start_date', '20050101')
+        start_date = params.get('start_date', DEFAULT_STOCK_START_DATE)
         end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
         trade_calendar = self.get_trade_calendar(start_date, end_date)
         
@@ -409,11 +408,38 @@ class GenericDownloader:
             return None
 
 
+    def _execute_paginated_download(
+        self,
+        interface_config: Dict[str, Any],
+        stock_list: List[Dict[str, Any]],
+        base_params: Dict[str, Any],
+        start_date: str,
+        end_date: str,
+        user_provided_dates: bool = False
+    ) -> List[Dict[str, Any]]:
+        from .pagination import create_context_with_legacy_support
+
+        trade_calendar = self.get_trade_calendar(start_date, end_date)
+
+        pagination_context = create_context_with_legacy_support(
+            interface_config=interface_config,
+            trade_calendar=trade_calendar,
+            stock_list=stock_list,
+            coverage_manager=self.coverage_manager,
+            force_download=self.force_download,
+            user_provided_dates=user_provided_dates
+        )
+
+        return self.pagination_executor.execute(
+            interface_config=interface_config,
+            base_params=base_params,
+            context=pagination_context,
+            make_request=self._make_request,
+            coverage_manager=self.coverage_manager
+        )
 
 
 
-
-    def download_single_stock(self, interface_config: Dict[str, Any], stock: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """下载单只股票的数据 - 原子化方法供调度器调用
 
         Args:
@@ -433,6 +459,8 @@ class GenericDownloader:
             if not stock:
                 stock = {'ts_code': ts_code}
 
+            user_provided_dates = context.user_provided_dates if context else False
+
             # [新增] 检查覆盖率，使用智能缺口检测（如果启用）
             should_skip = False
             gap_tasks = None
@@ -442,11 +470,8 @@ class GenericDownloader:
                 # 检查是否启用股票级别缺口检测
                 if detection_config.get('stock_level_detection', False):
                     # 使用智能缺口检测
-                    start_date = stock_params.get('start_date', '20050101')
+                    start_date = stock_params.get('start_date', DEFAULT_STOCK_START_DATE)
                     end_date = stock_params.get('end_date', datetime.now().strftime('%Y%m%d'))
-
-                    # 获取 user_provided_dates 标记（从参数或默认值）
-                    user_provided_dates = stock_params.get('_user_provided_dates', False)
 
                     gap_tasks = self.coverage_manager.detect_stock_gaps(
                         interface_config['api_name'],
@@ -493,34 +518,16 @@ class GenericDownloader:
                     
                     logger.info(f"Downloading gap task for {ts_code}: {gap_task}")
                     
-                    # 使用新的统一分页执行入口
-                    from .pagination import create_context_with_legacy_support
-                    from .pagination_executor import PaginationExecutor
-                    
-                    # 获取交易日历
-                    task_start = gap_task.get('start_date', stock_params.get('start_date', '20050101'))
+                    task_start = gap_task.get('start_date', stock_params.get('start_date', DEFAULT_STOCK_START_DATE))
                     task_end = gap_task.get('end_date', stock_params.get('end_date', datetime.now().strftime('%Y%m%d')))
-                    trade_calendar = self.get_trade_calendar(task_start, task_end)
-                    
-                    # 创建支持向后兼容的上下文
-                    pagination_context = create_context_with_legacy_support(
+
+                    task_data = self._execute_paginated_download(
                         interface_config=interface_config,
-                        trade_calendar=trade_calendar,
                         stock_list=[stock],
-                        coverage_manager=self.coverage_manager,
-                        force_download=self.force_download
-                    )
-                    
-                    # 创建分页执行器
-                    executor = PaginationExecutor()
-                    
-                    # 执行下载
-                    task_data = executor.execute(
-                        interface_config=interface_config,
                         base_params=task_params,
-                        context=pagination_context,
-                        make_request=self._make_request,
-                        coverage_manager=self.coverage_manager
+                        start_date=task_start,
+                        end_date=task_end,
+                        user_provided_dates=user_provided_dates
                     )
                     
                     if task_data:
@@ -530,34 +537,16 @@ class GenericDownloader:
             else:
                 logger.info(f"Downloading data for stock {ts_code}, params: {stock_params}")
 
-                # 使用新的统一分页执行入口
-                from .pagination import create_context_with_legacy_support
-                from .pagination_executor import PaginationExecutor
-                
-                # 获取交易日历
-                start_date = stock_params.get('start_date', '20050101')
+                start_date = stock_params.get('start_date', DEFAULT_STOCK_START_DATE)
                 end_date = stock_params.get('end_date', datetime.now().strftime('%Y%m%d'))
-                trade_calendar = self.get_trade_calendar(start_date, end_date)
-                
-                # 创建支持向后兼容的上下文
-                pagination_context = create_context_with_legacy_support(
+
+                stock_data = self._execute_paginated_download(
                     interface_config=interface_config,
-                    trade_calendar=trade_calendar,
-                    stock_list=[stock],  # 只包含当前股票
-                    coverage_manager=self.coverage_manager,
-                    force_download=self.force_download
-                )
-                
-                # 创建分页执行器
-                executor = PaginationExecutor()
-                
-                # 统一执行（自动识别并转换旧配置）
-                stock_data = executor.execute(
-                    interface_config=interface_config,
+                    stock_list=[stock],
                     base_params=stock_params,
-                    context=pagination_context,
-                    make_request=self._make_request,
-                    coverage_manager=self.coverage_manager
+                    start_date=start_date,
+                    end_date=end_date,
+                    user_provided_dates=user_provided_dates
                 )
 
             if stock_data:
@@ -890,7 +879,7 @@ class GenericDownloader:
         # 检查3：数据量合理性（至少应该有8000个交易日）
         try:
             total_records = len(df)
-            if total_records < 5000:  # 调整为更合理的要求
+            if total_records < MIN_TRADE_CAL_RECORDS:
                 logger.warning(f"Trade calendar has fewer records ({total_records}) than expected")
                 # 对于早期测试或小范围日期，我们不返回False，仅记录日志
 

@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 import threading
 import queue
 import polars as pl
@@ -11,6 +12,7 @@ from typing import List, Dict, Any, Optional
 import logging
 from .dedup import deduplicate_against_existing
 from .schema_manager import SchemaManager
+from .constants import STORAGE_BUFFER_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +86,7 @@ class StorageManager:
         self.interface_buffers = {}  # 接口缓存 {interface_name: BufferContext}
         self.process_queue = queue.Queue()  # 处理队列
         self.process_thread = None  # 处理线程
-        self.buffer_threshold = 5000  # 触发阈值
+        self.buffer_threshold = STORAGE_BUFFER_THRESHOLD
         self.buffer_lock = threading.Lock()  # 缓存锁
         self.failed_interfaces = set()  # 失败接口集合
         self.monitor = StorageMonitor()
@@ -234,20 +236,14 @@ class StorageManager:
             logger.error(f"Error writing batch data: {str(e)}")
 
     def _get_interface_config(self, interface_name: str) -> Dict[str, Any]:
-        """获取接口配置
-
-        Args:
-            interface_name: 接口名称
-
-        Returns:
-            接口配置字典
-        """
-        import yaml
-        config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'interfaces', f'{interface_name}.yaml')
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f)
-        return {}
+        try:
+            if self.config_loader:
+                return self.config_loader.get_interface_config(interface_name)
+            from .config_loader import ConfigLoader
+            config_loader = ConfigLoader()
+            return config_loader.get_interface_config(interface_name)
+        except Exception:
+            return {}
 
     def _write_interface_data(self, interface_name: str, data: List[Dict[str, Any]]):
         """
@@ -753,9 +749,13 @@ class StorageManager:
             raise
 
     def _make_save_signature(self, data_records: List[Dict[str, Any]]) -> str:
-        normalized = [json.dumps(record, sort_keys=True, ensure_ascii=False) for record in data_records]
-        normalized.sort()
-        return "|".join(normalized)
+        digest_value = 0
+        modulus = 1 << 256
+        for record in data_records:
+            normalized = json.dumps(record, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            record_digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+            digest_value = (digest_value + int.from_bytes(record_digest, byteorder="big")) % modulus
+        return f"{digest_value:064x}"
 
     def write_interface_data(self, interface_name: str, df: pl.DataFrame) -> None:
         """

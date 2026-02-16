@@ -8,8 +8,9 @@ import logging
 import os
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -22,15 +23,15 @@ load_dotenv(env_path)
 
 from core.config_loader import ConfigLoader
 from core.downloader import GenericDownloader
-from core.scheduler import TaskScheduler, RateLimiter
+from core.scheduler import TaskScheduler
 from core.storage import StorageManager
 from core.processor import DataProcessor
 from core.dedup import deduplicate_against_existing
 from core.cache_warmer import CacheWarmer
 from core.params_builder import ParamsBuilder
-from update.date_calculator import DateCalculator
+from core.constants import DEFAULT_START_DATE, HISTORICAL_START_DATE
 from update.update_manager import UpdateManager
-from update.models import UpdateOptions, ReportFormat
+from update.models import UpdateOptions
 from update.interface_selector import InterfaceSelector
 import polars as pl
 import glob
@@ -76,20 +77,21 @@ def cleanup_old_stock_basic_files(storage_dir: str, keep_latest: int = 1):
 
 
 import re
-from datetime import datetime
-from typing import Tuple, Optional, NamedTuple
-
-from collections import namedtuple
-
-# 组件容器 - 用于存储初始化后的核心组件
-AppComponents = namedtuple('AppComponents', [
-    'config_loader', 'storage_manager', 'downloader',
-    'scheduler', 'processor', 'cache_warmer',
-    'trade_cal_cache', 'stock_list_cache'
-])
 
 
-def create_app_components(args, force_download: bool = False, incremental_mode: bool = False) -> AppComponents:
+@dataclass
+class AppComponents:
+    config_loader: ConfigLoader
+    storage_manager: StorageManager
+    downloader: GenericDownloader
+    scheduler: TaskScheduler
+    processor: DataProcessor
+    cache_warmer: CacheWarmer
+    trade_cal_cache: Any
+    stock_list_cache: Any
+
+
+def create_app_components(config_loader: ConfigLoader, args, force_download: bool = False) -> AppComponents:
     """创建并初始化所有核心组件（共享工厂函数）
 
     main() 和 run_update_mode() 都可以调用此函数，消除初始化代码重复。
@@ -97,17 +99,10 @@ def create_app_components(args, force_download: bool = False, incremental_mode: 
     Args:
         args: 命令行参数对象
         force_download: 是否强制下载（忽略覆盖率检查）
-        incremental_mode: 是否增量模式
 
     Returns:
         AppComponents: 包含所有初始化组件的命名元组
     """
-    config_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
-    config_loader = ConfigLoader(config_dir=config_dir_path)
-
-    if not config_loader.validate_config():
-        raise RuntimeError("Configuration validation failed")
-
     processor = DataProcessor()
     storage_config = config_loader.global_config.get('storage', {})
     storage_manager = StorageManager(
@@ -127,8 +122,7 @@ def create_app_components(args, force_download: bool = False, incremental_mode: 
         storage_manager=storage_manager,
         trade_calendar_cache=trade_cal_cache,
         stock_list_cache=stock_list_cache,
-        force_download=force_download,
-        incremental_mode=incremental_mode
+        force_download=force_download
     )
 
     concurrency_config = config_loader.global_config.get('concurrency', {})
@@ -221,7 +215,7 @@ def _prepare_stock_list(downloader, args, params, storage_manager, logger):
     return stock_list
 
 
-def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params_list, stock_list, storage_manager, processor, logger):
+def run_concurrent_stock_download(downloader, scheduler, interface_name, interface_config, params_list, stock_list, storage_manager, processor, logger, context=None):
     """运行并发股票下载 - 统一使用buffer机制"""
     logger.info(f"Starting concurrent download for {interface_name} with {len(params_list)} tasks")
 
@@ -237,7 +231,7 @@ def run_concurrent_stock_download(downloader, scheduler, interface_name, interfa
         task = {
             'func': downloader.download_single_stock,
             'args': (interface_config, stock, params),
-            'kwargs': {}
+            'kwargs': {'context': context}
         }
         tasks.append(task)
 
@@ -271,7 +265,7 @@ def run_concurrent_stock_download(downloader, scheduler, interface_name, interfa
     return total_records
 
 
-def preload_global_trade_calendar(downloader, storage_manager, logger, start_date='19900101', end_date=None):
+def preload_global_trade_calendar(downloader, storage_manager, logger, start_date=HISTORICAL_START_DATE, end_date=None):
     """预加载全局交易日历，优先从内存缓存读取，然后Data目录，最后API获取
     
     Args:
@@ -468,43 +462,15 @@ def run_update_mode(args):
     logger = logging.getLogger(__name__)
     logger.info("Starting aspipe_v4 App4 - Incremental Update Mode")
     
-    # 初始化组件
-    scheduler = TaskScheduler(
-        max_workers=config_loader.global_config.get('concurrency', {}).get('max_workers', 4),
-        max_queue_size=config_loader.global_config.get('concurrency', {}).get('max_queue_size', 1000)
-    )
-    
-    processor = DataProcessor()
-    storage_manager = StorageManager(
-        processor=processor,
+    components = create_app_components(
         config_loader=config_loader,
-        storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
-        format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
-        batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)
-    )
-    
-    # 初始化缓存预热器
-    data_dir = config_loader.get_global_config()['storage']['base_dir']
-    cache_warmer = CacheWarmer(data_dir)
-    
-    # 预热缓存
-    logger.info("预热全局缓存...")
-    trade_cal_cache = cache_warmer.preload_trade_calendar()
-    stock_list_cache = cache_warmer.preload_stock_list()
-    
-    # 创建下载器
-    downloader = GenericDownloader(
-        config_loader=config_loader,
-        storage_manager=storage_manager,
-        trade_calendar_cache=trade_cal_cache,
-        stock_list_cache=stock_list_cache,
-        force_download=args.update_force if hasattr(args, 'update_force') else False,
-        incremental_mode=True
+        args=args,
+        force_download=args.update_force if hasattr(args, 'update_force') else False
     )
     
     # 启动组件
-    scheduler.start()
-    storage_manager.start_writer()
+    components.scheduler.start()
+    components.storage_manager.start_writer()
     
     try:
         # 合并 --interface 和 --update-interface 参数
@@ -551,10 +517,10 @@ def run_update_mode(args):
         # 创建 UpdateManager 并执行更新
         update_manager = UpdateManager(
             config_loader=config_loader,
-            storage_manager=storage_manager,
-            downloader=downloader,
-            scheduler=scheduler,
-            processor=processor,
+            storage_manager=components.storage_manager,
+            downloader=components.downloader,
+            scheduler=components.scheduler,
+            processor=components.processor,
         )
         
         result = update_manager.run_update(options)
@@ -571,21 +537,19 @@ def run_update_mode(args):
         logger.warning("\n用户手动中断执行 (Ctrl+C detected)")
         return 130  # 标准的中断退出码
     except Exception as e:
-        logger.error(f"更新过程中发生错误: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"更新过程中发生错误: {e}")
         return 1
     finally:
         # 清理资源
         logger.info("正在停止调度器...")
-        scheduler.stop()
+        components.scheduler.stop()
         
         logger.info("正在刷新并关闭存储写入...")
-        storage_manager.stop_writer()
+        components.storage_manager.stop_writer()
 
-        if hasattr(downloader, 'global_rate_limiter'):
+        if hasattr(components.downloader, 'global_rate_limiter'):
             try:
-                stats = downloader.global_rate_limiter.get_stats()
+                stats = components.downloader.global_rate_limiter.get_stats()
                 logger.info(
                     f"限流统计: 总请求={stats['total_requests']}, "
                     f"总等待={stats['total_wait_time']}s, "
@@ -642,11 +606,10 @@ def setup_logging(log_config: dict):
 
 
 def main():
-    global datetime  # 声明使用全局的datetime变量，避免局部变量冲突
     parser = argparse.ArgumentParser(description="aspipe_v4 融合重构版 - 配置驱动架构")
 
     # 保持与原版的参数兼容性
-    parser.add_argument('--start_date', type=str, default='20230101',
+    parser.add_argument('--start_date', type=str, default=DEFAULT_START_DATE,
                         help='起始日期 (YYYYMMDD)')
     parser.add_argument('--end_date', type=str, default=None,
                         help='结束日期 (YYYYMMDD)')
@@ -747,38 +710,10 @@ def main():
     performance_config = config_loader.global_config.get('performance', {})
     performance_enabled = performance_config.get('enabled', True)
 
-    # 初始化其他组件
-    scheduler = TaskScheduler(
-        max_workers=config_loader.global_config.get('concurrency', {}).get('max_workers', 4),
-        max_queue_size=config_loader.global_config.get('concurrency', {}).get('max_queue_size', 1000)
-    )
-
-    processor = DataProcessor()
-    storage_manager = StorageManager(
-        processor=processor,  # 新增参数
-        config_loader=config_loader,  # 传递配置加载器
-        storage_dir=config_loader.global_config.get('storage', {}).get('base_dir', '../data'),
-        format=config_loader.global_config.get('storage', {}).get('format', 'parquet'),
-        batch_size=config_loader.global_config.get('storage', {}).get('batch_size', 10000)  # [优化] 增大 batch_size
-    )
-
-    # 初始化缓存预热器
-    data_dir = config_loader.get_global_config()['storage']['base_dir']
-    cache_warmer = CacheWarmer(data_dir)
-
-    # 预热缓存
-    logger.info("预热全局缓存...")
-    trade_cal_cache = cache_warmer.preload_trade_calendar()
-    stock_list_cache = cache_warmer.preload_stock_list()
-
-    # 传递缓存到Downloader
-    downloader = GenericDownloader(
+    components = create_app_components(
         config_loader=config_loader,
-        storage_manager=storage_manager,
-        trade_calendar_cache=trade_cal_cache,  # 传递交易日历缓存
-        stock_list_cache=stock_list_cache,      # 传递股票列表缓存
-        force_download=args.force,              # 传递强制下载标志
-        incremental_mode=args.incremental       # 传递增量模式标志
+        args=args,
+        force_download=args.force
     )
 
     def print_performance_report():
@@ -788,11 +723,11 @@ def main():
         print("="*30)
 
         # 使用新的性能监控器
-        if hasattr(downloader, 'performance_monitor') and downloader.performance_monitor:
-            summary = downloader.performance_monitor.get_summary()
+        if hasattr(components.downloader, 'performance_monitor') and components.downloader.performance_monitor:
+            summary = components.downloader.performance_monitor.get_summary()
 
-            print(f"总运行时间: {time.time() - downloader.performance_monitor.start_time:.2f}秒")
-            print(f"总请求数: {len(downloader.performance_monitor.metrics)}")
+            print(f"总运行时间: {time.time() - components.downloader.performance_monitor.start_time:.2f}秒")
+            print(f"总请求数: {len(components.downloader.performance_monitor.metrics)}")
             print(f"接口数量: {len(summary)}")
             print("-" * 30)
 
@@ -812,11 +747,11 @@ def main():
 
 
     # 预加载全局交易日历
-    global_trade_calendar = preload_global_trade_calendar(downloader, storage_manager, logger)
+    preload_global_trade_calendar(components.downloader, components.storage_manager, logger)
 
     # 启动各组件
-    scheduler.start()
-    storage_manager.start_writer()
+    components.scheduler.start()
+    components.storage_manager.start_writer()
 
     # [新增] try...finally 结构
     try:
@@ -888,9 +823,9 @@ def main():
                 loop_end_date = args.end_date
 
                 if is_tscode_historical_interface and not user_provided_dates and not args.ts_code and interface_name != 'disclosure_date':
-                    if loop_start_date == '20230101' and loop_end_date is None:
-                        logger.info(f"Using default date range for tscode_historical interface {interface_name}: 19900101 to today")
-                        loop_start_date = '19900101'
+                    if loop_start_date == DEFAULT_START_DATE and loop_end_date is None:
+                        logger.info(f"Using default date range for tscode_historical interface {interface_name}: {HISTORICAL_START_DATE} to today")
+                        loop_start_date = HISTORICAL_START_DATE
                         loop_end_date = datetime.now().strftime('%Y%m%d')
 
                 # 准备请求参数
@@ -907,15 +842,15 @@ def main():
                 })
 
                 if result.requires_stock_loop:
-                    stock_list = _prepare_stock_list(downloader, args, result.params, storage_manager, logger)
+                    stock_list = _prepare_stock_list(components.downloader, args, result.params, components.storage_manager, logger)
                     if stock_list is None:
                         logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
                         continue
 
-                    params_list = builder.build_params_list(result, stock_list)
+                    params_list, context = builder.build_params_list(result, stock_list, force_download=args.force)
                     downloaded_count = run_concurrent_stock_download(
-                        downloader, scheduler, interface_name, interface_config,
-                        params_list, stock_list, storage_manager, processor, logger
+                        components.downloader, components.scheduler, interface_name, interface_config,
+                        params_list, stock_list, components.storage_manager, components.processor, logger, context
                     )
 
                     if downloaded_count > 0:
@@ -925,16 +860,16 @@ def main():
                     continue
 
                 if result.requires_month_loop:
-                    params_list = builder.build_params_list(result)
+                    params_list, _ = builder.build_params_list(result, force_download=args.force)
                     all_data = []
                     for params in params_list:
-                        data = downloader.download(interface_name, params)
+                        data = components.downloader.download(interface_name, params)
                         if data:
                             all_data.extend(data)
 
                     if all_data:
                         logger.info(f"Successfully downloaded {len(all_data)} records for {interface_name}")
-                        process_and_save_data(all_data, interface_name, interface_config, processor, storage_manager, logger)
+                        process_and_save_data(all_data, interface_name, interface_config, components.processor, components.storage_manager, logger)
                     else:
                         logger.warning(f"No data downloaded for {interface_name}")
                     continue
@@ -943,40 +878,37 @@ def main():
                 pagination_mode = pagination_config.get('mode', 'offset') if pagination_config.get('enabled', False) else 'none'
                 logger.info(f"Downloading data for {interface_name}, pagination mode: {pagination_mode}")
 
-                data = downloader.download(interface_name, result.params)
+                data = components.downloader.download(interface_name, result.params)
 
                 if data:
                     logger.info(f"Successfully downloaded {len(data)} records for {interface_name}")
-                    process_and_save_data(data, interface_name, interface_config, processor, storage_manager, logger)
+                    process_and_save_data(data, interface_name, interface_config, components.processor, components.storage_manager, logger)
                 else:
                     logger.warning(f"No data downloaded for {interface_name}")
 
             except Exception as e:
-                import traceback
-                logger.error(f"Error processing interface {interface_name}: {str(e)}")
-                traceback.print_exc()
+                logger.exception(f"Error processing interface {interface_name}: {str(e)}")
 
     except KeyboardInterrupt:
         logger.warning("\n用户手动中断执行 (Ctrl+C detected)")
     except Exception as e:
-        logger.error(f"发生未捕获异常: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"发生未捕获异常: {e}")
     finally:
         # [关键] 无论成功、失败还是中断，都执行清理
         logger.info("正在停止调度器...")
-        if 'scheduler' in locals(): scheduler.stop()
+        if 'components' in locals():
+            components.scheduler.stop()
 
         logger.info("正在刷新并关闭存储写入...")
-        if 'storage_manager' in locals():
+        if 'components' in locals():
             # 先显示缓存统计
-            buffer_stats = storage_manager.get_buffer_stats()
+            buffer_stats = components.storage_manager.get_buffer_stats()
             if buffer_stats['total_interfaces'] > 0:
                 for iface, stats in buffer_stats['interface_stats'].items():
                     if stats['buffer_count'] > 0:
                         logger.info(f"  - 接口 {iface}: {stats['buffer_count']} 条记录待写入")
 
-            storage_manager.stop_writer()
+            components.storage_manager.stop_writer()
 
         # 生成性能报告
         perf_report_enabled = (
@@ -989,12 +921,9 @@ def main():
 
         # 保存性能报告到文件
         if (perf_report_enabled and performance_enabled and
-            'downloader' in locals() and
-            hasattr(downloader, 'performance_monitor') and
-            downloader.performance_monitor):
-
-            import os
-            from datetime import datetime
+            'components' in locals() and
+            hasattr(components.downloader, 'performance_monitor') and
+            components.downloader.performance_monitor):
 
             # 使用配置的输出目录，或命令行参数覆盖，或默认目录
             report_dir = getattr(args, 'performance_report_dir', None)
@@ -1012,12 +941,12 @@ def main():
             else:
                 performance_file = os.path.join(report_dir, f"{filename_prefix}_{timestamp}.md")
 
-            downloader.performance_monitor.save_report(performance_file)
+            components.downloader.performance_monitor.save_report(performance_file)
             logger.info(f"性能报告已生成: {performance_file}")
 
-        if 'downloader' in locals() and hasattr(downloader, 'global_rate_limiter'):
+        if 'components' in locals() and hasattr(components.downloader, 'global_rate_limiter'):
             try:
-                stats = downloader.global_rate_limiter.get_stats()
+                stats = components.downloader.global_rate_limiter.get_stats()
                 logger.info(
                     f"限流统计: 总请求={stats['total_requests']}, "
                     f"总等待={stats['total_wait_time']}s, "

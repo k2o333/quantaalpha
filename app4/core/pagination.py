@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any, List, Iterator, Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from .constants import DEFAULT_STOCK_START_DATE
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ class PaginationComposer:
         window_days = self._parse_window(window_str)
         
         for params in params_stream:
-            start_date = params.get('start_date', '20050101')
+            start_date = params.get('start_date', DEFAULT_STOCK_START_DATE)
             end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
             trade_days = self._get_trade_days(start_date, end_date)
             
@@ -189,11 +190,10 @@ class PaginationComposer:
                 
                 # === 股票级别缺口检测 ===
                 if stock_level_detection and self.context.coverage_manager and not self.context.force_download:
-                    start_date = params.get('start_date', '20000101')
+                    start_date = params.get('start_date', DEFAULT_STOCK_START_DATE)
                     end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
 
-                    # 从 context 获取 user_provided_dates 标记，支持向后兼容从 params 获取
-                    user_provided_dates = self.context.user_provided_dates or params.get('_user_provided_dates', False)
+                    user_provided_dates = self.context.user_provided_dates
 
                     gap_tasks = self.context.coverage_manager.detect_stock_gaps(
                         self.interface_config.get('api_name', ''),
