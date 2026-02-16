@@ -1,7 +1,7 @@
 # Main.py 下载到存储的完整流程图（Mermaid版）
 
-**日期**: 2026-02-14
-**版本**: 4.0 (基于当前 App4 代码)
+**日期**: 2026-02-16
+**版本**: 4.1 (基于当前 App4 代码)
 
 ---
 
@@ -23,48 +23,68 @@ graph TD
         StorageMgr --> Processor[创建DataProcessor]
         Processor --> CacheWarmer[创建CacheWarmer并预热缓存]
         CacheWarmer --> Downloader[创建GenericDownloader]
-        Downloader --> PreloadTradeCal[预加载交易日历]
-        PreloadTradeCal --> StartScheduler[启动调度器]
+        Downloader --> PreloadGlobalCal[preload_global_trade_calendar]
+        PreloadGlobalCal --> StartScheduler[启动调度器]
         StartScheduler --> StartWriter[启动写入线程]
     end
 
     StartWriter --> SelectInterfaces[确定 interfaces_to_run]
     SelectInterfaces --> ForEachInterface[循环处理接口]
     ForEachInterface --> LoadConfig[获取接口配置并检查权限]
-    LoadConfig --> BuildParams[生成请求参数]
-    BuildParams --> CheckStockLoop{pagination.mode == stock_loop?}
+    LoadConfig --> AdjustDates[tscode_historical 日期调整]
+    AdjustDates --> BuildParams[ParamsBuilder.build]
+    BuildParams --> CheckScenario{requires_stock_loop?}
 
-    CheckStockLoop -->|是| PrepareStockList[准备 stock_list]
-    PrepareStockList --> RunConcurrent[run_concurrent_stock_download]
-    CheckStockLoop -->|否| DirectDownload[downloader.download]
+    CheckScenario -->|是| PrepareStockList[准备 stock_list]
+    PrepareStockList --> BuildParamsList[build_params_list]
+    BuildParamsList --> RunConcurrent[run_concurrent_stock_download]
+    CheckScenario -->|否| CheckMonthLoop{requires_month_loop?}
 
-    DirectDownload --> ProcessSave[process_and_save_data]
+    CheckMonthLoop -->|是| MonthLoopDownload[逐月下载累积]
+    CheckMonthLoop -->|否| DirectDownload[downloader.download]
+
+    MonthLoopDownload --> ProcessSave[process_and_save_data]
+    DirectDownload --> ProcessSave
     ProcessSave --> SaveAsync[storage_manager.save_data async_write=True]
-    SaveAsync --> WriterWorker[_writer_worker 写入文件]
+    SaveAsync --> ProcessQueue[process_queue.put]
+    ProcessQueue --> ProcessWorker[_process_worker 去重/验证]
+    ProcessWorker --> DataQueue[data_queue.put]
+    DataQueue --> WriterWorker[_writer_worker 写入文件]
 
     RunConcurrent --> SubmitTasks[提交任务到 TaskScheduler]
     SubmitTasks --> DownloadStock[downloader.download_single_stock]
     DownloadStock --> PaginationExec[PaginationExecutor.execute]
     PaginationExec --> MakeRequest[_make_request]
     MakeRequest --> AddToBuffer[storage_manager.add_to_buffer]
-    AddToBuffer --> ProcessQueue[_process_worker 去重/验证]
-    ProcessQueue --> WriteInterfaceData[_write_interface_data 写入文件]
+    AddToBuffer --> ProcessWorker
+    WriterWorker --> WriteInterfaceData[_write_interface_data 写入文件]
 
     subgraph UpdateModeFlow["增量更新模式（run_update_mode）"]
         RunUpdate --> UpdateInit[初始化组件并预热缓存]
-        UpdateInit --> UpdateSelect[确定 interfaces_to_update]
-        UpdateSelect --> UpdateLoop[循环接口]
-        UpdateLoop --> UpdateDates[计算/解析日期范围]
-        UpdateDates --> UpdateStockLoop{pagination.mode == stock_loop?}
-        UpdateStockLoop -->|是| UpdateStockList[准备 stock_list]
-        UpdateStockList --> RunConcurrent
-        UpdateStockLoop -->|否| UpdateDirect[downloader.download]
-        UpdateDirect --> UpdateCount[记录成功/失败/跳过]
+        UpdateInit --> UpdateFilter[InterfaceSelector.filter_by_permission]
+        UpdateFilter --> BuildOptions[构建 UpdateOptions]
+        BuildOptions --> UpdateManager[UpdateManager.run_update]
+        UpdateManager --> Checkpoint[断点恢复/初始化]
+        Checkpoint --> SelectUpdate[InterfaceSelector.select_interfaces]
+        SelectUpdate --> UpdateLoop[循环接口]
+        UpdateLoop --> UpdateInterface[UpdateManager.update_interface]
+        UpdateInterface --> CalcRange[DateCalculator.calculate_update_range]
+        CalcRange --> GapDetect{gap_detection?}
+        GapDetect -->|是| GapDownload[缺口下载或股票缺口检测]
+        GapDetect -->|否| ShouldUpdate[should_update_interface]
+        ShouldUpdate -->|更新| ExecuteDownload[_execute_download]
+        GapDownload --> ExecuteDownload
+        ExecuteDownload --> SaveData[storage_manager.save_data async_write=True]
+        SaveData --> ProcessWorker
+        ProcessWorker --> DataQueue
+        DataQueue --> WriterWorker
+        UpdateInterface --> UpdateRecord
+        UpdateRecord --> UpdateReport[生成/保存更新报告]
     end
 
     WriterWorker --> Finalize[finally 清理资源并停止线程]
     WriteInterfaceData --> Finalize
-    UpdateCount --> Finalize
+    UpdateReport --> Finalize
 ```
 
 ---
@@ -84,29 +104,58 @@ graph LR
     G --> H[运行接口]
 ```
 
-**文件位置**: `app4/main.py` (第 530 行开始)
+**文件位置**: `app4/main.py` (第 644 行开始)
 
 ---
 
-### 2. 并发股票下载：run_concurrent_stock_download
+### 2. 增量更新主流程：run_update_mode → UpdateManager
 
 ```mermaid
 graph TD
-    A[main.py: run_concurrent_stock_download] --> B[初始化tasks=[]]
-    B --> C[for stock in stock_list]
-    C --> D[创建task并加入tasks]
-    D --> E{tasks数量>=100?}
-    E -->|否| C
-    E -->|是| F[scheduler.submit_tasks]
-    F --> G[汇总已完成记录数]
-    G --> H[清空tasks]
+    A[main.py: run_update_mode] --> B[初始化组件并预热缓存]
+    B --> C[合并接口参数并做积分过滤]
+    C --> D[构建 UpdateOptions]
+    D --> E[UpdateManager.run_update]
+    E --> F[加载/初始化断点]
+    F --> G[InterfaceSelector.select_interfaces]
+    G --> H[逐接口执行 update_interface]
+    H --> I[DateCalculator.calculate_update_range]
+    I --> J{gap_detection?}
+    J -->|是| K[缺口下载或股票缺口检测]
+    J -->|否| L[should_update_interface]
+    K --> M[_execute_download]
+    L -->|需要更新| M
+    M --> N[storage_manager.save_data async_write=True]
+    N --> O[UpdateReporter 记录结果]
+    O --> P[生成/保存报告]
 ```
 
-**文件位置**: `app4/main.py` (第 151 行)
+**文件位置**: 
+- `app4/main.py` (第 442 行)
+- `app4/update/update_manager.py` (第 77 行)
+- `app4/update/interface_selector.py` (第 22 行)
+- `app4/update/date_calculator.py` (第 49 行)
 
 ---
 
-### 3. 任务提交：scheduler.submit_tasks
+### 3. 并发股票下载：run_concurrent_stock_download
+
+```mermaid
+graph TD
+    A[main.py: run_concurrent_stock_download] --> B[构建 tasks 列表]
+    B --> C[批量提交 scheduler.submit_tasks]
+    C --> D[download_single_stock]
+    D --> E[storage_manager.add_to_buffer]
+    E --> F[_process_worker]
+    F --> G[data_queue.put]
+    G --> H[_writer_worker 写入]
+```
+
+**文件位置**: `app4/main.py` (第 224 行)
+
+---
+
+### 4. 任务提交：scheduler.submit_tasks
 
 ```mermaid
 graph TD
@@ -116,12 +165,12 @@ graph TD
 ```
 
 **文件位置**: 
-- 调用: `app4/main.py` (第 171, 184 行)
+- 调用: `app4/main.py` (第 245, 259 行)
 - 实现: `app4/core/scheduler.py` (第 35 行)
 
 ---
 
-### 4. 下载单只股票：download_single_stock
+### 5. 下载单只股票：download_single_stock
 
 ```mermaid
 graph TD
@@ -142,7 +191,7 @@ graph TD
 
 ---
 
-### 5. API请求：_make_request
+### 6. API请求：_make_request
 
 ```mermaid
 graph TD
@@ -155,11 +204,11 @@ graph TD
 
 ---
 
-### 6. Buffer机制：add_to_buffer
+### 7. Buffer机制：add_to_buffer
 
 ```mermaid
 graph TD
-    A[downloader.py: add_to_buffer] --> B[storage.py: add_to_buffer]
+    A[downloader.py: download_single_stock] --> B[storage.py: add_to_buffer]
     B --> C[获取或创建buffer]
     C --> D[buffer['data'].extend data]
     D --> E[buffer['count'] += len data]
@@ -177,7 +226,7 @@ graph TD
 
 ---
 
-### 7. Process Worker处理：_process_worker
+### 8. Process Worker处理：_process_worker
 
 ```mermaid
 graph TD
@@ -193,15 +242,16 @@ graph TD
     H --> I[与现有数据去重]
     I --> J[_write_interface_data]
     
-    D --> K[记录日志]
+    D --> K[data_queue.put]
     J --> K
+    K --> L[_writer_worker 写入]
 ```
 
 **文件位置**: `app4/core/storage.py` (第 532 行)
 
 ---
 
-### 8. 数据处理：processor.process_data
+### 9. 数据处理：processor.process_data
 
 ```mermaid
 graph TD
@@ -229,7 +279,7 @@ graph TD
 
 ---
 
-### 9. 批量处理：process_and_save_data
+### 10. 批量处理：process_and_save_data
 
 ```mermaid
 graph TD
@@ -240,13 +290,17 @@ graph TD
     E --> F[与现有数据去重]
     F --> G[logger.info Processed X records]
     G --> H[storage_manager.save_data async_write=True]
+    H --> I[process_queue.put]
+    I --> J[_process_worker]
+    J --> K[data_queue.put]
+    K --> L[_writer_worker]
 ```
 
-**文件位置**: `app4/main.py` (第 783 行)
+**文件位置**: `app4/main.py` (第 347 行)
 
 ---
 
-### 10. 异步保存：save_data
+### 11. 异步保存：save_data
 
 ```mermaid
 graph TD
@@ -264,7 +318,7 @@ graph TD
 
 ---
 
-### 11. Writer Worker处理：_writer_worker
+### 12. Writer Worker处理：_writer_worker
 
 ```mermaid
 graph TD
@@ -284,7 +338,7 @@ graph TD
 
 ---
 
-### 12. 写入接口数据：_write_interface_data
+### 13. 写入接口数据：_write_interface_data
 
 ```mermaid
 graph TD
@@ -313,8 +367,10 @@ graph TD
     D -->|否| F[继续累积]
     E --> G[_process_worker]
     G --> H[processor.process_data]
-    H --> I[_write_interface_data]
-    I --> J[写入数据]
+    H --> I[data_queue.put]
+    I --> J[_writer_worker]
+    J --> K[_write_interface_data]
+    K --> L[写入数据]
     
     style A fill:#ffe6e6,stroke:#ff6666
     style B fill:#ffe6e6,stroke:#ff6666
@@ -326,6 +382,8 @@ graph TD
     style H fill:#ffe6e6,stroke:#ff6666
     style I fill:#ffe6e6,stroke:#ff6666
     style J fill:#ffe6e6,stroke:#ff6666
+    style K fill:#ffe6e6,stroke:#ff6666
+    style L fill:#ffe6e6,stroke:#ff6666
 ```
 
 **特点**:
@@ -345,9 +403,12 @@ graph TD
     C --> D[processor.validate_data]
     D --> E[与现有数据去重]
     E --> F[storage_manager.save_data async_write=True]
-    F --> G[_writer_worker]
-    G --> H[_write_interface_data]
-    H --> I[写入数据]
+    F --> G[process_queue.put]
+    G --> H[_process_worker]
+    H --> I[data_queue.put]
+    I --> J[_writer_worker]
+    J --> K[_write_interface_data]
+    K --> L[写入数据]
 
     style A fill:#e6f7ff,stroke:#66aaff
     style B fill:#e6f7ff,stroke:#66aaff
@@ -358,6 +419,9 @@ graph TD
     style G fill:#e6f7ff,stroke:#66aaff
     style H fill:#e6f7ff,stroke:#66aaff
     style I fill:#e6f7ff,stroke:#66aaff
+    style J fill:#e6f7ff,stroke:#66aaff
+    style K fill:#e6f7ff,stroke:#66aaff
+    style L fill:#e6f7ff,stroke:#66aaff
 ```
 
 **特点**:
@@ -371,18 +435,23 @@ graph TD
 
 | 函数名 | 文件 | 行号 | 功能 | 路径 |
 |--------|------|------|------|------|
-| `main` | main.py | 530 | 程序入口 | 通用 |
-| `run_concurrent_stock_download` | main.py | 151 | 并发股票下载 | 通用 |
+| `main` | main.py | 644 | 程序入口 | 通用 |
+| `run_update_mode` | main.py | 442 | 增量更新入口 | 更新 |
+| `run_concurrent_stock_download` | main.py | 224 | 并发股票下载 | 通用 |
+| `process_and_save_data` | main.py | 347 | 处理与保存 | 路径2 |
 | `download_single_stock` | downloader.py | 416 | 下载单只股票 | 通用 |
 | `_make_request` | downloader.py | 589 | API请求 | 通用 |
 | `add_to_buffer` | storage.py | 441 | 添加到Buffer | 路径1 |
-| `_process_worker` | storage.py | 532 | 处理线程工作 | 路径1 |
-| `process_data` | processor.py | 16 | 数据处理 | 路径1, 路径2 |
-| `_handle_primary_keys` | processor.py | 210 | 主键处理 | 路径1, 路径2 |
-| `process_and_save_data` | main.py | 783 | 处理与保存 | 路径2 |
-| `save_data` | storage.py | 706 | 保存数据 | 路径2 |
-| `_writer_worker` | storage.py | 147 | 写入线程工作 | 路径2 |
+| `_process_worker` | storage.py | 532 | 处理线程工作 | 路径1, 路径2 |
+| `save_data` | storage.py | 706 | 保存数据 | 路径1, 路径2 |
+| `_writer_worker` | storage.py | 147 | 写入线程工作 | 路径1, 路径2 |
 | `_write_interface_data` | storage.py | 252 | 写入接口数据 | 路径1, 路径2 |
 | `submit_tasks` | scheduler.py | 35 | 批量提交任务 | 通用 |
+| `run_update` | update_manager.py | 77 | 更新总控 | 更新 |
+| `update_interface` | update_manager.py | 213 | 更新单接口 | 更新 |
+| `_execute_download` | update_manager.py | 408 | 分页下载与入库 | 更新 |
+| `select_interfaces` | interface_selector.py | 22 | 更新接口筛选 | 更新 |
+| `calculate_update_range` | date_calculator.py | 49 | 更新日期范围 | 更新 |
+| `generate_report` | update_reporter.py | 71 | 生成更新报告 | 更新 |
 
 ---

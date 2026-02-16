@@ -252,59 +252,67 @@ class UpdateManager:
                 )
 
             # 【新增】缺口检测：检查是否支持并启用
-            if (options.gap_detection_enabled and
-                self.coverage_manager and
-                self.coverage_manager.is_time_range_mode(interface_name)):
-
-                # 获取交易日历
-                trade_calendar = self.downloader.get_trade_calendar(
-                    date_range.start_date,
-                    date_range.end_date
-                )
-
-                if trade_calendar:
-                    # 检测缺口
-                    from core.coverage_manager import DateRange as GapDateRange
-                    gaps = self.coverage_manager.detect_gaps(
-                        interface_name=interface_name,
-                        target_range=GapDateRange(date_range.start_date, date_range.end_date),
-                        trade_calendar=trade_calendar,
-                        min_gap_days=options.min_gap_days,
-                        max_gaps=options.max_gaps
+            if options.gap_detection_enabled and self.coverage_manager:
+                # 检查是否启用股票级别缺口检测
+                detection_config = interface_config.get('duplicate_detection', {})
+                stock_level_detection = detection_config.get('stock_level_detection', False)
+                
+                if stock_level_detection:
+                    # 使用股票级别缺口检测（适用于 stock_loop 模式）
+                    return self._update_with_stock_gap_detection(
+                        interface_name, interface_config, date_range, options
+                    )
+                elif self.coverage_manager.is_time_range_mode(interface_name):
+                    # 使用接口级别缺口检测（适用于 date_range 模式）
+                    # 获取交易日历
+                    trade_calendar = self.downloader.get_trade_calendar(
+                        date_range.start_date,
+                        date_range.end_date
                     )
 
-                    if not gaps:
-                        logger.info(f"接口 {interface_name} 数据已完整，跳过")
+                    if trade_calendar:
+                        # 检测缺口
+                        from core.coverage_manager import DateRange as GapDateRange
+                        gaps = self.coverage_manager.detect_gaps(
+                            interface_name=interface_name,
+                            target_range=GapDateRange(date_range.start_date, date_range.end_date),
+                            trade_calendar=trade_calendar,
+                            min_gap_days=options.min_gap_days,
+                            max_gaps=options.max_gaps
+                        )
+
+                        if not gaps:
+                            logger.info(f"接口 {interface_name} 数据已完整，跳过")
+                            return InterfaceUpdateResult(
+                                interface_name=interface_name,
+                                status=UpdateStatus.SKIPPED,
+                                date_range=date_range,
+                                skip_reason="数据已完整覆盖",
+                                duration_seconds=time.time() - start_time
+                            )
+
+                        # 逐个下载缺口
+                        total_records = 0
+                        for i, gap in enumerate(gaps):
+                            logger.info(f"下载缺口 [{i+1}/{len(gaps)}]: {gap}")
+                            gap_date_range = DateRange(gap.start_date, gap.end_date)
+                            records = self._execute_download(
+                                interface_name, interface_config, gap_date_range, options
+                            )
+                            total_records += records
+
+                        duration = time.time() - start_time
+                        logger.info(f"接口 {interface_name} 更新完成，共 {total_records} 条记录，耗时 {duration:.2f}秒")
+
                         return InterfaceUpdateResult(
                             interface_name=interface_name,
-                            status=UpdateStatus.SKIPPED,
+                            status=UpdateStatus.SUCCESS,
                             date_range=date_range,
-                            skip_reason="数据已完整覆盖",
-                            duration_seconds=time.time() - start_time
+                            record_count=total_records,
+                            duration_seconds=duration
                         )
-
-                    # 逐个下载缺口
-                    total_records = 0
-                    for i, gap in enumerate(gaps):
-                        logger.info(f"下载缺口 [{i+1}/{len(gaps)}]: {gap}")
-                        gap_date_range = DateRange(gap.start_date, gap.end_date)
-                        records = self._execute_download(
-                            interface_name, interface_config, gap_date_range, options
-                        )
-                        total_records += records
-
-                    duration = time.time() - start_time
-                    logger.info(f"接口 {interface_name} 更新完成，共 {total_records} 条记录，耗时 {duration:.2f}秒")
-
-                    return InterfaceUpdateResult(
-                        interface_name=interface_name,
-                        status=UpdateStatus.SUCCESS,
-                        date_range=date_range,
-                        record_count=total_records,
-                        duration_seconds=duration
-                    )
-                else:
-                    logger.warning(f"无法获取交易日历，回退到原有逻辑")
+                    else:
+                        logger.warning(f"无法获取交易日历，回退到原有逻辑")
 
             # 原有逻辑（缺口检测关闭或不支持时）
             should_update, skip_reason = self.should_update_interface(
@@ -511,3 +519,139 @@ class UpdateManager:
                 
         except Exception as e:
             logger.warning(f"生成报告时出错: {e}")
+
+    def _update_with_stock_gap_detection(
+        self,
+        interface_name: str,
+        interface_config: Dict[str, Any],
+        date_range: DateRange,
+        options: UpdateOptions
+    ) -> InterfaceUpdateResult:
+        """
+        使用股票级别缺口检测执行更新（适用于 stock_loop 模式）
+
+        支持四种接口类型：
+        - 类型 A：交易日历接口
+        - 类型 B：报告期接口
+        - 类型 C：日期锚定接口
+        - 类型 D：无日期过滤接口
+        """
+        start_time = time.time()
+
+        try:
+            # 获取股票列表
+            stock_list = self.downloader._get_stock_list()
+            if not stock_list:
+                logger.warning(f"无法获取股票列表，跳过 {interface_name}")
+                return InterfaceUpdateResult(
+                    interface_name=interface_name,
+                    status=UpdateStatus.SKIPPED,
+                    date_range=date_range,
+                    skip_reason="无法获取股票列表",
+                    duration_seconds=time.time() - start_time
+                )
+
+            # 如果用户指定了 ts_code，只处理该股票
+            if options.ts_code:
+                stock_list = [s for s in stock_list if s.get('ts_code') == options.ts_code]
+                if not stock_list:
+                    logger.warning(f"未找到股票 {options.ts_code}")
+                    return InterfaceUpdateResult(
+                        interface_name=interface_name,
+                        status=UpdateStatus.SKIPPED,
+                        date_range=date_range,
+                        skip_reason=f"未找到股票 {options.ts_code}",
+                        duration_seconds=time.time() - start_time
+                    )
+
+            total_records = 0
+            user_provided_dates = options.start_date is not None and options.end_date is not None
+
+            for stock in stock_list:
+                ts_code = stock.get('ts_code')
+
+                # 检测该股票的数据缺口
+                gap_tasks = self.coverage_manager.detect_stock_gaps(
+                    interface_name=interface_name,
+                    ts_code=ts_code,
+                    start_date=date_range.start_date,
+                    end_date=date_range.end_date,
+                    interface_config=interface_config,
+                    user_provided_dates=user_provided_dates,
+                    stock_info=stock
+                )
+
+                if not gap_tasks:
+                    logger.debug(f"[{interface_name}/{ts_code}] 数据已完整，跳过")
+                    continue
+
+                logger.info(f"[{interface_name}/{ts_code}] Gap detection found {len(gap_tasks)} tasks to download")
+
+                # 逐个执行缺口下载任务
+                for task_params in gap_tasks:
+                    records = self._execute_gap_task(
+                        interface_name, interface_config, task_params, options
+                    )
+                    total_records += records
+
+            duration = time.time() - start_time
+            logger.info(f"接口 {interface_name} 更新完成，共 {total_records} 条记录，耗时 {duration:.2f}秒")
+
+            return InterfaceUpdateResult(
+                interface_name=interface_name,
+                status=UpdateStatus.SUCCESS,
+                date_range=date_range,
+                record_count=total_records,
+                duration_seconds=duration
+            )
+
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(f"接口 {interface_name} 更新失败: {e}")
+            return InterfaceUpdateResult(
+                interface_name=interface_name,
+                status=UpdateStatus.FAILED,
+                error_message=str(e),
+                duration_seconds=duration
+            )
+
+    def _execute_gap_task(
+        self,
+        interface_name: str,
+        interface_config: Dict[str, Any],
+        task_params: Dict[str, Any],
+        options: UpdateOptions
+    ) -> int:
+        """
+        执行单个缺口下载任务
+
+        Args:
+            interface_name: 接口名称
+            interface_config: 接口配置
+            task_params: 任务参数（由 detect_stock_gaps 返回）
+            options: 更新选项
+
+        Returns:
+            下载的记录数
+        """
+        ts_code = task_params.get('ts_code')
+
+        logger.info(f"Downloading gap task for {ts_code}: {task_params}")
+
+        # 构建请求参数
+        params = {k: v for k, v in task_params.items() if not k.startswith('_')}
+
+        # 执行请求
+        try:
+            data = self.downloader._make_request(interface_config, params)
+
+            if data:
+                # 保存数据
+                self.storage_manager.save_data(interface_name, data, async_write=True)
+                return len(data)
+
+            return 0
+
+        except Exception as e:
+            logger.error(f"下载缺口任务失败 [{interface_name}/{ts_code}]: {e}")
+            return 0

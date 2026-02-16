@@ -545,6 +545,7 @@ def run_update_mode(args):
             force=getattr(args, 'update_force', False),
             dry_run=getattr(args, 'dry_run', False),
             gap_detection_enabled=True,
+            ts_code=getattr(args, 'ts_code', None),  # 新增：指定股票代码
         )
 
         # 创建 UpdateManager 并执行更新

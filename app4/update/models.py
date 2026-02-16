@@ -57,6 +57,9 @@ class UpdateOptions:
     # 其他
     log_level: str = "INFO"
 
+    # 指定股票代码（用于股票级别缺口检测）
+    ts_code: Optional[str] = None
+
 
 @dataclass
 class InterfaceUpdateResult:
