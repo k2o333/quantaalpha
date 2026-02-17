@@ -1,0 +1,88 @@
+2026-02-16 23:51:15,711 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-16 23:51:15,795 - core.cache_warmer - INFO - 预加载交易日历成功: 8581条记录
+2026-02-16 23:51:15,822 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-16 23:51:15,823 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-16 23:51:15,824 - core.storage - INFO - Storage writer and process threads started
+2026-02-16 23:51:15,824 - __main__ - INFO - Interfaces to update (after permission filter): ['income_vip']
+2026-02-16 23:51:15,824 - update.update_reporter - INFO - 更新开始: 2026-02-16 23:51:15
+2026-02-16 23:51:15,824 - update.update_manager - INFO - ============================================================
+2026-02-16 23:51:15,824 - update.update_manager - INFO - 开始增量更新
+2026-02-16 23:51:15,825 - update.update_manager - INFO - ============================================================
+2026-02-16 23:51:15,825 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-16 23:51:15,825 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-16 23:51:15,825 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-16 23:51:15,825 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-16 23:51:15,825 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-16 23:51:15,825 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-16 23:51:15,826 - update.update_manager - INFO - 
+[1/1] 处理接口: income_vip
+2026-02-16 23:51:15,826 - update.update_reporter - INFO - 开始更新接口: income_vip
+2026-02-16 23:51:15,826 - update.date_calculator - INFO - [income_vip] 使用强制指定的日期范围: 20230101 ~ 20241231
+2026-02-16 23:51:15,826 - update.update_manager - INFO - 开始更新 income_vip: 20230101 ~ 20241231
+2026-02-16 23:51:15,826 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-16 23:51:15,827 - core.coverage_manager - INFO - [income_vip/000001.SZ] 缺口检测模式: report_period, 用户提供日期: True
+2026-02-16 23:51:15,827 - core.coverage_manager - INFO - [income_vip/000001.SZ] 报告期缺口检测 (20230101 ~ 20241231), 用户提供日期: True
+2026-02-16 23:51:15,829 - core.coverage_manager - INFO - [000001.SZ] 缺失 6 个报告期: ['20230331', '20230630', '20230930', '20240630', '20240930', '20241231']
+2026-02-16 23:51:15,830 - core.coverage_manager - INFO - [000001.SZ] 报告期分组结果: 2 个范围
+2026-02-16 23:51:15,830 - core.coverage_manager - INFO -   - 范围查询: 20230101 ~ 20230930
+2026-02-16 23:51:15,830 - core.coverage_manager - INFO -   - 范围查询: 20240401 ~ 20241231
+2026-02-16 23:51:15,830 - update.update_manager - INFO - [income_vip/000001.SZ] Gap detection found 2 tasks to download
+2026-02-16 23:51:15,830 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20230101', 'end_date': '20230930'}
+2026-02-16 23:51:16,969 - core.downloader - INFO - API returned 62 fields for income_vip
+2026-02-16 23:51:16,969 - core.downloader - INFO - First 10 fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'basic_eps', 'diluted_eps', 'total_revenue', 'revenue']
+2026-02-16 23:51:16,969 - core.downloader - INFO - Last 10 fields: ['minority_gain', 'oth_compr_income', 't_compr_income', 'compr_inc_attr_p', 'compr_inc_attr_m_s', 'ebit', 'ebitda', 'insurance_exp', 'undist_profit', 'update_flag']
+2026-02-16 23:51:16,970 - core.downloader - INFO - Downloaded 5 records for income_vip
+2026-02-16 23:51:16,971 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20240401', 'end_date': '20241231'}
+2026-02-16 23:51:17,062 - core.processor - INFO - Processed 5 records for income_vip
+2026-02-16 23:51:17,071 - core.storage - INFO - Deduplication completed for income_vip: input=5, output=5, removed=0
+2026-02-16 23:51:17,071 - core.storage - INFO - Processed and queued 5 records for income_vip
+2026-02-16 23:51:17,095 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for income_vip，记录数: 5
+2026-02-16 23:51:17,098 - core.storage - INFO - Wrote 5 records to data/income_vip/income_vip_20221231_20230630_1771257077071_b5845da6.parquet
+2026-02-16 23:51:17,225 - core.downloader - INFO - API returned 62 fields for income_vip
+2026-02-16 23:51:17,226 - core.downloader - INFO - First 10 fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'basic_eps', 'diluted_eps', 'total_revenue', 'revenue']
+2026-02-16 23:51:17,226 - core.downloader - INFO - Last 10 fields: ['minority_gain', 'oth_compr_income', 't_compr_income', 'compr_inc_attr_p', 'compr_inc_attr_m_s', 'ebit', 'ebitda', 'insurance_exp', 'undist_profit', 'update_flag']
+2026-02-16 23:51:17,226 - core.downloader - INFO - Downloaded 3 records for income_vip
+2026-02-16 23:51:17,227 - update.update_manager - INFO - 接口 income_vip 更新完成，共 8 条记录，耗时 1.40秒
+2026-02-16 23:51:17,228 - update.update_reporter - INFO - ✓ income_vip: SUCCESS (8 条记录) [1.40s]
+2026-02-16 23:51:17,229 - update.update_reporter - INFO - 更新结束: 2026-02-16 23:51:17
+2026-02-16 23:51:17,256 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-16 23:51:17,257 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-16 23:51:17,259 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260216_235117.markdown
+2026-02-16 23:51:17,260 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-16 23:51:17,260 - __main__ - INFO - 正在停止调度器...
+2026-02-16 23:51:17,260 - core.scheduler - INFO - Task scheduler stopped
+2026-02-16 23:51:17,261 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-16 23:51:17,261 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-16 23:51:17,297 - core.processor - INFO - Processed 3 records for income_vip
+2026-02-16 23:51:17,306 - core.storage - INFO - Deduplication completed for income_vip: input=3, output=2, removed=1
+2026-02-16 23:51:17,307 - core.storage - INFO - Processed and queued 2 records for income_vip
+2026-02-16 23:51:17,308 - core.storage - INFO - Stopping writer thread...
+2026-02-16 23:51:17,345 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for income_vip，记录数: 2
+2026-02-16 23:51:17,349 - core.storage - INFO - Wrote 2 records to data/income_vip/income_vip_20240630_20240930_1771257077307_771a0ac7.parquet
+2026-02-16 23:51:17,349 - core.storage - INFO - Storage threads stopped
+2026-02-16 23:51:17,349 - __main__ - INFO - 限流统计: 总请求=2, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-16 23:51:17,350 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-16 23:51:15
+- **结束时间**: 2026-02-16 23:51:17
+- **总耗时**: 1.4秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 8
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| income_vip | ✓ 成功 | 20230101 ~ 20241231 | 8 | 1.40s |  |
+
+============================================================

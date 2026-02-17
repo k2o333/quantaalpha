@@ -1,0 +1,73 @@
+2026-02-16 23:51:21,664 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-16 23:51:21,751 - core.cache_warmer - INFO - 预加载交易日历成功: 8581条记录
+2026-02-16 23:51:21,779 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-16 23:51:21,781 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-16 23:51:21,781 - core.storage - INFO - Storage writer and process threads started
+2026-02-16 23:51:21,781 - __main__ - INFO - Interfaces to update (after permission filter): ['cashflow_vip']
+2026-02-16 23:51:21,782 - update.update_reporter - INFO - 更新开始: 2026-02-16 23:51:21
+2026-02-16 23:51:21,782 - update.update_manager - INFO - ============================================================
+2026-02-16 23:51:21,782 - update.update_manager - INFO - 开始增量更新
+2026-02-16 23:51:21,782 - update.update_manager - INFO - ============================================================
+2026-02-16 23:51:21,782 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-16 23:51:21,782 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-16 23:51:21,782 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-16 23:51:21,782 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-16 23:51:21,783 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-16 23:51:21,783 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-16 23:51:21,783 - update.update_manager - INFO - 
+[1/1] 处理接口: cashflow_vip
+2026-02-16 23:51:21,783 - update.update_reporter - INFO - 开始更新接口: cashflow_vip
+2026-02-16 23:51:21,783 - update.date_calculator - INFO - [cashflow_vip] 使用强制指定的日期范围: 20240101 ~ 20240630
+2026-02-16 23:51:21,783 - update.update_manager - INFO - 开始更新 cashflow_vip: 20240101 ~ 20240630
+2026-02-16 23:51:21,783 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-16 23:51:21,784 - core.coverage_manager - INFO - [cashflow_vip/000001.SZ] 缺口检测模式: report_period, 用户提供日期: True
+2026-02-16 23:51:21,784 - core.coverage_manager - INFO - [cashflow_vip/000001.SZ] 报告期缺口检测 (20240101 ~ 20240630), 用户提供日期: True
+2026-02-16 23:51:21,784 - core.coverage_manager - INFO - [000001.SZ] 股票无数据，按用户指定范围下载: 20240101 ~ 20240630
+2026-02-16 23:51:21,785 - update.update_manager - INFO - [cashflow_vip/000001.SZ] Gap detection found 1 tasks to download
+2026-02-16 23:51:21,785 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20240101', 'end_date': '20240630'}
+2026-02-16 23:51:22,047 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-16 23:51:22,047 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-16 23:51:22,047 - core.downloader - INFO - Downloaded 3 records for cashflow_vip
+2026-02-16 23:51:22,048 - update.update_manager - INFO - 接口 cashflow_vip 更新完成，共 3 条记录，耗时 0.26秒
+2026-02-16 23:51:22,050 - update.update_reporter - INFO - ✓ cashflow_vip: SUCCESS (3 条记录) [0.26s]
+2026-02-16 23:51:22,051 - update.update_reporter - INFO - 更新结束: 2026-02-16 23:51:22
+2026-02-16 23:51:22,076 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-16 23:51:22,077 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-16 23:51:22,077 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260216_235122.markdown
+2026-02-16 23:51:22,078 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-16 23:51:22,079 - __main__ - INFO - 正在停止调度器...
+2026-02-16 23:51:22,079 - core.scheduler - INFO - Task scheduler stopped
+2026-02-16 23:51:22,084 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-16 23:51:22,105 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-16 23:51:22,119 - core.processor - INFO - Processed 3 records for cashflow_vip
+2026-02-16 23:51:22,120 - core.storage - INFO - Processed and queued 3 records for cashflow_vip
+2026-02-16 23:51:22,121 - core.storage - INFO - Stopping writer thread...
+2026-02-16 23:51:22,160 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 3
+2026-02-16 23:51:22,165 - core.storage - INFO - Wrote 3 records to data/cashflow_vip/cashflow_vip_20231231_20240331_1771257082120_a4847bfb.parquet
+2026-02-16 23:51:22,165 - core.storage - INFO - Storage threads stopped
+2026-02-16 23:51:22,165 - __main__ - INFO - 限流统计: 总请求=1, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-16 23:51:22,166 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-16 23:51:21
+- **结束时间**: 2026-02-16 23:51:22
+- **总耗时**: 0.3秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 3
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| cashflow_vip | ✓ 成功 | 20240101 ~ 20240630 | 3 | 0.26s |  |
+
+============================================================
