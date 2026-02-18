@@ -438,8 +438,13 @@ class GenericDownloader:
             coverage_manager=self.coverage_manager
         )
 
-
-
+    def download_single_stock(
+        self,
+        interface_config: Dict[str, Any],
+        stock: Dict[str, Any],
+        params: Dict[str, Any],
+        context: Optional['DownloadContext'] = None
+    ) -> List[Dict[str, Any]]:
         """下载单只股票的数据 - 原子化方法供调度器调用
 
         Args:
