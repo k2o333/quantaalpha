@@ -1,0 +1,126 @@
+2026-02-17 21:16:08,611 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-17 21:16:08,698 - core.cache_warmer - INFO - 预加载交易日历成功: 8581条记录
+2026-02-17 21:16:08,726 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-17 21:16:08,727 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-17 21:16:08,728 - core.storage - INFO - Storage writer and process threads started
+2026-02-17 21:16:08,728 - __main__ - INFO - Interfaces to update (after permission filter): ['cashflow_vip']
+2026-02-17 21:16:08,728 - update.update_reporter - INFO - 更新开始: 2026-02-17 21:16:08
+2026-02-17 21:16:08,728 - update.update_manager - INFO - ============================================================
+2026-02-17 21:16:08,728 - update.update_manager - INFO - 开始增量更新
+2026-02-17 21:16:08,729 - update.update_manager - INFO - ============================================================
+2026-02-17 21:16:08,729 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-17 21:16:08,729 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-17 21:16:08,729 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-17 21:16:08,729 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-17 21:16:08,729 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-17 21:16:08,730 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-17 21:16:08,730 - update.update_manager - INFO - 
+[1/1] 处理接口: cashflow_vip
+2026-02-17 21:16:08,730 - update.update_reporter - INFO - 开始更新接口: cashflow_vip
+2026-02-17 21:16:08,730 - update.date_calculator - INFO - [cashflow_vip] 使用强制指定的日期范围: 20230101 ~ 20241231
+2026-02-17 21:16:08,730 - update.update_manager - INFO - 开始更新 cashflow_vip: 20230101 ~ 20241231
+2026-02-17 21:16:08,730 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-17 21:16:08,731 - core.coverage_manager - INFO - [cashflow_vip/000001.SZ] 缺口检测模式: report_period, 用户提供日期: True
+2026-02-17 21:16:08,731 - core.coverage_manager - INFO - [cashflow_vip/000001.SZ] 报告期缺口检测 (20230101 ~ 20241231), 用户提供日期: True
+2026-02-17 21:16:08,734 - core.coverage_manager - INFO - [000001.SZ] 缺失 6 个报告期: ['20230331', '20230630', '20230930', '20231231', '20240930', '20241231']
+2026-02-17 21:16:08,736 - core.coverage_manager - INFO - [000001.SZ] 公告日期范围合并结果: 6 个范围
+2026-02-17 21:16:08,736 - core.coverage_manager - INFO -   - 范围查询: 20230401 ~ 20230530, 覆盖报告期: ['20230331']
+2026-02-17 21:16:08,736 - core.coverage_manager - INFO -   - 范围查询: 20230701 ~ 20230930, 覆盖报告期: ['20230630']
+2026-02-17 21:16:08,736 - core.coverage_manager - INFO -   - 范围查询: 20231001 ~ 20231130, 覆盖报告期: ['20230930']
+2026-02-17 21:16:08,736 - core.coverage_manager - INFO -   - 范围查询: 20240101 ~ 20240530, 覆盖报告期: ['20231231']
+2026-02-17 21:16:08,736 - core.coverage_manager - INFO -   - 范围查询: 20241001 ~ 20241130, 覆盖报告期: ['20240930']
+2026-02-17 21:16:08,736 - core.coverage_manager - INFO -   - 范围查询: 20250101 ~ 20250530, 覆盖报告期: ['20241231']
+2026-02-17 21:16:08,737 - update.update_manager - INFO - [cashflow_vip/000001.SZ] Gap detection found 6 tasks to download
+2026-02-17 21:16:08,737 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20230401', 'end_date': '20230530'}
+2026-02-17 21:16:11,341 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-17 21:16:11,342 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-17 21:16:11,342 - core.downloader - INFO - Downloaded 1 records for cashflow_vip
+2026-02-17 21:16:11,342 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20230701', 'end_date': '20230930'}
+2026-02-17 21:16:11,429 - core.processor - INFO - Processed 1 records for cashflow_vip
+2026-02-17 21:16:11,440 - core.storage - INFO - Deduplication completed for cashflow_vip: input=1, output=1, removed=0
+2026-02-17 21:16:11,443 - core.storage - INFO - Processed and queued 1 records for cashflow_vip
+2026-02-17 21:16:11,464 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 1
+2026-02-17 21:16:11,467 - core.storage - INFO - Wrote 1 records to data/cashflow_vip/cashflow_vip_20230331_20230331_1771334171443_6c22e5a7.parquet
+2026-02-17 21:16:12,427 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-17 21:16:12,427 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-17 21:16:12,427 - core.downloader - INFO - Downloaded 1 records for cashflow_vip
+2026-02-17 21:16:12,428 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20231001', 'end_date': '20231130'}
+2026-02-17 21:16:12,521 - core.processor - INFO - Processed 1 records for cashflow_vip
+2026-02-17 21:16:12,530 - core.storage - INFO - Deduplication completed for cashflow_vip: input=1, output=1, removed=0
+2026-02-17 21:16:12,531 - core.storage - INFO - Processed and queued 1 records for cashflow_vip
+2026-02-17 21:16:12,553 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 1
+2026-02-17 21:16:12,556 - core.storage - INFO - Wrote 1 records to data/cashflow_vip/cashflow_vip_20230630_20230630_1771334172531_d247d180.parquet
+2026-02-17 21:16:13,036 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-17 21:16:13,037 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-17 21:16:13,037 - core.downloader - INFO - Downloaded 1 records for cashflow_vip
+2026-02-17 21:16:13,037 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20240101', 'end_date': '20240530'}
+2026-02-17 21:16:13,098 - core.processor - INFO - Processed 1 records for cashflow_vip
+2026-02-17 21:16:13,108 - core.storage - INFO - Deduplication completed for cashflow_vip: input=1, output=1, removed=0
+2026-02-17 21:16:13,108 - core.storage - INFO - Processed and queued 1 records for cashflow_vip
+2026-02-17 21:16:13,130 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 1
+2026-02-17 21:16:13,133 - core.storage - INFO - Wrote 1 records to data/cashflow_vip/cashflow_vip_20230930_20230930_1771334173108_4a04f06a.parquet
+2026-02-17 21:16:14,382 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-17 21:16:14,383 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-17 21:16:14,383 - core.downloader - INFO - Downloaded 3 records for cashflow_vip
+2026-02-17 21:16:14,383 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20241001', 'end_date': '20241130'}
+2026-02-17 21:16:14,474 - core.processor - INFO - Processed 3 records for cashflow_vip
+2026-02-17 21:16:14,486 - core.storage - INFO - Deduplication completed for cashflow_vip: input=3, output=2, removed=1
+2026-02-17 21:16:14,486 - core.storage - INFO - Processed and queued 2 records for cashflow_vip
+2026-02-17 21:16:14,517 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 2
+2026-02-17 21:16:14,521 - core.storage - INFO - Wrote 2 records to data/cashflow_vip/cashflow_vip_20231231_20231231_1771334174486_9fcb5785.parquet
+2026-02-17 21:16:14,907 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-17 21:16:14,907 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-17 21:16:14,907 - core.downloader - INFO - Downloaded 1 records for cashflow_vip
+2026-02-17 21:16:14,907 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20250101', 'end_date': '20250530'}
+2026-02-17 21:16:14,957 - core.processor - INFO - Processed 1 records for cashflow_vip
+2026-02-17 21:16:14,967 - core.storage - INFO - Deduplication completed for cashflow_vip: input=1, output=1, removed=0
+2026-02-17 21:16:14,968 - core.storage - INFO - Processed and queued 1 records for cashflow_vip
+2026-02-17 21:16:14,991 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 1
+2026-02-17 21:16:14,993 - core.storage - INFO - Wrote 1 records to data/cashflow_vip/cashflow_vip_20240930_20240930_1771334174968_27ebf6e0.parquet
+2026-02-17 21:16:15,498 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-17 21:16:15,498 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-17 21:16:15,499 - core.downloader - INFO - Downloaded 3 records for cashflow_vip
+2026-02-17 21:16:15,499 - update.update_manager - INFO - 接口 cashflow_vip 更新完成，共 10 条记录，耗时 6.77秒
+2026-02-17 21:16:15,499 - update.update_reporter - INFO - ✓ cashflow_vip: SUCCESS (10 条记录) [6.77s]
+2026-02-17 21:16:15,500 - update.update_reporter - INFO - 更新结束: 2026-02-17 21:16:15
+2026-02-17 21:16:15,500 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-17 21:16:15,516 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-17 21:16:15,537 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260217_211615.markdown
+2026-02-17 21:16:15,538 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-17 21:16:15,538 - __main__ - INFO - 正在停止调度器...
+2026-02-17 21:16:15,539 - core.scheduler - INFO - Task scheduler stopped
+2026-02-17 21:16:15,539 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-17 21:16:15,539 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-17 21:16:15,587 - core.processor - INFO - Processed 3 records for cashflow_vip
+2026-02-17 21:16:15,597 - core.storage - INFO - Deduplication completed for cashflow_vip: input=3, output=3, removed=0
+2026-02-17 21:16:15,597 - core.storage - INFO - Processed and queued 3 records for cashflow_vip
+2026-02-17 21:16:15,598 - core.storage - INFO - Stopping writer thread...
+2026-02-17 21:16:15,635 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 3
+2026-02-17 21:16:15,639 - core.storage - INFO - Wrote 3 records to data/cashflow_vip/cashflow_vip_20241231_20250331_1771334175598_80094054.parquet
+2026-02-17 21:16:15,639 - core.storage - INFO - Storage threads stopped
+2026-02-17 21:16:15,639 - __main__ - INFO - 限流统计: 总请求=6, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-17 21:16:15,639 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-17 21:16:08
+- **结束时间**: 2026-02-17 21:16:15
+- **总耗时**: 6.8秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 10
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| cashflow_vip | ✓ 成功 | 20230101 ~ 20241231 | 10 | 6.77s |  |
+
+============================================================

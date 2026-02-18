@@ -397,7 +397,10 @@ class CoverageManager:
         self, interface_name: str, params: Dict[str, Any]
     ) -> bool:
         """
-        检查报告期是否存在
+        检查报告期是否存在（全市场维度）
+
+        对于 period_range 模式，检测的是整个报告期是否有数据
+        而不是单只股票是否有数据
 
         Args:
             interface_name: 接口名称
@@ -406,44 +409,39 @@ class CoverageManager:
         Returns:
             True表示已存在（应跳过），False表示不存在（应下载）
         """
+        period = params.get('period')
+        if not period:
+            logger.debug(
+                f"Missing period parameter for {interface_name}, skipping period check"
+            )
+            return False
+        
         interface_config = self.config_loader.get_interface_config(interface_name)
         detection_config = interface_config.get("duplicate_detection", {})
-        key_columns = detection_config.get("key_columns") or detection_config.get(
-            "key_column", "period"
-        )
-        if isinstance(key_columns, str):
-            key_columns = [key_columns]
-
-        target_key = tuple(params.get(col) for col in key_columns)
-        if any(v is None for v in target_key):
-            if "period" in params and key_columns == ["period"]:
-                target_key = (params.get("period"),)
-            else:
-                logger.debug(
-                    f"Missing key parameters for {interface_name}, skipping period check"
-                )
-                return False
-
-        # 获取检测列，默认为period
+        # 使用 date_column 作为报告期检测列（通常是 end_date）
+        date_column = detection_config.get("date_column", "end_date")
 
         try:
-            cache_key = f"{interface_name}_periods_{'_'.join(key_columns)}"
+            cache_key = f"{interface_name}_periods_{date_column}"
 
             # 使用锁保护缓存读写
             with self._cache_lock:
                 if cache_key not in self._cache:
-                    logger.debug(f"Loading all periods for {interface_name}")
+                    logger.debug(f"Loading all periods for {interface_name} using column {date_column}")
                     df = self.storage_manager.read_interface_data(
-                        interface_name, columns=key_columns
+                        interface_name, columns=[date_column]
                     )
 
                     if not df.is_empty():
-                        if len(key_columns) == 1:
-                            self._cache[cache_key] = set(df[key_columns[0]].to_list())
-                        else:
-                            self._cache[cache_key] = set(
-                                tuple(row) for row in df.select(key_columns).iter_rows()
-                            )
+                        periods_set = set()
+                        for date_val in df[date_column]:
+                            if isinstance(date_val, str):
+                                periods_set.add(date_val)
+                            elif hasattr(date_val, "strftime"):
+                                periods_set.add(date_val.strftime("%Y%m%d"))
+                            else:
+                                periods_set.add(str(date_val))
+                        self._cache[cache_key] = periods_set
                         logger.info(
                             f"Loaded {len(self._cache[cache_key])} existing periods for {interface_name}"
                         )
@@ -451,10 +449,10 @@ class CoverageManager:
                         self._cache[cache_key] = set()
                         logger.debug(f"No existing periods found for {interface_name}")
 
-                result = target_key in self._cache[cache_key]
+                result = period in self._cache[cache_key]
 
             logger.debug(
-                f"Period {target_key} {'exists' if result else 'does not exist'} for {interface_name}"
+                f"Period {period} {'exists' if result else 'does not exist'} for {interface_name}"
             )
             return result
 

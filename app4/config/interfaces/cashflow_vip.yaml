@@ -28,9 +28,7 @@ output:
   - end_date
 pagination:
   enabled: true
-  mode: stock_loop
-  time_range:
-    window: 9999d
+  mode: period_range
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
@@ -154,4 +152,3 @@ fields:
 duplicate_detection:
   enabled: true
   date_column: end_date
-  stock_level_detection: true

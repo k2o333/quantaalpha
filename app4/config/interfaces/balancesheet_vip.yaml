@@ -24,9 +24,7 @@ output:
 dedup_enabled: true
 pagination:
   enabled: true
-  mode: stock_loop
-  time_range:
-    window: 9999d
+  mode: period_range
 parameters:
   ts_code:
     description: 股票代码(可选，不填则获取全部股票)
@@ -97,4 +95,3 @@ fields:
 duplicate_detection:
   enabled: true
   date_column: end_date
-  stock_level_detection: true

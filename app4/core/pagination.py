@@ -80,6 +80,15 @@ class PaginationComposer:
         # 日期锚定接口不支持 start_date/end_date 参数，应跳过 time_range 处理
         is_date_anchor_interface = self._is_date_anchor_interface()
         
+        # 检查是否是 period_range 模式
+        pagination_mode = self.config.get('mode', '')
+        
+        # period_range 模式：特殊处理，将 start_date/end_date 转换为 period 参数
+        if pagination_mode == 'period_range':
+            params_stream = list(self._apply_period_range(params_stream))
+            yield from params_stream
+            return
+        
         # 1. 时间维度（最内层）- 日期锚定接口跳过
         if self._is_enabled('time_range') and not is_date_anchor_interface:
             params_stream = list(self._apply_time_range(params_stream))
@@ -123,6 +132,71 @@ class PaginationComposer:
         """
         dim_config = self.config.get(dimension, {})
         return dim_config.get('enabled', False) if dim_config else False
+    
+    def _apply_period_range(self, params_stream: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
+        """
+        应用报告期范围维度
+        
+        将用户的 start_date/end_date 转换为 period 参数
+        每次只下载一个 period 的数据
+        
+        Args:
+            params_stream: 参数流
+            
+        Yields:
+            应用报告期范围后的参数
+        """
+        for params in params_stream:
+            # 如果用户直接传入了 period 参数，直接使用
+            if 'period' in params:
+                yield params
+                continue
+            
+            start_date = params.get('start_date')
+            end_date = params.get('end_date')
+            
+            if not start_date or not end_date:
+                yield params
+                continue
+            
+            # 转换日期区间为报告期列表
+            periods = self._convert_date_range_to_periods(start_date, end_date)
+            
+            for period in periods:
+                period_params = params.copy()
+                # 移除 start_date/end_date，使用 period
+                period_params.pop('start_date', None)
+                period_params.pop('end_date', None)
+                period_params['period'] = period
+                period_params['_period_query'] = True
+                yield period_params
+    
+    def _convert_date_range_to_periods(self, start_date: str, end_date: str) -> List[str]:
+        """
+        将日期区间转换为报告期列表
+        
+        规则：只有当报告期日期在用户日期区间内时，才包含该报告期
+        
+        Args:
+            start_date: 用户传入的开始日期
+            end_date: 用户传入的结束日期
+            
+        Returns:
+            报告期列表，如 ['20240331', '20240630', '20240930', '20241231']
+        """
+        periods = []
+        start_year = int(start_date[:4])
+        end_year = int(end_date[:4])
+        
+        quarter_ends = ["0331", "0630", "0930", "1231"]
+        
+        for year in range(start_year, end_year + 1):
+            for qe in quarter_ends:
+                period = f"{year}{qe}"
+                if start_date <= period <= end_date:
+                    periods.append(period)
+        
+        return periods
     
     def _apply_time_range(self, params_stream: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
         """
@@ -521,7 +595,7 @@ def migrate_legacy_config(interface_config: Dict[str, Any]) -> Dict[str, Any]:
             'values': interface_config.get('type_values', ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK'])
         }
     elif mode == 'period_range':
-        new_config['time_range'] = {'enabled': True, 'window': '1q', 'reverse': False}
+        new_config['period_range'] = {'enabled': True}
     elif mode == 'quarterly_range':
         new_config['time_range'] = {'enabled': True, 'window': '1q', 'reverse': False}
     elif mode == 'periodic_range':

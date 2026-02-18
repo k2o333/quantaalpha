@@ -1,0 +1,77 @@
+2026-02-17 21:16:36,094 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-17 21:16:36,176 - core.cache_warmer - INFO - 预加载交易日历成功: 8581条记录
+2026-02-17 21:16:36,199 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-17 21:16:36,200 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-17 21:16:36,201 - core.storage - INFO - Storage writer and process threads started
+2026-02-17 21:16:36,201 - __main__ - INFO - Interfaces to update (after permission filter): ['fina_mainbz_vip']
+2026-02-17 21:16:36,201 - update.update_reporter - INFO - 更新开始: 2026-02-17 21:16:36
+2026-02-17 21:16:36,201 - update.update_manager - INFO - ============================================================
+2026-02-17 21:16:36,201 - update.update_manager - INFO - 开始增量更新
+2026-02-17 21:16:36,201 - update.update_manager - INFO - ============================================================
+2026-02-17 21:16:36,202 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-17 21:16:36,202 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-17 21:16:36,202 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-17 21:16:36,202 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-17 21:16:36,202 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-17 21:16:36,202 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-17 21:16:36,202 - update.update_manager - INFO - 
+[1/1] 处理接口: fina_mainbz_vip
+2026-02-17 21:16:36,202 - update.update_reporter - INFO - 开始更新接口: fina_mainbz_vip
+2026-02-17 21:16:36,203 - update.date_calculator - INFO - [fina_mainbz_vip] 使用强制指定的日期范围: 20240101 ~ 20240630
+2026-02-17 21:16:36,203 - update.update_manager - INFO - 开始更新 fina_mainbz_vip: 20240101 ~ 20240630
+2026-02-17 21:16:36,203 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-17 21:16:36,203 - core.coverage_manager - INFO - [fina_mainbz_vip/000001.SZ] 缺口检测模式: report_period, 用户提供日期: True
+2026-02-17 21:16:36,204 - core.coverage_manager - INFO - [fina_mainbz_vip/000001.SZ] 报告期缺口检测 (20240101 ~ 20240630), 用户提供日期: True
+2026-02-17 21:16:36,204 - core.coverage_manager - INFO - [000001.SZ] 缺失 2 个报告期: ['20240331', '20240630']
+2026-02-17 21:16:36,205 - core.coverage_manager - INFO - [000001.SZ] 公告日期范围合并结果: 2 个范围
+2026-02-17 21:16:36,205 - core.coverage_manager - INFO -   - 范围查询: 20240401 ~ 20240530, 覆盖报告期: ['20240331']
+2026-02-17 21:16:36,205 - core.coverage_manager - INFO -   - 范围查询: 20240701 ~ 20240930, 覆盖报告期: ['20240630']
+2026-02-17 21:16:36,205 - update.update_manager - INFO - [fina_mainbz_vip/000001.SZ] Gap detection found 2 tasks to download
+2026-02-17 21:16:36,206 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20240401', 'end_date': '20240530'}
+2026-02-17 21:16:36,901 - core.downloader - INFO - API returned 8 fields for fina_mainbz_vip
+2026-02-17 21:16:36,901 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'bz_item', 'bz_code', 'bz_sales', 'bz_profit', 'bz_cost', 'curr_type']
+2026-02-17 21:16:36,902 - core.downloader - INFO - Downloaded 0 records for fina_mainbz_vip
+2026-02-17 21:16:36,902 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20240701', 'end_date': '20240930'}
+2026-02-17 21:16:37,497 - core.downloader - INFO - API returned 8 fields for fina_mainbz_vip
+2026-02-17 21:16:37,497 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'bz_item', 'bz_code', 'bz_sales', 'bz_profit', 'bz_cost', 'curr_type']
+2026-02-17 21:16:37,497 - core.downloader - INFO - Downloaded 0 records for fina_mainbz_vip
+2026-02-17 21:16:37,497 - update.update_manager - INFO - 接口 fina_mainbz_vip 更新完成，共 0 条记录，耗时 1.29秒
+2026-02-17 21:16:37,498 - update.update_reporter - INFO - ✓ fina_mainbz_vip: SUCCESS [1.29s]
+2026-02-17 21:16:37,498 - update.update_reporter - INFO - 更新结束: 2026-02-17 21:16:37
+2026-02-17 21:16:37,498 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-17 21:16:37,498 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-17 21:16:37,499 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260217_211637.markdown
+2026-02-17 21:16:37,499 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-17 21:16:37,499 - __main__ - INFO - 正在停止调度器...
+2026-02-17 21:16:37,500 - core.scheduler - INFO - Task scheduler stopped
+2026-02-17 21:16:37,500 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-17 21:16:37,500 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-17 21:16:37,500 - core.storage - INFO - Process worker received stop signal
+2026-02-17 21:16:37,501 - core.storage - INFO - Stopping writer thread...
+2026-02-17 21:16:37,501 - core.storage - INFO - Storage threads stopped
+2026-02-17 21:16:37,501 - __main__ - INFO - 限流统计: 总请求=2, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-17 21:16:37,501 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-17 21:16:36
+- **结束时间**: 2026-02-17 21:16:37
+- **总耗时**: 1.3秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 0
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| fina_mainbz_vip | ✓ 成功 | 20240101 ~ 20240630 | - | 1.29s |  |
+
+============================================================

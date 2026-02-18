@@ -1,0 +1,102 @@
+2026-02-17 21:16:48,015 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-17 21:16:48,104 - core.cache_warmer - INFO - 预加载交易日历成功: 8581条记录
+2026-02-17 21:16:48,131 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-17 21:16:48,133 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-17 21:16:48,134 - core.storage - INFO - Storage writer and process threads started
+2026-02-17 21:16:48,134 - __main__ - INFO - Interfaces to update (after permission filter): ['forecast_vip']
+2026-02-17 21:16:48,134 - update.update_reporter - INFO - 更新开始: 2026-02-17 21:16:48
+2026-02-17 21:16:48,134 - update.update_manager - INFO - ============================================================
+2026-02-17 21:16:48,134 - update.update_manager - INFO - 开始增量更新
+2026-02-17 21:16:48,134 - update.update_manager - INFO - ============================================================
+2026-02-17 21:16:48,134 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-17 21:16:48,135 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-17 21:16:48,135 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-17 21:16:48,135 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-17 21:16:48,135 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-17 21:16:48,135 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-17 21:16:48,135 - update.update_manager - INFO - 
+[1/1] 处理接口: forecast_vip
+2026-02-17 21:16:48,135 - update.update_reporter - INFO - 开始更新接口: forecast_vip
+2026-02-17 21:16:48,135 - update.date_calculator - INFO - [forecast_vip] 使用强制指定的日期范围: 20230101 ~ 20241231
+2026-02-17 21:16:48,135 - update.update_manager - INFO - 开始更新 forecast_vip: 20230101 ~ 20241231
+2026-02-17 21:16:48,136 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-17 21:16:48,136 - core.coverage_manager - INFO - [forecast_vip/000001.SZ] 缺口检测模式: report_period, 用户提供日期: True
+2026-02-17 21:16:48,137 - core.coverage_manager - INFO - [forecast_vip/000001.SZ] 报告期缺口检测 (20230101 ~ 20241231), 用户提供日期: True
+2026-02-17 21:16:48,137 - core.coverage_manager - INFO - [000001.SZ] 缺失 8 个报告期: ['20230331', '20230630', '20230930', '20231231', '20240331', '20240630', '20240930', '20241231']
+2026-02-17 21:16:48,138 - core.coverage_manager - INFO - [000001.SZ] 公告日期范围合并结果: 7 个范围
+2026-02-17 21:16:48,139 - core.coverage_manager - INFO -   - 范围查询: 20230401 ~ 20230530, 覆盖报告期: ['20230331']
+2026-02-17 21:16:48,139 - core.coverage_manager - INFO -   - 范围查询: 20230701 ~ 20230930, 覆盖报告期: ['20230630']
+2026-02-17 21:16:48,139 - core.coverage_manager - INFO -   - 范围查询: 20231001 ~ 20231130, 覆盖报告期: ['20230930']
+2026-02-17 21:16:48,139 - core.coverage_manager - INFO -   - 范围查询: 20240101 ~ 20240530, 覆盖报告期: ['20231231', '20240331']
+2026-02-17 21:16:48,139 - core.coverage_manager - INFO -   - 范围查询: 20240701 ~ 20240930, 覆盖报告期: ['20240630']
+2026-02-17 21:16:48,139 - core.coverage_manager - INFO -   - 范围查询: 20241001 ~ 20241130, 覆盖报告期: ['20240930']
+2026-02-17 21:16:48,139 - core.coverage_manager - INFO -   - 范围查询: 20250101 ~ 20250530, 覆盖报告期: ['20241231']
+2026-02-17 21:16:48,139 - update.update_manager - INFO - [forecast_vip/000001.SZ] Gap detection found 7 tasks to download
+2026-02-17 21:16:48,139 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20230401', 'end_date': '20230530'}
+2026-02-17 21:16:48,538 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-17 21:16:48,539 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-17 21:16:48,539 - core.downloader - INFO - Downloaded 0 records for forecast_vip
+2026-02-17 21:16:48,539 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20230701', 'end_date': '20230930'}
+2026-02-17 21:16:49,688 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-17 21:16:49,689 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-17 21:16:49,689 - core.downloader - INFO - Downloaded 0 records for forecast_vip
+2026-02-17 21:16:49,689 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20231001', 'end_date': '20231130'}
+2026-02-17 21:16:52,035 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-17 21:16:52,036 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-17 21:16:52,036 - core.downloader - INFO - Downloaded 0 records for forecast_vip
+2026-02-17 21:16:52,036 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20240101', 'end_date': '20240530'}
+2026-02-17 21:16:53,416 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-17 21:16:53,416 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-17 21:16:53,416 - core.downloader - INFO - Downloaded 0 records for forecast_vip
+2026-02-17 21:16:53,416 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20240701', 'end_date': '20240930'}
+2026-02-17 21:16:53,974 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-17 21:16:53,974 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-17 21:16:53,975 - core.downloader - INFO - Downloaded 0 records for forecast_vip
+2026-02-17 21:16:53,975 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20241001', 'end_date': '20241130'}
+2026-02-17 21:16:55,087 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-17 21:16:55,088 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-17 21:16:55,088 - core.downloader - INFO - Downloaded 0 records for forecast_vip
+2026-02-17 21:16:55,088 - update.update_manager - INFO - Downloading gap task for 000001.SZ: {'ts_code': '000001.SZ', 'start_date': '20250101', 'end_date': '20250530'}
+2026-02-17 21:16:55,490 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-17 21:16:55,491 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-17 21:16:55,491 - core.downloader - INFO - Downloaded 0 records for forecast_vip
+2026-02-17 21:16:55,491 - update.update_manager - INFO - 接口 forecast_vip 更新完成，共 0 条记录，耗时 7.36秒
+2026-02-17 21:16:55,492 - update.update_reporter - INFO - ✓ forecast_vip: SUCCESS [7.36s]
+2026-02-17 21:16:55,492 - update.update_reporter - INFO - 更新结束: 2026-02-17 21:16:55
+2026-02-17 21:16:55,493 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-17 21:16:55,493 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-17 21:16:55,494 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260217_211655.markdown
+2026-02-17 21:16:55,494 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-17 21:16:55,495 - __main__ - INFO - 正在停止调度器...
+2026-02-17 21:16:55,495 - core.scheduler - INFO - Task scheduler stopped
+2026-02-17 21:16:55,495 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-17 21:16:55,496 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-17 21:16:55,496 - core.storage - INFO - Process worker received stop signal
+2026-02-17 21:16:55,496 - core.storage - INFO - Stopping writer thread...
+2026-02-17 21:16:55,497 - core.storage - INFO - Storage threads stopped
+2026-02-17 21:16:55,497 - __main__ - INFO - 限流统计: 总请求=7, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-17 21:16:55,497 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-17 21:16:48
+- **结束时间**: 2026-02-17 21:16:55
+- **总耗时**: 7.4秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 0
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| forecast_vip | ✓ 成功 | 20230101 ~ 20241231 | - | 7.36s |  |
+
+============================================================
