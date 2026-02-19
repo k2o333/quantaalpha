@@ -996,7 +996,7 @@ class CoverageManager:
 
         logger.info(f"[{ts_code}] 缺失 {len(missing_days)} 个交易日")
 
-        ranges = self._merge_dates_to_ranges(missing_days)
+        ranges = self._merge_dates_to_ranges(missing_days, existing_dates, trade_days)
 
         return [
             {"ts_code": ts_code, "start_date": r[0], "end_date": r[1]} for r in ranges
@@ -1235,12 +1235,59 @@ class CoverageManager:
 
         return self._generate_report_periods(start_date, end_date)
 
-    def _merge_dates_to_ranges(self, dates: List[str]) -> List[tuple]:
-        """将日期列表合并为连续区间"""
+    def _merge_dates_to_ranges(
+        self, 
+        dates: List[str], 
+        existing_dates: Optional[set] = None,
+        trade_days: Optional[List[str]] = None
+    ) -> List[tuple]:
+        """
+        将缺失日期按空洞边界合并为连续区间
+
+        Args:
+            dates: 缺失的日期列表（需已排序）
+            existing_dates: 已有数据日期集合，用于确定空洞边界
+            trade_days: 交易日历列表，用于按空洞边界分段
+
+        Returns:
+            连续区间列表，每个元素为 (start_date, end_date)
+
+        注意：
+            如果传入 existing_dates 和 trade_days，则按空洞边界分段
+            如果不传入，则退化为原有逻辑（间隔>3天分段）
+        """
         if not dates:
             return []
 
         sorted_dates = sorted(dates)
+
+        if existing_dates is None or trade_days is None:
+            return self._merge_by_interval(sorted_dates)
+
+        ranges = []
+        range_start = None
+        range_end = None
+
+        for date in trade_days:
+            if date not in existing_dates:
+                if range_start is None:
+                    range_start = date
+                    range_end = date
+                else:
+                    range_end = date
+            else:
+                if range_start is not None:
+                    ranges.append((range_start, range_end))
+                    range_start = None
+                    range_end = None
+
+        if range_start is not None:
+            ranges.append((range_start, range_end))
+
+        return ranges
+
+    def _merge_by_interval(self, sorted_dates: List[str]) -> List[tuple]:
+        """原有逻辑：按间隔>3天分段（保留向后兼容）"""
         ranges = []
         range_start = sorted_dates[0]
         range_end = sorted_dates[0]

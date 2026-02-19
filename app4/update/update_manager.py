@@ -20,6 +20,7 @@ from .interface_selector import InterfaceSelector
 from .update_reporter import UpdateReporter
 from .checkpoint_manager import CheckpointManager
 from core.pagination import PaginationContext, create_context_with_legacy_support, migrate_legacy_config
+from core.constants import DEFAULT_STOCK_START_DATE
 
 logger = logging.getLogger(__name__)
 
@@ -565,17 +566,21 @@ class UpdateManager:
                     )
 
             total_records = 0
-            user_provided_dates = options.start_date is not None and options.end_date is not None
+            user_provided_dates = True
 
             for stock in stock_list:
                 ts_code = stock.get('ts_code')
 
-                # 检测该股票的数据缺口
+                if options.start_date:
+                    stock_start_date = options.start_date
+                else:
+                    stock_start_date = stock.get('list_date') or DEFAULT_STOCK_START_DATE
+
                 gap_tasks = self.coverage_manager.detect_stock_gaps(
                     interface_name=interface_name,
                     ts_code=ts_code,
-                    start_date=date_range.start_date,
-                    end_date=date_range.end_date,
+                    start_date=stock_start_date,
+                    end_date=options.end_date or date_range.end_date,
                     interface_config=interface_config,
                     user_provided_dates=user_provided_dates,
                     stock_info=stock
