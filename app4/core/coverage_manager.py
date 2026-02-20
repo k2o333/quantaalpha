@@ -979,13 +979,27 @@ class CoverageManager:
             if d.get("is_open", 0) == 1 and start_date <= d["cal_date"] <= end_date
         ]
 
+        if stock_info:
+            list_date = stock_info.get('list_date')
+            if list_date:
+                trade_days = [d for d in trade_days if d >= list_date]
+                logger.debug(f"[{ts_code}] 按上市日 {list_date} 过滤交易日")
+            
+            delist_date = stock_info.get('delist_date')
+            if delist_date:
+                trade_days = [d for d in trade_days if d <= delist_date]
+                logger.debug(f"[{ts_code}] 按退市日 {delist_date} 过滤交易日")
+
         if not user_provided_dates:
-            # 用户未提供日期，只检测现有数据之后的缺失日期（增量下载）
+            # 用户未提供日期，检测从上市日到现在的所有缺失日期
+            # 不再限制为只检测现有数据之后，而是检测全部缺失
             if existing_dates:
-                max_existing_date = max(existing_dates)
-                trade_days = [d for d in trade_days if d > max_existing_date]
                 logger.info(
-                    f"[{ts_code}] 用户未提供日期，只检测 {max_existing_date} 之后的缺失日期"
+                    f"[{ts_code}] 检测从上市日到现在的所有缺失日期 (已有数据: {min(existing_dates)} ~ {max(existing_dates)}, 共{len(existing_dates)}条)"
+                )
+            else:
+                logger.info(
+                    f"[{ts_code}] 无已有数据，检测从上市日到现在的所有日期"
                 )
 
         missing_days = [d for d in trade_days if d not in existing_dates]
@@ -996,7 +1010,12 @@ class CoverageManager:
 
         logger.info(f"[{ts_code}] 缺失 {len(missing_days)} 个交易日")
 
-        ranges = self._merge_dates_to_ranges(missing_days, existing_dates, trade_days)
+        ranges = self._merge_dates_to_ranges(
+            missing_days, 
+            existing_dates, 
+            trade_days,
+            min_gap_size=3
+        )
 
         return [
             {"ts_code": ts_code, "start_date": r[0], "end_date": r[1]} for r in ranges
@@ -1239,7 +1258,8 @@ class CoverageManager:
         self, 
         dates: List[str], 
         existing_dates: Optional[set] = None,
-        trade_days: Optional[List[str]] = None
+        trade_days: Optional[List[str]] = None,
+        min_gap_size: int = 3
     ) -> List[tuple]:
         """
         将缺失日期按空洞边界合并为连续区间
@@ -1248,6 +1268,8 @@ class CoverageManager:
             dates: 缺失的日期列表（需已排序）
             existing_dates: 已有数据日期集合，用于确定空洞边界
             trade_days: 交易日历列表，用于按空洞边界分段
+            min_gap_size: 最小空洞大小（交易日数）
+                          小于此阈值的空洞将被跳过，假设为停牌或数据质量问题
 
         Returns:
             连续区间列表，每个元素为 (start_date, end_date)
@@ -1267,22 +1289,34 @@ class CoverageManager:
         ranges = []
         range_start = None
         range_end = None
+        gap_count = 0
 
         for date in trade_days:
             if date not in existing_dates:
                 if range_start is None:
                     range_start = date
                     range_end = date
+                    gap_count = 1
                 else:
                     range_end = date
+                    gap_count += 1
             else:
                 if range_start is not None:
-                    ranges.append((range_start, range_end))
+                    if gap_count >= min_gap_size:
+                        ranges.append((range_start, range_end))
+                        logger.debug(f"生成下载范围: {range_start} ~ {range_end} ({gap_count}天)")
+                    else:
+                        logger.debug(f"跳过小空洞: {range_start} ~ {range_end} ({gap_count}天)")
                     range_start = None
                     range_end = None
+                    gap_count = 0
 
         if range_start is not None:
-            ranges.append((range_start, range_end))
+            if gap_count >= min_gap_size:
+                ranges.append((range_start, range_end))
+                logger.debug(f"生成下载范围: {range_start} ~ {range_end} ({gap_count}天)")
+            else:
+                logger.debug(f"跳过小空洞: {range_start} ~ {range_end} ({gap_count}天)")
 
         return ranges
 

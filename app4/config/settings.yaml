@@ -53,6 +53,12 @@ performance:
   output_dir: "log/reports/"
   report_filename_prefix: "performance_report"
 
+# 缺口检测配置
+gap_detection:
+  enabled: true           # 是否启用缺口检测优化
+  min_gap_size: 3         # 最小空洞大小（交易日数），小于此阈值的空洞将被跳过
+  max_gaps: 50            # 最大缺口数量
+
 groups:
   # 需要股票循环的接口组（默认起始日期19900101）
   tscode_historical:

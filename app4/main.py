@@ -822,7 +822,7 @@ def main():
                 loop_start_date = args.start_date
                 loop_end_date = args.end_date
 
-                if is_tscode_historical_interface and not user_provided_dates and not args.ts_code and interface_name != 'disclosure_date':
+                if is_tscode_historical_interface and not user_provided_dates and interface_name != 'disclosure_date':
                     if loop_start_date == DEFAULT_START_DATE and loop_end_date is None:
                         logger.info(f"Using default date range for tscode_historical interface {interface_name}: {HISTORICAL_START_DATE} to today")
                         loop_start_date = HISTORICAL_START_DATE
