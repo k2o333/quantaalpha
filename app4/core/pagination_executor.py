@@ -74,7 +74,15 @@ class PaginationExecutor:
         params_list = list(composer.compose(base_params))
         
         if len(params_list) <= 1:
-            return self._execute_single(interface_config, params_list[0], make_request) if params_list else []
+            if params_list:
+                # 新增：覆盖率检查
+                if coverage_manager and self._should_skip_by_coverage(
+                    interface_config, params_list[0], coverage_manager
+                ):
+                    logger.info(f"Skipping request due to coverage check")
+                    return []
+                return self._execute_single(interface_config, params_list[0], make_request)
+            return []
 
         stop_on_empty = self._get_stop_on_empty_config(context.interface_config)
         if self._should_use_concurrency(interface_config):
@@ -308,6 +316,8 @@ class PaginationExecutor:
         api_name = interface_config.get('api_name', '')
         if '_time_window' in params:
             strategy = 'date_range'
+        elif '_period_query' in params:  # 新增：检测 period_range 模式
+            strategy = 'period'
         elif '_stock_info' in params:
             strategy = 'stock'
         elif '_type_value' in params:

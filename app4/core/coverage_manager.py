@@ -404,27 +404,62 @@ class CoverageManager:
 
         Args:
             interface_name: 接口名称
-            params: 请求参数，应包含period
+            params: 请求参数，应包含 period 或 start_date/end_date
 
         Returns:
-            True表示已存在（应跳过），False表示不存在（应下载）
+            True 表示已存在（应跳过），False 表示不存在（应下载）
         """
         period = params.get('period')
+
+        # 新增：如果没有 period 参数，但有 start_date/end_date，则计算报告期列表
         if not period:
-            logger.debug(
-                f"Missing period parameter for {interface_name}, skipping period check"
-            )
-            return False
-        
+            start_date = params.get('start_date')
+            end_date = params.get('end_date')
+            if start_date and end_date:
+                # 计算日期范围内的所有报告期
+                periods = self._convert_date_range_to_periods(start_date, end_date)
+                if not periods:
+                    logger.info(f"No completed periods in range {start_date}-{end_date}, skipping")
+                    return True
+
+                # 检查所有报告期是否都已存在
+                logger.debug(f"Checking {len(periods)} periods for {interface_name}: {periods}")
+                for p in periods:
+                    if not self._check_single_period_existence(interface_name, p):
+                        logger.debug(f"Period {p} does not exist, need to download")
+                        return False  # 有一个不存在就需要下载
+
+                logger.info(f"All {len(periods)} periods exist for {interface_name}, skipping")
+                return True  # 全部存在才跳过
+            else:
+                logger.debug(
+                    f"Missing period parameter for {interface_name}, skipping period check"
+                )
+                return False
+
+        # 原有逻辑：检查单个 period
+        return self._check_single_period_existence(interface_name, period)
+
+    def _check_single_period_existence(
+        self, interface_name: str, period: str
+    ) -> bool:
+        """
+        检查单个报告期是否存在
+
+        Args:
+            interface_name: 接口名称
+            period: 报告期，如 '20260331'
+
+        Returns:
+            True 表示已存在（应跳过），False 表示不存在（应下载）
+        """
         interface_config = self.config_loader.get_interface_config(interface_name)
         detection_config = interface_config.get("duplicate_detection", {})
-        # 使用 date_column 作为报告期检测列（通常是 end_date）
         date_column = detection_config.get("date_column", "end_date")
 
         try:
             cache_key = f"{interface_name}_periods_{date_column}"
 
-            # 使用锁保护缓存读写
             with self._cache_lock:
                 if cache_key not in self._cache:
                     logger.debug(f"Loading all periods for {interface_name} using column {date_column}")
@@ -459,6 +494,35 @@ class CoverageManager:
         except Exception as e:
             logger.warning(f"Period existence check failed for {interface_name}: {e}")
             return False
+
+    def _convert_date_range_to_periods(
+        self, start_date: str, end_date: str
+    ) -> List[str]:
+        """
+        将日期区间转换为报告期列表
+
+        规则：只有当报告期日期在用户日期区间内时，才包含该报告期
+
+        Args:
+            start_date: 用户传入的开始日期，如 '20260212'
+            end_date: 用户传入的结束日期，如 '20260221'
+
+        Returns:
+            报告期列表，如 ['20260331']
+        """
+        periods = []
+        start_year = int(start_date[:4])
+        end_year = int(end_date[:4])
+
+        quarter_ends = ["0331", "0630", "0930", "1231"]
+
+        for year in range(start_year, end_year + 1):
+            for qe in quarter_ends:
+                period = f"{year}{qe}"
+                if start_date <= period <= end_date:
+                    periods.append(period)
+
+        return periods
 
     def _check_stock_existence(
         self, interface_name: str, params: Dict[str, Any]
