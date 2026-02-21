@@ -79,6 +79,8 @@ class PaginationExecutor:
         periods_per_batch = None
         if params_list:
             periods_per_batch = params_list[0].get("_periods_per_batch")
+            if periods_per_batch is not None:
+                periods_per_batch = int(periods_per_batch)
         
         if periods_per_batch == 1 and save_callback:
             return self._execute_period_range_sequential(

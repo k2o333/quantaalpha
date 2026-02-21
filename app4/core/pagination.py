@@ -146,8 +146,8 @@ class PaginationComposer:
         Yields:
             应用报告期范围后的参数
         """
-        # 读取 periods_per_batch 配置，默认为 1
-        periods_per_batch = self.config.get("periods_per_batch", 1)
+        # 读取 periods_per_batch 配置，默认为 1，确保是整数类型
+        periods_per_batch = int(self.config.get("periods_per_batch", 1))
 
         for params in params_stream:
             # 如果用户直接传入了 period 参数，直接使用
@@ -619,7 +619,10 @@ def migrate_legacy_config(interface_config: Dict[str, Any]) -> Dict[str, Any]:
             ),
         }
     elif mode == "period_range":
-        new_config["period_range"] = {"enabled": True}
+        # period_range 模式保持原样，保留 mode 和 periods_per_batch 等字段
+        new_config["mode"] = "period_range"
+        if "periods_per_batch" in old_pagination:
+            new_config["periods_per_batch"] = old_pagination["periods_per_batch"]
     elif mode == "quarterly_range":
         new_config["time_range"] = {"enabled": True, "window": "1q", "reverse": False}
     elif mode == "periodic_range":
