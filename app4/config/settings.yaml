@@ -29,7 +29,7 @@ cache:
   max_size_gb: 10
 
 storage:
-  base_dir: "/home/quan/testdata/aspipe_v4/app4/data"
+  base_dir: "/home/quan/testdata/aspipe_v4/data"
   format: "parquet"
   batch_size: 10000  # [优化] 从 1000 增大到 10000
   # 新增：小数据量阈值，低于此值立即处理

@@ -242,7 +242,7 @@ class ParamsBuilder:
         self,
         result: BuildResult,
         stock_list: Optional[List[Dict[str, Any]]] = None,
-        force_download: bool = False
+        
     ) -> Tuple[List[Dict[str, Any]], DownloadContext]:
         stock_list = stock_list or result.stock_list
         scenario = result.scenario
@@ -270,7 +270,6 @@ class ParamsBuilder:
 
         context = DownloadContext(
             user_provided_dates=result.user_provided_dates,
-            force_download=force_download,
             date_range=date_range,
             interface_config=result.interface_config
         )

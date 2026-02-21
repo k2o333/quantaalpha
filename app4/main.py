@@ -91,14 +91,13 @@ class AppComponents:
     stock_list_cache: Any
 
 
-def create_app_components(config_loader: ConfigLoader, args, force_download: bool = False) -> AppComponents:
+def create_app_components(config_loader: ConfigLoader, args) -> AppComponents:
     """创建并初始化所有核心组件（共享工厂函数）
 
     main() 和 run_update_mode() 都可以调用此函数，消除初始化代码重复。
 
     Args:
         args: 命令行参数对象
-        force_download: 是否强制下载（忽略覆盖率检查）
 
     Returns:
         AppComponents: 包含所有初始化组件的命名元组
@@ -122,7 +121,6 @@ def create_app_components(config_loader: ConfigLoader, args, force_download: boo
         storage_manager=storage_manager,
         trade_calendar_cache=trade_cal_cache,
         stock_list_cache=stock_list_cache,
-        force_download=force_download
     )
 
     concurrency_config = config_loader.global_config.get('concurrency', {})
@@ -465,7 +463,6 @@ def run_update_mode(args):
     components = create_app_components(
         config_loader=config_loader,
         args=args,
-        force_download=args.update_force if hasattr(args, 'update_force') else False
     )
     
     # 启动组件
@@ -631,8 +628,6 @@ def main():
                         help='日志级别')
     parser.add_argument('--ts_code', type=str,
                         help='指定股票代码 (如: 000001.SZ)')
-    parser.add_argument('--force', action='store_true',
-                        help='强制覆盖已存在的数据')
 
     # 新增增量更新模块参数
     parser.add_argument('--update', 
@@ -713,7 +708,6 @@ def main():
     components = create_app_components(
         config_loader=config_loader,
         args=args,
-        force_download=args.force
     )
 
     def print_performance_report():
@@ -847,7 +841,7 @@ def main():
                         logger.warning(f"Failed to get stock list for {interface_name}, skipping...")
                         continue
 
-                    params_list, context = builder.build_params_list(result, stock_list, force_download=args.force)
+                    params_list, context = builder.build_params_list(result, stock_list)
                     downloaded_count = run_concurrent_stock_download(
                         components.downloader, components.scheduler, interface_name, interface_config,
                         params_list, stock_list, components.storage_manager, components.processor, logger, context
@@ -860,7 +854,7 @@ def main():
                     continue
 
                 if result.requires_month_loop:
-                    params_list, _ = builder.build_params_list(result, force_download=args.force)
+                    params_list, _ = builder.build_params_list(result)
                     all_data = []
                     for params in params_list:
                         data = components.downloader.download(interface_name, params)

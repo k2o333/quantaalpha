@@ -124,7 +124,7 @@ class PaginationExecutor:
             if progress_callback:
                 progress_callback(idx + 1, len(params_list))
             
-            if coverage_manager and not params.get('_force_download'):
+            if coverage_manager:
                 if self._should_skip_by_coverage(interface_config, params, coverage_manager):
                     continue
             
@@ -162,7 +162,7 @@ class PaginationExecutor:
         
         filtered_params = [
             p for p in params_list
-            if not (coverage_manager and not p.get('_force_download') and
+            if not (coverage_manager and
                     self._should_skip_by_coverage(interface_config, p, coverage_manager))
         ]
         

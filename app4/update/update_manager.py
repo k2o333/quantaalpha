@@ -456,7 +456,6 @@ class UpdateManager:
             trade_calendar=trade_calendar,
             stock_list=stock_list,
             coverage_manager=self.coverage_manager,
-            force_download=options.force
         )
 
         # 使用统一的分页执行入口

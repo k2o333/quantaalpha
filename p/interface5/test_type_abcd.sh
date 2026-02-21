@@ -6,7 +6,6 @@
 # 设置变量
 PYTHON_PATH="/root/miniforge3/envs/get/bin/python"
 MAIN_PY="/home/quan/testdata/aspipe_v4/app4/main.py"
-DATA_BASE_DIR="/home/quan/testdata/aspipe_v4/data"
 OUTPUT_DIR="/home/quan/testdata/aspipe_v4/p/interface5/output"
 TS_CODE="000001.SZ"
 
@@ -40,19 +39,6 @@ TYPE_D_INTERFACES=(
 # 创建输出目录
 mkdir -p "$OUTPUT_DIR"
 
-# 函数：清空接口数据目录
-clear_interface_data() {
-    local interface_name=$1
-    local data_dir="${DATA_BASE_DIR}/${interface_name}"
-
-    if [ -d "$data_dir" ]; then
-        echo "清空 ${interface_name} 的数据..."
-        rm -rf "$data_dir"
-        echo "${interface_name} 数据已清空"
-    else
-        echo "${interface_name} 数据目录不存在，无需清空"
-    fi
-}
 
 # 函数：执行下载命令并将输出保存到文件
 run_download() {
@@ -98,8 +84,6 @@ test_type_a() {
         echo "测试接口: $interface"
         echo "----------------------------------------"
 
-        # 清空数据
-        clear_interface_data "$interface"
 
         # 测试1: 全量下载（小范围）
         echo "[测试1] 全量下载（小范围: 20240101 ~ 20240630）"
@@ -109,9 +93,6 @@ test_type_a() {
         echo "[测试2] 增量下载（扩展范围: 20230101 ~ 20241231）"
         run_download "$interface" "$TS_CODE" "20230101" "20241231" "inc_large" ""
 
-        # 测试3: 强制覆盖
-        echo "[测试3] 强制覆盖（使用 --force）"
-        run_download "$interface" "$TS_CODE" "20240101" "20240630" "force" "--force"
 
         echo "完成测试: $interface"
     done
@@ -130,8 +111,6 @@ test_type_b() {
         echo "测试接口: $interface"
         echo "----------------------------------------"
 
-        # 清空数据
-        clear_interface_data "$interface"
 
         # 测试1: 全量下载（小范围）
         echo "[测试1] 全量下载（小范围: 20230101 ~ 20240630）"
@@ -141,9 +120,6 @@ test_type_b() {
         echo "[测试2] 增量下载（扩展范围: 20200101 ~ 20241231）"
         run_download "$interface" "$TS_CODE" "20200101" "20241231" "inc_large" ""
 
-        # 测试3: 强制覆盖
-        echo "[测试3] 强制覆盖（使用 --force）"
-        run_download "$interface" "$TS_CODE" "20230101" "20240630" "force" "--force"
 
         echo "完成测试: $interface"
     done
@@ -162,8 +138,6 @@ test_type_c() {
         echo "测试接口: $interface"
         echo "----------------------------------------"
 
-        # 清空数据
-        clear_interface_data "$interface"
 
         # 测试1: 全量下载（小范围）
         echo "[测试1] 全量下载（小范围: 20240101 ~ 20240630）"
@@ -173,9 +147,6 @@ test_type_c() {
         echo "[测试2] 增量下载（扩展范围: 20230101 ~ 20241231）"
         run_download "$interface" "$TS_CODE" "20230101" "20241231" "inc_large" ""
 
-        # 测试3: 强制覆盖
-        echo "[测试3] 强制覆盖（使用 --force）"
-        run_download "$interface" "$TS_CODE" "20240101" "20240630" "force" "--force"
 
         echo "完成测试: $interface"
     done
@@ -194,8 +165,6 @@ test_type_d() {
         echo "测试接口: $interface"
         echo "----------------------------------------"
 
-        # 清空数据
-        clear_interface_data "$interface"
 
         # 测试1: 无日期参数下载
         echo "[测试1] 全量下载（小范围：20240101 ~ 20240630）"
@@ -205,9 +174,6 @@ test_type_d() {
         echo "[测试2] 增量下载（扩展范围：20230101 ~ 20241231）"
         run_download "$interface" "$TS_CODE" "20230101" "20241231" "inc_large" ""
 
-        # 测试3: 强制覆盖
-        echo "[测试3] 强制覆盖（使用 --force）"
-        run_download "$interface" "$TS_CODE" "20240101" "20240630" "force" "--force"
 
         echo "完成测试: $interface"
     done
