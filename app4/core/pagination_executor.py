@@ -54,7 +54,8 @@ class PaginationExecutor:
         context: PaginationContext,
         make_request: Callable[[Dict[str, Any], Dict[str, Any]], List[Dict[str, Any]]],
         coverage_manager: Optional[Any] = None,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None
     ) -> List[Dict[str, Any]]:
         """
         执行分页请求（统一入口）
@@ -66,12 +67,24 @@ class PaginationExecutor:
             make_request: 请求执行回调函数
             coverage_manager: 覆盖率管理器
             progress_callback: 进度回调函数
+            save_callback: 保存回调函数，用于逐批次保存数据 (interface_name, data) -> None
             
         Returns:
             所有请求的数据结果
         """
         composer = PaginationComposer(context)
         params_list = list(composer.compose(base_params))
+        
+        # 检测 period_range 模式且 periods_per_batch=1，使用逐个保存模式
+        periods_per_batch = None
+        if params_list:
+            periods_per_batch = params_list[0].get("_periods_per_batch")
+        
+        if periods_per_batch == 1 and save_callback:
+            return self._execute_period_range_sequential(
+                interface_config, params_list, make_request, 
+                coverage_manager, progress_callback, save_callback
+            )
         
         if len(params_list) <= 1:
             if params_list:
@@ -146,6 +159,56 @@ class PaginationExecutor:
                 if stop_on_empty > 0 and consecutive_empty >= stop_on_empty:
                     logger.info(f"Stopping after {consecutive_empty} consecutive empty days")
                     break
+        
+        return all_data
+    
+    def _execute_period_range_sequential(
+        self,
+        interface_config: Dict[str, Any],
+        params_list: List[Dict[str, Any]],
+        make_request: Callable,
+        coverage_manager: Optional[Any],
+        progress_callback: Optional[Callable],
+        save_callback: Callable
+    ) -> List[Dict[str, Any]]:
+        """
+        顺序执行 period_range 请求，每完成一个请求立即保存数据
+
+        Args:
+            interface_config: 接口配置
+            params_list: 请求参数列表
+            make_request: 请求执行回调函数
+            coverage_manager: 覆盖率管理器
+            progress_callback: 进度回调函数
+            save_callback: 保存回调函数
+
+        Returns:
+            所有请求的结果
+        """
+        all_data = []
+        interface_name = interface_config.get("name", "unknown")
+        
+        for idx, params in enumerate(params_list):
+            if progress_callback:
+                progress_callback(idx + 1, len(params_list))
+            
+            # 覆盖率检查
+            if coverage_manager and self._should_skip_by_coverage(
+                interface_config, params, coverage_manager
+            ):
+                period = params.get("period", "unknown")
+                logger.info(f"[{interface_name}] Skipping period {period} - already covered")
+                continue
+            
+            # 执行请求
+            data = self._execute_single_request(interface_config, params, make_request)
+            
+            if data:
+                all_data.extend(data)
+                # 立即保存数据
+                save_callback(interface_name, data)
+                period = params.get("period", "unknown")
+                logger.info(f"[{interface_name}] Saved {len(data)} records for period {period}")
         
         return all_data
     

@@ -29,6 +29,7 @@ output:
 pagination:
   enabled: true
   mode: period_range
+  periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD

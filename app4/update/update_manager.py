@@ -458,16 +458,29 @@ class UpdateManager:
             coverage_manager=self.coverage_manager,
         )
 
+        # 定义保存回调函数，用于 period_range 模式下逐个保存数据
+        saved_by_callback = [False]  # 使用列表以便在闭包中修改
+
+        def save_callback(iface_name: str, data: list):
+            if data:
+                self.storage_manager.save_data(iface_name, data, async_write=True)
+                saved_by_callback[0] = True
+
         # 使用统一的分页执行入口
         result_data = self.pagination_executor.execute(
             interface_config=interface_config,
             base_params=params,
             context=context,
             make_request=self.downloader._make_request,
-            coverage_manager=self.coverage_manager
+            coverage_manager=self.coverage_manager,
+            save_callback=save_callback
         )
 
         # 处理和保存数据
+        # 如果已经通过 save_callback 保存过数据，则跳过最终保存
+        if saved_by_callback[0]:
+            return len(result_data) if result_data else 0
+
         if result_data and len(result_data) > 0:
             # 直接传入原始数据，让 _process_worker 统一处理（包括去重）
             # 避免重复处理：不在此处调用 processor，由 storage 的处理线程完成

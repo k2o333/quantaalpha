@@ -138,7 +138,7 @@ class PaginationComposer:
         应用报告期范围维度
 
         将用户的 start_date/end_date 转换为 period 参数
-        每次只下载一个 period 的数据
+        支持 periods_per_batch 配置，控制每次下载多少个 period
 
         Args:
             params_stream: 参数流
@@ -146,6 +146,9 @@ class PaginationComposer:
         Yields:
             应用报告期范围后的参数
         """
+        # 读取 periods_per_batch 配置，默认为 1
+        periods_per_batch = self.config.get("periods_per_batch", 1)
+
         for params in params_stream:
             # 如果用户直接传入了 period 参数，直接使用
             if "period" in params:
@@ -162,14 +165,25 @@ class PaginationComposer:
             # 转换日期区间为报告期列表
             periods = self._convert_date_range_to_periods(start_date, end_date)
 
-            for period in periods:
-                period_params = params.copy()
-                # 移除 start_date/end_date，使用 period
-                period_params.pop("start_date", None)
-                period_params.pop("end_date", None)
-                period_params["period"] = period
-                period_params["_period_query"] = True
-                yield period_params
+            # 按 periods_per_batch 分组
+            for i in range(0, len(periods), periods_per_batch):
+                batch_periods = periods[i:i + periods_per_batch]
+                batch_params = params.copy()
+                batch_params.pop("start_date", None)
+                batch_params.pop("end_date", None)
+
+                if len(batch_periods) == 1:
+                    # 单个 period
+                    batch_params["period"] = batch_periods[0]
+                else:
+                    # 多个 period，使用 start_date/end_date 作为 period 范围
+                    batch_params["start_date"] = batch_periods[0]
+                    batch_params["end_date"] = batch_periods[-1]
+
+                batch_params["_period_query"] = True
+                batch_params["_period_batch"] = batch_periods
+                batch_params["_periods_per_batch"] = periods_per_batch
+                yield batch_params
 
     def _convert_date_range_to_periods(
         self, start_date: str, end_date: str
