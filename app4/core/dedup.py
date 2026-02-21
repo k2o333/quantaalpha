@@ -319,12 +319,30 @@ def deduplicate_against_existing(
             stats.add_error(error_msg)
             return new_data, stats
 
+        # Ensure join key types match - convert to string if needed
+        # This handles cases like str vs cat type mismatch
+        new_data_aligned = new_data.clone()
+        existing_df_aligned = existing_df.clone()
+
+        for key in keys_to_use:
+            new_dtype = new_data_aligned[key].dtype
+            existing_dtype = existing_df_aligned[key].dtype
+
+            if new_dtype != existing_dtype:
+                # Convert both to string for join comparison
+                new_data_aligned = new_data_aligned.with_columns(
+                    pl.col(key).cast(pl.String).alias(key)
+                )
+                existing_df_aligned = existing_df_aligned.with_columns(
+                    pl.col(key).cast(pl.String).alias(key)
+                )
+
         # Perform anti-join to filter out existing records
         comparison_start = time.time()
 
         # Join new data with existing data to identify duplicates
-        joined = new_data.join(
-            existing_df.select(keys_to_use).unique(),
+        joined = new_data_aligned.join(
+            existing_df_aligned.select(keys_to_use).unique(),
             on=keys_to_use,
             how='anti'  # Keep only rows from new_data that don't exist in existing_data
         )

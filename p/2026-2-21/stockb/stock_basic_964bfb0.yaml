@@ -1,0 +1,48 @@
+api_name: stock_basic
+derived_fields:
+  delist_date_dt:
+    description: 日期类型的delist_date
+    format: '%Y%m%d'
+    source: delist_date
+    type: date
+  list_date_dt:
+    description: 日期类型的list_date
+    format: '%Y%m%d'
+    source: list_date
+    type: date
+description: 股票列表
+name: stock_basic
+output:
+  primary_key:
+  - ts_code
+  sort_by:
+  - ts_code
+pagination:
+  default_limit: 5000
+  enabled: true
+  limit_key: limit
+  mode: offset
+  offset_key: offset
+parameters:
+  exchange:
+    description: 交易所 SSE上交所 SZSE深交所
+    required: false
+    type: string
+  list_status:
+    default: L
+    description: 上市状态 L上市 D退市 P暂停上市 S终止上市
+    options:
+    - L
+    - D
+    - P
+    - S
+    required: false
+    type: string
+permissions:
+  min_points: 2000
+  query_limit: 10000
+  rate_limit: 60
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30

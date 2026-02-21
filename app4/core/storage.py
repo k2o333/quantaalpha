@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import uuid
 import time
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional
 import logging
 from .dedup import deduplicate_against_existing
@@ -15,6 +16,16 @@ from .schema_manager import SchemaManager
 from .constants import STORAGE_BUFFER_THRESHOLD
 
 logger = logging.getLogger(__name__)
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    """自定义 JSON 编码器，处理 date 和 datetime 类型"""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, date):
+            return obj.isoformat()
+        return super().default(obj)
 
 class StorageMonitor:
     def __init__(self):
@@ -752,7 +763,7 @@ class StorageManager:
         digest_value = 0
         modulus = 1 << 256
         for record in data_records:
-            normalized = json.dumps(record, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            normalized = json.dumps(record, sort_keys=True, ensure_ascii=False, separators=(",", ":"), cls=DateTimeEncoder)
             record_digest = hashlib.sha256(normalized.encode("utf-8")).digest()
             digest_value = (digest_value + int.from_bytes(record_digest, byteorder="big")) % modulus
         return f"{digest_value:064x}"

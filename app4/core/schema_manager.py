@@ -278,6 +278,10 @@ class SchemaManager:
 
         合并后，所有字段类型定义都保存在 interfaces 目录的配置文件中。
         该方法从接口配置中读取 fields 定义，用于创建精确类型的 DataFrame。
+
+        支持两种 fields 配置格式：
+        1. 字典格式（带类型）：{ts_code: string, ann_date: string, ...}
+        2. 列表格式（仅字段名）：[ts_code, symbol, ...] - 返回 None 让系统自动推断
         """
         config_file = SchemaManager._get_config_file_path(interface_name)
         if os.path.exists(config_file):
@@ -285,10 +289,22 @@ class SchemaManager:
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 fields = config.get('fields')
-                # 如果配置中没有fields键，或者fields为None，或者fields为空字典，则返回None
-                if fields is None or (isinstance(fields, dict) and len(fields) == 0):
+
+                # 如果配置中没有fields键，或者fields为None，或者fields为空字典/列表，则返回None
+                if fields is None:
                     return None
 
+                # 支持列表格式：[ts_code, symbol, ...]
+                # 列表格式没有类型信息，返回 None 让系统自动推断
+                if isinstance(fields, list):
+                    logger.debug(f"fields 配置为列表格式（无类型信息），使用自动推断 for {interface_name}")
+                    return None
+
+                # 支持空字典
+                if isinstance(fields, dict) and len(fields) == 0:
+                    return None
+
+                # 字典格式：{ts_code: string, ...}
                 # 将字符串类型转换为Polars类型
                 converted_fields = {}
                 type_mapping = {
