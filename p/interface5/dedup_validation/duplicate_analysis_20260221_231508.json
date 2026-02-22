@@ -1,0 +1,20 @@
+{
+  "fina_mainbz_vip": {
+    "total_records": 12643,
+    "unique_records": 12643,
+    "duplicate_groups": 0,
+    "issues": []
+  },
+  "balancesheet_vip": {
+    "total_records": 12591,
+    "unique_records": 12591,
+    "duplicate_groups": 0,
+    "issues": []
+  },
+  "forecast_vip": {
+    "total_records": 6113,
+    "unique_records": 6113,
+    "duplicate_groups": 0,
+    "issues": []
+  }
+}

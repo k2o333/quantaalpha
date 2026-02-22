@@ -1,0 +1,90 @@
+2026-02-21 22:12:01,780 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-21 22:12:01,874 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-21 22:12:01,907 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-21 22:12:01,908 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-21 22:12:01,909 - core.storage - INFO - Storage writer and process threads started
+2026-02-21 22:12:01,909 - __main__ - INFO - Interfaces to update (after permission filter): ['forecast_vip']
+2026-02-21 22:12:01,909 - update.update_reporter - INFO - 更新开始: 2026-02-21 22:12:01
+2026-02-21 22:12:01,910 - update.update_manager - INFO - ============================================================
+2026-02-21 22:12:01,910 - update.update_manager - INFO - 开始增量更新
+2026-02-21 22:12:01,910 - update.update_manager - INFO - ============================================================
+2026-02-21 22:12:01,910 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-21 22:12:01,910 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-21 22:12:01,910 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-21 22:12:01,910 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-21 22:12:01,911 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-21 22:12:01,911 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-21 22:12:01,911 - update.update_manager - INFO - 
+[1/1] 处理接口: forecast_vip
+2026-02-21 22:12:01,911 - update.update_reporter - INFO - 开始更新接口: forecast_vip
+2026-02-21 22:12:01,911 - update.update_manager - INFO - 开始更新 forecast_vip: 20241001 ~ 20260221
+2026-02-21 22:12:01,911 - update.update_manager - INFO - 开始下载 forecast_vip: 20241001 ~ 20260221
+2026-02-21 22:12:15,184 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-21 22:12:15,185 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-21 22:12:15,217 - core.downloader - INFO - Downloaded 3955 records for forecast_vip
+2026-02-21 22:12:15,299 - core.pagination_executor - INFO - [forecast_vip] Saved 3955 records for period 20241231
+2026-02-21 22:12:19,069 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-21 22:12:19,070 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-21 22:12:19,073 - core.downloader - INFO - Downloaded 308 records for forecast_vip
+2026-02-21 22:12:19,085 - core.pagination_executor - INFO - [forecast_vip] Saved 308 records for period 20250331
+2026-02-21 22:12:23,642 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-21 22:12:23,642 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-21 22:12:23,660 - core.downloader - INFO - Downloaded 1854 records for forecast_vip
+2026-02-21 22:12:23,711 - core.pagination_executor - INFO - [forecast_vip] Saved 1854 records for period 20250630
+2026-02-21 22:12:23,916 - core.processor - WARNING - Found 4 duplicate records for interface forecast_vip
+2026-02-21 22:12:23,927 - core.processor - INFO - Processed 6113 records for forecast_vip
+2026-02-21 22:12:24,012 - core.storage - INFO - Processed and queued 6113 records for forecast_vip
+2026-02-21 22:12:24,088 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for forecast_vip，记录数: 6113
+2026-02-21 22:12:24,130 - core.storage - INFO - Wrote 6113 records to /home/quan/testdata/aspipe_v4/data/forecast_vip/forecast_vip_20230518_20250821_1771683144012_9b43923f.parquet
+2026-02-21 22:12:25,397 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-21 22:12:25,397 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-21 22:12:25,400 - core.downloader - INFO - Downloaded 228 records for forecast_vip
+2026-02-21 22:12:25,408 - core.pagination_executor - INFO - [forecast_vip] Saved 228 records for period 20250930
+2026-02-21 22:12:43,986 - core.downloader - INFO - API returned 13 fields for forecast_vip
+2026-02-21 22:12:43,987 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'type', 'p_change_min', 'p_change_max', 'net_profit_min', 'net_profit_max', 'last_parent_net', 'first_ann_date', 'summary', 'change_reason', 'update_flag']
+2026-02-21 22:12:44,017 - core.downloader - INFO - Downloaded 4488 records for forecast_vip
+2026-02-21 22:12:44,108 - core.pagination_executor - INFO - [forecast_vip] Saved 4488 records for period 20251231
+2026-02-21 22:12:44,108 - update.update_manager - INFO - 接口 forecast_vip 更新完成，共 10833 条记录，耗时 42.20秒
+2026-02-21 22:12:44,108 - update.update_reporter - INFO - ✓ forecast_vip: SUCCESS (10833 条记录) [42.20s]
+2026-02-21 22:12:44,109 - update.update_reporter - INFO - 更新结束: 2026-02-21 22:12:44
+2026-02-21 22:12:44,109 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-21 22:12:44,109 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-21 22:12:44,110 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260221_221244.markdown
+2026-02-21 22:12:44,110 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-21 22:12:44,110 - __main__ - INFO - 正在停止调度器...
+2026-02-21 22:12:44,110 - core.scheduler - INFO - Task scheduler stopped
+2026-02-21 22:12:44,110 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-21 22:12:44,110 - core.storage - INFO - Flushed 4716 remaining records for processing: forecast_vip
+2026-02-21 22:12:44,126 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-21 22:12:44,274 - core.processor - WARNING - Found 1 duplicate records for interface forecast_vip
+2026-02-21 22:12:44,283 - core.processor - INFO - Processed 4715 records for forecast_vip
+2026-02-21 22:12:44,347 - core.storage - INFO - Deduplication completed for forecast_vip: input=4715, output=4715, removed=0
+2026-02-21 22:12:44,372 - core.storage - INFO - Processed and queued 4715 records for forecast_vip
+2026-02-21 22:12:44,375 - core.storage - INFO - Stopping writer thread...
+2026-02-21 22:12:44,375 - core.storage - INFO - Storage threads stopped
+2026-02-21 22:12:44,376 - __main__ - INFO - 限流统计: 总请求=5, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-21 22:12:44,376 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-21 22:12:01
+- **结束时间**: 2026-02-21 22:12:44
+- **总耗时**: 42.2秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 10833
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| forecast_vip | ✓ 成功 | 20241001 ~ 20260221 | 10833 | 42.20s |  |
+
+============================================================

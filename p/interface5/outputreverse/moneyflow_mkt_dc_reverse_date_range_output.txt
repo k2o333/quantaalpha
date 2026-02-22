@@ -1,0 +1,48 @@
+2026-02-22 15:58:30,705 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-22 15:58:30,796 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-22 15:58:30,824 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-22 15:58:30,825 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260222
+2026-02-22 15:58:30,827 - __main__ - INFO - Global trade calendar loaded from memory cache: 8585 trade days
+2026-02-22 15:58:30,827 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-22 15:58:30,828 - core.storage - INFO - Storage writer and process threads started
+2026-02-22 15:58:30,828 - __main__ - INFO - Interfaces to run: ['moneyflow_mkt_dc']
+2026-02-22 15:58:30,829 - __main__ - INFO - Downloading data for moneyflow_mkt_dc, pagination mode: reverse_date_range
+2026-02-22 15:58:30,830 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-22 15:58:31,800 - core.downloader - INFO - API returned 15 fields for moneyflow_mkt_dc
+2026-02-22 15:58:31,800 - core.downloader - INFO - Returned fields: ['trade_date', 'close_sh', 'pct_change_sh', 'close_sz', 'pct_change_sz', 'net_amount', 'net_amount_rate', 'buy_elg_amount', 'buy_elg_amount_rate', 'buy_lg_amount', 'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 'buy_sm_amount_rate']
+2026-02-22 15:58:31,800 - core.downloader - INFO - Downloaded 4 records for moneyflow_mkt_dc
+2026-02-22 15:58:31,801 - __main__ - INFO - Successfully downloaded 4 records for moneyflow_mkt_dc
+2026-02-22 15:58:31,828 - core.processor - INFO - Processed 4 records for moneyflow_mkt_dc
+2026-02-22 15:58:31,829 - __main__ - INFO - No existing data found for moneyflow_mkt_dc, skipping deduplication
+2026-02-22 15:58:31,829 - __main__ - INFO - Processed 4 records for moneyflow_mkt_dc
+2026-02-22 15:58:31,830 - __main__ - INFO - 正在停止调度器...
+2026-02-22 15:58:31,832 - core.scheduler - INFO - Task scheduler stopped
+2026-02-22 15:58:31,839 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-22 15:58:31,839 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for moneyflow_mkt_dc，记录数: 4
+2026-02-22 15:58:31,839 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-22 15:58:31,840 - core.storage - INFO - Process worker received stop signal
+2026-02-22 15:58:31,841 - core.storage - INFO - Stopping writer thread...
+2026-02-22 15:58:31,842 - core.storage - INFO - Wrote 4 records to /home/quan/testdata/aspipe_v4/data/moneyflow_mkt_dc/moneyflow_mkt_dc_20260210_20260213_1771747111830_77dfc169.parquet
+2026-02-22 15:58:31,842 - core.storage - INFO - Storage threads stopped
+2026-02-22 15:58:31,843 - core.performance_monitor - INFO - 性能报告已保存: log/reports/performance_report_20260222_155831.md
+2026-02-22 15:58:31,843 - __main__ - INFO - 性能报告已生成: log/reports/performance_report_20260222_155831.md
+2026-02-22 15:58:31,843 - __main__ - INFO - 限流统计: 总请求=1, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-22 15:58:31,844 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 1.02秒
+总请求数: 1
+接口数量: 1
+------------------------------
+接口: moneyflow_mkt_dc
+  - 请求次数: 1
+  - 总记录数: 4
+  - 成功率: 100.0%
+  - 平均请求时间: 0.92秒
+  - P50/P90/P99: 0.92/0.92/0.92秒
+  - 平均记录数: 4条
+
+==============================
+

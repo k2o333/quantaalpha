@@ -1,0 +1,48 @@
+2026-02-22 15:58:41,015 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-22 15:58:41,107 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-22 15:58:41,137 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-22 15:58:41,139 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260222
+2026-02-22 15:58:41,141 - __main__ - INFO - Global trade calendar loaded from memory cache: 8585 trade days
+2026-02-22 15:58:41,141 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-22 15:58:41,142 - core.storage - INFO - Storage writer and process threads started
+2026-02-22 15:58:41,142 - __main__ - INFO - Interfaces to run: ['moneyflow_cnt_ths']
+2026-02-22 15:58:41,143 - __main__ - INFO - Downloading data for moneyflow_cnt_ths, pagination mode: reverse_date_range
+2026-02-22 15:58:41,144 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-22 15:58:43,622 - core.downloader - INFO - API returned 12 fields for moneyflow_cnt_ths
+2026-02-22 15:58:43,623 - core.downloader - INFO - Returned fields: ['trade_date', 'ts_code', 'name', 'lead_stock', 'close_price', 'pct_change', 'industry_index', 'company_num', 'pct_change_stock', 'net_buy_amount', 'net_sell_amount', 'net_amount']
+2026-02-22 15:58:43,637 - core.downloader - INFO - Downloaded 1548 records for moneyflow_cnt_ths
+2026-02-22 15:58:43,637 - __main__ - INFO - Successfully downloaded 1548 records for moneyflow_cnt_ths
+2026-02-22 15:58:43,707 - core.processor - INFO - Processed 1548 records for moneyflow_cnt_ths
+2026-02-22 15:58:43,716 - __main__ - INFO - No existing data found for moneyflow_cnt_ths, skipping deduplication
+2026-02-22 15:58:43,716 - __main__ - INFO - Processed 1548 records for moneyflow_cnt_ths
+2026-02-22 15:58:43,758 - __main__ - INFO - 正在停止调度器...
+2026-02-22 15:58:43,768 - core.scheduler - INFO - Task scheduler stopped
+2026-02-22 15:58:43,769 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-22 15:58:43,769 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-22 15:58:43,769 - core.storage - INFO - Process worker received stop signal
+2026-02-22 15:58:43,769 - core.storage - INFO - Stopping writer thread...
+2026-02-22 15:58:43,777 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for moneyflow_cnt_ths，记录数: 1548
+2026-02-22 15:58:43,781 - core.storage - INFO - Wrote 1548 records to /home/quan/testdata/aspipe_v4/data/moneyflow_cnt_ths/moneyflow_cnt_ths_20260210_20260213_1771747123758_96bcd00d.parquet
+2026-02-22 15:58:43,781 - core.storage - INFO - Storage threads stopped
+2026-02-22 15:58:43,782 - core.performance_monitor - INFO - 性能报告已保存: log/reports/performance_report_20260222_155843.md
+2026-02-22 15:58:43,782 - __main__ - INFO - 性能报告已生成: log/reports/performance_report_20260222_155843.md
+2026-02-22 15:58:43,782 - __main__ - INFO - 限流统计: 总请求=1, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-22 15:58:43,782 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 2.64秒
+总请求数: 1
+接口数量: 1
+------------------------------
+接口: moneyflow_cnt_ths
+  - 请求次数: 1
+  - 总记录数: 1548
+  - 成功率: 100.0%
+  - 平均请求时间: 2.38秒
+  - P50/P90/P99: 2.38/2.38/2.38秒
+  - 平均记录数: 1548条
+
+==============================
+

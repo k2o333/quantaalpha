@@ -1,0 +1,55 @@
+2026-02-22 15:58:00,892 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-22 15:58:00,985 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-22 15:58:01,014 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-22 15:58:01,015 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260222
+2026-02-22 15:58:01,017 - __main__ - INFO - Global trade calendar loaded from memory cache: 8585 trade days
+2026-02-22 15:58:01,017 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-22 15:58:01,018 - core.storage - INFO - Storage writer and process threads started
+2026-02-22 15:58:01,018 - __main__ - INFO - Interfaces to run: ['daily_basic']
+2026-02-22 15:58:01,019 - __main__ - INFO - Downloading data for daily_basic, pagination mode: reverse_date_range
+2026-02-22 15:58:01,020 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-22 15:58:14,862 - core.downloader - INFO - API returned 18 fields for daily_basic
+2026-02-22 15:58:14,862 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv']
+2026-02-22 15:58:14,925 - core.downloader - INFO - Downloaded 5474 records for daily_basic
+2026-02-22 15:58:17,324 - core.downloader - INFO - API returned 18 fields for daily_basic
+2026-02-22 15:58:17,325 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv']
+2026-02-22 15:58:17,374 - core.downloader - INFO - Downloaded 5470 records for daily_basic
+2026-02-22 15:58:20,689 - core.downloader - INFO - API returned 18 fields for daily_basic
+2026-02-22 15:58:20,689 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv']
+2026-02-22 15:58:20,743 - core.downloader - INFO - Downloaded 5470 records for daily_basic
+2026-02-22 15:58:23,431 - core.downloader - INFO - API returned 18 fields for daily_basic
+2026-02-22 15:58:23,432 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm', 'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv']
+2026-02-22 15:58:23,497 - core.downloader - INFO - Downloaded 5476 records for daily_basic
+2026-02-22 15:58:23,499 - __main__ - INFO - Successfully downloaded 21890 records for daily_basic
+2026-02-22 15:58:23,979 - core.processor - INFO - Processed 21890 records for daily_basic
+2026-02-22 15:58:24,101 - __main__ - INFO - Deduplication completed for daily_basic: input=21890, compared=21890, output=0, removed=21890, dedup_rate=100.00%
+2026-02-22 15:58:24,101 - __main__ - INFO - All records already exist for daily_basic, skipping save
+2026-02-22 15:58:24,101 - __main__ - INFO - 正在停止调度器...
+2026-02-22 15:58:24,101 - core.scheduler - INFO - Task scheduler stopped
+2026-02-22 15:58:24,101 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-22 15:58:24,101 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-22 15:58:24,102 - core.storage - INFO - Process worker received stop signal
+2026-02-22 15:58:24,102 - core.storage - INFO - Stopping writer thread...
+2026-02-22 15:58:24,102 - core.storage - INFO - Storage threads stopped
+2026-02-22 15:58:24,102 - core.performance_monitor - INFO - 性能报告已保存: log/reports/performance_report_20260222_155824.md
+2026-02-22 15:58:24,102 - __main__ - INFO - 性能报告已生成: log/reports/performance_report_20260222_155824.md
+2026-02-22 15:58:24,103 - __main__ - INFO - 限流统计: 总请求=4, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-22 15:58:24,103 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 23.09秒
+总请求数: 4
+接口数量: 1
+------------------------------
+接口: daily_basic
+  - 请求次数: 4
+  - 总记录数: 21890
+  - 成功率: 100.0%
+  - 平均请求时间: 17.99秒
+  - P50/P90/P99: 19.63/22.33/22.33秒
+  - 平均记录数: 5472条
+
+==============================
+

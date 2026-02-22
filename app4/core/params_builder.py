@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 import polars as pl
 from .constants import DEFAULT_START_DATE, DEFAULT_STOCK_START_DATE
 from .context import DownloadContext
@@ -14,6 +14,7 @@ class DownloadScenario(Enum):
     STOCK_LOOP_FULL_HISTORY = "stock_loop_full"
     SPECIAL_BROKER_RECOMMEND = "broker_recommend"
     SPECIAL_PRO_BAR = "pro_bar"
+    DATE_ANCHOR_RANGE = "date_anchor_range"  # 新增：日期锚定范围模式
 
 
 @dataclass
@@ -63,6 +64,8 @@ class ParamsBuilder:
             result = self._build_broker_recommend_params(start_date, end_date, ts_code)
         elif scenario == DownloadScenario.SPECIAL_PRO_BAR:
             result = self._build_pro_bar_params(ts_code)
+        elif scenario == DownloadScenario.DATE_ANCHOR_RANGE:
+            result = self._build_date_anchor_range_params(start_date, end_date, ts_code)
         elif scenario == DownloadScenario.DIRECT:
             result = self._build_direct_params(start_date, end_date, ts_code)
         elif scenario == DownloadScenario.STOCK_LOOP_DATE_RANGE:
@@ -89,13 +92,14 @@ class ParamsBuilder:
 
         场景决策逻辑：
         1. 特殊接口（broker_recommend, pro_bar）单独处理
-        2. 非股票循环接口 -> DIRECT
-        3. 有 start_date + end_date 参数 -> STOCK_LOOP_DATE_RANGE（Type A/B）
-        4. 有日期锚定参数（is_date_anchor=true）：
+        2. reverse_date_range + is_date_anchor -> DATE_ANCHOR_RANGE (仅影响cyq_perf这类接口)
+        3. 非股票循环接口 -> DIRECT
+        4. 有 start_date + end_date 参数 -> STOCK_LOOP_DATE_RANGE（Type A/B）
+        5. 有日期锚定参数（is_date_anchor=true）：
            - 用户未提供日期 + 有ts_code -> STOCK_LOOP_FULL_HISTORY（全历史）
            - 用户未提供日期 + 无ts_code -> STOCK_LOOP_FULL_HISTORY（全股票轮询）
            - 用户提供日期 -> STOCK_LOOP_DATE_ANCHOR（按锚点遍历）
-        5. 其他情况 -> STOCK_LOOP_FULL_HISTORY
+        6. 其他情况 -> STOCK_LOOP_FULL_HISTORY
         """
         if self.api_name == 'broker_recommend':
             return DownloadScenario.SPECIAL_BROKER_RECOMMEND
@@ -103,6 +107,14 @@ class ParamsBuilder:
         if self.api_name == 'pro_bar':
             if start_date == DEFAULT_START_DATE and end_date is None:
                 return DownloadScenario.SPECIAL_PRO_BAR
+
+        # 新增：检测 reverse_date_range + is_date_anchor 的特殊组合
+        # 仅影响 cyq_perf 这类接口（不带 ts_code，按日期查所有股票）
+        pagination_mode = self.pagination_config.get('mode', '')
+        date_anchor_param = self._find_date_anchor_param()
+
+        if pagination_mode == 'reverse_date_range' and date_anchor_param and user_provided_dates:
+            return DownloadScenario.DATE_ANCHOR_RANGE
 
         is_stock_loop = (
             self.pagination_config.get('enabled', False) and
@@ -116,8 +128,6 @@ class ParamsBuilder:
             'start_date' in self.parameter_config and
             'end_date' in self.parameter_config
         )
-
-        date_anchor_param = self._find_date_anchor_param()
 
         # Type A/B 接口：有 start_date + end_date 参数
         if has_start_end:
@@ -233,6 +243,40 @@ class ParamsBuilder:
             requires_stock_loop=True
         )
 
+    def _build_date_anchor_range_params(
+        self,
+        start_date: str,
+        end_date: Optional[str],
+        ts_code: Optional[str]
+    ) -> BuildResult:
+        """
+        构建日期锚定范围参数
+
+        专用于 reverse_date_range + is_date_anchor 的接口（如 cyq_perf）
+        将用户提供的日期范围存储为内部参数，后续转换为单个日期锚定值
+
+        与 STOCK_LOOP_DATE_ANCHOR 的区别：
+        - 不设置 requires_stock_loop=True
+        - 不遍历股票列表，只按日期遍历
+        """
+        params: Dict[str, Any] = {}
+        date_anchor_param = self._find_date_anchor_param()
+
+        # 使用内部参数存储日期范围
+        if start_date:
+            params['_date_anchor_start'] = start_date
+        if end_date:
+            params['_date_anchor_end'] = end_date
+        if ts_code:
+            params['ts_code'] = ts_code
+
+        return BuildResult(
+            params=params,
+            scenario=DownloadScenario.DATE_ANCHOR_RANGE,
+            requires_stock_loop=False,  # 关键：不需要股票循环
+            date_anchor_param=date_anchor_param
+        )
+
     def _generate_months(self, start_date: str, end_date: Optional[str]) -> List[str]:
         start = datetime.strptime(start_date, '%Y%m%d')
         end = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
@@ -249,6 +293,8 @@ class ParamsBuilder:
 
         if scenario == DownloadScenario.SPECIAL_BROKER_RECOMMEND:
             params_list = self._build_broker_recommend_params_list(result)
+        elif scenario == DownloadScenario.DATE_ANCHOR_RANGE:
+            params_list = self._build_date_anchor_range_params_list(result)
         elif scenario == DownloadScenario.DIRECT:
             params_list = [result.params]
         elif scenario == DownloadScenario.STOCK_LOOP_DATE_RANGE:
@@ -343,6 +389,72 @@ class ParamsBuilder:
             }
             params_list.append(p)
         return params_list
+
+    def _build_date_anchor_range_params_list(self, result: BuildResult) -> List[Dict[str, Any]]:
+        """
+        构建日期锚定范围参数列表
+
+        与 _build_stock_loop_anchor_params_list 的关键区别：
+        - 不遍历股票列表
+        - 每个参数只包含日期锚定值，不包含 ts_code
+
+        Args:
+            result: 构建结果
+
+        Returns:
+            参数列表，如 [{'trade_date': '20260205'}, {'trade_date': '20260206'}, ...]
+        """
+        start_date = result.params.get('_date_anchor_start')
+        end_date = result.params.get('_date_anchor_end')
+        date_anchor_param = result.date_anchor_param
+
+        if not start_date or not date_anchor_param:
+            return []
+
+        # 生成每日日期锚定值
+        anchor_values = self._generate_daily_anchor_values(start_date, end_date)
+
+        params_list = []
+        for anchor_value in anchor_values:
+            p = {date_anchor_param: anchor_value}
+            # 如果用户指定了 ts_code，也传递（用于查询特定股票）
+            if result.params.get('ts_code'):
+                p['ts_code'] = result.params['ts_code']
+            params_list.append(p)
+
+        return params_list
+
+    def _generate_daily_anchor_values(self, start_date: str, end_date: Optional[str]) -> List[str]:
+        """
+        生成每日日期锚定值
+
+        与 _generate_date_anchor_values 的区别：
+        - 后者生成季度末日期（用于 ann_date, end_date 等）
+        - 本方法生成每日日期（用于 trade_date）
+
+        Args:
+            start_date: 开始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+
+        Returns:
+            日期字符串列表，如 ['20260205', '20260206', '20260207']
+        """
+        if not start_date:
+            return []
+
+        try:
+            start = datetime.strptime(start_date, '%Y%m%d')
+            end = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
+        except ValueError:
+            return []
+
+        dates = []
+        current = start
+        while current <= end:
+            dates.append(current.strftime('%Y%m%d'))
+            current += timedelta(days=1)
+
+        return dates
 
     def _generate_date_anchor_values(
         self,

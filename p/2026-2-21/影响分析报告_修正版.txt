@@ -1,0 +1,156 @@
+App4 系统 Date Anchor 接口参数传递机制修复 - 影响分析报告（修正版）
+================================================================================
+
+修改目的
+--------
+解决 cyq_perf 接口在配置了 is_date_anchor: true 后，使用 --start_date 和 --end_date 
+参数时仍然传递范围参数而非单个日期参数的问题。
+
+修改内容概要
+------------
+1. app4/core/params_builder.py - 场景检测和参数构建逻辑
+2. app4/core/pagination.py - 日期锚定维度处理
+3. app4/update/update_manager.py - 更新模式参数处理
+4. 其他文件修改：dedup.py, schema_manager.py, storage.py（辅助性修改）
+
+================================================================================
+影响评估
+================================================================================
+
+一、是否会影响其他接口的下载？
+------------------------------
+
+【会影响】以下配置了 is_date_anchor: true 的接口：
+
+1. cyq_perf (reverse_date_range模式) - 修复目标
+   - 原问题：使用日期范围参数导致API返回"参数校验失败"错误
+   - 修复后：按单个日期生成多次请求
+   - 实际行为：日期单循环，每次请求返回该日所有股票数据
+
+2. top10_holders (stock_loop模式, is_date_anchor=true)
+   - 影响：用户指定日期范围时，会按季度生成多个请求
+   - 风险：低，正确行为
+
+3. stk_rewards (stock_loop模式, is_date_anchor=true)
+   - 影响：用户指定日期范围时，会按季度生成多个请求
+   - 风险：低，正确行为
+
+4. pledge_stat (stock_loop模式, is_date_anchor=true)
+   - 影响：用户指定日期范围时，会按季度生成多个请求
+   - 风险：低，正确行为
+
+5. disclosure_date (stock_loop模式, is_date_anchor=true)
+   - 影响：用户指定日期范围时，会按季度生成多个请求
+   - 风险：低，正确行为
+
+6. dividend (stock_loop模式, is_date_anchor=true)
+   - 影响：用户指定日期范围时，会按季度生成多个请求
+   - 风险：低，正确行为
+
+【不影响】以下接口不受修改影响：
+- 配置了 is_date_anchor: false 的接口（如 forecast_vip, fina_mainbz_vip 等）
+- 无 is_date_anchor 配置的普通接口（如 daily, income 等）
+
+二、是否有多余不精简的代码？
+---------------------------
+
+【存在】多余代码位置：params_builder.py 第109-117行
+
+    is_stock_loop = (
+        self.pagination_config.get('enabled', False) and
+        self.pagination_config.get('mode') == 'stock_loop'
+    )
+    if is_stock_loop:
+        return DownloadScenario.STOCK_LOOP_DATE_ANCHOR
+    else:
+        # 非stock_loop但有日期锚定参数的接口
+        return DownloadScenario.STOCK_LOOP_DATE_ANCHOR  # 使用相同的处理逻辑
+
+分析：
+- 无论 is_stock_loop 是 true 还是 false，都返回相同的值
+- 这段代码的 if/else 分支是完全冗余的
+- 建议简化为直接返回，无需判断
+
+三、是否有废弃未删除的代码？
+---------------------------
+
+【无明显废弃代码】
+
+第146-147行有一段"防御性"代码：
+    # 用户提供日期 -> 按锚点遍历模式（这个分支实际上上面已经处理过，保留以防万一）
+    return DownloadScenario.STOCK_LOOP_DATE_ANCHOR
+
+这不算废弃代码，而是作为保护性措施保留的，虽然逻辑上与第106-117行重复。
+
+================================================================================
+修正说明：实际执行路径分析
+================================================================================
+
+原报告第91-92行存在不准确描述：
+"对于非 stock_loop 模式（如 reverse_date_range）的日期锚定接口会使用 stock_loop 流程处理"
+
+【修正】实际执行路径分析：
+
+1. 更新模式（--update）：
+   - 调用路径：update_manager._execute_download() -> pagination_executor.execute()
+   - 在 pagination.compose() 方法中，日期锚定接口走特殊路径（第91-94行）：
+     ```python
+     if is_date_anchor_interface:
+         params_stream = list(self._apply_date_anchor(params_stream))
+         return  # 直接返回，不进入 stock_loop 维度
+     ```
+   - 结论：**日期锚定接口在更新模式下是日期单循环，不涉及股票循环**
+
+2. 普通下载模式：
+   - 调用路径：main.py -> params_builder -> build_params_list()
+   - 对于日期锚定接口，返回 STOCK_LOOP_DATE_ANCHOR 场景
+   - _build_stock_loop_anchor_params_list() 会生成 (stock × date) 组合参数
+   - 结论：**普通下载模式下会生成股票×日期双循环参数列表**
+
+3. cyq_perf 实际行为验证（从运行日志）：
+   - 每次请求返回约 5465 条记录（接近股票总数 5484）
+   - 说明每次请求不带 ts_code 参数，按日期查询返回所有股票数据
+   - 实际执行的是日期单循环
+
+四、代码逻辑不一致问题
+---------------------
+
+【发现】params_builder 和 pagination_executor 的处理逻辑不一致：
+
+| 组件 | 更新模式行为 | 普通模式行为 |
+|------|-------------|-------------|
+| pagination_executor | 日期单循环 | 同左 |
+| params_builder | 不适用 | 股票×日期双循环 |
+
+对于 cyq_perf 这类 reverse_date_range + is_date_anchor 的接口：
+- 更新模式：日期单循环（正确，每次返回全部股票）
+- 普通模式：股票×日期双循环（可能产生大量冗余请求）
+
+建议：
+1. 统一两套逻辑，或在 params_builder 中增加判断：
+   - 若 API 支持不传 ts_code 返回全部股票，则使用日期单循环
+   - 若 API 必须传 ts_code，才使用股票×日期双循环
+
+2. 简化冗余的 if/else 分支（第109-117行）
+
+================================================================================
+总结
+================================================================================
+
+1. 正面影响：成功修复了 cyq_perf 接口在更新模式下的参数传递问题
+
+2. 潜在风险：
+   - 普通下载模式下可能产生不必要的股票循环请求
+   - 需要统一 params_builder 和 pagination_executor 的处理逻辑
+
+3. 代码质量问题：
+   - 存在一处冗余的 if/else 分支判断
+   - 两套参数构建逻辑存在不一致
+
+4. 建议后续优化：
+   - 简化冗余代码
+   - 统一日期锚定接口的处理路径
+
+================================================================================
+生成时间：2026-02-22
+修正说明：基于源代码分析和运行日志验证，修正了原报告中关于执行路径的不准确描述

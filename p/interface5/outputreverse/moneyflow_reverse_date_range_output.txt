@@ -1,0 +1,36 @@
+2026-02-22 15:58:24,926 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-22 15:58:25,008 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-22 15:58:25,035 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-22 15:58:25,037 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260222
+2026-02-22 15:58:25,039 - __main__ - INFO - Global trade calendar loaded from memory cache: 8585 trade days
+2026-02-22 15:58:25,039 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-22 15:58:25,039 - core.storage - INFO - Storage writer and process threads started
+2026-02-22 15:58:25,039 - __main__ - INFO - Interfaces to run: ['moneyflow']
+2026-02-22 15:58:25,041 - __main__ - INFO - Downloading data for moneyflow, pagination mode: reverse_date_range
+2026-02-22 15:58:25,042 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-22 15:58:25,051 - core.coverage_manager - INFO - Coverage for moneyflow (20260213-20260213): 100.00% (1/1)
+2026-02-22 15:58:25,061 - core.coverage_manager - INFO - Coverage for moneyflow (20260212-20260212): 100.00% (1/1)
+2026-02-22 15:58:25,070 - core.coverage_manager - INFO - Coverage for moneyflow (20260211-20260211): 100.00% (1/1)
+2026-02-22 15:58:25,078 - core.coverage_manager - INFO - Coverage for moneyflow (20260210-20260210): 100.00% (1/1)
+2026-02-22 15:58:25,078 - __main__ - WARNING - No data downloaded for moneyflow
+2026-02-22 15:58:25,078 - __main__ - INFO - 正在停止调度器...
+2026-02-22 15:58:25,078 - core.scheduler - INFO - Task scheduler stopped
+2026-02-22 15:58:25,078 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-22 15:58:25,079 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-22 15:58:25,079 - core.storage - INFO - Process worker received stop signal
+2026-02-22 15:58:25,079 - core.storage - INFO - Stopping writer thread...
+2026-02-22 15:58:25,079 - core.storage - INFO - Storage threads stopped
+2026-02-22 15:58:25,079 - core.performance_monitor - INFO - 性能报告已保存: log/reports/performance_report_20260222_155825.md
+2026-02-22 15:58:25,080 - __main__ - INFO - 性能报告已生成: log/reports/performance_report_20260222_155825.md
+2026-02-22 15:58:25,080 - __main__ - INFO - 限流统计: 总请求=0, 总等待=0.0s, 平均等待=0s, 最大等待=0.0s
+2026-02-22 15:58:25,080 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 0.04秒
+总请求数: 0
+接口数量: 0
+------------------------------
+==============================
+

@@ -1,0 +1,1130 @@
+{
+  "fina_mainbz_vip_20250630": {
+    "interface_name": "fina_mainbz_vip",
+    "period": "20250630",
+    "downloaded": 10000,
+    "pk_unique": 1149,
+    "pk_duplicates": 8851,
+    "all_fields_unique": 1149,
+    "all_fields_duplicates": 8851,
+    "difference": 0,
+    "issues": [],
+    "sample_duplicates": [],
+    "sample_preserved_records": [],
+    "total_records": 10000
+  },
+  "fina_mainbz_vip_20250331": {
+    "interface_name": "fina_mainbz_vip",
+    "period": "20250331",
+    "downloaded": 639,
+    "pk_unique": 639,
+    "pk_duplicates": 0,
+    "all_fields_unique": 639,
+    "all_fields_duplicates": 0,
+    "difference": 0,
+    "issues": [],
+    "sample_duplicates": [],
+    "sample_preserved_records": [],
+    "total_records": 639
+  },
+  "fina_mainbz_vip_20241231": {
+    "interface_name": "fina_mainbz_vip",
+    "period": "20241231",
+    "downloaded": 10000,
+    "pk_unique": 9982,
+    "pk_duplicates": 18,
+    "all_fields_unique": 9996,
+    "all_fields_duplicates": 4,
+    "difference": 14,
+    "issues": [
+      "主键去重比全字段去重多去除了14条记录",
+      "说明存在主键相同但其他字段不同的记录",
+      "找到20条被主键去重但全字段去重会保留的记录"
+    ],
+    "sample_duplicates": [],
+    "sample_preserved_records": [
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "中国大陆",
+        "bz_code": "D",
+        "bz_sales": 805967303.16,
+        "bz_profit": 130820067.11,
+        "bz_cost": 675147236.05,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "中国大陆"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "国外",
+        "bz_code": "D",
+        "bz_sales": 1483434142.25,
+        "bz_profit": 296307550.87,
+        "bz_cost": 1187126591.38,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "国外"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "其他业务(地区)",
+        "bz_code": "D",
+        "bz_sales": 5911765.36,
+        "bz_profit": 4077341.62,
+        "bz_cost": 1834423.74,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "其他业务(地区)"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "配件及其他",
+        "bz_code": "P",
+        "bz_sales": 70420615.91,
+        "bz_profit": 11803495.39,
+        "bz_cost": 58617120.52,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "配件及其他"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "全钢卡车轮胎",
+        "bz_code": "P",
+        "bz_sales": 501238947.85,
+        "bz_profit": 82229301.45,
+        "bz_cost": 419009646.4,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "全钢卡车轮胎"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "工程子午线轮胎",
+        "bz_code": "P",
+        "bz_sales": 1717741881.65,
+        "bz_profit": 333094821.14,
+        "bz_cost": 1384647060.51,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "工程子午线轮胎"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "300803.SZ",
+        "end_date": "20241231",
+        "bz_item": "证券业",
+        "bz_code": "I",
+        "bz_sales": 317329584.0,
+        "bz_profit": null,
+        "bz_cost": null,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "300803.SZ",
+          "end_date": "20241231",
+          "bz_item": "证券业"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "601456.SH",
+        "end_date": "20241231",
+        "bz_item": "手续费及佣金收入:证券经纪业务:代销金融产品业务",
+        "bz_code": "I",
+        "bz_sales": 56635538.34,
+        "bz_profit": 56635538.34,
+        "bz_cost": null,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "601456.SH",
+          "end_date": "20241231",
+          "bz_item": "手续费及佣金收入:证券经纪业务:代销金融产品业务"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "603697.SH",
+        "end_date": "20241231",
+        "bz_item": "素食类",
+        "bz_code": "P",
+        "bz_sales": 92875100.5,
+        "bz_profit": 23630556.67,
+        "bz_cost": 69244543.83,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "603697.SH",
+          "end_date": "20241231",
+          "bz_item": "素食类"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "603697.SH",
+        "end_date": "20241231",
+        "bz_item": "猪皮晶",
+        "bz_code": "P",
+        "bz_sales": 93290045.73,
+        "bz_profit": 36792094.19,
+        "bz_cost": 56497951.54,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "603697.SH",
+          "end_date": "20241231",
+          "bz_item": "猪皮晶"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "603697.SH",
+        "end_date": "20241231",
+        "bz_item": "其他主营业务",
+        "bz_code": "P",
+        "bz_sales": 152486894.91,
+        "bz_profit": 25168714.49,
+        "bz_cost": 127318180.42,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "603697.SH",
+          "end_date": "20241231",
+          "bz_item": "其他主营业务"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "873739.BJ",
+        "end_date": "20241231",
+        "bz_item": "其他业务",
+        "bz_code": "P",
+        "bz_sales": 16138.07,
+        "bz_profit": 16138.07,
+        "bz_cost": 0.0,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "873739.BJ",
+          "end_date": "20241231",
+          "bz_item": "其他业务"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "873694.BJ",
+        "end_date": "20241231",
+        "bz_item": "检测业务",
+        "bz_code": "P",
+        "bz_sales": 137968316.54,
+        "bz_profit": 88252611.73,
+        "bz_cost": 49715704.81,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "873694.BJ",
+          "end_date": "20241231",
+          "bz_item": "检测业务"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "873694.BJ",
+        "end_date": "20241231",
+        "bz_item": "仪器销售",
+        "bz_code": "P",
+        "bz_sales": 9941619.26,
+        "bz_profit": 2585556.75,
+        "bz_cost": 7356062.51,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "873694.BJ",
+          "end_date": "20241231",
+          "bz_item": "仪器销售"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "688231.SH",
+        "end_date": "20241231",
+        "bz_item": "经销",
+        "bz_code": "455006000",
+        "bz_sales": 83682566.04,
+        "bz_profit": 17130574.65,
+        "bz_cost": 66551991.39,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "688231.SH",
+          "end_date": "20241231",
+          "bz_item": "经销"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "688231.SH",
+        "end_date": "20241231",
+        "bz_item": "直销",
+        "bz_code": "455006000",
+        "bz_sales": 1222066811.92,
+        "bz_profit": 176779646.04,
+        "bz_cost": 1045287165.88,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "688231.SH",
+          "end_date": "20241231",
+          "bz_item": "直销"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "688231.SH",
+        "end_date": "20241231",
+        "bz_item": "国外",
+        "bz_code": "D",
+        "bz_sales": 300879655.87,
+        "bz_profit": 85423675.38,
+        "bz_cost": 215455980.49,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "688231.SH",
+          "end_date": "20241231",
+          "bz_item": "国外"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "688231.SH",
+        "end_date": "20241231",
+        "bz_item": "中国大陆",
+        "bz_code": "D",
+        "bz_sales": 1090593719.83,
+        "bz_profit": 135568931.77,
+        "bz_cost": 955024788.06,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "688231.SH",
+          "end_date": "20241231",
+          "bz_item": "中国大陆"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "中国大陆",
+        "bz_code": "D",
+        "bz_sales": 805967303.16,
+        "bz_profit": null,
+        "bz_cost": null,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "中国大陆"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874194.BJ",
+        "end_date": "20241231",
+        "bz_item": "国外",
+        "bz_code": "D",
+        "bz_sales": 1483434142.25,
+        "bz_profit": null,
+        "bz_cost": null,
+        "curr_type": "CNY",
+        "_pk": {
+          "ts_code": "874194.BJ",
+          "end_date": "20241231",
+          "bz_item": "国外"
+        },
+        "_is_pk_dup": true
+      }
+    ],
+    "total_records": 10000
+  },
+  "balancesheet_vip_20250630": {
+    "interface_name": "balancesheet_vip",
+    "period": "20250630",
+    "downloaded": 6633,
+    "pk_unique": 6604,
+    "pk_duplicates": 29,
+    "all_fields_unique": 6609,
+    "all_fields_duplicates": 24,
+    "difference": 5,
+    "issues": [
+      "主键去重比全字段去重多去除了5条记录",
+      "说明存在主键相同但其他字段不同的记录",
+      "找到20条被主键去重但全字段去重会保留的记录"
+    ],
+    "sample_duplicates": [],
+    "sample_preserved_records": [
+      {
+        "ts_code": "874400.BJ",
+        "ann_date": "20250805",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 88592284.0,
+        "total_assets": 652059034.37,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 108252511.09,
+        "total_cur_liab": 106211957.64,
+        "treasury_share": null,
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "874400.BJ",
+          "ann_date": "20250805",
+          "end_date": "20250630",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874111.BJ",
+        "ann_date": "20250806",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 59875000.0,
+        "total_assets": 1181640196.13,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 544058144.48,
+        "total_cur_liab": 509723907.32,
+        "treasury_share": null,
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "874111.BJ",
+          "ann_date": "20250806",
+          "end_date": "20250630",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "873697.BJ",
+        "ann_date": "20250816",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 40816327.0,
+        "total_assets": 476974115.2,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 181853293.29,
+        "total_cur_liab": 178805290.78,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "873697.BJ",
+          "ann_date": "20250816",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874096.BJ",
+        "ann_date": "20250823",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 43390000.0,
+        "total_assets": 582718210.67,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 174952740.21,
+        "total_cur_liab": 168631444.93,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874096.BJ",
+          "ann_date": "20250823",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874475.BJ",
+        "ann_date": "20250823",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 46235880.0,
+        "total_assets": 936589308.8,
+        "const_materials": null,
+        "r_and_d": 0.0,
+        "total_liab": 388465162.27,
+        "total_cur_liab": 359913439.69,
+        "treasury_share": 0.0,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874475.BJ",
+          "ann_date": "20250823",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874679.BJ",
+        "ann_date": "20250826",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 144148421.0,
+        "total_assets": 705501894.92,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 163953146.41,
+        "total_cur_liab": 154622840.15,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874679.BJ",
+          "ann_date": "20250826",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "830852.BJ",
+        "ann_date": "20250826",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 171839100.0,
+        "total_assets": 2869692640.5,
+        "const_materials": null,
+        "r_and_d": 0.0,
+        "total_liab": 1101762445.54,
+        "total_cur_liab": 652662928.32,
+        "treasury_share": 0.0,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "830852.BJ",
+          "ann_date": "20250826",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874560.BJ",
+        "ann_date": "20250827",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 52854546.0,
+        "total_assets": 683594374.11,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 203486963.68,
+        "total_cur_liab": 195361313.68,
+        "treasury_share": null,
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "874560.BJ",
+          "ann_date": "20250827",
+          "end_date": "20250630",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "873732.BJ",
+        "ann_date": "20250827",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 109785200.0,
+        "total_assets": 528764871.93,
+        "const_materials": 196464.6,
+        "r_and_d": null,
+        "total_liab": 122449853.59,
+        "total_cur_liab": 122444638.73,
+        "treasury_share": 50927282.36,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "873732.BJ",
+          "ann_date": "20250827",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874555.BJ",
+        "ann_date": "20250827",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 70253430.0,
+        "total_assets": 1024804345.33,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 466456718.89,
+        "total_cur_liab": 450671089.89,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874555.BJ",
+          "ann_date": "20250827",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874142.BJ",
+        "ann_date": "20250827",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 150000000.0,
+        "total_assets": 2655337070.08,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 665742961.84,
+        "total_cur_liab": 503188553.22,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874142.BJ",
+          "ann_date": "20250827",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874572.BJ",
+        "ann_date": "20250828",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 42331200.0,
+        "total_assets": 712566728.5,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 156989408.21,
+        "total_cur_liab": 90797186.72,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874572.BJ",
+          "ann_date": "20250828",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "830978.BJ",
+        "ann_date": "20250828",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 403619700.0,
+        "total_assets": 2157010131.91,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 397595328.93,
+        "total_cur_liab": 373559509.78,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "830978.BJ",
+          "ann_date": "20250828",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874520.BJ",
+        "ann_date": "20250828",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 67380009.0,
+        "total_assets": 1269149507.61,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 653667472.59,
+        "total_cur_liab": 650446490.0,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874520.BJ",
+          "ann_date": "20250828",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874249.BJ",
+        "ann_date": "20250828",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 52678571.0,
+        "total_assets": 1017848518.9,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 498197054.85,
+        "total_cur_liab": 408178848.51,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874249.BJ",
+          "ann_date": "20250828",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874302.BJ",
+        "ann_date": "20250828",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 51000000.0,
+        "total_assets": 465739977.02,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 67391546.02,
+        "total_cur_liab": 61010505.27,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874302.BJ",
+          "ann_date": "20250828",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874588.BJ",
+        "ann_date": "20250829",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 133000000.0,
+        "total_assets": 1105345854.17,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 319687158.42,
+        "total_cur_liab": 310877610.97,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874588.BJ",
+          "ann_date": "20250829",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874522.BJ",
+        "ann_date": "20250829",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 66446072.0,
+        "total_assets": 669714482.82,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 255171879.55,
+        "total_cur_liab": 245992840.49,
+        "treasury_share": null,
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "874522.BJ",
+          "ann_date": "20250829",
+          "end_date": "20250630",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874405.BJ",
+        "ann_date": "20250829",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 97000000.0,
+        "total_assets": 956984218.27,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 157039534.64,
+        "total_cur_liab": 124678816.4,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874405.BJ",
+          "ann_date": "20250829",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "000505.SZ",
+        "ann_date": "20250830",
+        "end_date": "20250630",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 726950251.0,
+        "total_assets": 7518864664.24,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 4003727804.57,
+        "total_cur_liab": 3043222419.0,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "000505.SZ",
+          "ann_date": "20250830",
+          "end_date": "20250630",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      }
+    ],
+    "total_records": 6633
+  },
+  "balancesheet_vip_20250930": {
+    "interface_name": "balancesheet_vip",
+    "period": "20250930",
+    "downloaded": 5918,
+    "pk_unique": 5916,
+    "pk_duplicates": 2,
+    "all_fields_unique": 5917,
+    "all_fields_duplicates": 1,
+    "difference": 1,
+    "issues": [
+      "主键去重比全字段去重多去除了1条记录",
+      "说明存在主键相同但其他字段不同的记录",
+      "找到4条被主键去重但全字段去重会保留的记录"
+    ],
+    "sample_duplicates": [],
+    "sample_preserved_records": [
+      {
+        "ts_code": "874382.BJ",
+        "ann_date": "20251030",
+        "end_date": "20250930",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 187500000.0,
+        "total_assets": 1623982591.72,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 485595272.05,
+        "total_cur_liab": 374376109.96,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874382.BJ",
+          "ann_date": "20251030",
+          "end_date": "20250930",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874200.BJ",
+        "ann_date": "20251101",
+        "end_date": "20250930",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 67342500.0,
+        "total_assets": 926273288.84,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 598326738.84,
+        "total_cur_liab": 577430604.65,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874200.BJ",
+          "ann_date": "20251101",
+          "end_date": "20250930",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874382.BJ",
+        "ann_date": "20251030",
+        "end_date": "20250930",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 187500000.0,
+        "total_assets": 1624032908.64,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 485537018.2,
+        "total_cur_liab": 374317856.11,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874382.BJ",
+          "ann_date": "20251030",
+          "end_date": "20250930",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "874200.BJ",
+        "ann_date": "20251101",
+        "end_date": "20250930",
+        "comp_type": "1",
+        "report_type": "1",
+        "total_share": 67342500.0,
+        "total_assets": 926273288.84,
+        "const_materials": null,
+        "r_and_d": null,
+        "total_liab": 598326738.84,
+        "total_cur_liab": 577430604.65,
+        "treasury_share": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "874200.BJ",
+          "ann_date": "20251101",
+          "end_date": "20250930",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      }
+    ],
+    "total_records": 5918
+  },
+  "forecast_vip_20241231": {
+    "interface_name": "forecast_vip",
+    "period": "20241231",
+    "downloaded": 3955,
+    "pk_unique": 3951,
+    "pk_duplicates": 4,
+    "all_fields_unique": 3955,
+    "all_fields_duplicates": 0,
+    "difference": 4,
+    "issues": [
+      "主键去重比全字段去重多去除了4条记录",
+      "说明存在主键相同但其他字段不同的记录",
+      "找到8条被主键去重但全字段去重会保留的记录"
+    ],
+    "sample_duplicates": [],
+    "sample_preserved_records": [
+      {
+        "ts_code": "600588.SH",
+        "ann_date": "20250124",
+        "end_date": "20241231",
+        "type": "续亏",
+        "p_change_min": -98.5173,
+        "p_change_max": -77.8384,
+        "net_profit_min": -192000.0,
+        "net_profit_max": -172000.0,
+        "last_parent_net": -96717.0,
+        "first_ann_date": "20250124",
+        "summary": "预计:净利润-192000--172000",
+        "change_reason": "1、受外部宏观环境影响，公司部分客户需求阶段性延后，导致公司全年签约金额同比下降。公司预计实现营业收入910,000万元到920,000万元，同比下降6.1%-7.1%。2、公司研发投入形成的无形资产摊销金额同比增加约30,000万元。3、公司控制人员规模，离职补偿金同比增加约14,000万元。报告期内，公司进一步打磨产品，发布了BIP3R6版本，成功上线招商局、中国西电、比亚迪、万达商管等一批战略级客户，替代国际厂商系统的产品能力进一步增强；加速拥抱AI，发布企业服务垂类大模型YonGPT2.0和多项智能服务，一批行业领先企业选择了用友的智能平台和服务；持续推进云服务优先、订阅优先的战略，订阅收入同比增长超25%；销售商品、提供劳务收到的现金超过960,000万元，保持基本稳定。报告期内，公司控制人员规模，员工数量相较2024年初减少约3,700人，成本费用控制取得一定成效，为2025年经营效益的改进提升建立了良好基础。2025年，公司将坚持客户成功、生态共荣、全球市场、AI至上、产品第一、交付革新的发展战略，以战略客户和区域客户两个层级并行推进行业化客户经营深化，拓宽收入渠道和来源，积极增长收入，实现效益化经营。",
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "600588.SH",
+          "ann_date": "20250124",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "600588.SH",
+        "ann_date": "20250124",
+        "end_date": "20241231",
+        "type": "扭亏",
+        "p_change_min": 277.8384,
+        "p_change_max": 298.5173,
+        "net_profit_min": 172000.0,
+        "net_profit_max": 192000.0,
+        "last_parent_net": -96717.0,
+        "first_ann_date": "20250124",
+        "summary": "预计净利润172000-192000万",
+        "change_reason": "1、受外部宏观环境影响，公司部分客户需求阶段性延后，导致公司全年签约金额同比下降。公司预计实现营业收入910,000万元到920,000万元，同比下降6.1%-7.1%。2、公司研发投入形成的无形资产摊销金额同比增加约30,000万元。3、公司控制人员规模，离职补偿金同比增加约14,000万元。报告期内，公司进一步打磨产品，发布了BIP3R6版本，成功上线招商局、中国西电、比亚迪、万达商管等一批战略级客户，替代国际厂商系统的产品能力进一步增强；加速拥抱AI，发布企业服务垂类大模型YonGPT2.0和多项智能服务，一批行业领先企业选择了用友的智能平台和服务；持续推进云服务优先、订阅优先的战略，订阅收入同比增长超25%；销售商品、提供劳务收到的现金超过960,000万元，保持基本稳定。报告期内，公司控制人员规模，员工数量相较2024年初减少约3,700人，成本费用控制取得一定成效，为2025年经营效益的改进提升建立了良好基础。2025年，公司将坚持客户成功、生态共荣、全球市场、AI至上、产品第一、交付革新的发展战略，以战略客户和区域客户两个层级并行推进行业化客户经营深化，拓宽收入渠道和来源，积极增长收入，实现效益化经营。",
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "600588.SH",
+          "ann_date": "20250124",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "603906.SH",
+        "ann_date": "20250118",
+        "end_date": "20241231",
+        "type": "续亏",
+        "p_change_min": 43.493,
+        "p_change_max": 51.7807,
+        "net_profit_min": -69691.0,
+        "net_profit_max": -59470.0,
+        "last_parent_net": -123332.35,
+        "first_ann_date": "20250118",
+        "summary": "预计:净利润-69691--59470",
+        "change_reason": "(一)主营业务影响2024 年度,由于新能源汽车产业链供需关系格局发生变化,锂电池材料产业链在行业底部区间持续运行,磷酸铁锂产品价格较 2023 年有较大幅度调整,叠加部分产品的存货跌价损失以及资产减值,商誉减值等事项影响,外加公司因计提港股上市费用和少数股东金融负债等原因产生了较大金额非经常性损益,尽管公司通过坚持产品差异化发展战略,积极寻求出海机遇,贯彻降本增效理念等减亏举措,仍在短期内难以扭转局势,导致公司 2024 年度业绩预计亏损.(二)非经常性损益的影响非经常性损益对公司业绩预亏没有重大影响.(三)会计处理的影响会计处理对公司业绩预亏没有重大影响.",
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "603906.SH",
+          "ann_date": "20250118",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "603906.SH",
+        "ann_date": "20250118",
+        "end_date": "20241231",
+        "type": "扭亏",
+        "p_change_min": 148.2193,
+        "p_change_max": 156.507,
+        "net_profit_min": 59470.0,
+        "net_profit_max": 69691.0,
+        "last_parent_net": -123332.35,
+        "first_ann_date": "20250118",
+        "summary": "预计净利润59470-69691万",
+        "change_reason": "（一）主营业务影响2024年度，由于新能源汽车产业链供需关系格局发生变化，锂电池材料产业链在行业底部区间持续运行，磷酸铁锂产品价格较2023年有较大幅度调整，叠加部分产品的存货跌价损失以及资产减值、商誉减值等事项影响，外加公司因计提港股上市费用和少数股东金融负债等原因产生了较大金额非经常性损益，尽管公司通过坚持产品差异化发展战略、积极寻求出海机遇、贯彻降本增效理念等减亏举措，仍在短期内难以扭转局势，导致公司2024年度业绩预计亏损。（二）非经常性损益的影响非经常性损益对公司业绩预亏没有重大影响。（三）会计处理的影响会计处理对公司业绩预亏没有重大影响。",
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "603906.SH",
+          "ann_date": "20250118",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "600268.SH",
+        "ann_date": "20240329",
+        "end_date": "20241231",
+        "type": "略增",
+        "p_change_min": 20.0,
+        "p_change_max": 20.0,
+        "net_profit_min": 27224.0,
+        "net_profit_max": 27224.0,
+        "last_parent_net": 22686.6535,
+        "first_ann_date": "20240329",
+        "summary": "预计:净利润27224",
+        "change_reason": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "600268.SH",
+          "ann_date": "20240329",
+          "end_date": "20241231",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "600268.SH",
+        "ann_date": "20240329",
+        "end_date": "20241231",
+        "type": "略增",
+        "p_change_min": 20.0,
+        "p_change_max": 20.0,
+        "net_profit_min": 27224.0,
+        "net_profit_max": 27224.0,
+        "last_parent_net": 22686.6535,
+        "first_ann_date": "20240329",
+        "summary": "预计:净利润27224",
+        "change_reason": null,
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "600268.SH",
+          "ann_date": "20240329",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "600268.SH",
+        "ann_date": "20240329",
+        "end_date": "20241231",
+        "type": "不确定",
+        "p_change_min": null,
+        "p_change_max": null,
+        "net_profit_min": null,
+        "net_profit_max": null,
+        "last_parent_net": 22686.6535,
+        "first_ann_date": "20240329",
+        "summary": "不确定",
+        "change_reason": null,
+        "update_flag": "0",
+        "_pk": {
+          "ts_code": "600268.SH",
+          "ann_date": "20240329",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "_is_pk_dup": true
+      },
+      {
+        "ts_code": "600268.SH",
+        "ann_date": "20240329",
+        "end_date": "20241231",
+        "type": "不确定",
+        "p_change_min": null,
+        "p_change_max": null,
+        "net_profit_min": null,
+        "net_profit_max": null,
+        "last_parent_net": 22686.6535,
+        "first_ann_date": "20240329",
+        "summary": "不确定",
+        "change_reason": null,
+        "update_flag": "1",
+        "_pk": {
+          "ts_code": "600268.SH",
+          "ann_date": "20240329",
+          "end_date": "20241231",
+          "update_flag": "1"
+        },
+        "_is_pk_dup": true
+      }
+    ],
+    "total_records": 3955
+  }
+}

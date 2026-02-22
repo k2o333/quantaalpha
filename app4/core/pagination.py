@@ -87,6 +87,13 @@ class PaginationComposer:
             yield from params_stream
             return
 
+        # 新增：reverse_date_range + is_date_anchor 模式的专门处理
+        # 仅影响 cyq_perf 这类接口（更新模式调用路径）
+        if pagination_mode == "reverse_date_range" and is_date_anchor_interface:
+            params_stream = list(self._apply_date_anchor_range(params_stream))
+            yield from params_stream
+            return
+
         # 1. 时间维度（最内层）- 日期锚定接口跳过
         if self._is_enabled("time_range") and not is_date_anchor_interface:
             params_stream = list(self._apply_time_range(params_stream))
@@ -213,6 +220,89 @@ class PaginationComposer:
                     periods.append(period)
 
         return periods
+
+    def _apply_date_anchor_range(
+        self, params_stream: List[Dict[str, Any]]
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        应用日期锚定范围维度
+
+        专用于 reverse_date_range + is_date_anchor 的接口（如 cyq_perf）
+        将 start_date/end_date 转换为单个日期锚定值
+
+        Args:
+            params_stream: 参数流
+
+        Yields:
+            应用日期锚定后的参数
+        """
+        # 找到日期锚定参数名
+        date_anchor_param = self._find_date_anchor_param()
+        if not date_anchor_param:
+            yield from params_stream
+            return
+
+        for params in params_stream:
+            start_date = params.get("start_date")
+            end_date = params.get("end_date")
+
+            if not start_date:
+                # 移除 start_date/end_date 后直接返回
+                result_params = {k: v for k, v in params.items() if k not in ["start_date", "end_date"]}
+                yield result_params
+                continue
+
+            # 生成每日日期锚定值
+            anchor_values = self._generate_daily_dates(start_date, end_date)
+
+            # 反向遍历（reverse_date_range 模式）
+            anchor_values = list(reversed(anchor_values))
+
+            for anchor_value in anchor_values:
+                p = {k: v for k, v in params.items() if k not in ["start_date", "end_date"]}
+                p[date_anchor_param] = anchor_value
+                yield p
+
+    def _find_date_anchor_param(self) -> Optional[str]:
+        """
+        查找日期锚定参数名称
+
+        Returns:
+            日期锚定参数名称，如 'trade_date'、'ann_date' 等
+        """
+        parameters = self.interface_config.get("parameters", {})
+        for param_name, param_def in parameters.items():
+            if param_def.get("is_date_anchor", False):
+                return param_name
+        return None
+
+    def _generate_daily_dates(self, start_date: str, end_date: Optional[str]) -> List[str]:
+        """
+        生成每日日期列表
+
+        Args:
+            start_date: 开始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+
+        Returns:
+            日期字符串列表
+        """
+        if not start_date:
+            return []
+
+        try:
+            start = datetime.strptime(start_date, '%Y%m%d')
+            end = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
+        except ValueError:
+            return []
+
+        dates = []
+        current = start
+        while current <= end:
+            dates.append(current.strftime('%Y%m%d'))
+            current += timedelta(days=1)
+
+        return dates
 
     def _apply_time_range(
         self, params_stream: List[Dict[str, Any]]
@@ -597,6 +687,7 @@ def migrate_legacy_config(interface_config: Dict[str, Any]) -> Dict[str, Any]:
             "reverse": False,
         }
     elif mode == "reverse_date_range":
+        new_config["mode"] = "reverse_date_range"  # 新增：保留 mode 字段，用于 compose() 判断
         new_config["time_range"] = {
             "enabled": True,
             "window": window_str,

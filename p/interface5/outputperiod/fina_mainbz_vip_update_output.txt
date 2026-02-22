@@ -1,0 +1,98 @@
+2026-02-21 22:12:53,681 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-21 22:12:53,780 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-21 22:12:53,813 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-21 22:12:53,814 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-21 22:12:53,815 - core.storage - INFO - Storage writer and process threads started
+2026-02-21 22:12:53,815 - __main__ - INFO - Interfaces to update (after permission filter): ['fina_mainbz_vip']
+2026-02-21 22:12:53,815 - update.update_reporter - INFO - 更新开始: 2026-02-21 22:12:53
+2026-02-21 22:12:53,815 - update.update_manager - INFO - ============================================================
+2026-02-21 22:12:53,816 - update.update_manager - INFO - 开始增量更新
+2026-02-21 22:12:53,816 - update.update_manager - INFO - ============================================================
+2026-02-21 22:12:53,816 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-21 22:12:53,816 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-21 22:12:53,817 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-21 22:12:53,817 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-21 22:12:53,817 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-21 22:12:53,817 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-21 22:12:53,817 - update.update_manager - INFO - 
+[1/1] 处理接口: fina_mainbz_vip
+2026-02-21 22:12:53,817 - update.update_reporter - INFO - 开始更新接口: fina_mainbz_vip
+2026-02-21 22:12:53,818 - update.update_manager - INFO - 开始更新 fina_mainbz_vip: 20241001 ~ 20260221
+2026-02-21 22:12:53,818 - update.update_manager - INFO - 开始下载 fina_mainbz_vip: 20241001 ~ 20260221
+2026-02-21 22:12:57,585 - core.downloader - INFO - API returned 8 fields for fina_mainbz_vip
+2026-02-21 22:12:57,586 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'bz_item', 'bz_code', 'bz_sales', 'bz_profit', 'bz_cost', 'curr_type']
+2026-02-21 22:12:57,631 - core.downloader - INFO - Downloaded 10000 records for fina_mainbz_vip
+2026-02-21 22:12:57,755 - core.pagination_executor - INFO - [fina_mainbz_vip] Saved 10000 records for period 20241231
+2026-02-21 22:12:57,927 - core.processor - WARNING - Found 18 duplicate records for interface fina_mainbz_vip
+2026-02-21 22:12:57,935 - core.processor - INFO - Processed 9982 records for fina_mainbz_vip
+2026-02-21 22:12:57,992 - core.storage - INFO - Processed and queued 9982 records for fina_mainbz_vip
+2026-02-21 22:12:58,053 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for fina_mainbz_vip，记录数: 9982
+2026-02-21 22:12:58,059 - core.storage - INFO - Wrote 9982 records to /home/quan/testdata/aspipe_v4/data/fina_mainbz_vip/fina_mainbz_vip_20241231_20241231_1771683177993_8cffd3df.parquet
+2026-02-21 22:12:58,777 - core.downloader - INFO - API returned 8 fields for fina_mainbz_vip
+2026-02-21 22:12:58,777 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'bz_item', 'bz_code', 'bz_sales', 'bz_profit', 'bz_cost', 'curr_type']
+2026-02-21 22:12:58,780 - core.downloader - INFO - Downloaded 639 records for fina_mainbz_vip
+2026-02-21 22:12:58,789 - core.pagination_executor - INFO - [fina_mainbz_vip] Saved 639 records for period 20250331
+2026-02-21 22:13:03,262 - core.downloader - INFO - API returned 8 fields for fina_mainbz_vip
+2026-02-21 22:13:03,262 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'bz_item', 'bz_code', 'bz_sales', 'bz_profit', 'bz_cost', 'curr_type']
+2026-02-21 22:13:03,307 - core.downloader - INFO - Downloaded 10000 records for fina_mainbz_vip
+2026-02-21 22:13:03,438 - core.pagination_executor - INFO - [fina_mainbz_vip] Saved 10000 records for period 20250630
+2026-02-21 22:13:03,575 - core.processor - WARNING - Found 8851 duplicate records for interface fina_mainbz_vip
+2026-02-21 22:13:03,582 - core.processor - INFO - Processed 1788 records for fina_mainbz_vip
+2026-02-21 22:13:03,606 - core.storage - INFO - Deduplication completed for fina_mainbz_vip: input=1788, output=1788, removed=0
+2026-02-21 22:13:03,610 - core.storage - INFO - Processed and queued 1788 records for fina_mainbz_vip
+2026-02-21 22:13:03,631 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for fina_mainbz_vip，记录数: 1788
+2026-02-21 22:13:03,634 - core.storage - INFO - Wrote 1788 records to /home/quan/testdata/aspipe_v4/data/fina_mainbz_vip/fina_mainbz_vip_20250331_20250630_1771683183614_19cefab8.parquet
+2026-02-21 22:13:04,673 - core.downloader - INFO - API returned 8 fields for fina_mainbz_vip
+2026-02-21 22:13:04,674 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'bz_item', 'bz_code', 'bz_sales', 'bz_profit', 'bz_cost', 'curr_type']
+2026-02-21 22:13:04,678 - core.downloader - INFO - Downloaded 674 records for fina_mainbz_vip
+2026-02-21 22:13:04,694 - core.pagination_executor - INFO - [fina_mainbz_vip] Saved 674 records for period 20250930
+2026-02-21 22:13:05,448 - core.downloader - INFO - API returned 8 fields for fina_mainbz_vip
+2026-02-21 22:13:05,448 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'bz_item', 'bz_code', 'bz_sales', 'bz_profit', 'bz_cost', 'curr_type']
+2026-02-21 22:13:05,459 - core.downloader - INFO - Downloaded 1727 records for fina_mainbz_vip
+2026-02-21 22:13:05,500 - core.pagination_executor - INFO - [fina_mainbz_vip] Saved 1727 records for period 20251231
+2026-02-21 22:13:05,504 - update.update_manager - INFO - 接口 fina_mainbz_vip 更新完成，共 23040 条记录，耗时 11.69秒
+2026-02-21 22:13:05,504 - update.update_reporter - INFO - ✓ fina_mainbz_vip: SUCCESS (23040 条记录) [11.69s]
+2026-02-21 22:13:05,504 - update.update_reporter - INFO - 更新结束: 2026-02-21 22:13:05
+2026-02-21 22:13:05,505 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-21 22:13:05,505 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-21 22:13:05,505 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260221_221305.markdown
+2026-02-21 22:13:05,506 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-21 22:13:05,506 - __main__ - INFO - 正在停止调度器...
+2026-02-21 22:13:05,506 - core.scheduler - INFO - Task scheduler stopped
+2026-02-21 22:13:05,506 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-21 22:13:05,506 - core.storage - INFO - Flushed 2401 remaining records for processing: fina_mainbz_vip
+2026-02-21 22:13:05,521 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-21 22:13:05,571 - core.processor - WARNING - Found 1528 duplicate records for interface fina_mainbz_vip
+2026-02-21 22:13:05,578 - core.processor - INFO - Processed 873 records for fina_mainbz_vip
+2026-02-21 22:13:05,606 - core.storage - INFO - Deduplication completed for fina_mainbz_vip: input=873, output=873, removed=0
+2026-02-21 22:13:05,614 - core.storage - INFO - Processed and queued 873 records for fina_mainbz_vip
+2026-02-21 22:13:05,622 - core.storage - INFO - Stopping writer thread...
+2026-02-21 22:13:05,634 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for fina_mainbz_vip，记录数: 873
+2026-02-21 22:13:05,637 - core.storage - INFO - Wrote 873 records to /home/quan/testdata/aspipe_v4/data/fina_mainbz_vip/fina_mainbz_vip_20250930_20251231_1771683185615_a0e896a3.parquet
+2026-02-21 22:13:05,638 - core.storage - INFO - Storage threads stopped
+2026-02-21 22:13:05,639 - __main__ - INFO - 限流统计: 总请求=5, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-21 22:13:05,639 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-21 22:12:53
+- **结束时间**: 2026-02-21 22:13:05
+- **总耗时**: 11.7秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 23040
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| fina_mainbz_vip | ✓ 成功 | 20241001 ~ 20260221 | 23040 | 11.69s |  |
+
+============================================================

@@ -1,0 +1,48 @@
+2026-02-22 16:03:59,106 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-22 16:03:59,197 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-22 16:03:59,230 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-22 16:03:59,231 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260222
+2026-02-22 16:03:59,234 - __main__ - INFO - Global trade calendar loaded from memory cache: 8585 trade days
+2026-02-22 16:03:59,234 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-22 16:03:59,235 - core.storage - INFO - Storage writer and process threads started
+2026-02-22 16:03:59,235 - __main__ - INFO - Interfaces to run: ['suspend_d']
+2026-02-22 16:03:59,236 - __main__ - INFO - Downloading data for suspend_d, pagination mode: reverse_date_range
+2026-02-22 16:03:59,237 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-22 16:03:59,745 - core.downloader - INFO - API returned 4 fields for suspend_d
+2026-02-22 16:03:59,746 - core.downloader - INFO - Returned fields: ['ts_code', 'trade_date', 'suspend_timing', 'suspend_type']
+2026-02-22 16:03:59,746 - core.downloader - INFO - Downloaded 57 records for suspend_d
+2026-02-22 16:03:59,746 - __main__ - INFO - Successfully downloaded 57 records for suspend_d
+2026-02-22 16:03:59,769 - core.processor - INFO - Processed 57 records for suspend_d
+2026-02-22 16:03:59,770 - __main__ - INFO - No existing data found for suspend_d, skipping deduplication
+2026-02-22 16:03:59,770 - __main__ - INFO - Processed 57 records for suspend_d
+2026-02-22 16:03:59,772 - __main__ - INFO - 正在停止调度器...
+2026-02-22 16:03:59,778 - core.scheduler - INFO - Task scheduler stopped
+2026-02-22 16:03:59,779 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for suspend_d，记录数: 57
+2026-02-22 16:03:59,779 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-22 16:03:59,780 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-22 16:03:59,780 - core.storage - INFO - Process worker received stop signal
+2026-02-22 16:03:59,781 - core.storage - INFO - Stopping writer thread...
+2026-02-22 16:03:59,781 - core.storage - INFO - Wrote 57 records to /home/quan/testdata/aspipe_v4/data/suspend_d/suspend_d_20260210_20260213_1771747439772_35bd3a63.parquet
+2026-02-22 16:03:59,782 - core.storage - INFO - Storage threads stopped
+2026-02-22 16:03:59,782 - core.performance_monitor - INFO - 性能报告已保存: log/reports/performance_report_20260222_160359.md
+2026-02-22 16:03:59,782 - __main__ - INFO - 性能报告已生成: log/reports/performance_report_20260222_160359.md
+2026-02-22 16:03:59,783 - __main__ - INFO - 限流统计: 总请求=1, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-22 16:03:59,783 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 0.55秒
+总请求数: 1
+接口数量: 1
+------------------------------
+接口: suspend_d
+  - 请求次数: 1
+  - 总记录数: 57
+  - 成功率: 100.0%
+  - 平均请求时间: 0.44秒
+  - P50/P90/P99: 0.44/0.44/0.44秒
+  - 平均记录数: 57条
+
+==============================
+

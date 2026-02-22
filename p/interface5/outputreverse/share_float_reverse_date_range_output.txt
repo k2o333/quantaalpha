@@ -1,0 +1,58 @@
+2026-02-22 16:04:05,804 - __main__ - INFO - Starting aspipe_v4 App4 - Configuration-driven architecture
+2026-02-22 16:04:05,895 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-22 16:04:05,927 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-22 16:04:05,929 - __main__ - INFO - Preloading global trade calendar: 19900101 - 20260222
+2026-02-22 16:04:05,931 - __main__ - INFO - Global trade calendar loaded from memory cache: 8585 trade days
+2026-02-22 16:04:05,931 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-22 16:04:05,932 - core.storage - INFO - Storage writer and process threads started
+2026-02-22 16:04:05,932 - __main__ - INFO - Interfaces to run: ['share_float']
+2026-02-22 16:04:05,934 - __main__ - INFO - Downloading data for share_float, pagination mode: reverse_date_range
+2026-02-22 16:04:05,934 - core.downloader - INFO - 从内存缓存或Data目录获取到 5484 只股票
+2026-02-22 16:04:07,090 - core.downloader - INFO - API returned 7 fields for share_float
+2026-02-22 16:04:07,091 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'float_date', 'float_share', 'float_ratio', 'holder_name', 'share_type']
+2026-02-22 16:04:07,091 - core.downloader - INFO - Downloaded 5 records for share_float
+2026-02-22 16:04:09,199 - core.downloader - INFO - API returned 7 fields for share_float
+2026-02-22 16:04:09,200 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'float_date', 'float_share', 'float_ratio', 'holder_name', 'share_type']
+2026-02-22 16:04:09,231 - core.downloader - INFO - Downloaded 6000 records for share_float
+2026-02-22 16:04:10,205 - core.downloader - INFO - API returned 7 fields for share_float
+2026-02-22 16:04:10,206 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'float_date', 'float_share', 'float_ratio', 'holder_name', 'share_type']
+2026-02-22 16:04:10,240 - core.downloader - INFO - Downloaded 6000 records for share_float
+2026-02-22 16:04:11,916 - core.downloader - INFO - API returned 7 fields for share_float
+2026-02-22 16:04:11,917 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'float_date', 'float_share', 'float_ratio', 'holder_name', 'share_type']
+2026-02-22 16:04:11,951 - core.downloader - INFO - Downloaded 6000 records for share_float
+2026-02-22 16:04:11,953 - __main__ - INFO - Successfully downloaded 18005 records for share_float
+2026-02-22 16:04:12,227 - core.processor - WARNING - Found 40 duplicate records for interface share_float
+2026-02-22 16:04:12,242 - core.processor - INFO - Processed 17965 records for share_float
+2026-02-22 16:04:12,332 - __main__ - INFO - No existing data found for share_float, skipping deduplication
+2026-02-22 16:04:12,333 - __main__ - INFO - Processed 17965 records for share_float
+2026-02-22 16:04:12,657 - __main__ - INFO - 正在停止调度器...
+2026-02-22 16:04:12,657 - core.scheduler - INFO - Task scheduler stopped
+2026-02-22 16:04:12,673 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-22 16:04:12,693 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-22 16:04:12,781 - core.storage - INFO - Process worker received stop signal
+2026-02-22 16:04:12,781 - core.storage - INFO - Stopping writer thread...
+2026-02-22 16:04:12,806 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for share_float，记录数: 17965
+2026-02-22 16:04:12,817 - core.storage - INFO - Wrote 17965 records to /home/quan/testdata/aspipe_v4/data/share_float/share_float_20171208_20260211_1771747452657_ac1bbd6b.parquet
+2026-02-22 16:04:12,828 - core.storage - INFO - Storage threads stopped
+2026-02-22 16:04:12,828 - core.performance_monitor - INFO - 性能报告已保存: log/reports/performance_report_20260222_160412.md
+2026-02-22 16:04:12,829 - __main__ - INFO - 性能报告已生成: log/reports/performance_report_20260222_160412.md
+2026-02-22 16:04:12,829 - __main__ - INFO - 限流统计: 总请求=4, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-22 16:04:12,829 - __main__ - INFO - 资源清理完毕，程序退出。
+
+==============================
+      性能监控报告
+==============================
+总运行时间: 6.90秒
+总请求数: 4
+接口数量: 1
+------------------------------
+接口: share_float
+  - 请求次数: 4
+  - 总记录数: 18005
+  - 成功率: 100.0%
+  - 平均请求时间: 3.56秒
+  - P50/P90/P99: 4.18/5.89/5.89秒
+  - 平均记录数: 4501条
+
+==============================
+
