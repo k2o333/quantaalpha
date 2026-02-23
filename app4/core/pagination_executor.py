@@ -369,19 +369,28 @@ class PaginationExecutor:
                                 coverage_manager: Any) -> bool:
         """
         根据覆盖率判断是否跳过请求
-        
-        Args:
-            interface_config: 接口配置
-            params: 请求参数
-            coverage_manager: 覆盖率管理器
-            
-        Returns:
-            是否跳过
+
+        修正版：复用 CoverageManager 的统一策略，避免重复逻辑
         """
         api_name = interface_config.get('api_name', '')
+
+        # 仅在明确 stock_loop 场景下短路，避免跨股票误判
+        if 'ts_code' in params:
+            return False
+
+        param_defs = interface_config.get('parameters', {})
+        for param_name, param_def in param_defs.items():
+            if param_def.get('is_date_anchor', False) and param_name in params:
+                clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
+                try:
+                    return coverage_manager.should_skip(api_name, clean_params, strategy='auto')
+                except:
+                    return False
+
+        # 原有逻辑保持不变
         if '_time_window' in params:
             strategy = 'date_range'
-        elif '_period_query' in params:  # 新增：检测 period_range 模式
+        elif '_period_query' in params:
             strategy = 'period'
         elif '_stock_info' in params:
             strategy = 'stock'
@@ -389,20 +398,9 @@ class PaginationExecutor:
             strategy = 'type'
         else:
             strategy = 'default'
-        
+
         clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
         try:
-            # 如果接口定义了日期锚定参数且当前请求包含该参数，使用period策略
-            param_defs = interface_config.get('parameters', {})
-            date_anchor_param = None
-            for p_name, p_def in param_defs.items():
-                if p_def.get('is_date_anchor', False):
-                    date_anchor_param = p_name
-                    break
-            if date_anchor_param:
-                if date_anchor_param in clean_params:
-                    return coverage_manager.should_skip(api_name, clean_params, strategy='period')
-                return False
             return coverage_manager.should_skip(api_name, clean_params, strategy=strategy)
         except:
             return False

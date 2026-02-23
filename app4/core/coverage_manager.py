@@ -90,39 +90,7 @@ class CoverageManager:
         threshold = detection_config.get("threshold", 0.95)
 
         try:
-            # 读取接口数据，只读取日期列
-            df = self.storage_manager.read_interface_data(
-                interface_name,
-                start_date=start_date,
-                end_date=end_date,
-                columns=[date_column],
-            )
-
-            if df.is_empty():
-                logger.debug(
-                    f"No existing data found for {interface_name} in range {start_date}-{end_date}"
-                )
-                return {
-                    "covered": False,
-                    "coverage_rate": 0,
-                    "total_expected": 0,
-                    "total_found": 0,
-                }
-
-            # 获取实际存在的日期
-            # 处理日期字段，支持原始字符串格式和日期格式
-            date_series = df[date_column]
-            actual_dates = set()
-            for date_val in date_series:
-                if isinstance(date_val, str):
-                    actual_dates.add(date_val)  # 原始字符串格式
-                elif hasattr(date_val, "strftime"):
-                    # 日期类型，转换为字符串格式
-                    actual_dates.add(date_val.strftime("%Y%m%d"))
-                else:
-                    actual_dates.add(str(date_val))
-
-            # [优化] 直接使用 downloader 的 get_trade_calendar 方法
+            # [优化] 先获取交易日历，用于计算预期的交易日数
             if self.downloader:
                 trade_calendar = self.downloader.get_trade_calendar(
                     start_date, end_date
@@ -141,10 +109,10 @@ class CoverageManager:
                     f"Trade calendar not available for {interface_name}, using simple coverage check"
                 )
                 return {
-                    "covered": not df.is_empty(),
-                    "coverage_rate": 1.0 if not df.is_empty() else 0,
-                    "total_expected": 1,
-                    "total_found": 1,
+                    "covered": False,
+                    "coverage_rate": 0,
+                    "total_expected": 0,
+                    "total_found": 0,
                 }
 
             # 过滤出交易日
@@ -162,6 +130,32 @@ class CoverageManager:
                     "total_expected": 0,
                     "total_found": 0,
                 }
+
+            # 读取接口数据，只读取日期列
+            df = self.storage_manager.read_interface_data(
+                interface_name,
+                start_date=start_date,
+                end_date=end_date,
+                columns=[date_column],
+            )
+
+            # 获取实际存在的日期
+            # 处理日期字段，支持原始字符串格式和日期格式
+            actual_dates = set()
+            if not df.is_empty():
+                date_series = df[date_column]
+                for date_val in date_series:
+                    if isinstance(date_val, str):
+                        actual_dates.add(date_val)  # 原始字符串格式
+                    elif hasattr(date_val, "strftime"):
+                        # 日期类型，转换为字符串格式
+                        actual_dates.add(date_val.strftime("%Y%m%d"))
+                    else:
+                        actual_dates.add(str(date_val))
+            else:
+                logger.debug(
+                    f"No existing data found for {interface_name} in range {start_date}-{end_date}"
+                )
 
             # 计算覆盖率
             intersection = actual_dates & expected_dates
@@ -226,10 +220,12 @@ class CoverageManager:
         """
         根据策略判断是否应该跳过下载
 
+        修正版：添加 date_anchor 策略，统一处理日期锚点检测
+
         Args:
             interface_name: 接口名称
             params: 请求参数
-            strategy: 检测策略 ('auto', 'date_range', 'period', 'stock')
+            strategy: 检测策略 ('auto', 'date_range', 'period', 'stock', 'date_anchor')
 
         Returns:
             True表示应该跳过，False表示应该继续下载
@@ -257,7 +253,7 @@ class CoverageManager:
             if not detection_config.get("enabled", True):
                 return False
 
-            # 自动确定策略
+            # 自动确定策略 - 添加 date_anchor 识别
             if strategy == "auto":
                 pagination_config = interface_config.get("pagination", {})
                 pagination_mode = (
@@ -266,10 +262,24 @@ class CoverageManager:
                     else "none"
                 )
 
-                if pagination_mode in [
-                    "date_range",
-                    "reverse_date_range",
-                ]:  # 添加reverse_date_range支持
+                # 检测是否是日期锚点接口
+                param_defs = interface_config.get("parameters", {})
+                is_date_anchor_interface = any(
+                    p.get("is_date_anchor", False) for p in param_defs.values()
+                )
+
+                # 检测参数中是否包含日期锚点
+                date_anchor_param = None
+                for param_name, param_def in param_defs.items():
+                    if param_def.get("is_date_anchor", False) and param_name in params:
+                        date_anchor_param = param_name
+                        break
+
+                # 如果是日期锚点接口且参数包含锚点值，使用 date_anchor 策略
+                # 但要排除 stock_loop 场景（避免跨股票误判）
+                if is_date_anchor_interface and date_anchor_param and 'ts_code' not in params:
+                    strategy = "date_anchor"
+                elif pagination_mode in ["date_range", "reverse_date_range"]:
                     strategy = "date_range"
                 elif pagination_mode == "period_range":
                     strategy = "period"
@@ -286,6 +296,9 @@ class CoverageManager:
                 result = self._check_period_existence(interface_name, params)
             elif strategy == "stock":
                 result = self._check_stock_existence(interface_name, params)
+            elif strategy == "date_anchor":
+                # 日期锚点检测策略
+                result = self._check_date_anchor_existence(interface_name, params, interface_config)
 
             # [优化] 更新缓存 (带锁)
             with self._cache_lock:
@@ -441,7 +454,7 @@ class CoverageManager:
         return self._check_single_period_existence(interface_name, period)
 
     def _check_single_period_existence(
-        self, interface_name: str, period: str
+        self, interface_name: str, period: str, date_column: str = None
     ) -> bool:
         """
         检查单个报告期是否存在
@@ -449,13 +462,15 @@ class CoverageManager:
         Args:
             interface_name: 接口名称
             period: 报告期，如 '20260331'
+            date_column: 日期列名（可选），如果不提供则从配置中获取
 
         Returns:
             True 表示已存在（应跳过），False 表示不存在（应下载）
         """
         interface_config = self.config_loader.get_interface_config(interface_name)
         detection_config = interface_config.get("duplicate_detection", {})
-        date_column = detection_config.get("date_column", "end_date")
+        if date_column is None:
+            date_column = detection_config.get("date_column", "end_date")
 
         try:
             cache_key = f"{interface_name}_periods_{date_column}"
@@ -582,6 +597,40 @@ class CoverageManager:
         except Exception as e:
             logger.warning(f"Stock existence check failed for {interface_name}: {e}")
             return False
+
+    def _check_date_anchor_existence(
+        self, interface_name: str, params: Dict[str, Any], interface_config: Dict[str, Any]
+    ) -> bool:
+        """
+        检查日期锚定值是否存在（仅在非 stock_loop 场景下）
+
+        Args:
+            interface_name: 接口名称
+            params: 请求参数
+            interface_config: 接口配置
+
+        Returns:
+            True 表示已存在（应跳过），False 表示不存在（应下载）
+        """
+        # 获取接口配置中的日期锚定参数
+        param_defs = interface_config.get('parameters', {})
+        date_anchor_param = None
+        for param_name, param_def in param_defs.items():
+            if param_def.get('is_date_anchor', False):
+                date_anchor_param = param_name
+                break
+
+        if not date_anchor_param or date_anchor_param not in params:
+            return False
+
+        anchor_value = params[date_anchor_param]
+        detection_config = interface_config.get("duplicate_detection", {})
+        date_column = detection_config.get("date_column", date_anchor_param)
+
+        # 根据锚点类型选择适当的检测逻辑
+        return self._check_single_period_existence(
+            interface_name, anchor_value, date_column
+        )
 
     # ============================================================================
     # 缺口检测功能（增量更新增强）
@@ -1309,13 +1358,28 @@ class CoverageManager:
 
         return sorted(periods)
 
+    def _generate_daily_dates(self, start_date: str, end_date: str) -> List[str]:
+        """生成每日日期列表"""
+        start_dt = datetime.strptime(start_date, "%Y%m%d")
+        end_dt = datetime.strptime(end_date, "%Y%m%d")
+        delta = end_dt - start_dt
+        return [(start_dt + timedelta(days=i)).strftime("%Y%m%d") for i in range(delta.days + 1)]
+
     def _generate_anchor_values(
         self, start_date: str, end_date: str, anchor_param: str
     ) -> List[str]:
-        """生成锚点值列表"""
+        """
+        生成锚点值列表，根据锚点类型选择合适的生成策略
+
+        修正版：正确处理不同类型的日期锚点
+        """
         if anchor_param in ["end_date", "period"]:
             return self._generate_report_periods(start_date, end_date)
-
+        if anchor_param in ["trade_date", "ann_date"]:
+            trade_calendar = self.downloader.get_trade_calendar(start_date, end_date) if self.downloader else None
+            if trade_calendar:
+                return [day["cal_date"] for day in trade_calendar if day.get("is_open", 0) == 1]
+            return self._generate_daily_dates(start_date, end_date)
         return self._generate_report_periods(start_date, end_date)
 
     def _merge_dates_to_ranges(
