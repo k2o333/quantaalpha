@@ -365,7 +365,7 @@ class PaginationExecutor:
             return time_range.get('stop_on_empty', 0)
         return 0
     
-    def _should_skip_by_coverage(self, interface_config: Dict[str, Any], params: Dict[str, Any], 
+    def _should_skip_by_coverage(self, interface_config: Dict[str, Any], params: Dict[str, Any],
                                 coverage_manager: Any) -> bool:
         """
         根据覆盖率判断是否跳过请求
@@ -387,7 +387,20 @@ class PaginationExecutor:
                 except:
                     return False
 
-        # 原有逻辑保持不变
+        # 【修复】先构建 clean_params，再根据 _time_window 更新日期范围
+        clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
+
+        # 如果有 _time_window，使用窗口日期替换原始 start_date/end_date
+        # 这样覆盖率检查只检查当前窗口范围，而不是整个请求范围
+        if '_time_window' in params:
+            start, end = params['_time_window']
+            clean_params['start_date'] = start
+            clean_params['end_date'] = end
+            logger.debug(f"[Coverage] Window dates applied: {start} ~ {end} for {api_name}")
+        else:
+            logger.debug(f"[Coverage] No _time_window in params, using original dates for {api_name}")
+
+        # 确定检测策略
         if '_time_window' in params:
             strategy = 'date_range'
         elif '_period_query' in params:
@@ -399,7 +412,6 @@ class PaginationExecutor:
         else:
             strategy = 'default'
 
-        clean_params = {k: v for k, v in params.items() if not k.startswith('_')}
         try:
             return coverage_manager.should_skip(api_name, clean_params, strategy=strategy)
         except:

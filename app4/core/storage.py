@@ -387,13 +387,19 @@ class StorageManager:
                 if not f.endswith('.parquet'): continue # 忽略 .tmp
 
                 # 简单过滤：如果提供了日期范围，且文件名包含日期信息，则进行过滤
-                # 文件名格式: name_start_end_ts_uuid.parquet
-                parts = f.split('_')
-                if len(parts) >= 4 and start_date and end_date:
-                    # 这是一个简化的过滤逻辑，实际可能需要更健壮的解析
-                    # 假设 parts[1] 是 min_date, parts[2] 是 max_date
-                    f_min, f_max = parts[1], parts[2]
-                    if f_min != "nodate":
+                # 文件名格式: {interface_name}_{start_date}_{end_date}_{timestamp}_{uuid}.parquet
+                # 注意：interface_name 可能包含下划线，所以需要从后往前解析
+
+                if start_date and end_date:
+                    # 从文件名中提取日期范围
+                    # 格式: xxx_YYYYMMDD_YYYYMMDD_ts_uuid.parquet
+                    # 使用正则表达式匹配日期模式
+                    import re
+                    # 匹配两个连续的8位数字（日期格式）
+                    date_pattern = r'_(\d{8})_(\d{8})_'
+                    match = re.search(date_pattern, f)
+                    if match:
+                        f_min, f_max = match.group(1), match.group(2)
                         # 检查范围重叠
                         if f_max < start_date or f_min > end_date:
                             continue
