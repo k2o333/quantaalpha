@@ -30,6 +30,9 @@ pagination:
   enabled: true
   mode: period_range
   periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
+  offset:
+    enabled: true
+    limit: 6300  # 每次请求最多 5000 条记录，避免 API 6400 条限制导致数据截断
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD

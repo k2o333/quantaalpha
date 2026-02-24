@@ -84,6 +84,9 @@ class PaginationComposer:
         # period_range 模式：特殊处理，将 start_date/end_date 转换为 period 参数
         if pagination_mode == "period_range":
             params_stream = list(self._apply_period_range(params_stream))
+            # 4. 偏移量维度（period_range 模式也需要支持 offset 分页）
+            if self._is_enabled("offset"):
+                params_stream = list(self._apply_offset(params_stream))
             yield from params_stream
             return
 
@@ -91,6 +94,8 @@ class PaginationComposer:
         # 仅影响 cyq_perf 这类接口（更新模式调用路径）
         if pagination_mode == "reverse_date_range" and is_date_anchor_interface:
             params_stream = list(self._apply_date_anchor_range(params_stream))
+            if self._is_enabled("offset"):
+                params_stream = list(self._apply_offset(params_stream))
             yield from params_stream
             return
 
@@ -174,7 +179,7 @@ class PaginationComposer:
 
             # 按 periods_per_batch 分组
             for i in range(0, len(periods), periods_per_batch):
-                batch_periods = periods[i:i + periods_per_batch]
+                batch_periods = periods[i : i + periods_per_batch]
                 batch_params = params.copy()
                 batch_params.pop("start_date", None)
                 batch_params.pop("end_date", None)
@@ -248,20 +253,32 @@ class PaginationComposer:
 
             if not start_date:
                 # 移除 start_date/end_date 后直接返回
-                result_params = {k: v for k, v in params.items() if k not in ["start_date", "end_date"]}
+                result_params = {
+                    k: v
+                    for k, v in params.items()
+                    if k not in ["start_date", "end_date"]
+                }
                 yield result_params
                 continue
 
             # 生成每日日期锚定值 - 修复：使用交易日历过滤非交易日
-            anchor_values = [d["cal_date"] for d in self._get_trade_days(start_date, end_date)]
+            anchor_values = [
+                d["cal_date"] for d in self._get_trade_days(start_date, end_date)
+            ]
             if not anchor_values:
-                anchor_values = self._generate_daily_dates(start_date, end_date)  # 降级处理
+                anchor_values = self._generate_daily_dates(
+                    start_date, end_date
+                )  # 降级处理
 
             # 反向遍历（reverse_date_range 模式）
             anchor_values = list(reversed(anchor_values))
 
             for anchor_value in anchor_values:
-                p = {k: v for k, v in params.items() if k not in ["start_date", "end_date"]}
+                p = {
+                    k: v
+                    for k, v in params.items()
+                    if k not in ["start_date", "end_date"]
+                }
                 p[date_anchor_param] = anchor_value
                 yield p
 
@@ -278,7 +295,9 @@ class PaginationComposer:
                 return param_name
         return None
 
-    def _generate_daily_dates(self, start_date: str, end_date: Optional[str]) -> List[str]:
+    def _generate_daily_dates(
+        self, start_date: str, end_date: Optional[str]
+    ) -> List[str]:
         """
         生成每日日期列表
 
@@ -293,15 +312,15 @@ class PaginationComposer:
             return []
 
         try:
-            start = datetime.strptime(start_date, '%Y%m%d')
-            end = datetime.strptime(end_date, '%Y%m%d') if end_date else datetime.now()
+            start = datetime.strptime(start_date, "%Y%m%d")
+            end = datetime.strptime(end_date, "%Y%m%d") if end_date else datetime.now()
         except ValueError:
             return []
 
         dates = []
         current = start
         while current <= end:
-            dates.append(current.strftime('%Y%m%d'))
+            dates.append(current.strftime("%Y%m%d"))
             current += timedelta(days=1)
 
         return dates
@@ -689,7 +708,9 @@ def migrate_legacy_config(interface_config: Dict[str, Any]) -> Dict[str, Any]:
             "reverse": False,
         }
     elif mode == "reverse_date_range":
-        new_config["mode"] = "reverse_date_range"  # 新增：保留 mode 字段，用于 compose() 判断
+        new_config["mode"] = (
+            "reverse_date_range"  # 新增：保留 mode 字段，用于 compose() 判断
+        )
         new_config["time_range"] = {
             "enabled": True,
             "window": window_str,
