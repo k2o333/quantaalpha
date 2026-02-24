@@ -252,8 +252,10 @@ class PaginationComposer:
                 yield result_params
                 continue
 
-            # 生成每日日期锚定值
-            anchor_values = self._generate_daily_dates(start_date, end_date)
+            # 生成每日日期锚定值 - 修复：使用交易日历过滤非交易日
+            anchor_values = [d["cal_date"] for d in self._get_trade_days(start_date, end_date)]
+            if not anchor_values:
+                anchor_values = self._generate_daily_dates(start_date, end_date)  # 降级处理
 
             # 反向遍历（reverse_date_range 模式）
             anchor_values = list(reversed(anchor_values))
