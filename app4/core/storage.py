@@ -208,10 +208,7 @@ class StorageManager:
                         break
 
                 except queue.Empty:
-                    # 如果队列为空且收到停止信号（通过self.running判断作为双重保障）
-                    if not self.running:
-                        break
-                    continue
+                    continue  # 只等待哨兵信号(None)，不主动退出
 
             except Exception as e:
                 logger.error(f"Error in storage writer worker: {str(e)}")

@@ -15,9 +15,11 @@ output:
   - trade_date
 pagination:
   enabled: true
-  mode: stock_loop
-  time_range:
-    window: 9999d
+  mode: reverse_date_range
+  window_size_days: 1
+  offset:
+    enabled: true
+    limit: 6000 
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -46,4 +48,4 @@ request:
 duplicate_detection:
   enabled: true
   date_column: trade_date
-  stock_level_detection: true
+  stock_level_detection: false
