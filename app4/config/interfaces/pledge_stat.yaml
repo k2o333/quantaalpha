@@ -24,7 +24,7 @@ parameters:
     description: 截止日期 YYYYMMDD
     required: false
     type: string
-    is_date_anchor: true
+
   ts_code:
     description: 股票代码
     required: false
