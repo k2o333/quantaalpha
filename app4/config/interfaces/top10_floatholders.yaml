@@ -20,11 +20,15 @@ output:
   sort_by:
   - end_date
   - ts_code
+  dedup_enabled: true
 pagination:
   enabled: true
-  mode: stock_loop
-  time_range:
-    window: 9999d
+  mode: period_range
+  periods_per_batch: 1
+  offset:
+    enabled: true
+    limit: 6000  # 每次请求最多 5000 条记录，避免 API 6400 条限制导致数据截断  
+
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
@@ -34,6 +38,7 @@ parameters:
     description: 报告期结束日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   period:
     description: 报告期 YYYYMMDD
     required: false
@@ -42,8 +47,9 @@ parameters:
     description: 报告期开始日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   ts_code:
-    description: TS代码
+    description: TS代码(可选，不填则获取全部股票)
     required: false
     type: string
 permissions:
@@ -57,4 +63,3 @@ request:
 duplicate_detection:
   enabled: true
   date_column: end_date
-  stock_level_detection: true
