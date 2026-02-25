@@ -151,6 +151,7 @@ class PaginationComposer:
 
         将用户的 start_date/end_date 转换为 period 参数
         支持 periods_per_batch 配置，控制每次下载多少个 period
+        支持 period_field 配置，允许自定义 period 字段名（如 end_date）
 
         Args:
             params_stream: 参数流
@@ -161,9 +162,12 @@ class PaginationComposer:
         # 读取 periods_per_batch 配置，默认为 1，确保是整数类型
         periods_per_batch = int(self.config.get("periods_per_batch", 1))
 
+        # 读取 period_field 配置，默认为 "period"，支持自定义字段名
+        period_field = self.config.get("period_field", "period")
+
         for params in params_stream:
-            # 如果用户直接传入了 period 参数，直接使用
-            if "period" in params:
+            # 如果用户直接传入了配置的 period 参数，直接使用
+            if period_field in params:
                 yield params
                 continue
 
@@ -185,8 +189,8 @@ class PaginationComposer:
                 batch_params.pop("end_date", None)
 
                 if len(batch_periods) == 1:
-                    # 单个 period
-                    batch_params["period"] = batch_periods[0]
+                    # 单个 period，使用配置的字段名
+                    batch_params[period_field] = batch_periods[0]
                 else:
                     # 多个 period，使用 start_date/end_date 作为 period 范围
                     batch_params["start_date"] = batch_periods[0]
@@ -195,6 +199,8 @@ class PaginationComposer:
                 batch_params["_period_query"] = True
                 batch_params["_period_batch"] = batch_periods
                 batch_params["_periods_per_batch"] = periods_per_batch
+                # 保存实际使用的 period 字段名
+                batch_params["_period_field"] = period_field
                 yield batch_params
 
     def _convert_date_range_to_periods(

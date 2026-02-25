@@ -277,7 +277,11 @@ class CoverageManager:
 
                 # 如果是日期锚点接口且参数包含锚点值，使用 date_anchor 策略
                 # 但要排除 stock_loop 场景（避免跨股票误判）
-                if is_date_anchor_interface and date_anchor_param and 'ts_code' not in params:
+                if (
+                    is_date_anchor_interface
+                    and date_anchor_param
+                    and "ts_code" not in params
+                ):
                     strategy = "date_anchor"
                 elif pagination_mode in ["date_range", "reverse_date_range"]:
                     strategy = "date_range"
@@ -298,7 +302,9 @@ class CoverageManager:
                 result = self._check_stock_existence(interface_name, params)
             elif strategy == "date_anchor":
                 # 日期锚点检测策略
-                result = self._check_date_anchor_existence(interface_name, params, interface_config)
+                result = self._check_date_anchor_existence(
+                    interface_name, params, interface_config
+                )
 
             # [优化] 更新缓存 (带锁)
             with self._cache_lock:
@@ -422,27 +428,35 @@ class CoverageManager:
         Returns:
             True 表示已存在（应跳过），False 表示不存在（应下载）
         """
-        period = params.get('period')
+        # 支持自定义 period 字段（如 end_date）
+        period_field = params.get("_period_field", "period")
+        period = params.get(period_field)
 
         # 新增：如果没有 period 参数，但有 start_date/end_date，则计算报告期列表
         if not period:
-            start_date = params.get('start_date')
-            end_date = params.get('end_date')
+            start_date = params.get("start_date")
+            end_date = params.get("end_date")
             if start_date and end_date:
                 # 计算日期范围内的所有报告期
                 periods = self._convert_date_range_to_periods(start_date, end_date)
                 if not periods:
-                    logger.info(f"No completed periods in range {start_date}-{end_date}, skipping")
+                    logger.info(
+                        f"No completed periods in range {start_date}-{end_date}, skipping"
+                    )
                     return True
 
                 # 检查所有报告期是否都已存在
-                logger.debug(f"Checking {len(periods)} periods for {interface_name}: {periods}")
+                logger.debug(
+                    f"Checking {len(periods)} periods for {interface_name}: {periods}"
+                )
                 for p in periods:
                     if not self._check_single_period_existence(interface_name, p):
                         logger.debug(f"Period {p} does not exist, need to download")
                         return False  # 有一个不存在就需要下载
 
-                logger.info(f"All {len(periods)} periods exist for {interface_name}, skipping")
+                logger.info(
+                    f"All {len(periods)} periods exist for {interface_name}, skipping"
+                )
                 return True  # 全部存在才跳过
             else:
                 logger.debug(
@@ -477,7 +491,9 @@ class CoverageManager:
 
             with self._cache_lock:
                 if cache_key not in self._cache:
-                    logger.debug(f"Loading all periods for {interface_name} using column {date_column}")
+                    logger.debug(
+                        f"Loading all periods for {interface_name} using column {date_column}"
+                    )
                     df = self.storage_manager.read_interface_data(
                         interface_name, columns=[date_column]
                     )
@@ -599,7 +615,10 @@ class CoverageManager:
             return False
 
     def _check_date_anchor_existence(
-        self, interface_name: str, params: Dict[str, Any], interface_config: Dict[str, Any]
+        self,
+        interface_name: str,
+        params: Dict[str, Any],
+        interface_config: Dict[str, Any],
     ) -> bool:
         """
         检查日期锚定值是否存在（仅在非 stock_loop 场景下）
@@ -613,10 +632,10 @@ class CoverageManager:
             True 表示已存在（应跳过），False 表示不存在（应下载）
         """
         # 获取接口配置中的日期锚定参数
-        param_defs = interface_config.get('parameters', {})
+        param_defs = interface_config.get("parameters", {})
         date_anchor_param = None
         for param_name, param_def in param_defs.items():
-            if param_def.get('is_date_anchor', False):
+            if param_def.get("is_date_anchor", False):
                 date_anchor_param = param_name
                 break
 
@@ -1093,12 +1112,12 @@ class CoverageManager:
         ]
 
         if stock_info:
-            list_date = stock_info.get('list_date')
+            list_date = stock_info.get("list_date")
             if list_date:
                 trade_days = [d for d in trade_days if d >= list_date]
                 logger.debug(f"[{ts_code}] 按上市日 {list_date} 过滤交易日")
-            
-            delist_date = stock_info.get('delist_date')
+
+            delist_date = stock_info.get("delist_date")
             if delist_date:
                 trade_days = [d for d in trade_days if d <= delist_date]
                 logger.debug(f"[{ts_code}] 按退市日 {delist_date} 过滤交易日")
@@ -1111,9 +1130,7 @@ class CoverageManager:
                     f"[{ts_code}] 检测从上市日到现在的所有缺失日期 (已有数据: {min(existing_dates)} ~ {max(existing_dates)}, 共{len(existing_dates)}条)"
                 )
             else:
-                logger.info(
-                    f"[{ts_code}] 无已有数据，检测从上市日到现在的所有日期"
-                )
+                logger.info(f"[{ts_code}] 无已有数据，检测从上市日到现在的所有日期")
 
         missing_days = [d for d in trade_days if d not in existing_dates]
 
@@ -1124,10 +1141,7 @@ class CoverageManager:
         logger.info(f"[{ts_code}] 缺失 {len(missing_days)} 个交易日")
 
         ranges = self._merge_dates_to_ranges(
-            missing_days, 
-            existing_dates, 
-            trade_days,
-            min_gap_size=3
+            missing_days, existing_dates, trade_days, min_gap_size=3
         )
 
         return [
@@ -1363,7 +1377,10 @@ class CoverageManager:
         start_dt = datetime.strptime(start_date, "%Y%m%d")
         end_dt = datetime.strptime(end_date, "%Y%m%d")
         delta = end_dt - start_dt
-        return [(start_dt + timedelta(days=i)).strftime("%Y%m%d") for i in range(delta.days + 1)]
+        return [
+            (start_dt + timedelta(days=i)).strftime("%Y%m%d")
+            for i in range(delta.days + 1)
+        ]
 
     def _generate_anchor_values(
         self, start_date: str, end_date: str, anchor_param: str
@@ -1376,18 +1393,26 @@ class CoverageManager:
         if anchor_param in ["end_date", "period"]:
             return self._generate_report_periods(start_date, end_date)
         if anchor_param in ["trade_date", "ann_date"]:
-            trade_calendar = self.downloader.get_trade_calendar(start_date, end_date) if self.downloader else None
+            trade_calendar = (
+                self.downloader.get_trade_calendar(start_date, end_date)
+                if self.downloader
+                else None
+            )
             if trade_calendar:
-                return [day["cal_date"] for day in trade_calendar if day.get("is_open", 0) == 1]
+                return [
+                    day["cal_date"]
+                    for day in trade_calendar
+                    if day.get("is_open", 0) == 1
+                ]
             return self._generate_daily_dates(start_date, end_date)
         return self._generate_report_periods(start_date, end_date)
 
     def _merge_dates_to_ranges(
-        self, 
-        dates: List[str], 
+        self,
+        dates: List[str],
         existing_dates: Optional[set] = None,
         trade_days: Optional[List[str]] = None,
-        min_gap_size: int = 3
+        min_gap_size: int = 3,
     ) -> List[tuple]:
         """
         将缺失日期按空洞边界合并为连续区间
@@ -1432,9 +1457,13 @@ class CoverageManager:
                 if range_start is not None:
                     if gap_count >= min_gap_size:
                         ranges.append((range_start, range_end))
-                        logger.debug(f"生成下载范围: {range_start} ~ {range_end} ({gap_count}天)")
+                        logger.debug(
+                            f"生成下载范围: {range_start} ~ {range_end} ({gap_count}天)"
+                        )
                     else:
-                        logger.debug(f"跳过小空洞: {range_start} ~ {range_end} ({gap_count}天)")
+                        logger.debug(
+                            f"跳过小空洞: {range_start} ~ {range_end} ({gap_count}天)"
+                        )
                     range_start = None
                     range_end = None
                     gap_count = 0
@@ -1442,7 +1471,9 @@ class CoverageManager:
         if range_start is not None:
             if gap_count >= min_gap_size:
                 ranges.append((range_start, range_end))
-                logger.debug(f"生成下载范围: {range_start} ~ {range_end} ({gap_count}天)")
+                logger.debug(
+                    f"生成下载范围: {range_start} ~ {range_end} ({gap_count}天)"
+                )
             else:
                 logger.debug(f"跳过小空洞: {range_start} ~ {range_end} ({gap_count}天)")
 
