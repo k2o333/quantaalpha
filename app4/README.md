@@ -68,6 +68,11 @@ python example_reverse_pagination.py --interface daily --start_date 20230101 --e
 - `date_range_daily`：每日范围分页
 - `reverse_date_range`：反向日期范围分页（新）
 
+##  下载注意
+ python /home/quan/testdata/aspipe_v4/app4/main.py   --interface pledge_stat  这个接口不用update
+ dividend 接口会有大量的交易日记录数是0，这些交易日如果之后下载日期范围被覆盖，还会反复下载
+
+
 ## 贡献
 
 欢迎提交Issue和Pull Request来改进项目。

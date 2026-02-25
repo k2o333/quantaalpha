@@ -300,6 +300,11 @@ class GenericDownloader:
                 logger.info(f"从API获取到 {len(stock_list)} 只股票")
                 with self._cache_lock:
                     self._memory_cache["stock_list"] = stock_list
+
+                # [新增] 保存到本地存储，与main.py中的_prepare_stock_list保持一致
+                if self.storage_manager:
+                    logger.info(f"Saving stock_basic data to local storage: {len(stock_list)} records")
+                    self.storage_manager.save_data('stock_basic', stock_list, async_write=False)
             else:
                 logger.warning("未能从API获取股票列表")
         else:
@@ -383,6 +388,11 @@ class GenericDownloader:
                 with self._cache_lock:
                     cache_key = (start_date, end_date)  # 保持原有缓存键
                     self._memory_cache["trade_cal"][cache_key] = trade_calendar
+
+                # [新增] 保存到本地存储，与preload_global_trade_calendar保持一致
+                if self.storage_manager:
+                    logger.info(f"Saving trade calendar data to local storage: {len(trade_calendar)} records")
+                    self.storage_manager.save_data('trade_cal', trade_calendar, async_write=False)
 
         return trade_calendar
 
