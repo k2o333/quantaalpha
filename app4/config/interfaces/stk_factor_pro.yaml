@@ -15,9 +15,8 @@ output:
   - trade_date
 pagination:
   enabled: true
-  mode: stock_loop
-  time_range:
-    window: 3650d
+  mode: reverse_date_range
+  window_size_days: 1
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -33,10 +32,8 @@ parameters:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
-  ts_code:
-    description: 股票代码
-    required: false
-    type: string
+    is_date_anchor: true 
+
 permissions:
   min_points: 5000
   query_limit: 10000
@@ -310,4 +307,4 @@ fields:
 duplicate_detection:
   enabled: true
   date_column: trade_date
-  stock_level_detection: true
+  stock_level_detection: false
