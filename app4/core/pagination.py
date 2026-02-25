@@ -166,8 +166,10 @@ class PaginationComposer:
         period_field = self.config.get("period_field", "period")
 
         for params in params_stream:
-            # 如果用户直接传入了配置的 period 参数，直接使用
-            if period_field in params:
+            # 如果用户直接传入了配置的 period 参数，且没有同时传入 start_date，直接使用
+            # 注意：如果同时传入 period_field 和 start_date，说明 period_field 是日期范围的结束日期，需要转换
+            # 修复：解决 period_field 与日期范围参数 end_date 同名导致的误判问题
+            if period_field in params and "start_date" not in params:
                 yield params
                 continue
 
