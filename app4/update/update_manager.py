@@ -660,7 +660,7 @@ class UpdateManager:
 
         # 执行请求
         try:
-            data = self.downloader._make_request(interface_config, params)
+            data = self.downloader._execute_pagination(interface_config, params)
 
             if data:
                 # 保存数据

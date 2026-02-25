@@ -24,8 +24,11 @@ pagination:
   skip_time_range_in_full_history: false
   time_range:
     enabled: true 
-    window: 20d
+    window: 9999d
     stop_on_empty: 90   # 连续90天无数据停止
+  offset:
+    enabled: true
+    limit: 6000  
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
