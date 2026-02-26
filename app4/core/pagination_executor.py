@@ -457,7 +457,63 @@ class PaginationExecutor:
                     return False
 
         # 【修复】先构建 clean_params，再根据 _time_window 更新日期范围
+        # 注意：需要保留 _period_field 和 _period_query 参数，用于 period_range 模式的覆盖率检测
         clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+
+        # 保留内部参数（用于 period_range 模式）
+        if "_period_field" in params:
+            clean_params["_period_field"] = params["_period_field"]
+        if "_period_query" in params:
+            clean_params["_period_query"] = params["_period_query"]
+
+        # 如果有 _time_window，使用窗口日期替换原始 start_date/end_date
+        # 这样覆盖率检查只检查当前窗口范围，而不是整个请求范围
+        if "_time_window" in params:
+            start, end = params["_time_window"]
+            clean_params["start_date"] = start
+            clean_params["end_date"] = end
+
+        # 确定检测策略
+        if "_time_window" in params:
+            strategy = "date_range"
+        elif "_period_query" in params:
+            strategy = "period"
+        elif "_stock_info" in params:
+            strategy = "stock"
+        elif "_type_value" in params:
+            strategy = "type"
+        else:
+            strategy = "default"
+
+        try:
+            return coverage_manager.should_skip(
+                api_name, clean_params, strategy=strategy
+            )
+        except:
+            return False
+
+        param_defs = interface_config.get("parameters", {})
+        for param_name, param_def in param_defs.items():
+            if param_def.get("is_date_anchor", False) and param_name in params:
+                clean_params = {
+                    k: v for k, v in params.items() if not k.startswith("_")
+                }
+                try:
+                    return coverage_manager.should_skip(
+                        api_name, clean_params, strategy="auto"
+                    )
+                except:
+                    return False
+
+        # 【修复】先构建 clean_params，再根据 _time_window 更新日期范围
+        # 注意：需要保留 _period_field 和 _period_query 参数，用于 period_range 模式的覆盖率检测
+        clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+
+        # 保留内部参数（用于 period_range 模式）
+        if "_period_field" in params:
+            clean_params["_period_field"] = params["_period_field"]
+        if "_period_query" in params:
+            clean_params["_period_query"] = params["_period_query"]
 
         # 如果有 _time_window，使用窗口日期替换原始 start_date/end_date
         # 这样覆盖率检查只检查当前窗口范围，而不是整个请求范围
@@ -474,6 +530,9 @@ class PaginationExecutor:
             )
 
         # 确定检测策略
+        logger.debug(
+            f"[Coverage] Checking strategy, params keys: {list(params.keys())}"
+        )
         if "_time_window" in params:
             strategy = "date_range"
         elif "_period_query" in params:
@@ -484,6 +543,8 @@ class PaginationExecutor:
             strategy = "type"
         else:
             strategy = "default"
+
+        logger.debug(f"[Coverage] Strategy: {strategy}, params: {clean_params}")
 
         try:
             return coverage_manager.should_skip(

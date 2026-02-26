@@ -98,7 +98,6 @@ class GenericDownloader:
         self.data_processor = DataProcessor()
         self.schema_manager = SchemaManager()
 
-
         # 初始化性能监控器
         self.performance_monitor = PerformanceMonitor()
 
@@ -303,8 +302,12 @@ class GenericDownloader:
 
                 # [新增] 保存到本地存储，与main.py中的_prepare_stock_list保持一致
                 if self.storage_manager:
-                    logger.info(f"Saving stock_basic data to local storage: {len(stock_list)} records")
-                    self.storage_manager.save_data('stock_basic', stock_list, async_write=False)
+                    logger.info(
+                        f"Saving stock_basic data to local storage: {len(stock_list)} records"
+                    )
+                    self.storage_manager.save_data(
+                        "stock_basic", stock_list, async_write=False
+                    )
             else:
                 logger.warning("未能从API获取股票列表")
         else:
@@ -391,8 +394,12 @@ class GenericDownloader:
 
                 # [新增] 保存到本地存储，与preload_global_trade_calendar保持一致
                 if self.storage_manager:
-                    logger.info(f"Saving trade calendar data to local storage: {len(trade_calendar)} records")
-                    self.storage_manager.save_data('trade_cal', trade_calendar, async_write=False)
+                    logger.info(
+                        f"Saving trade calendar data to local storage: {len(trade_calendar)} records"
+                    )
+                    self.storage_manager.save_data(
+                        "trade_cal", trade_calendar, async_write=False
+                    )
 
         return trade_calendar
 
@@ -521,11 +528,7 @@ class GenericDownloader:
             # [新增] 检查覆盖率，使用智能缺口检测（如果启用）
             should_skip = False
             gap_tasks = None
-            if (
-                self.coverage_manager
-                
-                and not skip_gap_detection
-            ):
+            if self.coverage_manager and not skip_gap_detection:
                 detection_config = interface_config.get("duplicate_detection", {})
 
                 # 检查是否启用股票级别缺口检测

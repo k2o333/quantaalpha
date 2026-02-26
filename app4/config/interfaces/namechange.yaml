@@ -25,7 +25,9 @@ output:
   sort_by:
   - ann_date
 pagination:
-  enabled: false
+  enabled: true
+  mode: reverse_date_range
+  window_size_days: 365
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
