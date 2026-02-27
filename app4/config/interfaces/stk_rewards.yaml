@@ -1,4 +1,15 @@
 api_name: stk_rewards
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - name              # 姓名
+  - title             # 职务
+  - reward            # 报酬（万元）
+  - hold_vol          # 持股数量（股）
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -18,6 +29,9 @@ output:
   - name
   - ann_date
   - end_date
+  - title
+  - reward
+  - hold_vol
   sort_by:
   - ann_date
   - ts_code

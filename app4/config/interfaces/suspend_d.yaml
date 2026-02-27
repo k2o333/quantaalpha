@@ -1,4 +1,12 @@
 api_name: suspend_d
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - trade_date        # 停复牌日期
+  - suspend_timing    # 停牌时段
+  - suspend_type      # 停复牌类型 S停牌 R复牌
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -11,6 +19,8 @@ output:
   primary_key:
   - ts_code
   - trade_date
+  - suspend_timing
+  - suspend_type
   sort_by:
   - trade_date
 pagination:

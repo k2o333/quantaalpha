@@ -1,4 +1,16 @@
 api_name: express_vip
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - revenue           # 营业收入（万元）
+  - operate_profit     # 营业利润（万元）
+  - total_profit      # 利润总额（万元）
+  - n_income          # 净利润（万元）
+  - total_assets      # 总资产（万元）
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -17,6 +29,11 @@ output:
   - ts_code
   - ann_date
   - end_date
+  - revenue
+  - operate_profit
+  - total_profit
+  - n_income
+  - total_assets
   sort_by:
   - ann_date
 pagination:

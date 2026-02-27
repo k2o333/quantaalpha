@@ -15,10 +15,28 @@ name: report_rc
 output:
   primary_key:
   - ts_code
+  - name
   - report_date
-  - org_name
   - report_title
-
+  - report_type
+  - classify
+  - org_name
+  - author_name
+  - quarter
+  - op_rt
+  - op_pr
+  - tp
+  - np
+  - eps
+  - pe
+  - rd
+  - roe
+  - ev_ebitda
+  - rating
+  - max_price
+  - min_price
+  - imp_dg
+  - create_time
   sort_by:
   - report_date
 pagination:

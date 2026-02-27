@@ -1,4 +1,15 @@
 api_name: block_trade
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - trade_date        # 交易日期
+  - price             # 成交价
+  - vol               # 成交量（手）
+  - amount            # 成交金额（万元）
+  - buyer             # 买方营业部
+  - seller            # 卖方营业部
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -13,6 +24,9 @@ output:
   - trade_date
   - price
   - vol
+  - amount
+  - buyer
+  - seller
   sort_by:
   - trade_date
 pagination:

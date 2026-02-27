@@ -1,4 +1,15 @@
 api_name: pledge_stat
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - end_date          # 截止日期
+  - pledge_count      # 质押次数
+  - unrest_pledge     # 未解押质押数量（股）
+  - rest_pledge       # 已解押质押数量（股）
+  - total_share       # 总股本（股）
+  - pledge_ratio      # 质押比例（%）
+
 derived_fields:
   end_date_dt:
     description: 日期类型的end_date
@@ -11,6 +22,11 @@ output:
   primary_key:
   - ts_code
   - end_date
+  - pledge_count
+  - unrest_pledge
+  - rest_pledge
+  - total_share
+  - pledge_ratio
   sort_by:
   - end_date
   - ts_code

@@ -1,4 +1,15 @@
 api_name: moneyflow_ind_dc
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 行业代码
+  - trade_date        # 交易日期
+  - name              # 行业名称
+  - close             # 收盘价
+  - pct_change        # 涨跌幅（%）
+  - net_amount        # 净流入额（万元）
+  - net_amount_rate   # 净流入率（%）
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -11,6 +22,11 @@ output:
   primary_key:
   - trade_date
   - ts_code
+  - name
+  - close
+  - pct_change
+  - net_amount
+  - net_amount_rate
   sort_by:
   - trade_date
 pagination:

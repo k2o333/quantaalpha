@@ -17,6 +17,29 @@ output:
   - ts_code
   - ann_date
   - end_date
+  - comp_type
+  - report_type
+  - total_share
+  - total_assets
+  - quick_assets
+  - fixed_assets
+  - const_materials
+  - intang_assets
+  - r_and_d
+  - good_will
+  - lt_equity_inv
+  - total_liab
+  - total_cur_liab
+  - total_non_cur_liab
+  - total_sharehol_eq
+  - treasury_share
+  - other_equity
+  - assets_liquidation
+  - deferred_tax_assets
+  - st_borrow
+  - st_loan
+  - total_hldr_eq_exc_min_int
+  - total_assets_yoy
   - update_flag
   sort_by:
   - ann_date

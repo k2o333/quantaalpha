@@ -7,9 +7,42 @@ derived_fields:
     type: date
 description: 上市公司基本信息
 name: stock_company
+
+# Fields配置：显式指定所有返回字段（包括默认和非默认字段）
+fields:
+  - ts_code           # TS代码
+  - exchange          # 交易所代码
+  - chairman          # 董事长
+  - manager           # 总经理
+  - secretary         # 董秘
+  - reg_capital       # 注册资本
+  - setup_date        # 成立日期
+  - province          # 所在省份
+  - city              # 所在城市
+  - introduction      # 公司简介
+  - website           # 公司主页
+  - employees         # 员工人数
+  - main_business     # 主要业务及产品
+  - business_scope    # 经营范围（需显式请求才返回）
+  - office            # 办公地址
+
 output:
   primary_key:
   - ts_code
+  - exchange
+  - chairman
+  - manager
+  - secretary
+  - reg_capital
+  - setup_date
+  - province
+  - city
+  - introduction
+  - website
+  - employees
+  - main_business
+  - business_scope
+  - office
   sort_by:
   - ts_code
 pagination:

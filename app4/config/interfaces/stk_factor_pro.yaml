@@ -11,6 +11,39 @@ output:
   primary_key:
   - ts_code
   - trade_date
+  - open
+  - open_hfq
+  - open_qfq
+  - high
+  - high_hfq
+  - high_qfq
+  - low
+  - low_hfq
+  - low_qfq
+  - close
+  - close_hfq
+  - close_qfq
+  - pre_close
+  - change
+  - pct_chg
+  - vol
+  - amount
+  - turnover_rate
+  - turnover_rate_f
+  - volume_ratio
+  - pe
+  - pe_ttm
+  - pb
+  - ps
+  - ps_ttm
+  - dv_ratio
+  - dv_ttm
+  - total_share
+  - float_share
+  - free_share
+  - total_mv
+  - circ_mv
+  - adj_factor
   sort_by:
   - trade_date
 pagination:

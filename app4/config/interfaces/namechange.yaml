@@ -1,4 +1,14 @@
 api_name: namechange
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - ann_date          # 公告日期
+  - name              # 曾用名
+  - start_date        # 起始日期
+  - end_date          # 截止日期
+  - change_reason     # 变更原因
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -21,7 +31,10 @@ output:
   primary_key:
   - ts_code
   - ann_date
+  - name
   - start_date
+  - end_date
+  - change_reason
   sort_by:
   - ann_date
 pagination:

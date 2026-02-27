@@ -1,4 +1,12 @@
 api_name: cyq_chips
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - trade_date        # 交易日期
+  - price             # 成本价
+  - percent           # 筹码比例（%）
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -16,6 +24,7 @@ output:
   - ts_code
   - trade_date
   - price
+  - percent
   sort_by:
   - price
 pagination:

@@ -21,7 +21,75 @@ output:
   primary_key:
   - ts_code
   - ann_date
+  - f_ann_date
   - end_date
+  - comp_type
+  - report_type
+  - net_profit
+  - finan_exp
+  - minus_finance_cost
+  - sale_goods_cash
+  - recp_tax_rends
+  - net_deposit_increase
+  - net_borr_oth_fi
+  - net_borr_securities
+  - net_loan_adv
+  - net_disp_tfa
+  - other_cash_recp_ral_oper
+  - st_cash_out_act
+  - pay_goods_cash
+  - pay_beh_empl
+  - pay_tax
+  - net_incr_clients_loan_adv
+  - net_incr_dep_co_borr
+  - other_cash_out_act
+  - net_incr_dep
+  - cash_recp_prem_orig_inco
+  - pay_claims_orig_inco
+  - pay_handling_chrg
+  - pay_comm_insur_plcy
+  - oth_cash_recp_ral_ins
+  - st_cash_in_ins
+  - cash_pay_sg
+  - oth_cash_out_ins
+  - st_cash_out_ins
+  - reinsurance_ceded_prem
+  - oth_earn
+  - dep_withdrwl_reser
+  - rescq_insur_cont_rsrv
+  - independent_acct_eci
+  - oth_compr_income
+  - total_compr_income
+  - paid_invest_cash
+  - impawned_loan_net
+  - cash_recp_disp_sobu
+  - cash_recp_return_inv
+  - gross_cash_in_finv
+  - dispos_fix_assets
+  - dispos_comp_assets
+  - oth_cash_recp_ral_finv
+  - st_cash_out_finv
+  - add_inv_property
+  - cash_paid_invest
+  - impawn_loan
+  - cash_paid_disp_shre
+  - sub_to_central_bank
+  - lend_capital
+  - oth_cash_out_finv
+  - net_cash_flows_oper_act
+  - net_cash_flows_inv_act
+  - net_cash_flows_fnc_act
+  - cash_net_incr
+  - cash_net_incr_undis
+  - fx_vars_chg
+  - cash_equ_end_period
+  - cash_equ_end_period_undis
+  - working_cap
+  - net_operate_cashflow
+  - net_invest_cashflow
+  - net_finance_cashflow
+  - gross_cash_short
+  - gross_cash_long
   - update_flag
   sort_by:
   - ann_date

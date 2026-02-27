@@ -1,4 +1,14 @@
 api_name: fina_mainbz_vip
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - end_date          # 报告期
+  - bz_item           # 主营业务项目
+  - bz_sales          # 主营业务收入（元）
+  - bz_cost           # 主营业务成本（元）
+  - bz_profit         # 主营业务利润（元）
+
 derived_fields:
   end_date_dt:
     description: 日期类型的end_date
@@ -12,6 +22,9 @@ output:
   - ts_code
   - end_date
   - bz_item
+  - bz_sales
+  - bz_cost
+  - bz_profit
   sort_by:
   - end_date
 pagination:

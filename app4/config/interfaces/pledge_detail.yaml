@@ -1,4 +1,19 @@
 api_name: pledge_detail
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - ann_date          # 公告日期
+  - holder_name       # 股东名称
+  - start_date        # 质押开始日期
+  - end_date          # 质押结束日期
+  - release_date      # 解除日期
+  - pledge_amount     # 质押数量（股）
+  - pledge_ratio      # 质押比例（%）
+  - is_release        # 是否已解除 Y是 N否
+  - total_share       # 股东总持股（股）
+  - pledge_type       # 质押类型
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -34,6 +49,11 @@ output:
   - start_date
   - pledge_amount
   - is_release
+  - end_date
+  - release_date
+  - pledge_ratio
+  - total_share
+  - pledge_type
   sort_by:
   - ann_date
   - ts_code

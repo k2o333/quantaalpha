@@ -1,4 +1,17 @@
 api_name: repurchase
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - ann_date          # 公告日期
+  - end_date          # 截止日期
+  - proc              # 进度
+  - exp_date          # 过期日期
+  - vol               # 回购数量（万股）
+  - amount            # 回购金额（万元）
+  - high_limit        # 回购价格上限
+  - low_limit         # 回购价格下限
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -21,6 +34,13 @@ output:
   primary_key:
   - ts_code
   - ann_date
+  - end_date
+  - proc
+  - exp_date
+  - vol
+  - amount
+  - high_limit
+  - low_limit
   sort_by:
   - ann_date
 pagination:

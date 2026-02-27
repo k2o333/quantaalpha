@@ -1,4 +1,13 @@
 api_name: stock_hsgt
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - trade_date        # 交易日期
+  - type              # 类型
+  - in_date           # 纳入日期
+  - out_date          # 剔除日期
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -12,6 +21,8 @@ output:
   - ts_code
   - trade_date
   - type
+  - in_date
+  - out_date
   sort_by:
   - trade_date
   - ts_code

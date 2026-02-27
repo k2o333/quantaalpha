@@ -1,4 +1,15 @@
 api_name: fina_audit
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - audit_result      # 审计结果
+  - audit_fees        # 审计费用（元）
+  - audit_sign        # 审计机构签字
+  - audit_opinion     # 审计意见
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -17,6 +28,10 @@ output:
   - ts_code
   - ann_date
   - end_date
+  - audit_result
+  - audit_fees
+  - audit_sign
+  - audit_opinion
   sort_by:
   - ann_date
 pagination:

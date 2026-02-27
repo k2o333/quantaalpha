@@ -1,4 +1,17 @@
 api_name: stk_managers
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - name              # 姓名
+  - gender            # 性别
+  - lev               # 岗位类别
+  - title             # 岗位
+  - resume            # 个人简历
+  - edu               # 学历
+  - resume_update     # 简历更新日期
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -12,6 +25,12 @@ output:
   - ts_code
   - name
   - ann_date
+  - gender
+  - lev
+  - title
+  - resume
+  - edu
+  - resume_update
   sort_by:
   - ann_date
   - ts_code

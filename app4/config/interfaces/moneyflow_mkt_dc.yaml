@@ -1,4 +1,11 @@
 api_name: moneyflow_mkt_dc
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - trade_date        # 交易日期
+  - net_mf_vol        # 净流入量（手）
+  - net_mf_amount     # 净流入额（万元）
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -10,6 +17,8 @@ name: moneyflow_mkt_dc
 output:
   primary_key:
   - trade_date
+  - net_mf_vol
+  - net_mf_amount
   sort_by:
   - trade_date
 pagination:

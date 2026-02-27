@@ -1,4 +1,21 @@
 api_name: forecast_vip
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - type              # 业绩预告类型
+  - p_change_min      # 预告净利润变动幅度下限（%）
+  - p_change_max      # 预告净利润变动幅度上限（%）
+  - net_profit_min    # 预告净利润下限（万元）
+  - net_profit_max    # 预告净利润上限（万元）
+  - last_parent_net   # 上年同期归属母公司净利润
+  - first_ann_date    # 首次公告日
+  - summary           # 业绩预告摘要
+  - change_reason     # 业绩变动原因
+  - update_flag       # 更新标记
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -23,6 +40,15 @@ output:
   - ann_date
   - end_date
   - update_flag
+  - type
+  - p_change_min
+  - p_change_max
+  - net_profit_min
+  - net_profit_max
+  - last_parent_net
+  - first_ann_date
+  - summary
+  - change_reason
   sort_by:
   - ann_date
 pagination:

@@ -1,4 +1,15 @@
 api_name: share_float
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - ann_date          # 公告日期
+  - float_date        # 解禁日期
+  - float_share       # 流通股份（股）
+  - float_ratio       # 流通股份占总股本比率
+  - holder_name       # 股东名称
+  - share_type        # 股份类型
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -18,7 +29,9 @@ output:
   - ann_date
   - float_date
   - float_share
+  - float_ratio
   - holder_name
+  - share_type
   sort_by:
   - float_date
 pagination:
