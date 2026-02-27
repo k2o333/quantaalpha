@@ -16,9 +16,11 @@ output:
   - ts_code
 pagination:
   enabled: true
-  mode: stock_loop
-  time_range:
-    window: 9999d
+  mode: period_range
+  periods_per_batch: 1
+  offset:
+    enabled: true
+    limit: 5000
 parameters:
   end_date:
     description: 截止日期 YYYYMMDD
@@ -40,4 +42,4 @@ request:
 duplicate_detection:
   enabled: true
   date_column: end_date
-  stock_level_detection: true
+  stock_level_detection: false
