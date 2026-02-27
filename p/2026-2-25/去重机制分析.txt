@@ -1,0 +1,95 @@
+去重机制分析文档
+================
+
+问题：pledge_stat 在没有设置去重主键的情况下，是怎么在下载后去重的？
+
+答：pledge_stat.yaml 实际上已经配置了 primary_key (ts_code, end_date)，所以会进行去重。
+
+--------------------------------------------------------------------------------
+
+一、去重机制有两层
+
+1. Processor 内部去重
+   - 位置：processor.py:80-84
+   - 触发条件：每次下载后
+   - 去重范围：同一批次内的重复记录
+   - 使用方法：Polars df.unique(subset=primary_keys, keep='last')
+
+2. Storage 外部去重
+   - 位置：storage.py:626-667
+   - 触发条件：存在历史数据时
+   - 去重范围：新下载数据 vs 历史数据
+   - 使用方法：Polars join(..., how='anti')
+
+--------------------------------------------------------------------------------
+
+二、两者是否用同一个方法
+
+不是同一个方法：
+- Processor: 使用 Polars 原生的 unique() 方法
+- Storage: 使用 dedup.py 中自定义的函数，通过 anti-join 实现
+
+dedup.py 的实现（dedup.py:344-348）：
+joined = new_data_aligned.join(
+    existing_df_aligned.select(keys_to_use).unique(),
+    on=keys_to_use,
+    how='anti'  # 保留新数据中不存在于历史数据的记录
+)
+
+--------------------------------------------------------------------------------
+
+三、两种场景是否都可以用 polars 的 unique 方法
+
+是的，两种场景都可以用 unique 方法，但适用场景不同：
+- Processor（单批次数据全在内存）：unique() 更直接
+- Storage（vs 大型历史文件）：anti-join 可避免加载全部历史数据
+
+anti-join 的优势是可以只读取历史数据的主键列（不加载全部列），减少 I/O。
+
+--------------------------------------------------------------------------------
+
+四、都使用 YAML 中配置的 primary keys
+
+是的，两者都用 output.primary_key：
+- Processor (processor.py:212):
+  primary_keys = interface_config.get('output', {}).get('primary_key', [])
+- Storage (storage.py:628):
+  primary_keys = output_config.get('primary_key', [])
+
+--------------------------------------------------------------------------------
+
+五、如果没配置 primary_key
+
+Processor (processor.py:245-247):
+  primary_keys = output_config.get('primary_key', [])  # 空列表
+  existing_keys = [key for key in primary_keys if key in df.columns]  # []
+  if existing_keys:  # False，不执行去重
+
+Storage (storage.py:631):
+  if dedup_config.get('dedup_enabled', True) and primary_keys:  # False，不执行去重
+
+结论：如果没配置 primary_key，两者都不会去重。
+
+另外，config_loader.py:179-184 会自动处理：
+检测到没配置时，会设置 dedup['dedup_enabled'] = False，并输出警告日志。
+
+--------------------------------------------------------------------------------
+
+六、去重字段来源
+
+对于 pledge_stat.yaml，去重使用的字段是：
+- ts_code
+- end_date
+
+配置位置：output.primary_key
+
+--------------------------------------------------------------------------------
+
+七、总结
+
+| 层级   | 去重方式                     | 适用场景               |
+|--------|----------------------------|----------------------|
+| Processor | df.unique(subset=keys)     | 同一批次内去重         |
+| Storage   | join(..., how='anti')     | 新数据 vs 历史数据    |
+
+两者都使用 YAML 中配置的 output.primary_key，如果没有配置则不进行去重。
