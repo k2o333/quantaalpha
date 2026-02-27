@@ -430,19 +430,6 @@ class StorageManager:
             else:
                 df = pl.read_parquet(files_to_read)
 
-            # [优化] 确定性去重
-            interface_config = self._get_interface_config(interface_name)
-            primary_keys = interface_config.get('output', {}).get('primary_key', [])
-
-            if primary_keys and not df.is_empty():
-                existing_keys = [k for k in primary_keys if k in df.columns]
-                if existing_keys:
-                    # 按 _update_time 排序，确保保留最新写入的数据
-                    if '_update_time' in df.columns:
-                        df = df.sort('_update_time', descending=False)
-
-                    df = df.unique(subset=existing_keys, keep='last')
-
             return df
         except Exception as e:
             logger.error(f"Error reading interface data for {interface_name}: {str(e)}")

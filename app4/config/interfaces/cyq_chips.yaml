@@ -28,7 +28,7 @@ pagination:
     stop_on_empty: 90   # 连续90天无数据停止
   offset:
     enabled: true
-    limit: 6000  
+    limit: 5999  
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD

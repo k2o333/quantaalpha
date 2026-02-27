@@ -15,10 +15,14 @@ output:
   sort_by:
   - surv_date
 pagination:
-  default_limit: 400
   enabled: true
-  limit_key: limit
-  mode: offset
+  mode: reverse_date_range
+  window_size_days: 365
+  empty_threshold_days: 90
+  offset:
+    enabled: true
+    limit: 400  # 每次请求最多 5000 条记录，避免 API 6400 条限制导致数据截断  
+
 parameters:
   end_date:
     description: 调研结束日期 YYYYMMDD
