@@ -2,13 +2,16 @@ api_name: stk_surv
 
 # Fields配置：显式指定所有返回字段
 fields:
-  - ts_code           # TS代码
+  - ts_code           # 股票代码
   - name              # 股票名称
   - surv_date         # 调研日期
-  - fund_visitors     # 基金参与人数
-  - recv_etf_num      # 接待ETF数量
-  - recvinst_num      # 接待机构数量
-  - recvtotal_num     # 接待总人数
+  - fund_visitors     # 机构参与人员
+  - rece_place        # 接待地点
+  - rece_mode         # 接待方式
+  - rece_org          # 接待的公司
+  - org_type          # 接待公司类型
+  - comp_rece         # 上市公司接待人员
+  - content           # 调研内容
 
 derived_fields:
   surv_date_dt:
@@ -21,12 +24,15 @@ name: stk_surv
 output:
   primary_key:
   - ts_code
-  - surv_date
   - name
+  - surv_date
   - fund_visitors
-  - recv_etf_num
-  - recvinst_num
-  - recvtotal_num
+  - rece_place
+  - rece_mode
+  - rece_org
+  - org_type
+  - comp_rece
+  - content
   sort_by:
   - surv_date
 pagination:

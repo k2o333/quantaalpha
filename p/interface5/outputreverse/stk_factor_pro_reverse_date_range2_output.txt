@@ -1,0 +1,41 @@
+2026-02-28 15:40:54,231 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-28 15:40:54,326 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-28 15:40:54,354 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-28 15:40:54,355 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-28 15:40:54,356 - core.storage - INFO - Storage writer and process threads started
+2026-02-28 15:40:54,356 - __main__ - INFO - Interfaces to update (after permission filter): ['stk_factor_pro']
+2026-02-28 15:40:54,356 - update.update_reporter - INFO - 更新开始: 2026-02-28 15:40:54
+2026-02-28 15:40:54,356 - update.update_manager - INFO - ============================================================
+2026-02-28 15:40:54,356 - update.update_manager - INFO - 开始增量更新
+2026-02-28 15:40:54,356 - update.update_manager - INFO - ============================================================
+2026-02-28 15:40:54,357 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-28 15:40:54,357 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-28 15:40:54,357 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-28 15:40:54,357 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-28 15:40:54,357 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-28 15:40:54,357 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-28 15:40:54,357 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-28 15:40:54,357 - update.update_manager - INFO - 
+[1/1] 处理接口: stk_factor_pro
+2026-02-28 15:40:54,358 - update.update_reporter - INFO - 开始更新接口: stk_factor_pro
+2026-02-28 15:40:54,358 - update.date_calculator - INFO - [stk_factor_pro] 使用强制指定的日期范围: 20260205 ~ 20260222
+2026-02-28 15:40:54,358 - update.update_manager - INFO - 开始更新 stk_factor_pro: 20260205 ~ 20260222
+2026-02-28 15:40:54,358 - core.coverage_manager - INFO - 检测缺口: stk_factor_pro (20260205 ~ 20260222)
+2026-02-28 15:40:54,359 - core.coverage_manager - INFO - 已有数据: 0 天
+2026-02-28 15:40:54,359 - core.coverage_manager - INFO - 期望交易日: 7 天
+2026-02-28 15:40:54,359 - core.coverage_manager - INFO - 无已有数据，需要完整下载
+2026-02-28 15:40:54,359 - update.update_manager - INFO - 下载缺口 [1/1]: 20260205 ~ 20260222
+2026-02-28 15:41:37,488 - core.downloader - ERROR - Request error for stk_factor_pro: HTTPConnectionPool(host='tushare.xyz', port=80): Read timed out.
+2026-02-28 15:41:37,489 - core.downloader - WARNING - Retrying stk_factor_pro in 1.04s due to: ConnectionError
+2026-02-28 15:44:06,876 - core.downloader - INFO - API returned 261 fields for stk_factor_pro
+2026-02-28 15:44:06,877 - core.downloader - INFO - First 10 fields: ['ts_code', 'trade_date', 'open', 'open_hfq', 'open_qfq', 'high', 'high_hfq', 'high_qfq', 'low', 'low_hfq']
+2026-02-28 15:44:06,877 - core.downloader - INFO - Last 10 fields: ['xsii_td1_qfq', 'xsii_td2_bfq', 'xsii_td2_hfq', 'xsii_td2_qfq', 'xsii_td3_bfq', 'xsii_td3_hfq', 'xsii_td3_qfq', 'xsii_td4_bfq', 'xsii_td4_hfq', 'xsii_td4_qfq']
+2026-02-28 15:44:07,385 - core.downloader - INFO - Downloaded 5470 records for stk_factor_pro
+2026-02-28 15:44:10,576 - core.downloader - INFO - API returned 261 fields for stk_factor_pro
+2026-02-28 15:44:10,576 - core.downloader - INFO - First 10 fields: ['ts_code', 'trade_date', 'open', 'open_hfq', 'open_qfq', 'high', 'high_hfq', 'high_qfq', 'low', 'low_hfq']
+2026-02-28 15:44:10,576 - core.downloader - INFO - Last 10 fields: ['xsii_td1_qfq', 'xsii_td2_bfq', 'xsii_td2_hfq', 'xsii_td2_qfq', 'xsii_td3_bfq', 'xsii_td3_hfq', 'xsii_td3_qfq', 'xsii_td4_bfq', 'xsii_td4_hfq', 'xsii_td4_qfq']
+2026-02-28 15:44:11,079 - core.downloader - INFO - Downloaded 5476 records for stk_factor_pro
+2026-02-28 15:44:42,087 - core.downloader - INFO - API returned 261 fields for stk_factor_pro
+2026-02-28 15:44:42,088 - core.downloader - INFO - First 10 fields: ['ts_code', 'trade_date', 'open', 'open_hfq', 'open_qfq', 'high', 'high_hfq', 'high_qfq', 'low', 'low_hfq']
+2026-02-28 15:44:42,088 - core.downloader - INFO - Last 10 fields: ['xsii_td1_qfq', 'xsii_td2_bfq', 'xsii_td2_hfq', 'xsii_td2_qfq', 'xsii_td3_bfq', 'xsii_td3_hfq', 'xsii_td3_qfq', 'xsii_td4_bfq', 'xsii_td4_hfq', 'xsii_td4_qfq']
+2026-02-28 15:44:42,562 - core.downloader - INFO - Downloaded 5470 records for stk_factor_pro

@@ -2,10 +2,11 @@ api_name: stock_st
 
 # Fields配置：显式指定所有返回字段
 fields:
-  - ts_code           # TS代码
-  - trade_date        # 交易日期
+  - ts_code           # 股票代码
   - name              # 股票名称
-  - st_type           # ST类型
+  - trade_date        # 交易日期
+  - type              # 类型
+  - type_name         # 类型名称
 
 derived_fields:
   trade_date_dt:
@@ -18,9 +19,10 @@ name: stock_st
 output:
   primary_key:
   - ts_code
-  - trade_date
   - name
-  - st_type
+  - trade_date
+  - type
+  - type_name
   sort_by:
   - trade_date
 pagination:

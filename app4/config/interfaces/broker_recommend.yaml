@@ -6,8 +6,7 @@ fields:
   - broker            # 券商名称
   - ts_code           # TS代码
   - name              # 股票名称
-  - recommend_reason  # 推荐理由
-  - recommend_date    # 推荐日期
+
 
 description: 券商每月荐股
 derived_fields:
@@ -23,8 +22,7 @@ output:
   - broker
   - ts_code
   - name
-  - recommend_reason
-  - recommend_date
+
   sort_by:
   - month
 pagination:

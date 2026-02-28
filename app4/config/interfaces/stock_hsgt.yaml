@@ -5,8 +5,9 @@ fields:
   - ts_code           # TS代码
   - trade_date        # 交易日期
   - type              # 类型
-  - in_date           # 纳入日期
-  - out_date          # 剔除日期
+  - name              # 股票名称
+  - type_name         # 类型名称
+
 
 derived_fields:
   trade_date_dt:
@@ -21,8 +22,9 @@ output:
   - ts_code
   - trade_date
   - type
-  - in_date
-  - out_date
+  - name
+  - type_name
+
   sort_by:
   - trade_date
   - ts_code

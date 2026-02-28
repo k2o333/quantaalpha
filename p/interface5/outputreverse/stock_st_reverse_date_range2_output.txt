@@ -1,0 +1,82 @@
+2026-02-28 15:33:20,727 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-28 15:33:20,815 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-28 15:33:20,849 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-28 15:33:20,851 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-28 15:33:20,852 - core.storage - INFO - Storage writer and process threads started
+2026-02-28 15:33:20,852 - __main__ - INFO - Interfaces to update (after permission filter): ['stock_st']
+2026-02-28 15:33:20,852 - update.update_reporter - INFO - 更新开始: 2026-02-28 15:33:20
+2026-02-28 15:33:20,852 - update.update_manager - INFO - ============================================================
+2026-02-28 15:33:20,853 - update.update_manager - INFO - 开始增量更新
+2026-02-28 15:33:20,853 - update.update_manager - INFO - ============================================================
+2026-02-28 15:33:20,853 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-28 15:33:20,853 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-28 15:33:20,853 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-28 15:33:20,854 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-28 15:33:20,854 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-28 15:33:20,854 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-28 15:33:20,854 - update.update_manager - INFO - 
+[1/1] 处理接口: stock_st
+2026-02-28 15:33:20,854 - update.update_reporter - INFO - 开始更新接口: stock_st
+2026-02-28 15:33:20,854 - update.date_calculator - INFO - [stock_st] 使用强制指定的日期范围: 20260205 ~ 20260222
+2026-02-28 15:33:20,855 - update.update_manager - INFO - 开始更新 stock_st: 20260205 ~ 20260222
+2026-02-28 15:33:20,856 - core.coverage_manager - INFO - 检测缺口: stock_st (20260205 ~ 20260222)
+2026-02-28 15:33:20,856 - core.coverage_manager - INFO - 已有数据: 0 天
+2026-02-28 15:33:20,856 - core.coverage_manager - INFO - 期望交易日: 7 天
+2026-02-28 15:33:20,856 - core.coverage_manager - INFO - 无已有数据，需要完整下载
+2026-02-28 15:33:20,856 - update.update_manager - INFO - 下载缺口 [1/1]: 20260205 ~ 20260222
+2026-02-28 15:33:20,857 - core.pagination_executor - INFO - [stock_st] Offset分页开始 - 配置限额: limit=1000
+2026-02-28 15:33:23,843 - core.downloader - INFO - API returned 5 fields for stock_st
+2026-02-28 15:33:23,843 - core.downloader - INFO - Returned fields: ['ts_code', 'name', 'trade_date', 'type', 'type_name']
+2026-02-28 15:33:23,847 - core.downloader - INFO - Downloaded 1000 records for stock_st
+2026-02-28 15:33:23,848 - core.pagination_executor - INFO - [stock_st] 第1页完成 - offset=0, 请求limit=1000, 实际返回=1000条
+2026-02-28 15:33:26,289 - core.downloader - INFO - API returned 5 fields for stock_st
+2026-02-28 15:33:26,289 - core.downloader - INFO - Returned fields: ['ts_code', 'name', 'trade_date', 'type', 'type_name']
+2026-02-28 15:33:26,290 - core.downloader - INFO - Downloaded 243 records for stock_st
+2026-02-28 15:33:26,290 - core.pagination_executor - INFO - [stock_st] 第2页完成 - offset=1000, 请求limit=1000, 实际返回=243条
+2026-02-28 15:33:26,291 - core.pagination_executor - INFO - [stock_st] 分页完成 - 最后1页返回243条 < 限额1000，停止请求
+2026-02-28 15:33:26,291 - core.pagination_executor - INFO - [stock_st] Offset分页结束 - 总页数=2, 总记录数=1243
+2026-02-28 15:33:26,314 - update.update_manager - INFO - 接口 stock_st 更新完成，共 1243 条记录，耗时 5.46秒
+2026-02-28 15:33:26,314 - update.update_reporter - INFO - ✓ stock_st: SUCCESS (1243 条记录) [5.46s]
+2026-02-28 15:33:26,314 - update.update_reporter - INFO - 更新结束: 2026-02-28 15:33:26
+2026-02-28 15:33:26,315 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-28 15:33:26,315 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-28 15:33:26,315 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260228_153326.markdown
+2026-02-28 15:33:26,316 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-28 15:33:26,316 - __main__ - INFO - 正在停止调度器...
+2026-02-28 15:33:26,316 - core.scheduler - INFO - Task scheduler stopped
+2026-02-28 15:33:26,316 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-28 15:33:26,317 - core.storage - INFO - Flushed 1243 remaining records for processing: stock_st
+2026-02-28 15:33:26,324 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-28 15:33:26,370 - core.processor - WARNING - Found 50 duplicate records for interface stock_st
+2026-02-28 15:33:26,376 - core.processor - INFO - Processed 1193 records for stock_st
+2026-02-28 15:33:26,388 - core.storage - INFO - Processed and queued 1193 records for stock_st
+2026-02-28 15:33:26,398 - core.storage - INFO - Stopping writer thread...
+2026-02-28 15:33:26,412 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for stock_st，记录数: 1193
+2026-02-28 15:33:26,415 - core.storage - INFO - Wrote 1193 records to /home/quan/testdata/aspipe_v4/data/stock_st/stock_st_20260205_20260213_1772264006388_e6de3bbb.parquet
+2026-02-28 15:33:26,416 - core.storage - INFO - Storage threads stopped
+2026-02-28 15:33:26,416 - __main__ - INFO - 限流统计: 总请求=2, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-28 15:33:26,417 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-28 15:33:20
+- **结束时间**: 2026-02-28 15:33:26
+- **总耗时**: 5.5秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 1243
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| stock_st | ✓ 成功 | 20260205 ~ 20260222 | 1243 | 5.46s |  |
+
+============================================================

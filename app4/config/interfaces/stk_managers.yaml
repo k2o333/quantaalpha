@@ -8,9 +8,12 @@ fields:
   - gender            # 性别
   - lev               # 岗位类别
   - title             # 岗位
-  - resume            # 个人简历
   - edu               # 学历
-  - resume_update     # 简历更新日期
+  - national          # 国籍
+  - birthday          # 出生年月
+  - begin_date        # 上任日期
+  - end_date          # 离任日期
+  - resume            # 个人简历
 
 derived_fields:
   ann_date_dt:
@@ -23,14 +26,17 @@ name: stk_managers
 output:
   primary_key:
   - ts_code
-  - name
   - ann_date
+  - name
   - gender
   - lev
   - title
-  - resume
   - edu
-  - resume_update
+  - national
+  - birthday
+  - begin_date
+  - end_date
+  - resume
   sort_by:
   - ann_date
   - ts_code

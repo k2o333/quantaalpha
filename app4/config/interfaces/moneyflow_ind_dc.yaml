@@ -9,6 +9,7 @@ fields:
   - pct_change        # 涨跌幅（%）
   - net_amount        # 净流入额（万元）
   - net_amount_rate   # 净流入率（%）
+  - rank              # 排名
 
 derived_fields:
   trade_date_dt:
@@ -20,13 +21,14 @@ description: 行业/概念资金流向（东财）
 name: moneyflow_ind_dc
 output:
   primary_key:
-  - trade_date
   - ts_code
+  - trade_date
   - name
   - close
   - pct_change
   - net_amount
   - net_amount_rate
+  - rank
   sort_by:
   - trade_date
 pagination:

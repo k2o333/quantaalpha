@@ -14,7 +14,6 @@ fields:
   - first_ann_date    # 首次公告日
   - summary           # 业绩预告摘要
   - change_reason     # 业绩变动原因
-  - update_flag       # 更新标记
 
 derived_fields:
   ann_date_dt:
@@ -39,7 +38,6 @@ output:
   - ts_code
   - ann_date
   - end_date
-  - update_flag
   - type
   - p_change_min
   - p_change_max

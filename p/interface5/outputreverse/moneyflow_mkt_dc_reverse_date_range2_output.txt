@@ -1,0 +1,72 @@
+2026-02-28 15:32:40,177 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-28 15:32:40,270 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-28 15:32:40,302 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-28 15:32:40,303 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-28 15:32:40,304 - core.storage - INFO - Storage writer and process threads started
+2026-02-28 15:32:40,304 - __main__ - INFO - Interfaces to update (after permission filter): ['moneyflow_mkt_dc']
+2026-02-28 15:32:40,305 - update.update_reporter - INFO - 更新开始: 2026-02-28 15:32:40
+2026-02-28 15:32:40,305 - update.update_manager - INFO - ============================================================
+2026-02-28 15:32:40,305 - update.update_manager - INFO - 开始增量更新
+2026-02-28 15:32:40,305 - update.update_manager - INFO - ============================================================
+2026-02-28 15:32:40,305 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-28 15:32:40,305 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-28 15:32:40,305 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-28 15:32:40,305 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-28 15:32:40,306 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-28 15:32:40,306 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-28 15:32:40,306 - update.update_manager - INFO - 
+[1/1] 处理接口: moneyflow_mkt_dc
+2026-02-28 15:32:40,306 - update.update_reporter - INFO - 开始更新接口: moneyflow_mkt_dc
+2026-02-28 15:32:40,306 - update.date_calculator - INFO - [moneyflow_mkt_dc] 使用强制指定的日期范围: 20260205 ~ 20260222
+2026-02-28 15:32:40,306 - update.update_manager - INFO - 开始更新 moneyflow_mkt_dc: 20260205 ~ 20260222
+2026-02-28 15:32:40,307 - core.coverage_manager - INFO - 检测缺口: moneyflow_mkt_dc (20260205 ~ 20260222)
+2026-02-28 15:32:40,307 - core.coverage_manager - INFO - 已有数据: 0 天
+2026-02-28 15:32:40,307 - core.coverage_manager - INFO - 期望交易日: 7 天
+2026-02-28 15:32:40,307 - core.coverage_manager - INFO - 无已有数据，需要完整下载
+2026-02-28 15:32:40,308 - update.update_manager - INFO - 下载缺口 [1/1]: 20260205 ~ 20260222
+2026-02-28 15:32:41,318 - core.downloader - INFO - API returned 15 fields for moneyflow_mkt_dc
+2026-02-28 15:32:41,319 - core.downloader - INFO - Returned fields: ['trade_date', 'close_sh', 'pct_change_sh', 'close_sz', 'pct_change_sz', 'net_amount', 'net_amount_rate', 'buy_elg_amount', 'buy_elg_amount_rate', 'buy_lg_amount', 'buy_lg_amount_rate', 'buy_md_amount', 'buy_md_amount_rate', 'buy_sm_amount', 'buy_sm_amount_rate']
+2026-02-28 15:32:41,319 - core.downloader - INFO - Downloaded 7 records for moneyflow_mkt_dc
+2026-02-28 15:32:41,320 - update.update_manager - INFO - 接口 moneyflow_mkt_dc 更新完成，共 7 条记录，耗时 1.01秒
+2026-02-28 15:32:41,328 - update.update_reporter - INFO - ✓ moneyflow_mkt_dc: SUCCESS (7 条记录) [1.01s]
+2026-02-28 15:32:41,337 - update.update_reporter - INFO - 更新结束: 2026-02-28 15:32:41
+2026-02-28 15:32:41,337 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-28 15:32:41,338 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-28 15:32:41,340 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260228_153241.markdown
+2026-02-28 15:32:41,340 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-28 15:32:41,340 - __main__ - INFO - 正在停止调度器...
+2026-02-28 15:32:41,340 - core.scheduler - INFO - Task scheduler stopped
+2026-02-28 15:32:41,341 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-28 15:32:41,356 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-28 15:32:41,362 - core.processor - INFO - Processed 7 records for moneyflow_mkt_dc
+2026-02-28 15:32:41,363 - core.storage - INFO - Processed and queued 7 records for moneyflow_mkt_dc
+2026-02-28 15:32:41,365 - core.storage - INFO - Stopping writer thread...
+2026-02-28 15:32:41,381 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for moneyflow_mkt_dc，记录数: 7
+2026-02-28 15:32:41,383 - core.storage - INFO - Wrote 7 records to /home/quan/testdata/aspipe_v4/data/moneyflow_mkt_dc/moneyflow_mkt_dc_20260205_20260213_1772263961363_1d1244cf.parquet
+2026-02-28 15:32:41,384 - core.storage - INFO - Storage threads stopped
+2026-02-28 15:32:41,384 - __main__ - INFO - 限流统计: 总请求=1, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-28 15:32:41,384 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-28 15:32:40
+- **结束时间**: 2026-02-28 15:32:41
+- **总耗时**: 1.0秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 7
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| moneyflow_mkt_dc | ✓ 成功 | 20260205 ~ 20260222 | 7 | 1.01s |  |
+
+============================================================

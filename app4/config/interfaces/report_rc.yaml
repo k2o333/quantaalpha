@@ -93,4 +93,4 @@ fields:
   max_price: float
   min_price: float
   imp_dg: string
-  create_time: string
+  create_time: datetime

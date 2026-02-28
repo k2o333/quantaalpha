@@ -2,15 +2,19 @@ api_name: stk_holdertrade
 
 # Fields配置：显式指定所有返回字段
 fields:
-  - ts_code           # TS股票代码
+  - ts_code           # TS代码
   - ann_date          # 公告日期
   - holder_name       # 股东名称
-  - holder_type       # 股东类型 C公司 P个人 G高管
-  - trade_type        # 交易类型 IN增持 DE减持
-  - begin_date        # 变动开始日期
-  - close_date        # 变动截止日期
-  - hold_vol          # 变动数量（股）
-  - hold_ratio        # 变动比例（%）
+  - holder_type       # 股东类型（G 高管 P 个人 C 公司）
+  - in_de             # 类型（IN 增持 DE 减持）
+  - change_vol        # 变动数量
+  - change_ratio      # 占流通比例（%）
+  - after_share       # 变动后持股
+  - after_ratio       # 变动后占流通比例（%）
+  - avg_price         # 平均价格
+  - total_share       # 持股总数
+  - begin_date        # 增减持开始日期
+  - close_date        # 增减持结束日期
 
 derived_fields:
   ann_date_dt:
@@ -36,11 +40,15 @@ output:
   - ann_date
   - holder_name
   - holder_type
-  - trade_type
+  - in_de
+  - change_vol
+  - change_ratio
+  - after_share
+  - after_ratio
+  - avg_price
+  - total_share
   - begin_date
   - close_date
-  - hold_vol
-  - hold_ratio
   sort_by:
   - ann_date
 pagination:

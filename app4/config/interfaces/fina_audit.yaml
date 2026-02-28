@@ -8,7 +8,7 @@ fields:
   - audit_result      # 审计结果
   - audit_fees        # 审计费用（元）
   - audit_sign        # 审计机构签字
-  - audit_opinion     # 审计意见
+  - audit_agency
 
 derived_fields:
   ann_date_dt:
@@ -31,7 +31,7 @@ output:
   - audit_result
   - audit_fees
   - audit_sign
-  - audit_opinion
+  - audit_agency
   sort_by:
   - ann_date
 pagination:

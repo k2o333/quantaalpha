@@ -1,0 +1,86 @@
+2026-02-28 15:49:34,128 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-28 15:49:34,221 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-28 15:49:34,253 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-28 15:49:34,255 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-28 15:49:34,255 - core.storage - INFO - Storage writer and process threads started
+2026-02-28 15:49:34,256 - __main__ - INFO - Interfaces to update (after permission filter): ['stk_surv']
+2026-02-28 15:49:34,256 - update.update_reporter - INFO - 更新开始: 2026-02-28 15:49:34
+2026-02-28 15:49:34,256 - update.update_manager - INFO - ============================================================
+2026-02-28 15:49:34,256 - update.update_manager - INFO - 开始增量更新
+2026-02-28 15:49:34,256 - update.update_manager - INFO - ============================================================
+2026-02-28 15:49:34,256 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-28 15:49:34,256 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-28 15:49:34,257 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-28 15:49:34,257 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-28 15:49:34,257 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-28 15:49:34,257 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-28 15:49:34,257 - update.update_manager - INFO - 
+[1/1] 处理接口: stk_surv
+2026-02-28 15:49:34,257 - update.update_reporter - INFO - 开始更新接口: stk_surv
+2026-02-28 15:49:34,257 - update.date_calculator - INFO - [stk_surv] 使用强制指定的日期范围: 20260205 ~ 20260222
+2026-02-28 15:49:34,257 - update.update_manager - INFO - 开始更新 stk_surv: 20260205 ~ 20260222
+2026-02-28 15:49:34,258 - update.update_manager - INFO - 开始下载 stk_surv: 20260205 ~ 20260222
+2026-02-28 15:49:34,258 - core.pagination_executor - INFO - [stk_surv] Offset分页开始 - 配置限额: limit=400
+2026-02-28 15:49:37,187 - core.downloader - INFO - API returned 10 fields for stk_surv
+2026-02-28 15:49:37,187 - core.downloader - INFO - Returned fields: ['ts_code', 'name', 'surv_date', 'fund_visitors', 'rece_place', 'rece_mode', 'rece_org', 'org_type', 'comp_rece', 'content']
+2026-02-28 15:49:37,190 - core.downloader - INFO - Downloaded 400 records for stk_surv
+2026-02-28 15:49:37,191 - core.pagination_executor - INFO - [stk_surv] 第1页完成 - offset=0, 请求limit=400, 实际返回=400条
+2026-02-28 15:49:39,014 - core.downloader - INFO - API returned 10 fields for stk_surv
+2026-02-28 15:49:39,014 - core.downloader - INFO - Returned fields: ['ts_code', 'name', 'surv_date', 'fund_visitors', 'rece_place', 'rece_mode', 'rece_org', 'org_type', 'comp_rece', 'content']
+2026-02-28 15:49:39,018 - core.downloader - INFO - Downloaded 400 records for stk_surv
+2026-02-28 15:49:39,019 - core.pagination_executor - INFO - [stk_surv] 第2页完成 - offset=400, 请求limit=400, 实际返回=400条
+2026-02-28 15:49:43,687 - core.downloader - INFO - API returned 10 fields for stk_surv
+2026-02-28 15:49:43,688 - core.downloader - INFO - Returned fields: ['ts_code', 'name', 'surv_date', 'fund_visitors', 'rece_place', 'rece_mode', 'rece_org', 'org_type', 'comp_rece', 'content']
+2026-02-28 15:49:43,691 - core.downloader - INFO - Downloaded 400 records for stk_surv
+2026-02-28 15:49:43,691 - core.pagination_executor - INFO - [stk_surv] 第3页完成 - offset=800, 请求limit=400, 实际返回=400条
+2026-02-28 15:49:46,923 - core.downloader - INFO - API returned 10 fields for stk_surv
+2026-02-28 15:49:46,924 - core.downloader - INFO - Returned fields: ['ts_code', 'name', 'surv_date', 'fund_visitors', 'rece_place', 'rece_mode', 'rece_org', 'org_type', 'comp_rece', 'content']
+2026-02-28 15:49:46,925 - core.downloader - INFO - Downloaded 146 records for stk_surv
+2026-02-28 15:49:46,926 - core.pagination_executor - INFO - [stk_surv] 第4页完成 - offset=1200, 请求limit=400, 实际返回=146条
+2026-02-28 15:49:46,926 - core.pagination_executor - INFO - [stk_surv] 分页完成 - 最后1页返回146条 < 限额400，停止请求
+2026-02-28 15:49:46,926 - core.pagination_executor - INFO - [stk_surv] Offset分页结束 - 总页数=4, 总记录数=1346
+2026-02-28 15:49:47,019 - update.update_manager - INFO - 接口 stk_surv 更新完成，共 1346 条记录，耗时 12.76秒
+2026-02-28 15:49:47,019 - update.update_reporter - INFO - ✓ stk_surv: SUCCESS (1346 条记录) [12.76s]
+2026-02-28 15:49:47,019 - update.update_reporter - INFO - 更新结束: 2026-02-28 15:49:47
+2026-02-28 15:49:47,019 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-28 15:49:47,019 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-28 15:49:47,020 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260228_154947.markdown
+2026-02-28 15:49:47,020 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-28 15:49:47,020 - __main__ - INFO - 正在停止调度器...
+2026-02-28 15:49:47,020 - core.scheduler - INFO - Task scheduler stopped
+2026-02-28 15:49:47,020 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-28 15:49:47,021 - core.storage - INFO - Flushed 1346 remaining records for processing: stk_surv
+2026-02-28 15:49:47,060 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-28 15:49:47,085 - core.processor - INFO - Filtered 304 records with null primary keys for interface stk_surv, kept 1042/1346
+2026-02-28 15:49:47,144 - core.processor - INFO - Processed 1042 records for stk_surv
+2026-02-28 15:49:47,174 - core.storage - INFO - Processed and queued 1042 records for stk_surv
+2026-02-28 15:49:47,192 - core.storage - INFO - Stopping writer thread...
+2026-02-28 15:49:47,202 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for stk_surv，记录数: 1042
+2026-02-28 15:49:47,209 - core.storage - INFO - Wrote 1042 records to /home/quan/testdata/aspipe_v4/data/stk_surv/stk_surv_nodate_1772264987174_76270bdd.parquet
+2026-02-28 15:49:47,211 - core.storage - INFO - Storage threads stopped
+2026-02-28 15:49:47,211 - __main__ - INFO - 限流统计: 总请求=4, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-28 15:49:47,211 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-28 15:49:34
+- **结束时间**: 2026-02-28 15:49:47
+- **总耗时**: 12.8秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 1346
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| stk_surv | ✓ 成功 | 20260205 ~ 20260222 | 1346 | 12.76s |  |
+
+============================================================

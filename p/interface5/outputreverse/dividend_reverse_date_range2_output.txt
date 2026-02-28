@@ -1,0 +1,89 @@
+2026-02-28 15:49:23,550 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-28 15:49:23,640 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-28 15:49:23,674 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-28 15:49:23,675 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-28 15:49:23,676 - core.storage - INFO - Storage writer and process threads started
+2026-02-28 15:49:23,676 - __main__ - INFO - Interfaces to update (after permission filter): ['dividend']
+2026-02-28 15:49:23,676 - update.update_reporter - INFO - 更新开始: 2026-02-28 15:49:23
+2026-02-28 15:49:23,676 - update.update_manager - INFO - ============================================================
+2026-02-28 15:49:23,676 - update.update_manager - INFO - 开始增量更新
+2026-02-28 15:49:23,677 - update.update_manager - INFO - ============================================================
+2026-02-28 15:49:23,677 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-28 15:49:23,677 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-28 15:49:23,677 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-28 15:49:23,677 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-28 15:49:23,677 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-28 15:49:23,677 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-28 15:49:23,678 - update.update_manager - INFO - 
+[1/1] 处理接口: dividend
+2026-02-28 15:49:23,678 - update.update_reporter - INFO - 开始更新接口: dividend
+2026-02-28 15:49:23,678 - update.date_calculator - INFO - [dividend] 使用强制指定的日期范围: 20260205 ~ 20260222
+2026-02-28 15:49:23,678 - update.update_manager - INFO - 开始更新 dividend: 20260205 ~ 20260222
+2026-02-28 15:49:23,679 - core.coverage_manager - INFO - 检测缺口: dividend (20260205 ~ 20260222)
+2026-02-28 15:49:23,679 - core.coverage_manager - INFO - 已有数据: 0 天
+2026-02-28 15:49:23,679 - core.coverage_manager - INFO - 期望交易日: 7 天
+2026-02-28 15:49:23,679 - core.coverage_manager - INFO - 无已有数据，需要完整下载
+2026-02-28 15:49:23,679 - update.update_manager - INFO - 下载缺口 [1/1]: 20260205 ~ 20260222
+2026-02-28 15:49:24,473 - core.downloader - INFO - API returned 16 fields for dividend
+2026-02-28 15:49:24,473 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'ann_date', 'div_proc', 'stk_div', 'stk_bo_rate', 'stk_co_rate', 'cash_div', 'cash_div_tax', 'record_date', 'ex_date', 'pay_date', 'div_listdate', 'imp_ann_date', 'base_date', 'base_share']
+2026-02-28 15:49:24,474 - core.downloader - INFO - Downloaded 2 records for dividend
+2026-02-28 15:49:24,640 - core.downloader - INFO - API returned 16 fields for dividend
+2026-02-28 15:49:24,640 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'ann_date', 'div_proc', 'stk_div', 'stk_bo_rate', 'stk_co_rate', 'cash_div', 'cash_div_tax', 'record_date', 'ex_date', 'pay_date', 'div_listdate', 'imp_ann_date', 'base_date', 'base_share']
+2026-02-28 15:49:24,640 - core.downloader - INFO - Downloaded 0 records for dividend
+2026-02-28 15:49:25,757 - core.downloader - INFO - API returned 16 fields for dividend
+2026-02-28 15:49:25,758 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'ann_date', 'div_proc', 'stk_div', 'stk_bo_rate', 'stk_co_rate', 'cash_div', 'cash_div_tax', 'record_date', 'ex_date', 'pay_date', 'div_listdate', 'imp_ann_date', 'base_date', 'base_share']
+2026-02-28 15:49:25,758 - core.downloader - INFO - Downloaded 2 records for dividend
+2026-02-28 15:49:26,158 - core.downloader - INFO - API returned 16 fields for dividend
+2026-02-28 15:49:26,159 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'ann_date', 'div_proc', 'stk_div', 'stk_bo_rate', 'stk_co_rate', 'cash_div', 'cash_div_tax', 'record_date', 'ex_date', 'pay_date', 'div_listdate', 'imp_ann_date', 'base_date', 'base_share']
+2026-02-28 15:49:26,159 - core.downloader - INFO - Downloaded 3 records for dividend
+2026-02-28 15:49:26,823 - core.downloader - INFO - API returned 16 fields for dividend
+2026-02-28 15:49:26,823 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'ann_date', 'div_proc', 'stk_div', 'stk_bo_rate', 'stk_co_rate', 'cash_div', 'cash_div_tax', 'record_date', 'ex_date', 'pay_date', 'div_listdate', 'imp_ann_date', 'base_date', 'base_share']
+2026-02-28 15:49:26,823 - core.downloader - INFO - Downloaded 0 records for dividend
+2026-02-28 15:49:26,950 - core.downloader - INFO - API returned 16 fields for dividend
+2026-02-28 15:49:26,950 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'ann_date', 'div_proc', 'stk_div', 'stk_bo_rate', 'stk_co_rate', 'cash_div', 'cash_div_tax', 'record_date', 'ex_date', 'pay_date', 'div_listdate', 'imp_ann_date', 'base_date', 'base_share']
+2026-02-28 15:49:26,950 - core.downloader - INFO - Downloaded 0 records for dividend
+2026-02-28 15:49:28,747 - core.downloader - INFO - API returned 16 fields for dividend
+2026-02-28 15:49:28,748 - core.downloader - INFO - Returned fields: ['ts_code', 'end_date', 'ann_date', 'div_proc', 'stk_div', 'stk_bo_rate', 'stk_co_rate', 'cash_div', 'cash_div_tax', 'record_date', 'ex_date', 'pay_date', 'div_listdate', 'imp_ann_date', 'base_date', 'base_share']
+2026-02-28 15:49:28,748 - core.downloader - INFO - Downloaded 0 records for dividend
+2026-02-28 15:49:28,749 - update.update_manager - INFO - 接口 dividend 更新完成，共 7 条记录，耗时 5.07秒
+2026-02-28 15:49:28,751 - update.update_reporter - INFO - ✓ dividend: SUCCESS (7 条记录) [5.07s]
+2026-02-28 15:49:28,757 - update.update_reporter - INFO - 更新结束: 2026-02-28 15:49:28
+2026-02-28 15:49:28,771 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-28 15:49:28,772 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-28 15:49:28,773 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260228_154928.markdown
+2026-02-28 15:49:28,774 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-28 15:49:28,775 - __main__ - INFO - 正在停止调度器...
+2026-02-28 15:49:28,775 - core.scheduler - INFO - Task scheduler stopped
+2026-02-28 15:49:28,775 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-28 15:49:28,776 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-28 15:49:28,776 - core.processor - INFO - Filtered 7 records with null primary keys for interface dividend, kept 0/7
+2026-02-28 15:49:28,785 - core.processor - INFO - Processed 0 records for dividend
+2026-02-28 15:49:28,785 - core.storage - WARNING - No data to save after processing: dividend
+2026-02-28 15:49:28,785 - core.storage - INFO - Stopping writer thread...
+2026-02-28 15:49:28,786 - core.storage - INFO - Storage threads stopped
+2026-02-28 15:49:28,786 - __main__ - INFO - 限流统计: 总请求=7, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-28 15:49:28,786 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-28 15:49:23
+- **结束时间**: 2026-02-28 15:49:28
+- **总耗时**: 5.1秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 7
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| dividend | ✓ 成功 | 20260205 ~ 20260222 | 7 | 5.07s |  |
+
+============================================================

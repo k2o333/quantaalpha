@@ -4,24 +4,19 @@ api_name: moneyflow_dc
 fields:
   - ts_code           # TS代码
   - trade_date        # 交易日期
-  - buy_sm_vol        # 小单买入量（手）
-  - buy_sm_amount     # 小单买入金额（万元）
-  - sell_sm_vol       # 小单卖出量（手）
-  - sell_sm_amount    # 小单卖出金额（万元）
-  - buy_md_vol        # 中单买入量（手）
-  - buy_md_amount     # 中单买入金额（万元）
-  - sell_md_vol       # 中单卖出量（手）
-  - sell_md_amount    # 中单卖出金额（万元）
-  - buy_lg_vol        # 大单买入量（手）
-  - buy_lg_amount     # 大单买入金额（万元）
-  - sell_lg_vol       # 大单卖出量（手）
-  - sell_lg_amount    # 大单卖出金额（万元）
-  - buy_elg_vol       # 特大单买入量（手）
-  - buy_elg_amount    # 特大单买入金额（万元）
-  - sell_elg_vol      # 特大单卖出量（手）
-  - sell_elg_amount   # 特大单卖出金额（万元）
-  - net_mf_vol        # 净流入量（手）
-  - net_mf_amount     # 净流入额（万元）
+  - name              # 股票名称
+  - pct_change        # 涨跌幅
+  - close             # 收盘价
+  - net_amount        # 主力净流入额（万元）
+  - net_amount_rate   # 主力净流入率（%）
+  - buy_elg_amount    # 超大单净流入（万元）
+  - buy_elg_amount_rate # 超大单净流入率（%）
+  - buy_lg_amount     # 大单净流入（万元）
+  - buy_lg_amount_rate # 大单净流入率（%）
+  - buy_md_amount     # 中单净流入（万元）
+  - buy_md_amount_rate # 中单净流入率（%）
+  - buy_sm_amount     # 小单净流入（万元）
+  - buy_sm_amount_rate # 小单净流入率（%）
 
 derived_fields:
   trade_date_dt:
@@ -35,24 +30,19 @@ output:
   primary_key:
   - ts_code
   - trade_date
-  - buy_sm_vol
-  - buy_sm_amount
-  - sell_sm_vol
-  - sell_sm_amount
-  - buy_md_vol
-  - buy_md_amount
-  - sell_md_vol
-  - sell_md_amount
-  - buy_lg_vol
-  - buy_lg_amount
-  - sell_lg_vol
-  - sell_lg_amount
-  - buy_elg_vol
+  - name
+  - pct_change
+  - close
+  - net_amount
+  - net_amount_rate
   - buy_elg_amount
-  - sell_elg_vol
-  - sell_elg_amount
-  - net_mf_vol
-  - net_mf_amount
+  - buy_elg_amount_rate
+  - buy_lg_amount
+  - buy_lg_amount_rate
+  - buy_md_amount
+  - buy_md_amount_rate
+  - buy_sm_amount
+  - buy_sm_amount_rate
   sort_by:
   - trade_date
 pagination:

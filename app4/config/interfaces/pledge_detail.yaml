@@ -5,14 +5,17 @@ fields:
   - ts_code           # 股票代码
   - ann_date          # 公告日期
   - holder_name       # 股东名称
+  - pledge_amount     # 质押数量（万股）
   - start_date        # 质押开始日期
   - end_date          # 质押结束日期
-  - release_date      # 解除日期
-  - pledge_amount     # 质押数量（股）
-  - pledge_ratio      # 质押比例（%）
   - is_release        # 是否已解除 Y是 N否
-  - total_share       # 股东总持股（股）
-  - pledge_type       # 质押类型
+  - release_date      # 解除日期
+  - pledgor           # 质押人
+  - holding_amount    # 持股总数（万股）
+  - pledged_amount    # 质押总数（万股）
+  - p_total_ratio     # 本次质押占总股本比例
+  - h_total_ratio     # 持股占总股本比例
+  - is_buyback        # 是否回购
 
 derived_fields:
   ann_date_dt:
@@ -46,14 +49,17 @@ output:
   - ts_code
   - ann_date
   - holder_name
-  - start_date
   - pledge_amount
-  - is_release
+  - start_date
   - end_date
+  - is_release
   - release_date
-  - pledge_ratio
-  - total_share
-  - pledge_type
+  - pledgor
+  - holding_amount
+  - pledged_amount
+  - p_total_ratio
+  - h_total_ratio
+  - is_buyback
   sort_by:
   - ann_date
   - ts_code

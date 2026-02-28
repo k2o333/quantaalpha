@@ -2,13 +2,18 @@ api_name: moneyflow_cnt_ths
 
 # Fields配置：显式指定所有返回字段
 fields:
-  - ts_code           # 概念代码
   - trade_date        # 交易日期
-  - name              # 概念名称
-  - close             # 收盘价
-  - pct_change        # 涨跌幅（%）
-  - net_amount        # 净流入额（万元）
-  - net_amount_rate   # 净流入率（%）
+  - ts_code           # 板块代码
+  - name              # 板块名称
+  - lead_stock        # 领涨股票名称
+  - close_price       # 最新价（收盘点位）
+  - pct_change        # 行业涨跌幅（%）
+  - industry_index    # 板块指数
+  - company_num       # 公司数量
+  - pct_change_stock  # 领涨股涨跌幅（%）
+  - net_buy_amount    # 流入资金（亿元）
+  - net_sell_amount   # 流出资金（亿元）
+  - net_amount        # 净额（亿元）
 
 derived_fields:
   trade_date_dt:
@@ -23,10 +28,15 @@ output:
   - trade_date
   - ts_code
   - name
-  - close
+  - lead_stock
+  - close_price
   - pct_change
+  - industry_index
+  - company_num
+  - pct_change_stock
+  - net_buy_amount
+  - net_sell_amount
   - net_amount
-  - net_amount_rate
   sort_by:
   - trade_date
 pagination:

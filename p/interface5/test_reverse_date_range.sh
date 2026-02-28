@@ -27,10 +27,29 @@ REVERSE_DATE_RANGE_INTERFACES=(
     "report_rc"
     "share_float"
     "cyq_perf"
+    "namechange"
+    "stk_factor_pro"
+    "moneyflow_dc"
+    "dividend"
+    "stk_surv"
 )
 
 # 创建输出目录
 mkdir -p "$OUTPUT_DIR"
+
+# 函数：清空接口数据目录
+clear_interface_data() {
+    local interface_name=$1
+    local data_dir="/home/quan/testdata/aspipe_v4/data/${interface_name}"
+    
+    if [ -d "$data_dir" ]; then
+        echo "清空数据目录: ${data_dir}"
+        rm -rf "${data_dir}"/*
+        echo "✓ 数据目录已清空"
+    else
+        echo "数据目录不存在: ${data_dir}"
+    fi
+}
 
 # 函数：执行更新命令并将输出保存到文件
 run_update() {
@@ -42,9 +61,12 @@ run_update() {
 
     echo "正在更新接口: ${interface_name}"
     echo "命令: ${PYTHON_PATH} ${MAIN_PY} --interface ${interface_name} --start_date ${start_date} --end_date ${end_date}"
+    
+    # 清空接口数据目录
+    clear_interface_data "$interface_name"
 
     # 使用 timeout 命令限制执行时间，并将输出保存到文件
-    timeout 300 ${PYTHON_PATH} ${MAIN_PY} --interface ${interface_name} --start_date ${start_date} --end_date ${end_date} > "$output_file" 2>&1
+    timeout 300 ${PYTHON_PATH} ${MAIN_PY} --interface ${interface_name} --start_date ${start_date} --end_date ${end_date} --update > "$output_file" 2>&1
 
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
@@ -79,9 +101,13 @@ main() {
         echo "测试接口: $interface"
         echo "----------------------------------------"
 
-        # 测试: 使用指定的日期范围
-        echo "[测试] 更新接口（起始日期: $START_DATE, 结束日期: $END_DATE）"
+        # 第一遍测试: 使用指定的日期范围
+        echo "[测试1] 更新接口（起始日期: $START_DATE, 结束日期: $END_DATE）"
         run_update "$interface" "$START_DATE" "$END_DATE" "reverse_date_range"
+
+        # 第二遍测试: 使用更早的起始日期
+        echo "[测试2] 更新接口（起始日期: 20260205, 结束日期: $END_DATE）"
+        run_update "$interface" "20260205" "$END_DATE" "reverse_date_range2"
 
         echo "完成测试: $interface"
     done

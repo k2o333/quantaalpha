@@ -11,6 +11,8 @@ name: stock_company
 # Fields配置：显式指定所有返回字段（包括默认和非默认字段）
 fields:
   - ts_code           # TS代码
+  - com_name          # 公司全称
+  - com_id            # 统一社会信用代码
   - exchange          # 交易所代码
   - chairman          # 董事长
   - manager           # 总经理
@@ -21,14 +23,17 @@ fields:
   - city              # 所在城市
   - introduction      # 公司简介
   - website           # 公司主页
+  - email             # 邮箱
+  - office            # 办公地址
   - employees         # 员工人数
   - main_business     # 主要业务及产品
-  - business_scope    # 经营范围（需显式请求才返回）
-  - office            # 办公地址
+  - business_scope    # 经营范围
 
 output:
   primary_key:
   - ts_code
+  - com_name
+  - com_id
   - exchange
   - chairman
   - manager
@@ -39,10 +44,11 @@ output:
   - city
   - introduction
   - website
+  - email
+  - office
   - employees
   - main_business
   - business_scope
-  - office
   sort_by:
   - ts_code
 pagination:
