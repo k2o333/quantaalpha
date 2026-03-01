@@ -1,16 +1,28 @@
 # QuantaAlpha 因子挖掘完整流程图（整合版）
 
 ## 整体系统架构
-
 ```mermaid
 flowchart TB
     subgraph Input["1. 输入层"]
+        direction TB
         ResearchDirection["研究方向输入<br/>自然语言描述<br/>e.g., 'Price-Volume Factor Mining'"]
+        PaperInput["论文/PDF 输入<br/>学术文献<br/>arXiv/SSRN/CNKI"]
+    end
+
+    subgraph PaperExtract["论文知识提取<br/>load_and_process_pdfs()"]
+        direction TB
+        PDFLoad["PDF 加载<br/>LangChain 文档处理"]
+        ReportClassify["报告分类<br/>classify_report_from_dict()"]
+        FactorNameExtract["提取因子名称<br/>__extract_factors_name_and_desc()"]
+        FactorFormulaExtract["提取因子公式<br/>__extract_factor_formulation()"]
+        FactorLibraryFromPaper["因子库<br/>FactorExperimentLoaderFromDict"]
+        
+        PDFLoad --> ReportClassify --> FactorNameExtract --> FactorFormulaExtract --> FactorLibraryFromPaper
     end
 
     subgraph Planning["2. 多样化规划初始化<br/>Diversified Planning"]
         direction TB
-        PlanningLLM["LLM规划器<br/>generate_parallel_directions()"]
+        PlanningLLM["LLM 规划器<br/>generate_parallel_directions()"]
         DirectionPool["方向池<br/>Direction 1, 2, ..., N<br/>并行探索路径"]
         PlanningLLM --> DirectionPool
     end
@@ -26,7 +38,7 @@ flowchart TB
             end
             
             subgraph CodeTrans["3.2 代码转换阶段<br/>AlphaAgentLoop.factor_construct()"]
-                Translation["假设→代码转换<br/>生成Qlib兼容表达式"]
+                Translation["假设→代码转换<br/>生成 Qlib 兼容表达式"]
             end
             
             subgraph QualityGate["3.3 质量门控三层检查<br/>FactorQualityGate.check()"]
@@ -36,7 +48,7 @@ flowchart TB
                     CC1["假设 ↔ 描述<br/>语义对齐"]
                     CC2["描述 ↔ 公式<br/>逻辑一致性"]
                     CC3["公式 ↔ 表达式<br/>代码正确性"]
-                    CCCorrection["LLM自动修正<br/>最大3次重试"]
+                    CCCorrection["LLM 自动修正<br/>最大 3 次重试"]
                     CC1 --> CC2 --> CC3 --> CCCorrection
                 end
                 
@@ -58,59 +70,68 @@ flowchart TB
                 Compute["因子计算<br/>CustomFactorCalculator<br/>daily_pv.h5"]
                 InlineTest["内联回测<br/>InlineBacktest"]
                 Metrics["性能指标<br/>IC / RankIC / 夏普 / 回撤"]
-                PerformanceCheck{"IC ≥ 阈值?"}
+                PerformanceCheck{"IC ≥ 阈值？"}
                 
                 Compute --> InlineTest --> Metrics --> PerformanceCheck
             end
             
             subgraph FeedbackLoop["3.5 反馈进化阶段<br/>AlphaAgentLoop.feedback()"]
-                Feedback["性能反馈<br/>{因子弱点, 优化建议}"]
+                Feedback["性能反馈<br/>{因子弱点，优化建议}"]
                 EvolveDecision{"收敛判断<br/>迭代次数 < Max?"}
                 Feedback --> EvolveDecision
             end
             
+            %% 内部流程连接
             Hypothesis --> Translation
             Translation --> QualityGate
             
-            CCCorrection -->|通过| Validation
-            CX3 -->|通过| Validation
-            CR2 -->|通过| Validation
+            %% 成功路径指向具体节点 Compute
+            CCCorrection -->|通过 | Compute
+            CX3 -->|通过 | Compute
+            CR2 -->|通过 | Compute
             
-            CCCorrection -->|失败| Feedback
-            CX1 -->|失败| Feedback
-            CX2 -->|失败| Feedback
-            CX3 -->|失败| Feedback
-            CR2 -->|失败| Feedback
+            %% 失败路径指向 Feedback 节点
+            CCCorrection -->|失败 | Feedback
+            CX1 -->|失败 | Feedback
+            CX2 -->|失败 | Feedback
+            CX3 -->|失败 | Feedback
+            CR2 -->|失败 | Feedback
             
-            PerformanceCheck -->|未达标| Feedback
-            PerformanceCheck -->|达标| Converged["轨迹收敛<br/>✓ 优质因子"]
-            EvolveDecision -->|继续进化| Hypothesis
+            PerformanceCheck -->|未达标 | Feedback
+            PerformanceCheck -->|达标 | Converged["轨迹收敛<br/>✓ 优质因子"]
+            EvolveDecision -->|继续进化 | Hypothesis
         end
     end
 
     subgraph Output["4. 输出层"]
+        direction TB
         FactorLibrary["因子库<br/>all_factors_library*.json<br/>FactorLibraryManager"]
-        FactorZoo["因子动物园<br/>Factor Zoo<br/>历史因子比对库"]
+        FactorZooNode["因子动物园<br/>Factor Zoo<br/>历史因子比对库"]
     end
 
     subgraph DataFlow["数据流与缓存"]
         direction TB
         HDF5[("daily_pv.h5<br/>价格成交量数据")]
-        QlibData[("Qlib数据<br/>cn_data")]
+        QlibData[("Qlib 数据<br/>cn_data")]
         CacheSystem["三级缓存<br/>Inline H5 / MD5 Pickle / Qlib Cache"]
     end
 
-    ResearchDirection --> Planning
-    DirectionPool -->|并行启动N个轨迹| Trajectory
+    %% 外部连接关系
+    ResearchDirection --> PlanningLLM
+    PaperInput --> PDFLoad
+    FactorLibraryFromPaper -->|种子因子 | DirectionPool
+    
+    DirectionPool -->|并行启动 N 个轨迹 | Hypothesis
+    
     Converged --> FactorLibrary
     
-    Redundancy -->|相似度检查| FactorZoo
-    FactorZoo -.->|更新相似度阈值| Redundancy
+    CR1 -->|相似度检查 | FactorZooNode
+    FactorZooNode -.->|更新相似度阈值 | CR1
     
     HDF5 --> Compute
     QlibData -.-> CacheSystem
     Compute -.-> CacheSystem
-```
+```    
 
 ---
 
