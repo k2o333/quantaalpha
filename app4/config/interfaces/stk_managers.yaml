@@ -49,6 +49,7 @@ parameters:
     description: 公告日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true
 permissions:
   min_points: 2000
   query_limit: 10000

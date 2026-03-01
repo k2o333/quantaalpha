@@ -1,7 +1,7 @@
 # Main.py 下载到存储的完整流程图（Mermaid版）
 
-**日期**: 2026-02-27
-**版本**: 4.2 (基于当前 App4 代码)
+**日期**: 2026-03-01
+**版本**: 4.3 (基于当前 App4 代码)
 
 ---
 
@@ -114,11 +114,11 @@ graph LR
     G --> H[运行接口]
 ```
 
-**文件位置**: `app4/main.py` (第 744 行开始)
+**文件位置**: `app4/main.py` (第 605 行开始)
 
 **关键变更**:
-- 新增 `create_app_components()` 工厂函数 (第 107 行)，统一初始化组件
-- 新增 `AppComponents` 数据类 (第 93 行)，封装所有组件引用
+- 新增 `create_app_components()` 工厂函数 (第 94 行)，统一初始化组件
+- 新增 `AppComponents` 数据类 (第 82 行)，封装所有组件引用
 
 ---
 
@@ -136,7 +136,7 @@ graph TD
     H --> I[返回 AppComponents]
 ```
 
-**文件位置**: `app4/main.py` (第 107 行)
+**文件位置**: `app4/main.py` (第 94 行)
 
 **组件说明**:
 | 组件 | 作用 | 依赖 |
@@ -171,11 +171,11 @@ graph TD
     O --> P[生成/保存报告]
 ```
 
-**文件位置**: 
-- `app4/main.py` (第 442 行)
-- `app4/update/update_manager.py` (第 41 行)
-- `app4/update/interface_selector.py` (第 22 行)
-- `app4/update/date_calculator.py` (第 49 行)
+**文件位置**:
+- `app4/main.py` (第 434 行)
+- `app4/update/update_manager.py` (第 28 行)
+- `app4/update/interface_selector.py`
+- `app4/update/date_calculator.py`
 - `app4/update/checkpoint_manager.py`
 
 ---
@@ -212,9 +212,9 @@ graph TD
     T --> U[处理offset分页]
 ```
 
-**文件位置**: 
-- `app4/core/pagination_executor.py` (第 13 行)
-- `app4/core/pagination.py` (第 20 行)
+**文件位置**:
+- `app4/core/pagination_executor.py` (第 15 行)
+- `app4/core/pagination.py` (第 38 行, PaginationComposer 类)
 
 **关键特性**:
 - 支持四种分页维度：time_range, stock_loop, type_split, offset
@@ -245,7 +245,7 @@ graph TD
     O --> P[mode: offset/date_range/reverse_date_range/stock_loop/period_range]
 ```
 
-**文件位置**: `app4/core/pagination.py` (第 20 行)
+**文件位置**: `app4/core/pagination.py` (第 16 行, PaginationContext 类)
 
 **配置迁移说明**:
 | 旧版 mode | 新版配置 |
@@ -284,7 +284,7 @@ graph TD
     Q --> R[计算单只股票缺口]
 ```
 
-**文件位置**: `app4/core/coverage_manager.py` (第 19 行)
+**文件位置**: `app4/core/coverage_manager.py` (第 25 行)
 
 **检测策略说明**:
 | 策略 | 适用场景 | 检测内容 |
@@ -317,7 +317,7 @@ graph TD
     N --> O[_writer_worker 写入]
 ```
 
-**文件位置**: `app4/main.py` (第 224 行)
+**文件位置**: `app4/main.py` (第 216 行)
 
 ---
 
@@ -343,7 +343,7 @@ graph TD
     N --> O[storage_manager.add_to_buffer]
 ```
 
-**文件位置**: `app4/core/downloader.py` (第 416 行)
+**文件位置**: `app4/core/downloader.py` (第 482 行)
 
 ---
 
@@ -362,7 +362,7 @@ graph TD
     I --> J[process_queue.put task]
 ```
 
-**文件位置**: `app4/core/storage.py` (第 519 行)
+**文件位置**: `app4/core/storage.py` (第 438 行)
 
 **Buffer机制说明**:
 - 默认阈值为 5000 条（`STORAGE_BUFFER_THRESHOLD`）
@@ -397,7 +397,7 @@ graph TD
     O -->|否| Q[继续写入]
 ```
 
-**文件位置**: `app4/core/storage.py` (第 610 行)
+**文件位置**: `app4/core/storage.py` (第 529 行)
 
 ---
 

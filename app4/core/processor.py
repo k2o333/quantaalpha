@@ -138,30 +138,22 @@ class DataProcessor:
             return pl.DataFrame()
 
     def _filter_primary_key_nulls(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-        """过滤主键中的空值 - 这一步必须在应用派生字段后执行"""
+        """记录主键为空的记录数量，但不再过滤"""
         output_config = interface_config.get('output', {})
         primary_keys = output_config.get('primary_key', [])
 
-        # 过滤掉主键字段中存在空值的行
         if primary_keys and not df.is_empty():
-            # 构建过滤条件：所有主键字段都不为空
-            conditions = []
             existing_keys = [key for key in primary_keys if key in df.columns]
 
-            for key in existing_keys:
-                conditions.append(pl.col(key).is_not_null())
+            if existing_keys:
+                null_conditions = [pl.col(key).is_null() for key in existing_keys]
+                null_expr = pl.any_horizontal(null_conditions)
+                null_count = df.filter(null_expr).height
 
-            if conditions:
-                # 使用所有主键字段都不为空的条件进行过滤
-                filter_expr = pl.all_horizontal(conditions)
-                original_count = len(df)
-                df = df.filter(filter_expr)
-                filtered_count = len(df)
-
-                if original_count != filtered_count:
-                    logger.info(f"Filtered {original_count - filtered_count} records with null primary keys "
+                if null_count > 0:
+                    logger.info(f"Found {null_count} records with null primary keys "
                                f"for interface {interface_config.get('api_name', 'unknown')}, "
-                               f"kept {filtered_count}/{original_count}")
+                               f"keeping all records (including null primary keys)")
 
         return df
 
@@ -316,16 +308,13 @@ class DataProcessor:
         }
 
         # 检查必填字段 - 现在基于primary_key字段和其他原始字段
-        # 从primary_key配置中获取需要检查的字段
+        # 从primary_key配置中获取需要检查的字段，但不再将primary key的空值视为验证失败
         primary_keys = output_config.get('primary_key', []) or []
         for column_name in primary_keys:
             if column_name in df.columns:
                 missing_count = df[column_name].null_count()
                 if missing_count > 0:
-                    validation_result['missing_required_fields'].append({
-                        'field': column_name,
-                        'missing_count': missing_count
-                    })
+                    logger.debug(f"Field {column_name} has {missing_count} null values for {interface_config.get('api_name', 'unknown')}")
 
         # Use unified duplicate detection
         data_list = df.to_dicts()
@@ -346,7 +335,6 @@ class DataProcessor:
 
         # Add 'valid' field to indicate if data passes validation
         validation_result['valid'] = (
-            len(validation_result['missing_required_fields']) == 0 and
             len(validation_result['type_mismatches']) == 0 and
             validation_result['duplicate_records'] == 0
         )
