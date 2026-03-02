@@ -1,5 +1,4 @@
 app:
-  name: "aspipe_v4"
   version: "4.0.0"
 
 tushare:
@@ -23,27 +22,18 @@ request:
   jitter_min: 0.05
   jitter_max: 0.15
 
-cache:
-  directory: "cache"
-  ttl_hours: 24
-  max_size_gb: 10
-
 storage:
   base_dir: "/home/quan/testdata/aspipe_v4/data"
   format: "parquet"
   batch_size: 10000  # [优化] 从 1000 增大到 10000
   # 新增：小数据量阈值，低于此值立即处理
   small_batch_threshold: 100
-  # 新增：是否启用小数据量立即处理
-  enable_small_batch_flush: true
 
 logging:
   level: "INFO"
   file: "log/app4.log"
   max_size_mb: 100
   backup_count: 5
-  # 新增：详细日志模式（调试用）
-  verbose_dedup: true  # 启用详细去重日志
 
 # 性能监控和报告配置
 performance:
@@ -60,72 +50,32 @@ gap_detection:
   max_gaps: 50            # 最大缺口数量
 
 groups:
-  # 需要股票循环的接口组（默认起始日期19900101）
-  tscode_historical:
+  # 股票循环模式接口组 - 需要遍历每只股票
+  stock_loop:
     - stk_rewards
+    - cyq_chips
+    - fina_audit
+    - pledge_detail
+  
+  # 报告期范围模式接口组 - 按季度报告期获取数据
+  period_range:
     - income_vip
     - balancesheet_vip
     - cashflow_vip
     - forecast_vip
     - express_vip
     - fina_indicator_vip
-    - fina_audit
     - fina_mainbz_vip
     - disclosure_date
     - top10_floatholders
     - top10_holders
     - pledge_stat
-    - pledge_detail
-    - dividend  # 新增
-    - stk_factor
-    - stk_factor_pro
-
-  # 股东数据组
-  holders:
-    - top10_holders
-    - top10_floatholders
-    - stk_holdertrade
-    - pledge_detail
-    - pledge_stat
-    - share_float
-    - stk_rewards
-    - stk_managers
-    - stk_surv
-
-  # VIP财务数据组
-  financial_vip:
-    - income_vip
-    - balancesheet_vip
-    - cashflow_vip
-    - fina_indicator_vip
-    - fina_mainbz_vip
-    - express_vip
-    - forecast_vip
-
-  # 基础财务数据组
-  financial_basic:
-    - income
-    - balancesheet
-    - cashflow
-    - fina_indicator
-    - fina_mainbz
-    - fina_audit
-    - express
-    - forecast
-
-  # 日线市场数据组
-  daily:
-    - daily
+  
+  # 反向日期范围模式接口组 - 从最新日期向前遍历
+  reverse_date_range:
     - daily_basic
-    - pro_bar
-    - trade_cal
     - block_trade
-    - bak_daily
-    - bak_basic
     - suspend_d
-
-  # 资金流向数据组
-  moneyflow:
     - moneyflow
     - moneyflow_ths
     - moneyflow_dc
@@ -133,43 +83,38 @@ groups:
     - moneyflow_ind_dc
     - moneyflow_cnt_ths
     - moneyflow_mkt_dc
-
-  # 特色指标数据组
-  features:
-    - cyq_chips
     - cyq_perf
-    - stk_factor
-    - stk_factor_pro
-    - stk_premarket
-
-  # 公司信息数据组
-  company_info:
-    - stock_basic
-    - stock_company
     - namechange
     - new_share
-    - disclosure_date
-
-  # 其他数据组
-  others:
     - repurchase
-    - stock_hsgt
     - stock_st
-    - suspend_d
-    - bak_basic
-    - bak_daily
-    - report_rc  # 卖方盈利预测数据
-    - broker_recommend
     - dividend
-    - share_float
     - stk_holdertrade
     - stk_managers
     - stk_surv
+    - report_rc
+    - share_float
+    - stk_factor_pro
+  
+  # 日期范围模式接口组
+  date_range:
+    - trade_cal
+  
+  # 偏移量分页模式接口组
+  offset:
+    - stock_basic
+    - stock_company
+  
+  # 类型分割模式接口组
+  type_split:
+    - stock_hsgt
+  
+  # 无分页接口组
+  no_pagination:
+    - broker_recommend
 
 # 增量更新模块配置
 update:
-  enabled: true
-
   # 默认更新策略
   default_strategy:
     start_date: "20000101"      # 默认起始日期
@@ -241,13 +186,6 @@ update:
     - pledge_detail
     - dividend
     - stk_rewards
-
-  # 并发配置
-  concurrency:
-    max_parallel_interfaces: 1  # 同时更新的接口数
-    retry_failed: true          # 失败时是否重试
-    max_retries: 3
-    retry_delay: 2.0            # 重试延迟（秒）
 
   # 报告配置
   reporting:

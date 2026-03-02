@@ -1,5 +1,17 @@
 # QuantaAlpha 因子挖掘完整流程图（整合版）
 
+## 关键依赖仓库
+
+| 仓库 | 用途 | GitHub URL |
+|------|------|------------|
+| QuantaAlpha | 本项目：LLM 驱动的因子挖掘系统 | https://github.com/QuantaAlpha/QuantaAlpha |
+| Qlib | 量化投资平台，提供因子回测框架 | https://github.com/microsoft/qlib |
+| TuShare | 金融数据接口 | https://github.com/waditu/tushare |
+| vnpy | 量化交易平台框架 | https://github.com/vnpy/vnpy |
+| Polars | 高性能数据处理库 | https://github.com/pola-rs/polars |
+| Pandas | 数据分析库 | https://github.com/pandas-dev/pandas |
+| PyArrow | 列式存储库，支持 HDF5/Parquet | https://github.com/apache/arrow |
+
 ## 整体系统架构
 ```mermaid
 flowchart TB

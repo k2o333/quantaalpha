@@ -479,6 +479,19 @@ def run_update_mode(args):
                 interfaces_to_update = [args.interface]
             else:
                 interfaces_to_update.append(args.interface)
+        
+        # 处理 --update-group 参数
+        if hasattr(args, 'update_groups') and args.update_groups:
+            # 使用 interface_selector 来获取组内的接口
+            interface_selector = InterfaceSelector(config_loader)
+            group_interfaces = []
+            for group_name in args.update_groups:
+                group_interfaces.extend(interface_selector._get_group_interfaces(group_name))
+            
+            if interfaces_to_update is None:
+                interfaces_to_update = group_interfaces
+            else:
+                interfaces_to_update.extend(group_interfaces)
 
         # 根据用户积分过滤接口
         actual_points = int(os.getenv('TUSHARE_POINTS', '120'))
