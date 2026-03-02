@@ -33,6 +33,7 @@ output:
 pagination:
   enabled: true
   mode: period_range
+  period_field: end_date
   periods_per_batch: 1
   offset:
     enabled: true
