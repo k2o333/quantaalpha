@@ -9,7 +9,7 @@
 ## 整体架构流程图
 
 ```mermaid
-flowchart TB
+flowchart TD
     subgraph Phase1["阶段 1: 因子挖掘 (QuantaAlpha)"]
         A[用户输入研究方向] --> B[QuantaAlpha 自动挖掘因子]
         B --> C[生成因子表达式]
@@ -36,9 +36,9 @@ flowchart TB
         O --> P[AlphaStrategy 回测]
         P --> Q[回测结果分析]
     end
-
-    Phase1 -.-> Phase2 -.-> Phase3
-```
+    
+    %% 删除了错误的 Phase1 -.-> Phase2 连线
+    %% 现有的节点连线 (F->G, I/J->K) 已足够表达流程```
 
 ---
 
