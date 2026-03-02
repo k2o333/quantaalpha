@@ -313,6 +313,17 @@ class GenericDownloader:
         else:
             logger.info(f"从内存缓存或Data目录获取到 {len(stock_list)} 只股票")
 
+        # 过滤北交所股票（只保留沪深交易所）
+        if stock_list:
+            original_count = len(stock_list)
+            stock_list = [
+                stock for stock in stock_list
+                if not stock.get('ts_code', '').endswith('.BJ')
+            ]
+            filtered_count = original_count - len(stock_list)
+            if filtered_count > 0:
+                logger.info(f"过滤北交所股票: {filtered_count} 只，保留沪深股票: {len(stock_list)} 只")
+
         return stock_list
 
     def _get_stock_list_from_memory_cache(self) -> Optional[List[Dict[str, Any]]]:

@@ -476,9 +476,9 @@ def run_update_mode(args):
             interfaces_to_update = args.update_interfaces.copy()
         if hasattr(args, 'interface') and args.interface:
             if interfaces_to_update is None:
-                interfaces_to_update = [args.interface]
+                interfaces_to_update = args.interface if isinstance(args.interface, list) else [args.interface]
             else:
-                interfaces_to_update.append(args.interface)
+                interfaces_to_update.extend(args.interface if isinstance(args.interface, list) else [args.interface])
         
         # 处理 --update-group 参数
         if hasattr(args, 'update_groups') and args.update_groups:
@@ -631,8 +631,8 @@ def main():
                         help='全历史数据下载')
 
     # 新增通用参数
-    parser.add_argument('--interface', type=str,
-                        help='指定接口名称')
+    parser.add_argument('--interface', type=str, nargs='+',
+                        help='指定接口名称（可指定多个，空格分隔）')
     parser.add_argument('--group', type=str,
                         help='指定接口组名称')
     parser.add_argument('--concurrency', type=int, default=4,  # [修改] 从 8 改为 4
@@ -781,8 +781,8 @@ def main():
             interfaces_to_run.extend(holders_group)
 
         if args.interface:
-            # 指定接口
-            interfaces_to_run.append(args.interface)
+            # 指定接口（支持多个）
+            interfaces_to_run.extend(args.interface)
 
         if args.group:
             # 指定组
