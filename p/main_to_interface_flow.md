@@ -1,7 +1,7 @@
 # Main.py 下载到存储的完整流程图（Mermaid版）
 
-**日期**: 2026-03-01
-**版本**: 4.3 (基于当前 App4 代码)
+**日期**: 2026-03-04
+**版本**: 4.3.1 (基于当前 App4 代码, 行号已同步)
 
 ---
 
@@ -114,7 +114,7 @@ graph LR
     G --> H[运行接口]
 ```
 
-**文件位置**: `app4/main.py` (第 605 行开始)
+**文件位置**: `app4/main.py` (第 618 行开始)
 
 **关键变更**:
 - 新增 `create_app_components()` 工厂函数 (第 94 行)，统一初始化组件
@@ -136,7 +136,7 @@ graph TD
     H --> I[返回 AppComponents]
 ```
 
-**文件位置**: `app4/main.py` (第 94 行)
+**文件位置**: `app4/main.py` (第 94 行, AppComponents 类第 83 行)
 
 **组件说明**:
 | 组件 | 作用 | 依赖 |
@@ -245,7 +245,7 @@ graph TD
     O --> P[mode: offset/date_range/reverse_date_range/stock_loop/period_range]
 ```
 
-**文件位置**: `app4/core/pagination.py` (第 16 行, PaginationContext 类)
+**文件位置**: `app4/core/pagination.py` (第 16 行 PaginationContext 类, PaginationComposer 类第 54 行)
 
 **配置迁移说明**:
 | 旧版 mode | 新版配置 |
@@ -284,7 +284,7 @@ graph TD
     Q --> R[计算单只股票缺口]
 ```
 
-**文件位置**: `app4/core/coverage_manager.py` (第 25 行)
+**文件位置**: `app4/core/coverage_manager.py` (第 28 行 CoverageManager 类)
 
 **检测策略说明**:
 | 策略 | 适用场景 | 检测内容 |
@@ -343,7 +343,7 @@ graph TD
     N --> O[storage_manager.add_to_buffer]
 ```
 
-**文件位置**: `app4/core/downloader.py` (第 482 行)
+**文件位置**: `app4/core/downloader.py` (第 493 行)
 
 ---
 
@@ -443,7 +443,7 @@ graph TD
     K --> L[logger.info Wrote X records]
 ```
 
-**文件位置**: `app4/core/storage.py` (第 177 行)
+**文件位置**: `app4/core/storage.py` (第 160 行)
 
 ---
 
@@ -465,7 +465,7 @@ graph TD
     J -->|其他接口| L[优先: trade_date, cal_date]
 ```
 
-**文件位置**: `app4/core/storage.py` (第 321 行)
+**文件位置**: `app4/core/storage.py` (第 256 行)
 
 **文件命名格式**: `{interface}_{start_date}_{end_date}_{timestamp}_{uuid}.parquet`
 
@@ -574,51 +574,51 @@ graph TD
 
 | 函数名 | 行号 | 功能 | 路径 |
 |--------|------|------|------|
-| `main` | 744 | 程序入口 | 通用 |
-| `run_update_mode` | 442 | 增量更新入口 | 更新 |
-| `create_app_components` | 107 | 组件工厂函数 | 通用 |
-| `run_concurrent_stock_download` | 224 | 并发股票下载 | 路径1 |
-| `process_and_save_data` | 347 | 处理与保存 | 路径2 |
-| `_prepare_stock_list` | 181 | 准备股票列表 | 路径1 |
-| `preload_global_trade_calendar` | 273 | 预加载交易日历 | 通用 |
-| `setup_logging` | 565 | 设置日志配置 | 通用 |
-| `validate_and_adjust_date` | 153 | 日期校验调整 | 通用 |
+| `main` | 618 | 程序入口 | 通用 |
+| `run_update_mode` | 434 | 增量更新入口 | 更新 |
+| `create_app_components` | 94 | 组件工厂函数 | 通用 |
+| `run_concurrent_stock_download` | 216 | 并发股票下载 | 路径1 |
+| `process_and_save_data` | 341 | 处理与保存 | 路径2 |
+| `_prepare_stock_list` | 189 | 准备股票列表 | 路径1 |
+| `preload_global_trade_calendar` | 266 | 预加载交易日历 | 通用 |
+| `setup_logging` | 575 | 设置日志配置 | 通用 |
+| `validate_and_adjust_date` | 146 | 日期校验调整 | 通用 |
 
 ### core/ 模块函数索引
 
 | 函数名 | 文件 | 行号 | 功能 |
 |--------|------|------|------|
-| `download_single_stock` | downloader.py | 416 | 下载单只股票 |
-| `_make_request` | downloader.py | 602 | API请求 |
-| `_execute_pagination` | downloader.py | 221 | 执行分页逻辑 |
-| `add_to_buffer` | storage.py | 519 | 添加到Buffer |
-| `_process_worker` | storage.py | 610 | 处理线程工作 |
-| `_writer_worker` | storage.py | 177 | 写入线程工作 |
-| `_write_interface_data` | storage.py | 321 | 写入接口数据 |
-| `save_data` | storage.py | 770 | 保存数据 |
-| `read_interface_data` | storage.py | 397 | 读取接口数据 |
+| `download_single_stock` | downloader.py | 493 | 下载单只股票 |
+| `_make_request` | downloader.py | - | API请求 |
+| `_execute_pagination` | downloader.py | 239 | 执行分页逻辑 |
+| `add_to_buffer` | storage.py | 438 | 添加到Buffer |
+| `_process_worker` | storage.py | 529 | 处理线程工作 |
+| `_writer_worker` | storage.py | 160 | 写入线程工作 |
+| `_write_interface_data` | storage.py | 256 | 写入接口数据 |
+| `save_data` | storage.py | - | 保存数据 |
+| `read_interface_data` | storage.py | 369 | 读取接口数据 |
 | `process_data` | processor.py | 16 | 数据处理 |
-| `validate_data` | processor.py | 254 | 数据验证 |
-| `execute` | pagination_executor.py | 41 | 分页执行入口 |
-| `_execute_concurrent` | pagination_executor.py | 220 | 并发执行 |
-| `_execute_sequential` | pagination_executor.py | 160 | 顺序执行 |
-| `compose` | pagination.py | 72 | 组合参数流 |
-| `migrate_legacy_config` | pagination.py | 428 | 配置迁移 |
-| `should_skip` | coverage_manager.py | 159 | 跳过检测 |
-| `detect_gaps` | coverage_manager.py | 476 | 缺口检测 |
-| `detect_stock_gaps` | coverage_manager.py | - | 股票级缺口检测 |
+| `validate_data` | processor.py | 286 | 数据验证 |
+| `execute` | pagination_executor.py | 56 | 分页执行入口 |
+| `_execute_concurrent` | pagination_executor.py | 257 | 并发执行 |
+| `_execute_sequential` | pagination_executor.py | 151 | 顺序执行 |
+| `compose` | pagination.py | 65 | 组合参数流 |
+| `migrate_legacy_config` | pagination.py | 683 | 配置迁移 |
+| `should_skip` | coverage_manager.py | 217 | 跳过检测 |
+| `detect_gaps` | coverage_manager.py | 658 | 缺口检测 |
+| `detect_stock_gaps` | coverage_manager.py | 924 | 股票级缺口检测 |
 
 ### update/ 模块函数索引
 
 | 函数名 | 文件 | 行号 | 功能 |
 |--------|------|------|------|
-| `run_update` | update_manager.py | 72 | 更新总控 |
-| `update_interface` | update_manager.py | 209 | 更新单接口 |
-| `_execute_download` | update_manager.py | 387 | 分页下载与入库 |
-| `_update_with_stock_gap_detection` | update_manager.py | 506 | 股票级缺口更新 |
+| `run_update` | update_manager.py | 78 | 更新总控 |
+| `update_interface` | update_manager.py | 214 | 更新单接口 |
+| `_execute_download` | update_manager.py | 409 | 分页下载与入库 |
+| `_update_with_stock_gap_detection` | update_manager.py | 536 | 股票级缺口更新 |
 | `select_interfaces` | interface_selector.py | 22 | 更新接口筛选 |
 | `calculate_update_range` | date_calculator.py | 49 | 更新日期范围 |
-| `generate_report` | update_reporter.py | 71 | 生成更新报告 |
+| `generate_report` | update_reporter.py | - | 生成更新报告 |
 
 ---
 
