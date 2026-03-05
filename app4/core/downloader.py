@@ -8,7 +8,7 @@ import random
 import threading
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Callable
 from enum import Enum
 from collections import OrderedDict, defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -317,12 +317,15 @@ class GenericDownloader:
         if stock_list:
             original_count = len(stock_list)
             stock_list = [
-                stock for stock in stock_list
-                if not stock.get('ts_code', '').endswith('.BJ')
+                stock
+                for stock in stock_list
+                if not stock.get("ts_code", "").endswith(".BJ")
             ]
             filtered_count = original_count - len(stock_list)
             if filtered_count > 0:
-                logger.info(f"过滤北交所股票: {filtered_count} 只，保留沪深股票: {len(stock_list)} 只")
+                logger.info(
+                    f"过滤北交所股票: {filtered_count} 只，保留沪深股票: {len(stock_list)} 只"
+                )
 
         return stock_list
 
@@ -469,6 +472,7 @@ class GenericDownloader:
         start_date: str,
         end_date: str,
         user_provided_dates: bool = False,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         from .pagination import create_context_with_legacy_support
 
@@ -488,6 +492,7 @@ class GenericDownloader:
             context=pagination_context,
             make_request=self._make_request,
             coverage_manager=self.coverage_manager,
+            on_data_ready=on_data_ready,
         )
 
     def download_single_stock(
@@ -604,7 +609,14 @@ class GenericDownloader:
                 logger.info(
                     f"Downloading {len(gap_tasks)} gap tasks for stock {ts_code}"
                 )
-                all_stock_data = []
+                total_count = 0
+
+                # 创建流式回调：数据直接写入 buffer
+                def on_data_ready(data: List[Dict[str, Any]]):
+                    if data and hasattr(self, "storage_manager") and self.storage_manager:
+                        self.storage_manager.add_to_buffer(
+                            interface_config["api_name"], data
+                        )
 
                 for gap_task in gap_tasks:
                     task_params = stock_params.copy()
@@ -621,19 +633,22 @@ class GenericDownloader:
                         stock_params.get("end_date", datetime.now().strftime("%Y%m%d")),
                     )
 
-                    task_data = self._execute_paginated_download(
+                    # 使用流式处理，返回计数而非数据
+                    result = self._execute_paginated_download(
                         interface_config=interface_config,
                         stock_list=[stock],
                         base_params=task_params,
                         start_date=task_start,
                         end_date=task_end,
                         user_provided_dates=user_provided_dates,
+                        on_data_ready=on_data_ready,
                     )
 
-                    if task_data:
-                        all_stock_data.extend(task_data)
+                    if result:
+                        total_count += result
 
-                stock_data = all_stock_data
+                logger.info(f"Downloaded {total_count} records for {ts_code}")
+                return total_count
             else:
                 logger.info(
                     f"Downloading data for stock {ts_code}, params: {stock_params}"
@@ -644,25 +659,28 @@ class GenericDownloader:
                     "end_date", datetime.now().strftime("%Y%m%d")
                 )
 
-                stock_data = self._execute_paginated_download(
+                # 创建流式回调：数据直接写入 buffer
+                def on_data_ready(data: List[Dict[str, Any]]):
+                    if data and hasattr(self, "storage_manager") and self.storage_manager:
+                        self.storage_manager.add_to_buffer(
+                            interface_config["api_name"], data
+                        )
+
+                # 使用流式处理，返回计数而非数据
+                result = self._execute_paginated_download(
                     interface_config=interface_config,
                     stock_list=[stock],
                     base_params=stock_params,
                     start_date=start_date,
                     end_date=end_date,
                     user_provided_dates=user_provided_dates,
+                    on_data_ready=on_data_ready,
                 )
 
-            if stock_data:
-                logger.info(f"Downloaded {len(stock_data)} records for {ts_code}")
+                if result:
+                    logger.info(f"Downloaded {result} records for {ts_code}")
 
-                # [新增] 如果有storage_manager，将数据添加到缓存
-                if hasattr(self, "storage_manager") and self.storage_manager:
-                    self.storage_manager.add_to_buffer(
-                        interface_config["api_name"], stock_data
-                    )
-
-            return stock_data or []
+                return result if result else 0
         except Exception as e:
             # [新增] 捕获异常，避免影响其他股票
             stock_ts_code = stock.get("ts_code") if stock else None
@@ -670,7 +688,7 @@ class GenericDownloader:
             import traceback
 
             logger.debug(f"Full traceback: {traceback.format_exc()}")
-            return []  # 返回空列表，让其他股票继续下载
+            return 0  # 返回0，让其他股票继续下载
 
     def _make_request(
         self, interface_config: Dict[str, Any], params: Dict[str, Any]

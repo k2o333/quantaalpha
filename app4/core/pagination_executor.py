@@ -62,6 +62,7 @@ class PaginationExecutor:
         coverage_manager: Optional[Any] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
         save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         执行分页请求（统一入口）
@@ -74,9 +75,10 @@ class PaginationExecutor:
             coverage_manager: 覆盖率管理器
             progress_callback: 进度回调函数
             save_callback: 保存回调函数，用于逐批次保存数据 (interface_name, data) -> None
+            on_data_ready: 数据准备好的回调函数（流式处理，避免内存累积）
 
         Returns:
-            所有请求的数据结果
+            所有请求的数据结果（如果无回调）或 总记录数（如果有回调）
         """
         composer = PaginationComposer(context)
         params_list = list(composer.compose(base_params))
@@ -96,6 +98,7 @@ class PaginationExecutor:
                 coverage_manager,
                 progress_callback,
                 save_callback,
+                on_data_ready,
             )
 
         if len(params_list) <= 1:
@@ -107,7 +110,7 @@ class PaginationExecutor:
                     logger.info(f"Skipping request due to coverage check")
                     return []
                 return self._execute_single(
-                    interface_config, params_list[0], make_request
+                    interface_config, params_list[0], make_request, on_data_ready
                 )
             return []
 
@@ -119,6 +122,7 @@ class PaginationExecutor:
                 make_request,
                 coverage_manager,
                 progress_callback,
+                on_data_ready,
             )
         else:
             return self._execute_sequential(
@@ -127,6 +131,7 @@ class PaginationExecutor:
                 make_request,
                 coverage_manager,
                 progress_callback,
+                on_data_ready,
             )
 
     def _execute_single(
@@ -134,6 +139,7 @@ class PaginationExecutor:
         interface_config: Dict[str, Any],
         params: Dict[str, Any],
         make_request: Callable,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         执行单个请求
@@ -142,11 +148,12 @@ class PaginationExecutor:
             interface_config: 接口配置
             params: 请求参数
             make_request: 请求执行回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理）
 
         Returns:
-            请求结果
+            请求结果（如果无回调）或 记录数（如果有回调）
         """
-        return self._execute_single_request(interface_config, params, make_request)
+        return self._execute_single_request(interface_config, params, make_request, on_data_ready)
 
     def _execute_sequential(
         self,
@@ -155,6 +162,7 @@ class PaginationExecutor:
         make_request: Callable,
         coverage_manager: Optional[Any],
         progress_callback: Optional[Callable],
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         顺序执行多个请求
@@ -165,11 +173,13 @@ class PaginationExecutor:
             make_request: 请求执行回调函数
             coverage_manager: 覆盖率管理器
             progress_callback: 进度回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理）
 
         Returns:
-            所有请求的结果
+            所有请求的结果（如果无回调）或 总记录数（如果有回调）
         """
         all_data = []
+        total_count = 0
         consecutive_empty = 0
         stop_on_empty = self._get_stop_on_empty_config(interface_config)
 
@@ -183,11 +193,17 @@ class PaginationExecutor:
                 ):
                     continue
 
-            data = self._execute_single_request(interface_config, params, make_request)
+            result = self._execute_single_request(interface_config, params, make_request, on_data_ready)
 
-            if data:
-                all_data.extend(data)
-                consecutive_empty = 0
+            if result:
+                if on_data_ready:
+                    # 流式模式：result 是计数
+                    total_count += result
+                    consecutive_empty = 0
+                else:
+                    # 兼容模式：result 是数据列表
+                    all_data.extend(result)
+                    consecutive_empty = 0
             else:
                 consecutive_empty += self._estimate_empty_days(params)
                 if stop_on_empty > 0 and consecutive_empty >= stop_on_empty:
@@ -196,6 +212,8 @@ class PaginationExecutor:
                     )
                     break
 
+        if on_data_ready:
+            return total_count
         return all_data
 
     def _execute_period_range_sequential(
@@ -206,6 +224,7 @@ class PaginationExecutor:
         coverage_manager: Optional[Any],
         progress_callback: Optional[Callable],
         save_callback: Callable,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         顺序执行 period_range 请求，每完成一个请求立即保存数据
@@ -217,11 +236,13 @@ class PaginationExecutor:
             coverage_manager: 覆盖率管理器
             progress_callback: 进度回调函数
             save_callback: 保存回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理，避免内存累积）
 
         Returns:
-            所有请求的结果
+            所有请求的结果（如果无回调）或 总记录数（如果有回调）
         """
         all_data = []
+        total_count = 0
         interface_name = interface_config.get("name", "unknown")
 
         for idx, params in enumerate(params_list):
@@ -239,19 +260,33 @@ class PaginationExecutor:
                 )
                 continue
 
-            # 执行请求
-            data = self._execute_single_request(interface_config, params, make_request)
+            # 执行请求（传递 on_data_ready 以启用流式处理）
+            result = self._execute_single_request(
+                interface_config, params, make_request, on_data_ready
+            )
 
-            if data:
-                all_data.extend(data)
-                # 立即保存数据
-                save_callback(interface_name, data)
-                period_field = params.get("_period_field", "period")
-                period = params.get(period_field, "unknown")
-                logger.info(
-                    f"[{interface_name}] Saved {len(data)} records for period {period}"
-                )
+            if result:
+                if on_data_ready:
+                    # 流式模式：result 是计数，数据已通过回调处理
+                    total_count += result
+                    period_field = params.get("_period_field", "period")
+                    period = params.get(period_field, "unknown")
+                    logger.info(
+                        f"[{interface_name}] Streamed {result} records for period {period}"
+                    )
+                else:
+                    # 兼容模式：result 是数据列表
+                    all_data.extend(result)
+                    # 立即保存数据
+                    save_callback(interface_name, result)
+                    period_field = params.get("_period_field", "period")
+                    period = params.get(period_field, "unknown")
+                    logger.info(
+                        f"[{interface_name}] Saved {len(result)} records for period {period}"
+                    )
 
+        if on_data_ready:
+            return total_count
         return all_data
 
     def _execute_concurrent(
@@ -261,6 +296,7 @@ class PaginationExecutor:
         make_request: Callable,
         coverage_manager: Optional[Any],
         progress_callback: Optional[Callable],
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         并发执行多个请求
@@ -271,11 +307,13 @@ class PaginationExecutor:
             make_request: 请求执行回调函数
             coverage_manager: 覆盖率管理器
             progress_callback: 进度回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理）
 
         Returns:
-            所有请求的结果
+            所有请求的结果（如果无回调）或 总记录数（如果有回调）
         """
         all_data = []
+        total_count = 0
         max_workers = self._get_max_workers(interface_config)
 
         filtered_params = [
@@ -290,7 +328,7 @@ class PaginationExecutor:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_params = {
                 executor.submit(
-                    self._execute_single_request, interface_config, p, make_request
+                    self._execute_single_request, interface_config, p, make_request, on_data_ready
                 ): p
                 for p in filtered_params
             }
@@ -301,12 +339,19 @@ class PaginationExecutor:
                 if progress_callback:
                     progress_callback(completed, len(filtered_params))
                 try:
-                    data = future.result()
-                    if data:
-                        all_data.extend(data)
+                    result = future.result()
+                    if result:
+                        if on_data_ready:
+                            # 流式模式：result 是计数
+                            total_count += result
+                        else:
+                            # 兼容模式：result 是数据列表
+                            all_data.extend(result)
                 except Exception as e:
                     logger.error(f"Task failed: {e}")
 
+        if on_data_ready:
+            return total_count
         return all_data
 
     def _execute_single_request(
@@ -314,6 +359,7 @@ class PaginationExecutor:
         interface_config: Dict[str, Any],
         params: Dict[str, Any],
         make_request: Callable,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         执行单个请求，处理offset分页
@@ -322,18 +368,25 @@ class PaginationExecutor:
             interface_config: 接口配置
             params: 请求参数
             make_request: 请求执行回调函数
+            on_data_ready: 数据准备好的回调函数（用于流式处理，避免内存累积）
+                           如果提供，数据通过回调传递，返回计数
 
         Returns:
-            请求结果
+            请求结果（如果无回调）或 记录数（如果有回调）
         """
         offset_config = params.get("_offset_pagination", {})
 
         if not offset_config.get("enabled"):
             clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
-            return make_request(interface_config, clean_params)
+            data = make_request(interface_config, clean_params)
+            if on_data_ready and data:
+                on_data_ready(data)
+                return len(data)
+            return data
 
         # 执行offset分页
         all_data = []
+        total_count = 0
         limit = offset_config["limit"]
         offset = 0
         base_params = {k: v for k, v in params.items() if not k.startswith("_")}
@@ -355,7 +408,15 @@ class PaginationExecutor:
                 break
 
             data_count = len(data)
-            all_data.extend(data)
+            
+            if on_data_ready:
+                # 流式处理：每页数据立即回调，不累积
+                on_data_ready(data)
+                total_count += data_count
+            else:
+                # 兼容旧逻辑：累积数据
+                all_data.extend(data)
+            
             page_num += 1
 
             logger.info(
@@ -373,10 +434,16 @@ class PaginationExecutor:
                 logger.warning(f"[{interface_name}] Offset分页超过安全限制，停止请求")
                 break
 
-        logger.info(
-            f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={len(all_data)}"
-        )
-        return all_data
+        if on_data_ready:
+            logger.info(
+                f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={total_count}"
+            )
+            return total_count
+        else:
+            logger.info(
+                f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={len(all_data)}"
+            )
+            return all_data
 
     def _should_use_concurrency(self, interface_config: Dict[str, Any]) -> bool:
         """

@@ -269,7 +269,7 @@ def run_concurrent_stock_download(
             # buffer机制会自动处理数据，不再累积到all_data
             for result in results:
                 if result:
-                    total_records += len(result)
+                    total_records += result
 
             logger.info(f"Completed batch, total records: {total_records}")
             tasks = []
@@ -281,7 +281,7 @@ def run_concurrent_stock_download(
 
         for result in results:
             if result:
-                total_records += len(result)
+                total_records += result
 
         logger.info(f"Completed final batch, total records: {total_records}")
 

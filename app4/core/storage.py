@@ -100,7 +100,7 @@ class StorageManager:
         self.processor = processor  # 持有Processor引用
         self.config_loader = config_loader  # 持有配置加载器引用
         self.interface_buffers = {}  # 接口缓存 {interface_name: BufferContext}
-        self.process_queue = queue.Queue()  # 处理队列
+        self.process_queue = queue.Queue(maxsize=20)  # 处理队列（限制大小，形成反压）
         self.process_thread = None  # 处理线程
         self.buffer_threshold = STORAGE_BUFFER_THRESHOLD
         self.buffer_lock = threading.Lock()  # 缓存锁
@@ -444,18 +444,18 @@ class StorageManager:
 
             # 读取所有符合条件的文件
             if columns:
-                # 如果指定了列，先读取所有列，然后选择需要的列
+                # [优化] 使用 scan_parquet 实现真正的列下推，避免加载全部列
                 try:
-                    df_full = pl.read_parquet(files_to_read)
-                    available_cols = [col for col in columns if col in df_full.columns]
-                    df = df_full.select(available_cols)
-                except Exception as e:
-                    # 如果类型不匹配或其他错误，使用更兼容的方法
-                    # 先读取所有文件的schema，然后统一处理
+                    df = (
+                        pl.scan_parquet(files_to_read)
+                        .select(columns)
+                        .collect()
+                    )
+                except Exception:
+                    # schema 不一致时回退到逐文件读取
                     df = pl.DataFrame()
                     for file_path in files_to_read:
                         try:
-                            # 读取单个文件，只取需要的列
                             temp_df = pl.read_parquet(file_path)
                             available_cols = [
                                 col for col in columns if col in temp_df.columns
@@ -463,7 +463,6 @@ class StorageManager:
                             temp_df = temp_df.select(available_cols)
                             df = df.vstack(temp_df) if not df.is_empty() else temp_df
                         except Exception:
-                            # 如果单个文件有问题，跳过它
                             continue
             else:
                 df = pl.read_parquet(files_to_read)
@@ -497,10 +496,13 @@ class StorageManager:
             buffer["count"] += len(data)
 
             # Check if we should flush the buffer
+            time_since_creation = time.time() - buffer["created_at"]
+            timed_out = time_since_creation > 30  # 超过30秒强制刷新
             should_flush = (
                 buffer["count"] >= self.buffer_threshold
                 or flush_immediately
                 or buffer["count"] < 100  # 小数据量立即处理
+                or timed_out  # 超时强制刷新，避免中等数据量长期滞留
             )
 
             if should_flush:
@@ -508,6 +510,7 @@ class StorageManager:
                 interface_to_process = interface_name
                 buffer["data"] = []
                 buffer["count"] = 0
+                buffer["created_at"] = time.time()  # 重置计时器
 
         # Process the data outside the lock to avoid blocking other threads
         if data_to_process:

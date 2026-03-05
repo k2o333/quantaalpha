@@ -1,9 +1,0 @@
-建议：将 storage.py:210-214 修改为以下代码：
-
-except queue.Empty:
-    continue  # 只等待哨兵信号(None)，不主动退出
-
-原因：
-1. 问题根因：当 data_queue.get(timeout=1) 抛出 queue.Empty 时，如果 self.running=False，线程直接 break 退出，即使 _process_worker 马上要放入数据
-2. 哨兵机制已足够安全（storage.py:172-185）：收到 None 哨兵后，会循环取出队列中所有剩余数据再处理，处理完批量数据后才 break 退出
-3. self.running 检查是多余的：stop_writer() 已确保在发哨兵前等待 process_queue 清空，哨兵本身就是可靠的退出信号，join(timeout=120) 提供了超时保护
