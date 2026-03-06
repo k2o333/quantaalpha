@@ -458,7 +458,7 @@ class UpdateManager:
             coverage_manager=self.coverage_manager,
         )
 
-        # 定义保存回调函数，用于 period_range 模式下逐个保存数据
+        # 定义保存回调函数，用于逐次保存数据（每个分页请求完成后立即保存）
         saved_by_callback = [False]  # 使用列表以便在闭包中修改
 
         def save_callback(iface_name: str, data: list):

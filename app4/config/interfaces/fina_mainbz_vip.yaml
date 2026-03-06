@@ -35,6 +35,9 @@ pagination:
   enabled: true
   mode: period_range
   periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
+  offset:
+    enabled: true
+    limit: 10000    
 parameters:
   end_date:
     description: 报告期结束日期 YYYYMMDD

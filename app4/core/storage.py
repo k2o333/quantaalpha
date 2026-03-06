@@ -592,7 +592,7 @@ class StorageManager:
             "interfaces": set(),
         }
 
-        while self.running:
+        while True:
             try:
                 task = self.process_queue.get(timeout=1)
 

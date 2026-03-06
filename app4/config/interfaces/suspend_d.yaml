@@ -28,6 +28,9 @@ pagination:
   enabled: true
   mode: reverse_date_range
   window_size_days: 30
+  offset:
+    enabled: true
+    limit: 5000
 parameters:
   end_date:
     description: 停复牌查询结束日期 YYYYMMDD

@@ -115,17 +115,19 @@ class PaginationExecutor:
             return []
 
         stop_on_empty = self._get_stop_on_empty_config(context.interface_config)
-        if self._should_use_concurrency(interface_config):
-            return self._execute_concurrent(
+        # 当有 save_callback 时，强制使用顺序执行以保证逐次保存
+        if save_callback or not self._should_use_concurrency(interface_config):
+            return self._execute_sequential(
                 interface_config,
                 params_list,
                 make_request,
                 coverage_manager,
                 progress_callback,
                 on_data_ready,
+                save_callback,
             )
         else:
-            return self._execute_sequential(
+            return self._execute_concurrent(
                 interface_config,
                 params_list,
                 make_request,
@@ -163,6 +165,7 @@ class PaginationExecutor:
         coverage_manager: Optional[Any],
         progress_callback: Optional[Callable],
         on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         顺序执行多个请求
@@ -174,6 +177,7 @@ class PaginationExecutor:
             coverage_manager: 覆盖率管理器
             progress_callback: 进度回调函数
             on_data_ready: 数据准备好的回调函数（流式处理）
+            save_callback: 保存回调函数，每次请求完成后立即保存 (interface_name, data) -> None
 
         Returns:
             所有请求的结果（如果无回调）或 总记录数（如果有回调）
@@ -182,6 +186,7 @@ class PaginationExecutor:
         total_count = 0
         consecutive_empty = 0
         stop_on_empty = self._get_stop_on_empty_config(interface_config)
+        interface_name = interface_config.get("name", "unknown")
 
         for idx, params in enumerate(params_list):
             if progress_callback:
@@ -203,6 +208,12 @@ class PaginationExecutor:
                 else:
                     # 兼容模式：result 是数据列表
                     all_data.extend(result)
+                    # 原子化保存：每次请求的分页完成后立即保存
+                    if save_callback:
+                        save_callback(interface_name, result)
+                        logger.info(
+                            f"[{interface_name}] 已保存 {len(result)} 条记录 (第{idx+1}/{len(params_list)}批)"
+                        )
                     consecutive_empty = 0
             else:
                 consecutive_empty += self._estimate_empty_days(params)
