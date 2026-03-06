@@ -1,0 +1,66 @@
+api_name: daily
+description: 日线行情
+derived_fields:
+  trade_date_dt:
+    description: 日期类型的trade_date
+    format: '%Y%m%d'
+    source: trade_date
+    type: date
+duplicate_detection:
+  date_column: trade_date
+  enabled: true
+  mode: range
+  threshold: 0.95
+name: daily
+output:
+  dedup_enabled: true
+  primary_key:
+  - ts_code
+  - trade_date
+  sort_by:
+  - trade_date
+pagination:
+  enabled: true
+  mode: reverse_date_range    # 反向日期范围模式
+  window_size_days: 1         # 每1天一个窗口
+  empty_threshold_days: 90    # 连续90天无数据停止
+  offset:
+    enabled: true
+    limit: 10000              # 每次请求最多10000条记录
+parameters:
+  end_date:
+    description: 结束日期 YYYYMMDD
+    required: false
+    type: string
+  start_date:
+    description: 开始日期 YYYYMMDD
+    required: false
+    type: string
+  trade_date:
+    description: 交易日期 YYYYMMDD
+    required: false
+    type: string
+  ts_code:
+    description: 证券代码
+    required: false
+    type: string
+permissions:
+  min_points: 0
+  query_limit: 10000
+  rate_limit: 120
+request:
+  extra_path: ''
+  method: POST
+  timeout: 30
+fields:
+  ts_code: string          # 股票代码
+  trade_date: string       # 交易日期
+  open: Float64            # 开盘价
+  high: Float64            # 最高价
+  low: Float64             # 最低价
+  close: Float64           # 收盘价
+  pre_close: Float64       # 昨收价（除权价，前复权）
+  change: Float64          # 涨跌额
+  pct_chg: Float64         # 涨跌幅（基于除权后的昨收计算）
+  vol: Float64             # 成交量（手）
+  amount: Float64          # 成交额（千元）
