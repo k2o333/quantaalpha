@@ -138,15 +138,12 @@ class StorageManager:
             # 处理剩余的数据
             self.flush_remaining_data()
 
-            # 等待处理队列中的数据被消费完毕
-            logger.info("Waiting for process queue to empty...")
-            while not self.process_queue.empty():
-                time.sleep(0.1)
-
+            # (方案B) 不再无限期死等 process_queue，下发哨兵由子线程自行清理
             # 停止处理线程
+            logger.info("Stopping process thread (Scenario B)...")
             self.process_queue.put(None)  # 发送哨兵
             if self.process_thread:
-                self.process_thread.join(timeout=60)
+                self.process_thread.join(timeout=120)
                 if self.process_thread.is_alive():
                     logger.warning("Process thread did not stop within timeout")
 
@@ -574,7 +571,8 @@ class StorageManager:
                         "data": item["data"],
                         "timestamp": time.time(),
                     },
-                    block=False,
+                    block=True,
+                    timeout=30,
                 )
                 logger.info(
                     f"Flushed {len(item['data'])} remaining records for processing: {item['interface_name']}"
@@ -592,26 +590,34 @@ class StorageManager:
             "interfaces": set(),
         }
 
+        pending_stop = False
         while True:
             try:
-                task = self.process_queue.get(timeout=1)
+                # 即使收到停止信号，也要处理完队列里剩余的所有合法任务
+                try:
+                    task = self.process_queue.get(timeout=1)
+                except queue.Empty:
+                    if pending_stop:
+                        # 线程结束时输出统计
+                        if dedup_stats_total["total_processed"] > 0:
+                            dedup_rate = (
+                                dedup_stats_total["total_deduped"]
+                                / dedup_stats_total["total_processed"]
+                            ) * 100
+                            logger.info(
+                                f"Process worker summary: processed {dedup_stats_total['total_processed']} records, "
+                                f"deduped {dedup_stats_total['total_deduped']} ({dedup_rate:.2f}%), "
+                                f"interfaces={len(dedup_stats_total['interfaces'])}"
+                            )
+                        logger.info("Process worker finished draining and exiting.")
+                        break
+                    continue
 
-                # 检查停止信号
+                # 检查停止信号 (哨兵)
                 if task is None:
-                    # 线程结束时输出统计
-                    if dedup_stats_total["total_processed"] > 0:
-                        dedup_rate = (
-                            dedup_stats_total["total_deduped"]
-                            / dedup_stats_total["total_processed"]
-                        ) * 100
-                        logger.info(
-                            f"Process worker summary: processed {dedup_stats_total['total_processed']} records, "
-                            f"deduped {dedup_stats_total['total_deduped']} ({dedup_rate:.2f}%), "
-                            f"interfaces={len(dedup_stats_total['interfaces'])}"
-                        )
-
-                    logger.info("Process worker received stop signal")
-                    break
+                    logger.info("Process worker received stop signal, draining remaining tasks...")
+                    pending_stop = True
+                    continue
 
                 interface_name = task["interface"]
                 data = task["data"]
@@ -838,6 +844,12 @@ class StorageManager:
                 data_records = data or []
 
             if not data_records:
+                return
+
+            # 如果系统已经停止或正在停止，强制切换为同步直接写盘，防止进入队列丢失
+            if not self.running:
+                logger.info(f"System stopping/stopped, switching to synchronous write for {interface_name} ({len(data_records)} records)")
+                self._write_interface_data(interface_name, data_records)
                 return
 
             signature = self._make_save_signature(data_records)

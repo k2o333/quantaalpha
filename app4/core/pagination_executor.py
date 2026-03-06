@@ -110,11 +110,10 @@ class PaginationExecutor:
                     logger.info(f"Skipping request due to coverage check")
                     return []
                 return self._execute_single(
-                    interface_config, params_list[0], make_request, on_data_ready
+                    interface_config, params_list[0], make_request, on_data_ready, save_callback
                 )
             return []
 
-        stop_on_empty = self._get_stop_on_empty_config(context.interface_config)
         # 当有 save_callback 时，强制使用顺序执行以保证逐次保存
         if save_callback or not self._should_use_concurrency(interface_config):
             return self._execute_sequential(
@@ -142,6 +141,7 @@ class PaginationExecutor:
         params: Dict[str, Any],
         make_request: Callable,
         on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         执行单个请求
@@ -151,11 +151,20 @@ class PaginationExecutor:
             params: 请求参数
             make_request: 请求执行回调函数
             on_data_ready: 数据准备好的回调函数（流式处理）
+            save_callback: 保存回调函数
 
         Returns:
             请求结果（如果无回调）或 记录数（如果有回调）
         """
-        return self._execute_single_request(interface_config, params, make_request, on_data_ready)
+        result = self._execute_single_request(interface_config, params, make_request, on_data_ready)
+        
+        # 如果是列表模式且有保存回调，直接保存
+        if result and save_callback and not on_data_ready:
+            interface_name = interface_config.get("name", "unknown")
+            save_callback(interface_name, result)
+            logger.info(f"[{interface_name}] 单次请求数据已保存 ({len(result)} 条)")
+            
+        return result
 
     def _execute_sequential(
         self,
