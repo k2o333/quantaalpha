@@ -479,7 +479,8 @@ class UpdateManager:
         # 处理和保存数据
         # 如果已经通过 save_callback 保存过数据，则跳过最终保存
         if saved_by_callback[0]:
-            return len(result_data) if result_data else 0
+            # 兼容两种返回类型：直接计数(int) 或 列表长度(len)
+            return result_data if isinstance(result_data, int) else len(result_data)
 
         if result_data and len(result_data) > 0:
             # 直接传入原始数据，让 _process_worker 统一处理（包括去重）

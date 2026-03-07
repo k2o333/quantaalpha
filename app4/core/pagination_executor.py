@@ -157,13 +157,14 @@ class PaginationExecutor:
             请求结果（如果无回调）或 记录数（如果有回调）
         """
         result = self._execute_single_request(interface_config, params, make_request, on_data_ready)
-        
-        # 如果是列表模式且有保存回调，直接保存
+
+        # 如果是列表模式且有保存回调，直接保存并返回计数
         if result and save_callback and not on_data_ready:
             interface_name = interface_config.get("name", "unknown")
             save_callback(interface_name, result)
             logger.info(f"[{interface_name}] 单次请求数据已保存 ({len(result)} 条)")
-            
+            return len(result)  # 返回计数而非数据列表
+
         return result
 
     def _execute_sequential(
@@ -214,15 +215,17 @@ class PaginationExecutor:
                     # 流式模式：result 是计数
                     total_count += result
                     consecutive_empty = 0
+                elif save_callback:
+                    # 【修复点】逐次保存模式：立即保存，累加计数，不累积内存
+                    save_callback(interface_name, result)
+                    total_count += len(result)
+                    logger.info(
+                        f"[{interface_name}] 已保存 {len(result)} 条记录 (第{idx+1}/{len(params_list)}批)"
+                    )
+                    consecutive_empty = 0
                 else:
-                    # 兼容模式：result 是数据列表
+                    # 普通模式：累积数据到列表
                     all_data.extend(result)
-                    # 原子化保存：每次请求的分页完成后立即保存
-                    if save_callback:
-                        save_callback(interface_name, result)
-                        logger.info(
-                            f"[{interface_name}] 已保存 {len(result)} 条记录 (第{idx+1}/{len(params_list)}批)"
-                        )
                     consecutive_empty = 0
             else:
                 consecutive_empty += self._estimate_empty_days(params)
@@ -232,7 +235,8 @@ class PaginationExecutor:
                     )
                     break
 
-        if on_data_ready:
+        # 返回逻辑统一
+        if on_data_ready or save_callback:
             return total_count
         return all_data
 
@@ -294,18 +298,21 @@ class PaginationExecutor:
                     logger.info(
                         f"[{interface_name}] Streamed {result} records for period {period}"
                     )
-                else:
-                    # 兼容模式：result 是数据列表
-                    all_data.extend(result)
-                    # 立即保存数据
+                elif save_callback:
+                    # 【修复点】立即保存并计数，不累积到 all_data
                     save_callback(interface_name, result)
+                    total_count += len(result)
                     period_field = params.get("_period_field", "period")
                     period = params.get(period_field, "unknown")
                     logger.info(
                         f"[{interface_name}] Saved {len(result)} records for period {period}"
                     )
+                else:
+                    # 普通模式：累积数据到列表
+                    all_data.extend(result)
 
-        if on_data_ready:
+        # 返回逻辑统一
+        if on_data_ready or save_callback:
             return total_count
         return all_data
 
