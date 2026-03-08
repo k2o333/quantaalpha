@@ -1047,7 +1047,7 @@ class GenericDownloader:
     def _is_stock_data_exists(
         self, interface_name: str, ts_code: str, storage_dir: str = None
     ) -> bool:
-        """检查股票数据是否已存在"""
+        """检查股票数据是否已存在 - 内存优化版"""
         if storage_dir is None:
             storage_dir = self.global_config.get("storage", {}).get(
                 "base_dir", "../data"
@@ -1059,11 +1059,15 @@ class GenericDownloader:
             return False
 
         try:
-            # 读取现有数据
-            df = pl.read_parquet(dir_path)
-
-            # 检查该股票是否存在
-            return df.filter(pl.col("ts_code") == ts_code).height > 0
+            # [优化] 使用 scan_parquet + filter 只加载指定股票的数据
+            # 避免加载整个目录导致内存溢出
+            df = (
+                pl.scan_parquet(dir_path)
+                .filter(pl.col("ts_code") == ts_code)
+                .select(pl.col("ts_code").first())
+                .collect()
+            )
+            return df.height > 0
         except Exception:
             return False
 

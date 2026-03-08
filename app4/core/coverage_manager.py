@@ -138,11 +138,13 @@ class CoverageManager:
                 }
 
             # 读取接口数据，只读取日期列
+            # [优化] 使用 unique=True 提前去重，避免加载大量重复的日期
             df = self.storage_manager.read_interface_data(
                 interface_name,
                 start_date=start_date,
                 end_date=end_date,
                 columns=[date_column],
+                unique=True,
             )
 
             # 获取实际存在的日期
@@ -353,11 +355,13 @@ class CoverageManager:
 
         try:
             # 读取接口数据，只读取日期列
+            # [优化] 使用 unique=True 提前去重，避免加载大量重复的日期
             df = self.storage_manager.read_interface_data(
                 interface_name,
                 start_date=start_date,
                 end_date=end_date,
                 columns=[date_column],
+                unique=True,
             )
 
             if df.is_empty():
@@ -500,8 +504,9 @@ class CoverageManager:
                     logger.debug(
                         f"Loading all periods for {interface_name} using column {date_column}"
                     )
+                    # [优化] 使用 unique=True 提前去重，避免加载大量重复的报告期
                     df = self.storage_manager.read_interface_data(
-                        interface_name, columns=[date_column]
+                        interface_name, columns=[date_column], unique=True
                     )
 
                     if not df.is_empty():
@@ -596,8 +601,9 @@ class CoverageManager:
             with self._cache_lock:
                 if cache_key not in self._cache:
                     logger.debug(f"Loading all stocks for {interface_name}")
+                    # [优化] 使用 unique=True 提前去重，避免加载大量重复的股票代码
                     df = self.storage_manager.read_interface_data(
-                        interface_name, columns=[key_column]
+                        interface_name, columns=[key_column], unique=True
                     )
 
                     if not df.is_empty():
@@ -770,8 +776,9 @@ class CoverageManager:
                 logger.warning(f"{interface_name}: 无法检测到日期列")
                 return set()
 
+            # [优化] 使用 unique=True 提前去重，避免加载大量重复的日期
             df = self.storage_manager.read_interface_data(
-                interface_name, columns=[date_column]
+                interface_name, columns=[date_column], unique=True
             )
 
             if df.is_empty():
@@ -880,72 +887,101 @@ class CoverageManager:
         self, interface_name: str, date_column: str
     ) -> None:
         """
-        一次性加载指定接口的全部股票日期数据并按 ts_code 分组缓存。
-        使用 scan_parquet (lazy) 只读取两列，内存占用极小。
+        [已弃用] 原方法会一次性加载所有股票的所有日期，内存占用过大。
+        现在改用 _load_single_stock_dates 按需加载单只股票数据。
         """
+        # 保持向后兼容，但不执行任何操作
+        # 实际加载逻辑已移至 _load_single_stock_dates
+        pass
+
+    def _load_single_stock_dates(
+        self, interface_name: str, ts_code: str, date_column: str
+    ) -> Set[str]:
+        """
+        按需加载单只股票的日期数据 - 内存优化版
+
+        只查询指定股票的日期，避免一次性加载所有股票数据导致内存溢出。
+
+        Args:
+            interface_name: 接口名称
+            ts_code: 股票代码
+            date_column: 日期列名
+
+        Returns:
+            该股票已存在的日期集合
+        """
+        # 先检查缓存
         with self._stock_dates_lock:
-            if interface_name in self._stock_dates_cache:
-                return  # 已加载
+            if interface_name not in self._stock_dates_cache:
+                self._stock_dates_cache[interface_name] = {}
+            if ts_code in self._stock_dates_cache[interface_name]:
+                return self._stock_dates_cache[interface_name][ts_code]
 
-            dir_path = os.path.join(
-                self.storage_manager.storage_dir, interface_name
+        dir_path = os.path.join(
+            self.storage_manager.storage_dir, interface_name
+        )
+        if not os.path.exists(dir_path):
+            with self._stock_dates_lock:
+                self._stock_dates_cache[interface_name][ts_code] = set()
+            return set()
+
+        try:
+            import glob as _glob
+
+            parquet_files = _glob.glob(
+                os.path.join(dir_path, "*.parquet")
             )
-            if not os.path.exists(dir_path):
-                self._stock_dates_cache[interface_name] = {}
-                logger.debug(f"[{interface_name}] 数据目录不存在，跳过加载")
-                return
+            if not parquet_files:
+                with self._stock_dates_lock:
+                    self._stock_dates_cache[interface_name][ts_code] = set()
+                return set()
 
-            try:
-                import glob as _glob
+            # [核心优化] 使用 scan_parquet + filter 只加载指定股票的数据
+            # 配合 unique() 在 collect 前去重，内存占用极小
+            df = (
+                pl.scan_parquet(parquet_files)
+                .filter(pl.col("ts_code") == ts_code)
+                .select([date_column])
+                .unique()
+                .collect()
+            )
 
-                parquet_files = _glob.glob(
-                    os.path.join(dir_path, "*.parquet")
-                )
-                if not parquet_files:
-                    self._stock_dates_cache[interface_name] = {}
-                    return
+            if df.is_empty():
+                with self._stock_dates_lock:
+                    self._stock_dates_cache[interface_name][ts_code] = set()
+                return set()
 
-                # lazy scan，只读 date_column + ts_code，避免全列加载
-                df = (
-                    pl.scan_parquet(parquet_files)
-                    .select([date_column, "ts_code"])
-                    .collect()
-                )
+            # 构建日期集合
+            dates = set()
+            for d in df[date_column]:
+                formatted = format_date(d)
+                if formatted:
+                    dates.add(formatted)
 
-                if df.is_empty():
-                    self._stock_dates_cache[interface_name] = {}
-                    return
+            # 缓存结果
+            with self._stock_dates_lock:
+                self._stock_dates_cache[interface_name][ts_code] = dates
 
-                # 按 ts_code 分组，构建 {ts_code: set(dates)} 字典
-                stock_dates = {}
-                for (ts_code_val,), group_df in df.group_by(["ts_code"]):
-                    dates = set()
-                    for d in group_df[date_column]:
-                        formatted = format_date(d)
-                        if formatted:
-                            dates.add(formatted)
-                    stock_dates[ts_code_val] = dates
+            logger.debug(
+                f"[{interface_name}/{ts_code}] 按需加载完成: {len(dates)} 个日期"
+            )
 
-                self._stock_dates_cache[interface_name] = stock_dates
-                total_dates = sum(len(v) for v in stock_dates.values())
-                logger.info(
-                    f"[{interface_name}] 批量加载完成: {len(stock_dates)} 只股票, "
-                    f"{total_dates} 条日期记录"
-                )
+            del df  # 显式释放 DataFrame
+            return dates
 
-                del df  # 显式释放 DataFrame
-
-            except Exception as e:
-                logger.warning(
-                    f"[{interface_name}] 批量加载股票日期失败: {e}"
-                )
-                self._stock_dates_cache[interface_name] = {}
+        except Exception as e:
+            logger.warning(
+                f"[{interface_name}/{ts_code}] 按需加载股票日期失败: {e}"
+            )
+            with self._stock_dates_lock:
+                self._stock_dates_cache[interface_name][ts_code] = set()
+            return set()
 
     def get_stock_existing_dates(
         self, interface_name: str, ts_code: str, date_column: str = "trade_date"
     ) -> Set[str]:
         """
-        获取指定股票已存在的所有日期（从批量缓存中读取）
+        获取指定股票已存在的所有日期（按需加载模式）
 
         Args:
             interface_name: 接口名称
@@ -955,12 +991,8 @@ class CoverageManager:
         Returns:
             已存在的日期集合（YYYYMMDD格式）
         """
-        # 确保该接口的数据已批量加载
-        self._ensure_stock_dates_loaded(interface_name, date_column)
-
-        # 直接从缓存取
-        stock_dates = self._stock_dates_cache.get(interface_name, {})
-        dates = stock_dates.get(ts_code, set())
+        # [优化] 使用按需加载，只查询指定股票的数据
+        dates = self._load_single_stock_dates(interface_name, ts_code, date_column)
 
         if dates:
             logger.debug(f"[{interface_name}/{ts_code}] 已有 {len(dates)} 条数据")

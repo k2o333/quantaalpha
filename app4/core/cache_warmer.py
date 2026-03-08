@@ -64,9 +64,11 @@ class CacheWarmer:
             return None
 
         try:
-            # 先读取文件获取实际存在的列
-            df_sample = pl.scan_parquet(stock_basic_dir).collect()
-            existing_columns = set(df_sample.columns)
+            # [优化] 使用 scan_parquet + fetch 来只获取列名，不加载所有数据
+            lazy_df = pl.scan_parquet(stock_basic_dir)
+            # 使用 fetch(1) 只读取一行来获取 schema
+            sample_schema = lazy_df.fetch(1).schema
+            existing_columns = set(sample_schema.keys())
 
             # 定义期望读取的列（按优先级排序）
             desired_columns = [

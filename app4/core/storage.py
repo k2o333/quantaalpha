@@ -397,9 +397,17 @@ class StorageManager:
         start_date: str = None,
         end_date: str = None,
         columns: Optional[List[str]] = None,
+        unique: bool = False,
     ) -> pl.DataFrame:
         """
         读取接口数据 - 支持文件名过滤和确定性去重
+
+        Args:
+            interface_name: 接口名称
+            start_date: 起始日期
+            end_date: 结束日期
+            columns: 要读取的列列表，None 表示读取全部列
+            unique: 是否在 collect 前进行去重（用于覆盖率检测时大幅降低内存占用）
         """
         dir_path = os.path.join(self.storage_dir, interface_name)
 
@@ -443,11 +451,10 @@ class StorageManager:
             if columns:
                 # [优化] 使用 scan_parquet 实现真正的列下推，避免加载全部列
                 try:
-                    df = (
-                        pl.scan_parquet(files_to_read)
-                        .select(columns)
-                        .collect()
-                    )
+                    lazy_df = pl.scan_parquet(files_to_read).select(columns)
+                    if unique:
+                        lazy_df = lazy_df.unique()
+                    df = lazy_df.collect()
                 except Exception:
                     # schema 不一致时回退到逐文件读取
                     df = pl.DataFrame()
