@@ -696,9 +696,14 @@ class GenericDownloader:
         """发起实际的 API 请求 - 优化版"""
         api_name = interface_config["api_name"]
 
-        # 读取重试配置
+        # 读取重试配置（支持新配置格式，向后兼容）
         req_config = self.global_config.get("request", {})
-        max_retries = req_config.get("max_retries", 3)
+        retry_config = req_config.get("api_retry", {})
+        
+        max_retries = retry_config.get("max_attempts", 10)
+        quick_retry_count = retry_config.get("quick_retry_count", 3)
+        quick_retry_delay = retry_config.get("quick_retry_delay", 10)
+        slow_retry_delay = retry_config.get("slow_retry_delay", 60)
 
         self.global_rate_limiter.wait_for_tokens(1)
 
@@ -804,21 +809,44 @@ class GenericDownloader:
                 # 检查 API 返回是否成功
                 if result.get("code") != 0:
                     msg = result.get("msg", "")
-                    # 如果是频率限制，执行退避重试
-                    if "频繁" in msg or "limit" in msg.lower():
+                    error_type = self._classify_api_error(result)
+                    
+                    # CLIENT_ERROR: 快速失败，不重试
+                    if error_type == APIErrorType.CLIENT_ERROR:
+                        logger.error(f"API参数错误 [{api_name}]: {msg}")
+                        # 记录失败指标后再抛出异常
+                        self._record_failure_metrics(
+                            interface_config, start_time, params, retry_count
+                        )
+                        raise RuntimeError(f"API参数错误，无法通过重试修复: {msg}")
+                    
+                    # RATE_LIMIT / SERVER_ERROR / NETWORK_ERROR: 执行重试
+                    if error_type in (APIErrorType.RATE_LIMIT, APIErrorType.SERVER_ERROR, APIErrorType.NETWORK_ERROR):
                         if attempt < max_retries:
-                            random_delay = self._calculate_retry_delay(
-                                req_config, attempt
-                            )
+                            # 分段延时策略
+                            if attempt < quick_retry_count:
+                                delay = quick_retry_delay
+                            else:
+                                delay = slow_retry_delay
+                            
                             logger.warning(
-                                f"Rate limit hit for {api_name}. Retrying in {random_delay:.2f}s..."
+                                f"[{api_name}] {error_type.value} - 重试 {attempt+1}/{max_retries}，"
+                                f"等待 {delay}s... (错误: {msg})"
                             )
-                            time.sleep(random_delay)
+                            time.sleep(delay)
                             retry_count = attempt + 1
                             continue
-
-                    logger.error(f"API error for {api_name}: {msg}")
-                    # 记录失败指标
+                        
+                        # 重试耗尽，抛出异常
+                        self._record_failure_metrics(
+                            interface_config, start_time, params, retry_count
+                        )
+                        raise RuntimeError(
+                            f"[{api_name}] 重试 {max_retries} 次后仍然失败: {msg}"
+                        )
+                    
+                    # 未知错误类型，记录并返回空
+                    logger.error(f"API unknown error for {api_name}: {msg}")
                     self._record_failure_metrics(
                         interface_config, start_time, params, retry_count
                     )
@@ -870,19 +898,30 @@ class GenericDownloader:
             except (requests.RequestException, json.JSONDecodeError) as e:
                 logger.error(f"Request error for {api_name}: {str(e)}")
                 if attempt < max_retries:
-                    random_delay = self._calculate_retry_delay(req_config, attempt)
+                    # 也可以采用全局分段延迟来处理网络异常，以简化
+                    if attempt < quick_retry_count:
+                        delay = quick_retry_delay
+                    else:
+                        delay = slow_retry_delay
+
                     logger.warning(
-                        f"Retrying {api_name} in {random_delay:.2f}s due to: {type(e).__name__}"
+                        f"Retrying {api_name} in {delay}s due to: {type(e).__name__}"
                     )
-                    time.sleep(random_delay)
+                    time.sleep(delay)
                     retry_count = attempt + 1
                     continue
                 # 记录失败指标
                 self._record_failure_metrics(
                     interface_config, start_time, params, retry_count
                 )
-                return []
+                raise RuntimeError(
+                    f"[{api_name}] 网络/解析错误，重试 {max_retries} 次后仍然失败: {str(e)}"
+                )
             except Exception as e:
+                # 若这里是主动Raise的RuntimeError（业务侧判决），直接抛出
+                if isinstance(e, RuntimeError):
+                    raise
+                
                 logger.error(f"Unexpected error for {api_name}: {str(e)}")
                 if attempt < max_retries:
                     time.sleep(2**attempt)
@@ -892,7 +931,9 @@ class GenericDownloader:
                 self._record_failure_metrics(
                     interface_config, start_time, params, retry_count
                 )
-                return []
+                raise RuntimeError(
+                    f"[{api_name}] 未知错误，重试 {max_retries} 次后仍然失败: {str(e)}"
+                )
 
     def _calculate_retry_delay(self, req_config: Dict[str, Any], attempt: int) -> float:
         """

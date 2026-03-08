@@ -387,6 +387,7 @@ class PaginationExecutor:
         params: Dict[str, Any],
         make_request: Callable,
         on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         执行单个请求，处理offset分页
@@ -397,6 +398,7 @@ class PaginationExecutor:
             make_request: 请求执行回调函数
             on_data_ready: 数据准备好的回调函数（用于流式处理，避免内存累积）
                            如果提供，数据通过回调传递，返回计数
+            save_callback: 批次保存回调，防止内存溢出
 
         Returns:
             请求结果（如果无回调）或 记录数（如果有回调）
@@ -405,11 +407,16 @@ class PaginationExecutor:
 
         if not offset_config.get("enabled"):
             clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
-            data = make_request(interface_config, clean_params)
-            if on_data_ready and data:
-                on_data_ready(data)
-                return len(data)
-            return data
+            try:
+                data = make_request(interface_config, clean_params)
+                if on_data_ready and data:
+                    on_data_ready(data)
+                    return len(data)
+                return data
+            except RuntimeError as e:
+                # API错误向上传播
+                logger.error(f"请求失败: {e}")
+                raise
 
         # 执行offset分页
         all_data = []
@@ -419,47 +426,77 @@ class PaginationExecutor:
         base_params = {k: v for k, v in params.items() if not k.startswith("_")}
         interface_name = interface_config.get("name", "unknown")
 
+        # 批次保存阈值
+        batch_threshold = 50000
+
         logger.info(f"[{interface_name}] Offset分页开始 - 配置限额: limit={limit}")
         page_num = 0
 
-        while True:
-            request_params = base_params.copy()
-            request_params["limit"] = limit
-            request_params["offset"] = offset
-
-            data = make_request(interface_config, request_params)
-            if not data:
+        try:
+            while True:
+                request_params = base_params.copy()
+                request_params["limit"] = limit
+                request_params["offset"] = offset
+    
+                data = make_request(interface_config, request_params)
+                if not data:
+                    logger.info(
+                        f"[{interface_name}] 第{page_num + 1}页请求无数据 - offset={offset}, limit={limit}"
+                    )
+                    break
+    
+                data_count = len(data)
+                
+                if on_data_ready:
+                    # 流式处理：每页数据立即回调，不累积
+                    on_data_ready(data)
+                    total_count += data_count
+                else:
+                    # 兼容/批次保存逻辑：累积数据
+                    all_data.extend(data)
+                    
+                    # 批次保存：达到阈值时保存并清空
+                    if save_callback and len(all_data) >= batch_threshold:
+                        save_callback(interface_name, all_data)
+                        logger.info(
+                            f"[{interface_name}] 批次保存 {len(all_data)} 条记录 "
+                            f"(累计 {total_count + len(all_data)} 条)"
+                        )
+                        all_data = []
+                
+                page_num += 1
+                if on_data_ready:
+                    pass
+                else:
+                    total_count += data_count
+    
                 logger.info(
-                    f"[{interface_name}] 第{page_num + 1}页请求无数据 - offset={offset}, limit={limit}"
+                    f"[{interface_name}] 第{page_num}页完成 - offset={offset}, 请求limit={limit}, 实际返回={data_count}条"
                 )
-                break
-
-            data_count = len(data)
-            
-            if on_data_ready:
-                # 流式处理：每页数据立即回调，不累积
-                on_data_ready(data)
-                total_count += data_count
-            else:
-                # 兼容旧逻辑：累积数据
-                all_data.extend(data)
-            
-            page_num += 1
-
-            logger.info(
-                f"[{interface_name}] 第{page_num}页完成 - offset={offset}, 请求limit={limit}, 实际返回={data_count}条"
-            )
-
-            if data_count < limit:
-                logger.info(
-                    f"[{interface_name}] 分页完成 - 最后1页返回{data_count}条 < 限额{limit}，停止请求"
+    
+                if data_count < limit:
+                    logger.info(
+                        f"[{interface_name}] 分页完成 - 最后1页返回{data_count}条 < 限额{limit}，停止请求"
+                    )
+                    break
+    
+                offset += limit
+                if offset > limit * 10000:  # 安全限制
+                    logger.warning(f"[{interface_name}] Offset分页超过安全限制，停止请求")
+                    break
+        except RuntimeError as e:
+            # 异常时先保存已累积的数据，再向上抛出
+            if save_callback and all_data:
+                save_callback(interface_name, all_data)
+                logger.warning(
+                    f"[{interface_name}] 异常中断，已保存 {len(all_data)} 条残留数据"
                 )
-                break
+            raise
 
-            offset += limit
-            if offset > limit * 10000:  # 安全限制
-                logger.warning(f"[{interface_name}] Offset分页超过安全限制，停止请求")
-                break
+        # 循环结束后保存剩余数据
+        if save_callback and all_data:
+            save_callback(interface_name, all_data)
+            logger.info(f"[{interface_name}] 最终批次保存 {len(all_data)} 条记录")
 
         if on_data_ready:
             logger.info(
@@ -468,8 +505,11 @@ class PaginationExecutor:
             return total_count
         else:
             logger.info(
-                f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={len(all_data)}"
+                f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={total_count}"
             )
+            # 在使用了save_callback并且成功返回时，all_data已经被清空。我们返回total_count以供兼容。
+            if save_callback:
+                return total_count
             return all_data
 
     def _should_use_concurrency(self, interface_config: Dict[str, Any]) -> bool:
