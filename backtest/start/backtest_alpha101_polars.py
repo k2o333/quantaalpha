@@ -172,6 +172,8 @@ def load_data(data_path: str, start_date: str, end_date: str) -> pl.DataFrame:
     if dfs:
         combined = pl.concat(dfs)
         combined = combined.unique(subset=["ts_code", "trade_date"])
+        # 关键修复：按 ts_code 和 trade_date_dt 排序，确保 rolling_corr 计算正确
+        combined = combined.sort(["ts_code", "trade_date_dt"])
         return combined
     return pl.DataFrame()
 
