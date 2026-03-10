@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Momentum_10D",
+    "expression": "TS_RANK($close, 10)",
+    "description": "10日收盘价时序排名"
+  },
+  {
+    "name": "Volume_Rank",
+    "expression": "RANK($volume)",
+    "description": "成交量截面排名"
+  },
+  {
+    "name": "Price_Change",
+    "expression": "$close - $open",
+    "description": "价格变化"
+  },
+  {
+    "name": "Price_Mean_20",
+    "expression": "TS_MEAN($close, 20)",
+    "description": "20日均价"
+  }
+]
