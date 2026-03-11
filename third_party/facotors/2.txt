@@ -1,0 +1,397 @@
+2026-03-11 10:55:46.209 | ERROR    | quantaalpha.utils.env:run:230 - Command failed with return code 1
+Error: [1604127:MainThread](2026-03-11 10:55:41,085) INFO - qlib.qrun - [run.py:78] - Render the template with the context: {}
+[1604127:MainThread](2026-03-11 10:55:41,101) INFO - qlib.Initialization - [config.py:452] - default_conf: client.
+[1604127:MainThread](2026-03-11 10:55:41,104) INFO - qlib.Initialization - [__init__.py:75] - qlib successfully initialized based on client settings.
+[1604127:MainThread](2026-03-11 10:55:41,105) INFO - qlib.Initialization - [__init__.py:77] - data_path={'__DEFAULT_FREQ': PosixPath('/root/.qlib/qlib_data/cn_data')}
+/root/miniforge3/envs/mining/lib/python3.12/site-packages/mlflow/tracking/_tracking_service/utils.py:178: FutureWarning: The filesystem tracking backend (e.g., './mlruns') will be deprecated in February 2026. Consider transitioning to a database backend (e.g., 'sqlite:///mlflow.db') to take advantage of the latest MLflow features. See https://github.com/mlflow/mlflow/issues/18534 for more details and migration guidance. For migrating existing data, https://github.com/mlflow/mlflow-export-import can be used.
+  return FileStore(store_uri, store_uri)
+[1604127:MainThread](2026-03-11 10:55:41,117) WARNING - qlib.workflow - [expm.py:231] - No valid experiment found. Create a new experiment with name workflow.
+[1604127:MainThread](2026-03-11 10:55:41,123) INFO - qlib.workflow - [exp.py:258] - Experiment 995889864013610783 starts running ...
+[1604127:MainThread](2026-03-11 10:55:41,633) INFO - qlib.workflow - [recorder.py:345] - Recorder 602794f4c4084f7c997ce098a426a202 starts running under Experiment 995889864013610783 ...
+[1604127:MainThread](2026-03-11 10:55:43,721) INFO - qlib.timer - [log.py:127] - Time cost: 1.645s | Loading data Done
+[1604127:MainThread](2026-03-11 10:55:43,734) INFO - qlib.timer - [log.py:127] - Time cost: 0.007s | Fillna Done
+[1604127:MainThread](2026-03-11 10:55:44,066) INFO - qlib.timer - [log.py:127] - Time cost: 0.332s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,152) INFO - qlib.timer - [log.py:127] - Time cost: 0.085s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,175) INFO - qlib.timer - [log.py:127] - Time cost: 0.009s | Fillna Done
+[1604127:MainThread](2026-03-11 10:55:44,191) INFO - qlib.timer - [log.py:127] - Time cost: 0.015s | DropnaLabel Done
+/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/data/dataset/processor.py:358: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  df[cols] = t
+[1604127:MainThread](2026-03-11 10:55:44,376) INFO - qlib.timer - [log.py:127] - Time cost: 0.185s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,436) INFO - qlib.timer - [log.py:127] - Time cost: 0.059s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,437) INFO - qlib.timer - [log.py:127] - Time cost: 0.715s | fit & process data Done
+[1604127:MainThread](2026-03-11 10:55:44,437) INFO - qlib.timer - [log.py:127] - Time cost: 2.362s | Init data Done
+[1604127:MainThread](2026-03-11 10:55:44,995) INFO - qlib.fill_placeholder - [__init__.py:798] - <PRED> lookes like a placeholder, but it can't match to any given values
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[1604127:MainThread](2026-03-11 10:55:45,144) INFO - qlib.workflow - [record_temp.py:198] - Signal record 'pred.pkl' has been saved as the artifact of the Experiment 995889864013610783
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 582.70it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 535.67it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 634.25it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 593.59it/s]
+[1604127:MainThread](2026-03-11 10:55:45,248) WARNING - qlib.workflow - [record_temp.py:322] - Empty label.
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 606.38it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 562.77it/s]
+[1604127:MainThread](2026-03-11 10:55:45,340) INFO - qlib.timer - [log.py:127] - Time cost: 0.040s | waiting `async_log` Done
+[1604127:MainThread](2026-03-11 10:55:45,342) ERROR - qlib.workflow - [utils.py:41] - An exception has been raised[ValueError: The benchmark ['SH000300'] does not exist. Please provide the right benchmark].
+  File "/root/miniforge3/envs/mining/bin/qrun", line 6, in <module>
+    sys.exit(run())
+             ^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/cli/run.py", line 153, in run
+    fire.Fire(workflow)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/cli/run.py", line 147, in workflow
+    recorder = task_train(config.get("task"), experiment_name=experiment_name)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/model/trainer.py", line 127, in task_train
+    _exe_task(task_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/model/trainer.py", line 71, in _exe_task
+    r.generate()
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/workflow/record_temp.py", line 236, in generate
+    artifact_dict = self._generate(*args, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/workflow/record_temp.py", line 483, in _generate
+    portfolio_metric_dict, indicator_dict = normal_backtest(
+                                            ^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 266, in backtest
+    trade_strategy, trade_executor = get_strategy_executor(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 193, in get_strategy_executor
+    trade_account = create_account_instance(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 161, in create_account_instance
+    return Account(
+           ^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 109, in __init__
+    self.init_vars(init_cash, position_dict, freq, benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 130, in init_vars
+    self.reset(freq=freq, benchmark_config=benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 175, in reset
+    self.reset_report(self.freq, self.benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 143, in reset_report
+    self.portfolio_metrics = PortfolioMetrics(freq, benchmark_config)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 76, in __init__
+    self.init_bench(freq=freq, benchmark_config=benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 94, in init_bench
+    self.bench = self._cal_benchmark(self.benchmark_config, self.freq)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 116, in _cal_benchmark
+    raise ValueError(f"The benchmark {_codes} does not exist. Please provide the right benchmark")
+
+Workflow Progress:  60%|▌| 3/5 [09:58<06:38, 199.38s/step, loop_index=0
+2026-03-11 10:55:46.211 | ERROR    | quantaalpha.pipeline.factor_mining:run_evolution_loop:466 - Task failed: Command failed with return code 1
+Error: [1604127:MainThread](2026-03-11 10:55:41,085) INFO - qlib.qrun - [run.py:78] - Render the template with the context: {}
+[1604127:MainThread](2026-03-11 10:55:41,101) INFO - qlib.Initialization - [config.py:452] - default_conf: client.
+[1604127:MainThread](2026-03-11 10:55:41,104) INFO - qlib.Initialization - [__init__.py:75] - qlib successfully initialized based on client settings.
+[1604127:MainThread](2026-03-11 10:55:41,105) INFO - qlib.Initialization - [__init__.py:77] - data_path={'__DEFAULT_FREQ': PosixPath('/root/.qlib/qlib_data/cn_data')}
+/root/miniforge3/envs/mining/lib/python3.12/site-packages/mlflow/tracking/_tracking_service/utils.py:178: FutureWarning: The filesystem tracking backend (e.g., './mlruns') will be deprecated in February 2026. Consider transitioning to a database backend (e.g., 'sqlite:///mlflow.db') to take advantage of the latest MLflow features. See https://github.com/mlflow/mlflow/issues/18534 for more details and migration guidance. For migrating existing data, https://github.com/mlflow/mlflow-export-import can be used.
+  return FileStore(store_uri, store_uri)
+[1604127:MainThread](2026-03-11 10:55:41,117) WARNING - qlib.workflow - [expm.py:231] - No valid experiment found. Create a new experiment with name workflow.
+[1604127:MainThread](2026-03-11 10:55:41,123) INFO - qlib.workflow - [exp.py:258] - Experiment 995889864013610783 starts running ...
+[1604127:MainThread](2026-03-11 10:55:41,633) INFO - qlib.workflow - [recorder.py:345] - Recorder 602794f4c4084f7c997ce098a426a202 starts running under Experiment 995889864013610783 ...
+[1604127:MainThread](2026-03-11 10:55:43,721) INFO - qlib.timer - [log.py:127] - Time cost: 1.645s | Loading data Done
+[1604127:MainThread](2026-03-11 10:55:43,734) INFO - qlib.timer - [log.py:127] - Time cost: 0.007s | Fillna Done
+[1604127:MainThread](2026-03-11 10:55:44,066) INFO - qlib.timer - [log.py:127] - Time cost: 0.332s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,152) INFO - qlib.timer - [log.py:127] - Time cost: 0.085s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,175) INFO - qlib.timer - [log.py:127] - Time cost: 0.009s | Fillna Done
+[1604127:MainThread](2026-03-11 10:55:44,191) INFO - qlib.timer - [log.py:127] - Time cost: 0.015s | DropnaLabel Done
+/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/data/dataset/processor.py:358: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  df[cols] = t
+[1604127:MainThread](2026-03-11 10:55:44,376) INFO - qlib.timer - [log.py:127] - Time cost: 0.185s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,436) INFO - qlib.timer - [log.py:127] - Time cost: 0.059s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,437) INFO - qlib.timer - [log.py:127] - Time cost: 0.715s | fit & process data Done
+[1604127:MainThread](2026-03-11 10:55:44,437) INFO - qlib.timer - [log.py:127] - Time cost: 2.362s | Init data Done
+[1604127:MainThread](2026-03-11 10:55:44,995) INFO - qlib.fill_placeholder - [__init__.py:798] - <PRED> lookes like a placeholder, but it can't match to any given values
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[1604127:MainThread](2026-03-11 10:55:45,144) INFO - qlib.workflow - [record_temp.py:198] - Signal record 'pred.pkl' has been saved as the artifact of the Experiment 995889864013610783
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 582.70it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 535.67it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 634.25it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 593.59it/s]
+[1604127:MainThread](2026-03-11 10:55:45,248) WARNING - qlib.workflow - [record_temp.py:322] - Empty label.
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 606.38it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 562.77it/s]
+[1604127:MainThread](2026-03-11 10:55:45,340) INFO - qlib.timer - [log.py:127] - Time cost: 0.040s | waiting `async_log` Done
+[1604127:MainThread](2026-03-11 10:55:45,342) ERROR - qlib.workflow - [utils.py:41] - An exception has been raised[ValueError: The benchmark ['SH000300'] does not exist. Please provide the right benchmark].
+  File "/root/miniforge3/envs/mining/bin/qrun", line 6, in <module>
+    sys.exit(run())
+             ^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/cli/run.py", line 153, in run
+    fire.Fire(workflow)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/cli/run.py", line 147, in workflow
+    recorder = task_train(config.get("task"), experiment_name=experiment_name)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/model/trainer.py", line 127, in task_train
+    _exe_task(task_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/model/trainer.py", line 71, in _exe_task
+    r.generate()
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/workflow/record_temp.py", line 236, in generate
+    artifact_dict = self._generate(*args, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/workflow/record_temp.py", line 483, in _generate
+    portfolio_metric_dict, indicator_dict = normal_backtest(
+                                            ^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 266, in backtest
+    trade_strategy, trade_executor = get_strategy_executor(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 193, in get_strategy_executor
+    trade_account = create_account_instance(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 161, in create_account_instance
+    return Account(
+           ^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 109, in __init__
+    self.init_vars(init_cash, position_dict, freq, benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 130, in init_vars
+    self.reset(freq=freq, benchmark_config=benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 175, in reset
+    self.reset_report(self.freq, self.benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 143, in reset_report
+    self.portfolio_metrics = PortfolioMetrics(freq, benchmark_config)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 76, in __init__
+    self.init_bench(freq=freq, benchmark_config=benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 94, in init_bench
+    self.bench = self._cal_benchmark(self.benchmark_config, self.freq)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 116, in _cal_benchmark
+    raise ValueError(f"The benchmark {_codes} does not exist. Please provide the right benchmark")
+
+2026-03-11 10:55:46.213 | ERROR    | quantaalpha.pipeline.factor_mining:run_evolution_loop:468 - Traceback (most recent call last):
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/pipeline/factor_mining.py", line 447, in run_evolution_loop
+    traj_data = _run_evolution_task(
+                ^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/pipeline/factor_mining.py", line 156, in _run_evolution_task
+    model_loop.run(step_n=step_n, stop_event=stop_event)
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/utils/workflow.py", line 113, in run
+    self.loop_prev_out[name] = func(self.loop_prev_out)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/log/time.py", line 14, in wrapper
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/pipeline/loop.py", line 46, in wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/pipeline/loop.py", line 176, in factor_backtest
+    exp = self.runner.develop(prev_out["factor_calculate"], use_local=self.use_local)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/core/utils.py", line 192, in cache_wrapper
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factors/runner.py", line 84, in develop
+    exp.based_experiments[-1] = self.develop(exp.based_experiments[-1], use_local=use_local)
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/core/utils.py", line 192, in cache_wrapper
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factors/runner.py", line 172, in develop
+    result_tuple = exp.experiment_workspace.execute(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factors/workspace.py", line 61, in execute
+    execute_qlib_log = local_env.run(
+                       ^^^^^^^^^^^^^^
+  File "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/utils/env.py", line 231, in run
+    raise RuntimeError(error_msg)
+RuntimeError: Command failed with return code 1
+Error: [1604127:MainThread](2026-03-11 10:55:41,085) INFO - qlib.qrun - [run.py:78] - Render the template with the context: {}
+[1604127:MainThread](2026-03-11 10:55:41,101) INFO - qlib.Initialization - [config.py:452] - default_conf: client.
+[1604127:MainThread](2026-03-11 10:55:41,104) INFO - qlib.Initialization - [__init__.py:75] - qlib successfully initialized based on client settings.
+[1604127:MainThread](2026-03-11 10:55:41,105) INFO - qlib.Initialization - [__init__.py:77] - data_path={'__DEFAULT_FREQ': PosixPath('/root/.qlib/qlib_data/cn_data')}
+/root/miniforge3/envs/mining/lib/python3.12/site-packages/mlflow/tracking/_tracking_service/utils.py:178: FutureWarning: The filesystem tracking backend (e.g., './mlruns') will be deprecated in February 2026. Consider transitioning to a database backend (e.g., 'sqlite:///mlflow.db') to take advantage of the latest MLflow features. See https://github.com/mlflow/mlflow/issues/18534 for more details and migration guidance. For migrating existing data, https://github.com/mlflow/mlflow-export-import can be used.
+  return FileStore(store_uri, store_uri)
+[1604127:MainThread](2026-03-11 10:55:41,117) WARNING - qlib.workflow - [expm.py:231] - No valid experiment found. Create a new experiment with name workflow.
+[1604127:MainThread](2026-03-11 10:55:41,123) INFO - qlib.workflow - [exp.py:258] - Experiment 995889864013610783 starts running ...
+[1604127:MainThread](2026-03-11 10:55:41,633) INFO - qlib.workflow - [recorder.py:345] - Recorder 602794f4c4084f7c997ce098a426a202 starts running under Experiment 995889864013610783 ...
+[1604127:MainThread](2026-03-11 10:55:43,721) INFO - qlib.timer - [log.py:127] - Time cost: 1.645s | Loading data Done
+[1604127:MainThread](2026-03-11 10:55:43,734) INFO - qlib.timer - [log.py:127] - Time cost: 0.007s | Fillna Done
+[1604127:MainThread](2026-03-11 10:55:44,066) INFO - qlib.timer - [log.py:127] - Time cost: 0.332s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,152) INFO - qlib.timer - [log.py:127] - Time cost: 0.085s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,175) INFO - qlib.timer - [log.py:127] - Time cost: 0.009s | Fillna Done
+[1604127:MainThread](2026-03-11 10:55:44,191) INFO - qlib.timer - [log.py:127] - Time cost: 0.015s | DropnaLabel Done
+/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/data/dataset/processor.py:358: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  df[cols] = t
+[1604127:MainThread](2026-03-11 10:55:44,376) INFO - qlib.timer - [log.py:127] - Time cost: 0.185s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,436) INFO - qlib.timer - [log.py:127] - Time cost: 0.059s | CSRankNorm Done
+[1604127:MainThread](2026-03-11 10:55:44,437) INFO - qlib.timer - [log.py:127] - Time cost: 0.715s | fit & process data Done
+[1604127:MainThread](2026-03-11 10:55:44,437) INFO - qlib.timer - [log.py:127] - Time cost: 2.362s | Init data Done
+[1604127:MainThread](2026-03-11 10:55:44,995) INFO - qlib.fill_placeholder - [__init__.py:798] - <PRED> lookes like a placeholder, but it can't match to any given values
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[1604127:MainThread](2026-03-11 10:55:45,144) INFO - qlib.workflow - [record_temp.py:198] - Signal record 'pred.pkl' has been saved as the artifact of the Experiment 995889864013610783
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 582.70it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 535.67it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 634.25it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 593.59it/s]
+[1604127:MainThread](2026-03-11 10:55:45,248) WARNING - qlib.workflow - [record_temp.py:322] - Empty label.
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+
+Downloading artifacts:   0%|          | 0/1 [00:00<?, ?it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 606.38it/s]
+Downloading artifacts: 100%|██████████| 1/1 [00:00<00:00, 562.77it/s]
+[1604127:MainThread](2026-03-11 10:55:45,340) INFO - qlib.timer - [log.py:127] - Time cost: 0.040s | waiting `async_log` Done
+[1604127:MainThread](2026-03-11 10:55:45,342) ERROR - qlib.workflow - [utils.py:41] - An exception has been raised[ValueError: The benchmark ['SH000300'] does not exist. Please provide the right benchmark].
+  File "/root/miniforge3/envs/mining/bin/qrun", line 6, in <module>
+    sys.exit(run())
+             ^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/cli/run.py", line 153, in run
+    fire.Fire(workflow)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 135, in Fire
+    component_trace = _Fire(component, args, parsed_flag_args, context, name)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 468, in _Fire
+    component, remaining_args = _CallAndUpdateTrace(
+                                ^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/fire/core.py", line 684, in _CallAndUpdateTrace
+    component = fn(*varargs, **kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/cli/run.py", line 147, in workflow
+    recorder = task_train(config.get("task"), experiment_name=experiment_name)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/model/trainer.py", line 127, in task_train
+    _exe_task(task_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/model/trainer.py", line 71, in _exe_task
+    r.generate()
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/workflow/record_temp.py", line 236, in generate
+    artifact_dict = self._generate(*args, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/workflow/record_temp.py", line 483, in _generate
+    portfolio_metric_dict, indicator_dict = normal_backtest(
+                                            ^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 266, in backtest
+    trade_strategy, trade_executor = get_strategy_executor(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 193, in get_strategy_executor
+    trade_account = create_account_instance(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/__init__.py", line 161, in create_account_instance
+    return Account(
+           ^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 109, in __init__
+    self.init_vars(init_cash, position_dict, freq, benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 130, in init_vars
+    self.reset(freq=freq, benchmark_config=benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 175, in reset
+    self.reset_report(self.freq, self.benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/account.py", line 143, in reset_report
+    self.portfolio_metrics = PortfolioMetrics(freq, benchmark_config)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 76, in __init__
+    self.init_bench(freq=freq, benchmark_config=benchmark_config)
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 94, in init_bench
+    self.bench = self._cal_benchmark(self.benchmark_config, self.freq)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/miniforge3/envs/mining/lib/python3.12/site-packages/qlib/backtest/report.py", line 116, in _cal_benchmark
+    raise ValueError(f"The benchmark {_codes} does not exist. Please provide the right benchmark")
+
+
+2026-03-11 10:55:46.214 | INFO     | quantaalpha.pipeline.factor_mining:run_evolution_loop:444 - Running task: phase=original, round=0, direction=0
+2026-03-11 10:55:46.215 | INFO     | quantaalpha.pipeline.factor_mining:_run_evolution_task:137 - Starting evolution task: phase=original, round=0, direction=0
+2026-03-11 10:55:46.216 | INFO     | quantaalpha.pipeline.loop:__init__:89 - Initialized AlphaAgentLoop, backtest in local
+2026-03-11 10:55:46.217 | INFO     | quantaalpha.pipeline.loop:__init__:91 - Initial direction: Hypothesis: Momentum is not a uniform linear process but exhibits regime-dependent acceleration. Test the 'Momentum Acceleration' factor by calculating the ratio of short-term returns (e.g., 1-month) to long-term returns (e.g., 12-month) excluding the most recent month. A ratio greater than 1 signals accelerating momentum, suggesting stronger persistent demand, while a ratio less than 1 signals decelerating momentum, potentially indicating trend exhaustion. This orthogonal approach focuses on the curvature of the price trajectory rather than the slope.
+2026-03-11 10:55:46.218 | INFO     | quantaalpha.pipeline.loop:__init__:98 - Quality gate: consistency=off, complexity=on, redundancy=on
+2026-03-11 10:55:46.273 | INFO     | rdagent.oai.backend.litellm:_calculate_token_from_messages:67 - Token count:  320
+
+Provider List: https://docs.litellm.ai/docs/providers
+
+
+Provider List: https://docs.litellm.ai/docs/providers
+
+2026-03-11 10:55:46.347 | INFO     | quantaalpha.coder.costeer.knowledge_management:__init__:721 - Knowledge Graph loaded, size=0
+2026-03-11 10:55:46.349 | INFO     | quantaalpha.log.time:wrapper:16 - __init__ took 0.13s
+Workflow Progress:   0%|                       | 0/5 [00:00<?, ?step/s]2026-03-11 10:55:46.371 | INFO     | quantaalpha.llm.client:_create_chat_completion_inner_function:773 - 
+Role:system
+Content: The user is working on generating new hypotheses for the factors in a data-driven research and devel... [8259 chars]
+
+Role:user
+Content: It's the first round, the user provided a potential direction: "Hypothesis: Momentum is not a unifor... [1368 chars]
+
+2026-03-11 10:55:55.295 | INFO     | quantaalpha.llm.client:_create_chat_completion_inner_function:877 - Response:```json
+{
+"hypothesis": "The ratio of short-term momentum (e.g., 20-day return) to lagged long-term momentum (e.g., 1-year return excluding the most recent month) captures the acceleration of price tr... [1445 chars]
+2026-03-11 10:55:55.299 | INFO     | quantaalpha.log.time:wrapper:16 - factor_propose took 8.95s
+Workflow Progress:  20%|▏| 1/5 [00:08<00:35,  8.95s/step, loop_index=0,2026-03-11 10:55:55.352 | INFO     | quantaalpha.llm.client:_create_chat_completion_inner_function:773 - 
+Role:system
+Content: The user is trying to generate new factors based on the hypothesis generated in the previous step. 
+... [9920 chars]
+
+Role:user
+Content: The user has made several hypothesis on this scenario and did several evaluation on them.
+The target... [8735 chars]
