@@ -11,10 +11,12 @@
 import os
 import sys
 from pathlib import Path
-from datetime import datetime
 
 import pandas as pd
 import numpy as np
+import qlib
+from qlib.config import C
+from qlib.data.storage.file_storage import FileFeatureStorage
 
 # ==================== 配置 ====================
 QLIB_DATA_DIR = Path("/home/quan/testdata/aspipe_v4/third_party/data/qlib_data_csi300_bin")
@@ -35,6 +37,85 @@ INDEX_CODES = [
 # 时间范围
 START_DATE = "20160101"
 END_DATE = "20251231"
+
+
+def load_trading_calendar() -> pd.DatetimeIndex:
+    """加载 Qlib 日历，作为所有特征写入的唯一日期基准。"""
+    calendar_path = QLIB_DATA_DIR / "calendars" / "day.txt"
+    if not calendar_path.exists():
+        raise FileNotFoundError(f"日历文件不存在: {calendar_path}")
+
+    calendar = pd.read_csv(calendar_path, header=None, names=["date"])
+    calendar["date"] = pd.to_datetime(calendar["date"])
+    return pd.DatetimeIndex(calendar["date"])
+
+
+def align_series_to_calendar(values: np.ndarray, dates: pd.Series, calendar: pd.DatetimeIndex) -> tuple[int, np.ndarray]:
+    """
+    将字段值对齐到 Qlib 交易日历，并返回 Qlib 所需的 start_index 和连续值数组。
+    """
+    series = pd.Series(values.astype(np.float32), index=pd.DatetimeIndex(dates)).sort_index()
+    if series.empty:
+        raise ValueError("指数数据为空，无法写入 Qlib bin")
+
+    missing_dates = series.index.difference(calendar)
+    if not missing_dates.empty:
+        missing_sample = ", ".join(d.strftime("%Y-%m-%d") for d in missing_dates[:5])
+        raise ValueError(f"指数数据存在不在 Qlib 日历中的日期: {missing_sample}")
+
+    start_date = series.index.min()
+    end_date = series.index.max()
+    start_index = int(calendar.get_loc(start_date))
+    end_index = int(calendar.get_loc(end_date))
+
+    aligned_index = calendar[start_index : end_index + 1]
+    aligned = series.reindex(aligned_index)
+    return start_index, aligned.to_numpy(dtype=np.float32)
+
+
+def write_qlib_feature_bin(bin_path: Path, start_index: int, values: np.ndarray) -> None:
+    """按 Qlib FileFeatureStorage 兼容格式写入单个字段。"""
+    payload = np.hstack([np.array([start_index], dtype=np.float32), values.astype(np.float32)]).astype("<f4")
+    with open(bin_path, "wb") as fp:
+        payload.tofile(fp)
+
+
+def ensure_qlib_initialized() -> None:
+    """为 FileFeatureStorage 验证准备最小 Qlib 运行环境。"""
+    current_uri = getattr(C, "provider_uri", None)
+    if isinstance(current_uri, dict):
+        current_day_uri = current_uri.get("day") or current_uri.get("__DEFAULT_FREQ")
+    else:
+        current_day_uri = current_uri
+
+    target_day_uri = str(QLIB_DATA_DIR)
+    if not hasattr(C, "mount_path") or str(current_day_uri) != target_day_uri:
+        qlib.init(provider_uri={"day": str(QLIB_DATA_DIR)}, expression_cache=None, dataset_cache=None)
+
+
+def validate_feature_bin(qlib_code: str, field: str, start_index: int, expected_values: np.ndarray) -> None:
+    """用 Qlib 自己的读取逻辑做 round-trip 校验。"""
+    ensure_qlib_initialized()
+    storage = FileFeatureStorage(
+        instrument=qlib_code.lower(),
+        field=field,
+        freq="day",
+        provider_uri={"day": str(QLIB_DATA_DIR)},
+    )
+
+    if storage.start_index != start_index:
+        raise ValueError(
+            f"{qlib_code} {field} start_index 校验失败: expected={start_index}, actual={storage.start_index}"
+        )
+
+    actual = storage[start_index : start_index + len(expected_values)].to_numpy(dtype=np.float32)
+    if len(actual) != len(expected_values):
+        raise ValueError(
+            f"{qlib_code} {field} 长度校验失败: expected={len(expected_values)}, actual={len(actual)}"
+        )
+
+    if not np.allclose(actual, expected_values, equal_nan=True):
+        raise ValueError(f"{qlib_code} {field} round-trip 校验失败")
 
 
 def get_index_data_from_tushare(ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -86,6 +167,20 @@ def convert_to_qlib_bin(df: pd.DataFrame, qlib_code: str, output_dir: Path):
     
     # 准备数据
     dates = pd.to_datetime(df['trade_date'], format='%Y%m%d')
+    calendar = load_trading_calendar()
+
+    in_calendar = dates.isin(calendar)
+    if not in_calendar.all():
+        dropped_dates = dates[~in_calendar]
+        dropped_sample = ", ".join(d.strftime("%Y-%m-%d") for d in dropped_dates[:5])
+        print(
+            f"警告: {qlib_code} 有 {len(dropped_dates)} 个交易日不在目标 Qlib 日历中，将按目标日历裁剪: {dropped_sample}"
+        )
+        df = df.loc[in_calendar].copy()
+        dates = dates[in_calendar]
+
+    if df.empty:
+        raise ValueError(f"{qlib_code} 经过目标日历裁剪后无可用数据")
     
     # 各字段数据
     data = {
@@ -103,27 +198,12 @@ def convert_to_qlib_bin(df: pd.DataFrame, qlib_code: str, output_dir: Path):
     
     # 保存为 bin 格式
     for field, values in data.items():
-        # 构造 Series
-        series = pd.Series(values, index=dates)
-        series.index.name = 'datetime'
-        
-        # 保存为 bin 文件 (使用 qlib 的格式)
         bin_path = inst_dir / f"{field}.day.bin"
-        
-        # Qlib bin 格式: 先写入日期数，然后写入数据
-        with open(bin_path, 'wb') as f:
-            # 写入数据点数量 (int32)
-            f.write(np.int32(len(series)).tobytes())
-            
-            # 写入日期 (int64, Unix时间戳)
-            timestamps = series.index.astype(np.int64) // 10**9  # 转换为秒级时间戳
-            f.write(timestamps.values.astype(np.int64).tobytes())
-            
-            # 写入数据值 (float32)
-            f.write(values.tobytes())
-        
-        print(f"  保存: {bin_path}")
-    
+        start_index, aligned_values = align_series_to_calendar(values, dates, calendar)
+        write_qlib_feature_bin(bin_path, start_index, aligned_values)
+        validate_feature_bin(qlib_code, field, start_index, aligned_values)
+        print(f"  保存: {bin_path} (start_index={start_index}, len={len(aligned_values)})")
+
     return qlib_code.lower(), dates.min(), dates.max()
 
 

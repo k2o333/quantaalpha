@@ -230,3 +230,6 @@ results/
 logs/
 debug/
 *.out
+
+# Third party factors
+third_party/facotors/terminal/
