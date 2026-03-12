@@ -9,6 +9,7 @@ Supports three round phases:
 Supports parallel execution within each phase when enabled.
 """
 
+from collections import Counter
 from typing import Any
 from pathlib import Path
 import fire
@@ -274,18 +275,61 @@ def _run_tasks_parallel(
             original_task = tasks[result["task_idx"]]
             result["task"] = original_task
             result["traj_data"]["task"] = original_task
-            results.append(result)
             logger.info(f"Task {result['task_idx']} completed")
         else:
             logger.error(f"Task {result['task_idx']} failed: {result['error']}")
             logger.error(result.get('traceback', ''))
+        results.append(result)
 
     for p in processes:
         p.join()
 
-    logger.info(f"Parallel tasks done: {len(results)}/{len(tasks)} succeeded")
+    successful_results = sum(1 for result in results if result["success"])
+    logger.info(f"Parallel tasks done: {successful_results}/{len(tasks)} succeeded")
     
     return results
+
+
+def _build_task_failure_record(task: dict[str, Any], error: str) -> dict[str, Any]:
+    phase = task.get("phase")
+    phase_name = phase.value if hasattr(phase, "value") else str(phase)
+    return {
+        "phase": phase_name,
+        "round_idx": task.get("round_idx"),
+        "direction_id": task.get("direction_id"),
+        "error": error,
+    }
+
+
+def _log_failure_summary(failures: list[dict[str, Any]], total_tasks: int) -> dict[str, Any]:
+    summary = {
+        "total_tasks": total_tasks,
+        "failed_tasks": len(failures),
+        "successful_tasks": max(total_tasks - len(failures), 0),
+        "status": "success" if not failures else "degraded",
+        "failures": failures,
+    }
+
+    logger.info("=" * 60)
+    if not failures:
+        logger.info("Task failure summary: 0 failures")
+        logger.info("=" * 60)
+        return summary
+
+    phase_counter = Counter(failure["phase"] for failure in failures)
+    logger.warning(
+        f"Task failure summary: {len(failures)}/{total_tasks} failed "
+        f"({summary['successful_tasks']} succeeded)"
+    )
+    logger.warning(f"Failed tasks by phase: {dict(phase_counter)}")
+    for failure in failures:
+        logger.warning(
+            "Failed task detail: "
+            f"phase={failure['phase']}, round={failure['round_idx']}, "
+            f"direction={failure['direction_id']}, error={failure['error']}"
+        )
+    logger.info("=" * 60)
+    return summary
 
 
 def run_evolution_loop(
@@ -321,6 +365,10 @@ def run_evolution_loop(
     parallel_enabled = bool(evolution_cfg.get("parallel_enabled", False))
     fresh_start = bool(evolution_cfg.get("fresh_start", True))
     cleanup_on_finish = bool(evolution_cfg.get("cleanup_on_finish", False))
+    raw_failure_threshold = evolution_cfg.get("failed_task_threshold")
+    failure_threshold = None if raw_failure_threshold in (None, "") else int(raw_failure_threshold)
+    failures: list[dict[str, Any]] = []
+    total_tasks = 0
 
     # Generate initial directions
     planning_enabled = bool(planning_cfg.get("enabled", False))
@@ -403,6 +451,7 @@ def run_evolution_loop(
             current_phase = tasks[0]["phase"]
             current_round = tasks[0]["round_idx"]
             logger.info(f"Parallel phase: phase={current_phase.value}, round={current_round}, tasks={len(tasks)}")
+            total_tasks += len(tasks)
 
             results = _run_tasks_parallel(
                 tasks=tasks,
@@ -427,6 +476,13 @@ def run_evolution_loop(
                     controller.report_task_complete(task, trajectory)
                     completed_tasks.append(task)
                     logger.info(f"Trajectory done: {trajectory.trajectory_id}, RankIC={trajectory.get_primary_metric()}")
+            result_by_task_idx = {result["task_idx"]: result for result in results}
+            for task_idx, task in enumerate(tasks):
+                result = result_by_task_idx.get(task_idx)
+                if result is not None and result["success"]:
+                    continue
+                error = result.get("error", "Task failed in parallel worker") if result is not None else "Task result missing"
+                failures.append(_build_task_failure_record(task, error))
 
             controller.advance_phase_after_parallel_completion(completed_tasks)
 
@@ -442,6 +498,7 @@ def run_evolution_loop(
                 break
 
             logger.info(f"Running task: phase={task['phase'].value}, round={task['round_idx']}, direction={task['direction_id']}")
+            total_tasks += 1
 
             try:
                 traj_data = _run_evolution_task(
@@ -466,6 +523,7 @@ def run_evolution_loop(
                 logger.error(f"Task failed: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
+                failures.append(_build_task_failure_record(task, str(e)))
                 continue
 
     state_path = Path(log_root) / "evolution_state.json"
@@ -479,9 +537,20 @@ def run_evolution_loop(
         logger.info(f"  {i+1}. {t.trajectory_id}: phase={t.phase.value}, RankIC={metric_str}")
     logger.info(f"Pool stats: {controller.pool.get_statistics()}")
     logger.info("="*60)
+    summary = _log_failure_summary(failures, total_tasks)
+    if failure_threshold is not None and summary["failed_tasks"] >= failure_threshold:
+        summary["status"] = "failed"
+        if cleanup_on_finish:
+            logger.info("Cleaning up trajectory pool file...")
+            controller.pool.cleanup_file()
+        raise RuntimeError(
+            f"Evolution finished with {summary['failed_tasks']} failed tasks, "
+            f"meeting threshold {failure_threshold}."
+        )
     if cleanup_on_finish:
         logger.info("Cleaning up trajectory pool file...")
         controller.pool.cleanup_file()
+    return summary
 
 
 @force_timeout()
@@ -551,7 +620,7 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
             logger.info("Evolution mode: Original -> Mutation -> Crossover loop")
             logger.info("="*60)
             
-            run_evolution_loop(
+            summary = run_evolution_loop(
                 initial_direction=direction,
                 evolution_cfg=evolution_cfg,
                 exec_cfg=exec_cfg,
@@ -559,6 +628,11 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
                 stop_event=stop_event,
                 quality_gate_cfg=quality_gate_cfg,
             )
+            if summary.get("failed_tasks", 0) > 0:
+                logger.warning(
+                    f"Evolution run completed with degraded status: "
+                    f"{summary['failed_tasks']}/{summary['total_tasks']} tasks failed"
+                )
         
         elif path is None:
             planning_enabled = bool(planning_cfg.get("enabled", False))

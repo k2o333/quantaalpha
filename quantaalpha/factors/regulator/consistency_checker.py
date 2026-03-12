@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from jinja2 import Environment, StrictUndefined
 
 from quantaalpha.core.prompts import Prompts
-from quantaalpha.llm.client import APIBackend, robust_json_parse
+from quantaalpha.llm.client import APIBackend
 from quantaalpha.log import logger
 
 consistency_prompts = Prompts(file_path=Path(__file__).parent / "consistency_prompts.yaml")
@@ -98,14 +98,10 @@ class FactorConsistencyChecker:
                 )
             )
             
-            response = APIBackend().build_messages_and_create_chat_completion(
+            result_dict = APIBackend().build_messages_and_create_chat_completion_json(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
-                json_mode=True
             )
-            
-            result_dict = robust_json_parse(response)
-            
             is_consistent = result_dict.get("is_consistent", False)
             severity = result_dict.get("severity", "none")
             

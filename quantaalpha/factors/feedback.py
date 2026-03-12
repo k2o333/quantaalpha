@@ -13,7 +13,7 @@ from quantaalpha.core.proposal import (
     Trace,
 )
 from quantaalpha.log import logger
-from quantaalpha.llm.client import APIBackend, robust_json_parse
+from quantaalpha.llm.client import APIBackend
 from quantaalpha.utils import convert2bool
 
 # Max retries for JSON parsing
@@ -169,13 +169,10 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
-                response = APIBackend().build_messages_and_create_chat_completion(
+                response_json = APIBackend().build_messages_and_create_chat_completion_json(
                     user_prompt=usr_prompt,
                     system_prompt=sys_prompt,
-                    json_mode=True,
                 )
-                # Parse the JSON response using robust parser
-                response_json = robust_json_parse(response)
                 break
             except json.JSONDecodeError as e:
                 last_error = e
@@ -298,13 +295,10 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
-                response = APIBackend().build_messages_and_create_chat_completion(
+                response_json = APIBackend().build_messages_and_create_chat_completion_json(
                     user_prompt=usr_prompt,
                     system_prompt=sys_prompt,
-                    json_mode=True,
                 )
-                # Parse the JSON response using robust parser
-                response_json = robust_json_parse(response)
                 break
             except json.JSONDecodeError as e:
                 last_error = e
@@ -376,13 +370,10 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
-                response_hypothesis = APIBackend().build_messages_and_create_chat_completion(
+                response_json_hypothesis = APIBackend().build_messages_and_create_chat_completion_json(
                     user_prompt=user_prompt,
                     system_prompt=system_prompt,
-                    json_mode=True,
                 )
-                # Parse the JSON response using robust parser
-                response_json_hypothesis = robust_json_parse(response_hypothesis)
                 break
             except json.JSONDecodeError as e:
                 last_error = e

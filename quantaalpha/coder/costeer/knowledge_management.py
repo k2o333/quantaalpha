@@ -335,12 +335,9 @@ class CoSTEERRAGStrategyV2(RAGStrategy):
 
         analyze_component_user_prompt = target_task_information
         try:
-            component_no_list = json.loads(
-                APIBackend().build_messages_and_create_chat_completion(
-                    system_prompt=analyze_component_system_prompt,
-                    user_prompt=analyze_component_user_prompt,
-                    json_mode=True,
-                ),
+            component_no_list = APIBackend().build_messages_and_create_chat_completion_json(
+                system_prompt=analyze_component_system_prompt,
+                user_prompt=analyze_component_user_prompt,
             )["component_no_list"]
             return [all_component_nodes[index - 1] for index in sorted(list(set(component_no_list)))]
         except:

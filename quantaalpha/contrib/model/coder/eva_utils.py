@@ -171,12 +171,9 @@ class ModelFinalEvaluator(Evaluator):
             else:
                 break
 
-        final_evaluation_dict = json.loads(
-            APIBackend().build_messages_and_create_chat_completion(
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
-                json_mode=True,
-            ),
+        final_evaluation_dict = APIBackend().build_messages_and_create_chat_completion_json(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
         )
         if isinstance(final_evaluation_dict["final_decision"], str) and final_evaluation_dict[
             "final_decision"

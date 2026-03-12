@@ -90,13 +90,11 @@ def classify_report_from_dict(
         for _ in range(vote_time):
             user_prompt = content
             system_prompt = classify_prompt
-            res = APIBackend().build_messages_and_create_chat_completion(
+            res = APIBackend().build_messages_and_create_chat_completion_json(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
-                json_mode=True,
             )
             try:
-                res = json.loads(res)
                 vote_list.append(int(res["class"]))
             except json.JSONDecodeError:
                 logger.warning(f"Return value could not be parsed: {file_name}")
@@ -123,11 +121,9 @@ def __extract_factors_name_and_desc_from_content(
     current_user_prompt = content
 
     for _ in range(10):
-        extract_result_resp = session.build_chat_completion(
+        ret_dict = session.build_chat_completion_json(
             user_prompt=current_user_prompt,
-            json_mode=True,
         )
-        ret_dict = json.loads(extract_result_resp)
         factors = ret_dict["factors"]
         if len(factors) == 0:
             break
@@ -160,11 +156,9 @@ def __extract_factors_formulation_from_content(
     factor_to_formulation = {}
 
     for _ in range(10):
-        extract_result_resp = session.build_chat_completion(
+        ret_dict = session.build_chat_completion_json(
             user_prompt=current_user_prompt,
-            json_mode=True,
         )
-        ret_dict = json.loads(extract_result_resp)
         for name, formulation_and_description in ret_dict.items():
             if name in factor_dict:
                 factor_to_formulation[name] = formulation_and_description
@@ -273,12 +267,10 @@ def merge_file_to_factor_dict_to_factor_dict(
 def __check_factor_dict_relevance(
     factor_df_string: str,
 ) -> dict[str, dict[str, str]]:
-    extract_result_resp = APIBackend().build_messages_and_create_chat_completion(
+    return APIBackend().build_messages_and_create_chat_completion_json(
         system_prompt=document_process_prompts["factor_relevance_system"],
         user_prompt=factor_df_string,
-        json_mode=True,
     )
-    return json.loads(extract_result_resp)
 
 
 def check_factor_relevance(
@@ -316,12 +308,10 @@ def check_factor_relevance(
 def __check_factor_dict_viability_simulate_json_mode(
     factor_df_string: str,
 ) -> dict[str, dict[str, str]]:
-    extract_result_resp = APIBackend().build_messages_and_create_chat_completion(
+    return APIBackend().build_messages_and_create_chat_completion_json(
         system_prompt=document_process_prompts["factor_viability_system"],
         user_prompt=factor_df_string,
-        json_mode=True,
     )
-    return json.loads(extract_result_resp)
 
 
 def check_factor_viability(
@@ -384,11 +374,9 @@ def __check_factor_duplication_simulate_json_mode(
             session_system_prompt=document_process_prompts["factor_duplicate_system"],
         )
         for _ in range(10):
-            extract_result_resp = session.build_chat_completion(
+            ret_dict = session.build_chat_completion_json(
                 user_prompt=current_factor_to_string,
-                json_mode=True,
             )
-            ret_dict = json.loads(extract_result_resp)
             if len(ret_dict) == 0:
                 return generated_duplicated_groups
             else:

@@ -97,6 +97,9 @@ evolution:
   # Cleanup on finish: true=delete trajectory pool file after experiment; false=keep for analysis
   cleanup_on_finish: false
 
+  # Mark run as failed when failed task count reaches this threshold; null keeps degraded summary only
+  failed_task_threshold: 2
+
 
 # ============================================================
 # QUALITY GATE CONFIGURATION

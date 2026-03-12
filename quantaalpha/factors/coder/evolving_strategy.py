@@ -174,12 +174,10 @@ class FactorMultiProcessEvolvingStrategy(MultiProcessEvolvingStrategy):
                 queried_similar_error_knowledge_to_render = queried_similar_error_knowledge_to_render[:-1]
         for _ in range(10):
             try:
-                code = json.loads(
-                    APIBackend(
-                        use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache
-                    ).build_messages_and_create_chat_completion(
-                        user_prompt=user_prompt, system_prompt=system_prompt, json_mode=True
-                    )
+                code = APIBackend(
+                    use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache
+                ).build_messages_and_create_chat_completion_json(
+                    user_prompt=user_prompt, system_prompt=system_prompt
                 )["code"]
                 return code
             except json.decoder.JSONDecodeError:
@@ -331,12 +329,10 @@ class FactorParsingStrategy(MultiProcessEvolvingStrategy):
             for _ in range(10):
                 try:
                     # Call API for new expression
-                    expr = json.loads(
-                        APIBackend(
-                            use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache
-                        ).build_messages_and_create_chat_completion(
-                            user_prompt=user_prompt, system_prompt=system_prompt, json_mode=True, reasoning_flag=False
-                        )
+                    expr = APIBackend(
+                        use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache
+                    ).build_messages_and_create_chat_completion_json(
+                        user_prompt=user_prompt, system_prompt=system_prompt, reasoning_flag=False
                     )["expr"]
                     
                     # Render code template with new expression

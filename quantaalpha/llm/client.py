@@ -33,6 +33,82 @@ def md5_hash(input_string: str) -> str:
     return hash_md5.hexdigest()
 
 
+def _extract_balanced_json_object(text: str) -> str | None:
+    brace_count = 0
+    start_idx = -1
+    in_string = False
+    escape_next = False
+
+    for i, char in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if char == "\\":
+            escape_next = True
+            continue
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+
+        if char == "{":
+            if brace_count == 0:
+                start_idx = i
+            brace_count += 1
+        elif char == "}":
+            brace_count -= 1
+            if brace_count == 0 and start_idx != -1:
+                return text[start_idx : i + 1]
+
+    if start_idx != -1:
+        return text[start_idx:]
+    return None
+
+
+def _escape_common_json_sequences(text: str) -> str:
+    fixed_text = text
+    latex_commands = [
+        "text",
+        "frac",
+        "left",
+        "right",
+        "times",
+        "cdot",
+        "sqrt",
+        "sum",
+        "prod",
+        "int",
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+    ]
+    for cmd in latex_commands:
+        fixed_text = re.sub(r"(?<!\\)\\(" + cmd + r")", r"\\\\\1", fixed_text)
+    fixed_text = re.sub(r"(?<!\\)\\([_\{\}\[\]])", r"\\\\\1", fixed_text)
+    return fixed_text
+
+
+def _remove_trailing_commas(text: str) -> str:
+    return re.sub(r",(\s*[}\]])", r"\1", text)
+
+
+def _close_truncated_json(text: str) -> str:
+    open_braces = text.count("{")
+    close_braces = text.count("}")
+    open_brackets = text.count("[")
+    close_brackets = text.count("]")
+    text = text.rstrip()
+    if text.endswith(","):
+        text = text[:-1].rstrip()
+    if open_brackets > close_brackets:
+        text += "]" * (open_brackets - close_brackets)
+    if open_braces > close_braces:
+        text += "}" * (open_braces - close_braces)
+    return text
+
+
 def robust_json_parse(text: str, max_retries: int = 3) -> dict:
     """
     Robust JSON parser: handles extra data, LaTeX escapes, markdown-wrapped JSON.
@@ -56,55 +132,26 @@ def robust_json_parse(text: str, max_retries: int = 3) -> dict:
             except json.JSONDecodeError:
                 continue
     
-    # Strategy 3: find first complete JSON object (extra data)
-    brace_count = 0
-    start_idx = -1
-    end_idx = -1
-    in_string = False
-    escape_next = False
-    
-    for i, char in enumerate(text):
-        if escape_next:
-            escape_next = False
-            continue
-        if char == '\\':
-            escape_next = True
-            continue
-        if char == '"' and not escape_next:
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-            
-        if char == '{':
-            if brace_count == 0:
-                start_idx = i
-            brace_count += 1
-        elif char == '}':
-            brace_count -= 1
-            if brace_count == 0 and start_idx != -1:
-                end_idx = i
-                break
-    
-    if start_idx != -1 and end_idx != -1:
-        json_str = text[start_idx:end_idx + 1]
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError:
-            # Strategy 4: fix LaTeX escapes
-            fixed_str = json_str
-            latex_commands = ['text', 'frac', 'left', 'right', 'times', 'cdot', 'sqrt', 
-                              'sum', 'prod', 'int', 'alpha', 'beta', 'gamma', 'delta']
-            for cmd in latex_commands:
-                fixed_str = re.sub(r'(?<!\\)\\(' + cmd + r')', r'\\\\\1', fixed_str)
-            fixed_str = re.sub(r'(?<!\\)\\([_\{\}\[\]])', r'\\\\\1', fixed_str)
-            
+    # Strategy 3: balanced object extraction, with conservative repairs for common truncation.
+    json_candidate = _extract_balanced_json_object(text)
+    if json_candidate:
+        candidate_variants = [
+            json_candidate,
+            _escape_common_json_sequences(json_candidate),
+            _remove_trailing_commas(json_candidate),
+            _close_truncated_json(_remove_trailing_commas(_escape_common_json_sequences(json_candidate))),
+        ]
+        seen_variants = set()
+        for candidate in candidate_variants:
+            if candidate in seen_variants:
+                continue
+            seen_variants.add(candidate)
             try:
-                return json.loads(fixed_str)
+                return json.loads(candidate)
             except json.JSONDecodeError:
-                pass
-    
-    # Strategy 5: looser JSON extraction
+                continue
+
+    # Strategy 4: looser JSON extraction
     potential_jsons = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text)
     for pj in potential_jsons:
         try:
@@ -113,7 +160,16 @@ def robust_json_parse(text: str, max_retries: int = 3) -> dict:
                 return result
         except json.JSONDecodeError:
             continue
-    
+
+    repaired_text = _close_truncated_json(_remove_trailing_commas(_escape_common_json_sequences(original_text.strip())))
+    if repaired_text != original_text.strip():
+        try:
+            result = json.loads(repaired_text)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            pass
+
     raise json.JSONDecodeError(
         f"Could not parse JSON; original text length: {len(original_text)}",
         original_text,
@@ -312,6 +368,11 @@ class ChatSession:
         )
         SessionChatHistoryCache().message_set(self.conversation_id, messages)
         return response
+
+    def build_chat_completion_json(self, user_prompt: str, **kwargs: Any) -> dict[str, Any]:
+        kwargs["json_mode"] = True
+        response = self.build_chat_completion(user_prompt, **kwargs)
+        return robust_json_parse(response)
 
     def get_conversation_id(self) -> str:
         return self.conversation_id
@@ -606,6 +667,27 @@ class APIBackend:
             chat_cache_prefix=chat_cache_prefix,
             **kwargs,
         )
+
+    def build_messages_and_create_chat_completion_json(
+        self,
+        user_prompt: str,
+        system_prompt: str | None = None,
+        former_messages: list | None = None,
+        chat_cache_prefix: str = "",
+        *,
+        shrink_multiple_break: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        kwargs["json_mode"] = True
+        response = self.build_messages_and_create_chat_completion(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            former_messages=former_messages,
+            chat_cache_prefix=chat_cache_prefix,
+            shrink_multiple_break=shrink_multiple_break,
+            **kwargs,
+        )
+        return robust_json_parse(response)
 
     def create_embedding(self, input_content: str | list[str], **kwargs: Any) -> list[Any] | Any:
         input_content_list = [input_content] if isinstance(input_content, str) else input_content

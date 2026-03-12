@@ -214,13 +214,11 @@ class FactorOutputFormatEvaluator(FactorEvaluator):
         while attempts < max_attempts:
             try:
                 api = APIBackend() if attempts == 0 else APIBackend(use_chat_cache=False)
-                resp = api.build_messages_and_create_chat_completion(
+                resp_dict = api.build_messages_and_create_chat_completion_json(
                     user_prompt=gen_df_info_str, 
                     system_prompt=system_prompt, 
-                    json_mode=True, 
                     reasoning_flag=False,
                 )
-                resp_dict = json.loads(resp)
                 resp_dict["output_format_decision"] = str(resp_dict["output_format_decision"]).lower() in ["true", "1"]
 
                 return (
@@ -558,14 +556,11 @@ class FactorFinalDecisionEvaluator(FactorEvaluator):
         while attempts < max_attempts:
             try:
                 api = APIBackend() if attempts == 0 else APIBackend(use_chat_cache=False)
-                final_evaluation_dict = json.loads(
-                    api.build_messages_and_create_chat_completion(
-                        user_prompt=user_prompt,
-                        system_prompt=system_prompt,
-                        reasoning_flag=False,
-                        json_mode=True,
-                        seed=attempts,  # in case of useless retrying when cache enabled.
-                    ),
+                final_evaluation_dict = api.build_messages_and_create_chat_completion_json(
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    reasoning_flag=False,
+                    seed=attempts,  # in case of useless retrying when cache enabled.
                 )
                 final_decision = final_evaluation_dict["final_decision"]
                 final_feedback = final_evaluation_dict["final_feedback"]
@@ -573,13 +568,11 @@ class FactorFinalDecisionEvaluator(FactorEvaluator):
                 final_decision = str(final_decision).lower() in ["true", "1"]
                 return final_decision, final_feedback
 
-            except json.JSONDecodeError as e:
-                raise ValueError("Failed to decode JSON response from API.") from e
-            except KeyError as e:
+            except (json.JSONDecodeError, KeyError) as e:
                 attempts += 1
                 if attempts >= max_attempts:
-                    raise KeyError(
-                        "Response from API is missing 'final_decision' or 'final_feedback' key after multiple attempts."
+                    raise ValueError(
+                        "Failed to parse evaluator final decision JSON after multiple attempts."
                     ) from e
 
         return None, None

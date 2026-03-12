@@ -46,13 +46,10 @@ def generate_hypothesis(factor_result: dict, report_content: str) -> str:
         .render(factor_descriptions=json.dumps(factor_result), report_content=report_content)
     )
 
-    response = APIBackend().build_messages_and_create_chat_completion(
+    response_json = APIBackend().build_messages_and_create_chat_completion_json(
         user_prompt=user_prompt,
         system_prompt=system_prompt,
-        json_mode=True,
     )
-
-    response_json = json.loads(response)
 
     return Hypothesis(
         hypothesis=response_json.get("hypothesis", "No hypothesis provided"),

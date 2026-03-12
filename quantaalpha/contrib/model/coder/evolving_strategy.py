@@ -87,12 +87,11 @@ class ModelMultiProcessEvolvingStrategy(MultiProcessEvolvingStrategy):
             elif len(queried_similar_successful_knowledge_to_render) > 1:
                 queried_similar_successful_knowledge_to_render = queried_similar_successful_knowledge_to_render[1:]
 
-        code = json.loads(
-            APIBackend(use_chat_cache=CoSTEER_SETTINGS.coder_use_cache).build_messages_and_create_chat_completion(
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
-                json_mode=True,
-            ),
+        code = APIBackend(
+            use_chat_cache=CoSTEER_SETTINGS.coder_use_cache
+        ).build_messages_and_create_chat_completion_json(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
         )["code"]
         return code
 
