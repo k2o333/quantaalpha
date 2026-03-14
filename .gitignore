@@ -233,3 +233,6 @@ debug/
 
 # Third party factors
 third_party/facotors/terminal/
+
+# docs
+/home/quan/testdata/aspipe_v4/docs/drafts

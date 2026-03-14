@@ -53,6 +53,17 @@ class PaginationExecutor:
         """
         self.max_workers = max_workers
 
+    def _should_commit_offset_on_success(
+        self, interface_config: Dict[str, Any], offset_config: Dict[str, Any]
+    ) -> bool:
+        """是否在 offset 任务完整成功后再提交数据。"""
+        if "commit_on_success" in offset_config:
+            return bool(offset_config.get("commit_on_success"))
+
+        pagination = interface_config.get("pagination", {})
+        offset_settings = pagination.get("offset", {})
+        return bool(offset_settings.get("commit_on_success", False))
+
     def execute(
         self,
         interface_config: Dict[str, Any],
@@ -425,6 +436,9 @@ class PaginationExecutor:
         offset = 0
         base_params = {k: v for k, v in params.items() if not k.startswith("_")}
         interface_name = interface_config.get("name", "unknown")
+        commit_on_success = self._should_commit_offset_on_success(
+            interface_config, offset_config
+        )
 
         # 批次保存阈值
         batch_threshold = 50000
@@ -446,29 +460,29 @@ class PaginationExecutor:
                     break
     
                 data_count = len(data)
-                
-                if on_data_ready:
+
+                if on_data_ready and not commit_on_success:
                     # 流式处理：每页数据立即回调，不累积
                     on_data_ready(data)
-                    total_count += data_count
                 else:
-                    # 兼容/批次保存逻辑：累积数据
+                    # 原子提交模式或普通模式：当前窗口内先累积
                     all_data.extend(data)
-                    
-                    # 批次保存：达到阈值时保存并清空
-                    if save_callback and len(all_data) >= batch_threshold:
+
+                    # 非原子模式下允许分批保存
+                    if (
+                        save_callback
+                        and not commit_on_success
+                        and len(all_data) >= batch_threshold
+                    ):
                         save_callback(interface_name, all_data)
                         logger.info(
                             f"[{interface_name}] 批次保存 {len(all_data)} 条记录 "
                             f"(累计 {total_count + len(all_data)} 条)"
                         )
                         all_data = []
-                
+
                 page_num += 1
-                if on_data_ready:
-                    pass
-                else:
-                    total_count += data_count
+                total_count += data_count
     
                 logger.info(
                     f"[{interface_name}] 第{page_num}页完成 - offset={offset}, 请求limit={limit}, 实际返回={data_count}条"
@@ -485,18 +499,31 @@ class PaginationExecutor:
                     logger.warning(f"[{interface_name}] Offset分页超过安全限制，停止请求")
                     break
         except RuntimeError as e:
-            # 异常时先保存已累积的数据，再向上抛出
-            if save_callback and all_data:
+            # 原子提交模式下丢弃当前窗口残留数据，避免写入半截结果
+            if commit_on_success and all_data:
+                logger.warning(
+                    f"[{interface_name}] Offset分页异常，丢弃当前窗口已下载的 "
+                    f"{len(all_data)} 条未完整数据"
+                )
+            # 非原子模式保持原有行为
+            elif save_callback and all_data:
                 save_callback(interface_name, all_data)
                 logger.warning(
                     f"[{interface_name}] 异常中断，已保存 {len(all_data)} 条残留数据"
                 )
             raise
 
-        # 循环结束后保存剩余数据
-        if save_callback and all_data:
-            save_callback(interface_name, all_data)
-            logger.info(f"[{interface_name}] 最终批次保存 {len(all_data)} 条记录")
+        # 循环完整结束后，统一提交当前窗口的数据
+        if all_data:
+            if on_data_ready:
+                on_data_ready(all_data)
+                if commit_on_success:
+                    logger.info(
+                        f"[{interface_name}] 当前窗口完整成功，提交 {len(all_data)} 条记录"
+                    )
+            elif save_callback:
+                save_callback(interface_name, all_data)
+                logger.info(f"[{interface_name}] 最终批次保存 {len(all_data)} 条记录")
 
         if on_data_ready:
             logger.info(

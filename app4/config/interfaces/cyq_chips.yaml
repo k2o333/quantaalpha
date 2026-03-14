@@ -33,11 +33,12 @@ pagination:
   skip_time_range_in_full_history: false
   time_range:
     enabled: true 
-    window: 9999d
+    window: 90d
     stop_on_empty: 90   # 连续90天无数据停止
   offset:
     enabled: true
-    limit: 5999  
+    limit: 3000
+    commit_on_success: true
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
