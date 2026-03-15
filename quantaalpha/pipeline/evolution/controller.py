@@ -16,7 +16,7 @@ from typing import Any, Optional
 import threading
 
 from quantaalpha.log import logger
-from .trajectory import StrategyTrajectory, TrajectoryPool, RoundPhase
+from .trajectory import StrategyTrajectory, TrajectoryPool, RoundPhase, route_factor_by_status
 from .mutation import MutationOperator
 from .crossover import CrossoverOperator
 
@@ -64,6 +64,9 @@ class EvolutionConfig:
     
     # Start with empty trajectory pool (ignore existing data)
     fresh_start: bool = True
+    prefer_active_parents: bool = False
+    min_stability_score: float = 0.0
+    exclude_parent_statuses: list[str] | None = None
 
 
 class EvolutionController:
@@ -520,7 +523,19 @@ class EvolutionController:
         """
         # Find the two most recent rounds to use as crossover candidates
         candidates = self._get_crossover_candidates()
-        
+        if self.config.prefer_active_parents:
+            from .trajectory import select_parent_factors
+
+            prioritized = select_parent_factors(
+                candidates,
+                n=len(candidates),
+                prefer_active=True,
+                min_stability_score=self.config.min_stability_score,
+                exclude_statuses=self.config.exclude_parent_statuses,
+            )
+            if prioritized:
+                candidates = prioritized
+
         if len(candidates) < self.config.crossover_size:
             logger.warning(f"Not enough candidates for crossover: {len(candidates)} < {self.config.crossover_size}")
             self._crossover_groups = []
@@ -764,6 +779,14 @@ class EvolutionController:
         backtest_result = getattr(experiment, "result", None) if experiment else None
         if backtest_result is not None:
             backtest_metrics = self._extract_metrics(backtest_result)
+        evaluation = {}
+        if isinstance(backtest_result, dict):
+            if backtest_result.get("multi_period_validation"):
+                summary = backtest_result["multi_period_validation"].get("summary", {})
+                evaluation = {
+                    "status": "active" if summary.get("stability_score", 0) >= self.config.min_stability_score else "pending_validation",
+                    "stability_score": summary.get("stability_score"),
+                }
         
         # Extract feedback info
         feedback_text = str(feedback) if feedback else ""
@@ -777,7 +800,7 @@ class EvolutionController:
         # Get parent IDs
         parent_ids = [p.trajectory_id for p in task.get("parent_trajectories", [])]
         
-        return StrategyTrajectory(
+        trajectory = StrategyTrajectory(
             trajectory_id=traj_id,
             direction_id=direction_id,
             round_idx=round_idx,
@@ -790,7 +813,10 @@ class EvolutionController:
             feedback=feedback_text,
             feedback_details=feedback_details,
             parent_ids=parent_ids,
+            extra_info={"evaluation": evaluation},
         )
+        trajectory.extra_info["routing"] = route_factor_by_status(trajectory)
+        return trajectory
     
     def _extract_metrics(self, result: Any) -> dict[str, Optional[float]]:
         """Extract metrics from backtest result."""
@@ -933,4 +959,3 @@ class EvolutionController:
             self._prepare_crossover_groups()
         
         logger.info(f"Loaded evolution state from {path}")
-

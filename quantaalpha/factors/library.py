@@ -7,12 +7,14 @@ import json
 import hashlib
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
+
+from quantaalpha.factors.status_rules import update_factor_status
 
 logger = logging.getLogger(__name__)
 
@@ -33,22 +35,24 @@ class FactorLibraryManager:
         if self.library_path.exists():
             try:
                 with open(self.library_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    return self._normalize_library_data(data)
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"Factor library file corrupted, recreating: {e}")
-        return {
+        return self._normalize_library_data({
             "metadata": {
                 "created_at": datetime.now().isoformat(),
                 "last_updated": datetime.now().isoformat(),
                 "total_factors": 0,
-                "version": "1.0",
+                "version": "1.1",
             },
             "factors": {},
-        }
+        })
 
     def _save(self):
         self.data["metadata"]["last_updated"] = datetime.now().isoformat()
         self.data["metadata"]["total_factors"] = len(self.data["factors"])
+        self.data["metadata"]["version"] = "1.1"
         self.library_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.library_path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=2, default=str)
@@ -138,6 +142,19 @@ class FactorLibraryManager:
                 "backtest_results": backtest_results,
                 "feedback": feedback_dict,
             }
+            factor_entry = self._normalize_factor_entry(factor_entry)
+
+            multi_period_result = backtest_results.get("multi_period_validation")
+            if isinstance(multi_period_result, dict):
+                factor_entry = self.apply_validation_result(
+                    factor_entry,
+                    validation_result={
+                        "status": "success",
+                        "period_results": multi_period_result.get("period_results", []),
+                        "summary": multi_period_result.get("summary", {}),
+                    },
+                    persist=False,
+                )
 
             self.data["factors"][factor_id] = factor_entry
 
@@ -290,6 +307,121 @@ class FactorLibraryManager:
             "already_cached": already_cached,
             "no_source": no_source,
         }
+
+    def _normalize_library_data(self, data: dict) -> dict:
+        data = data or {}
+        metadata = data.setdefault("metadata", {})
+        metadata.setdefault("created_at", datetime.now().isoformat())
+        metadata.setdefault("last_updated", datetime.now().isoformat())
+        metadata["version"] = "1.1"
+        data.setdefault("factors", {})
+        normalized_factors = {}
+        for factor_id, factor_entry in data["factors"].items():
+            normalized = self._normalize_factor_entry(factor_entry)
+            normalized_factors[normalized.get("factor_id", factor_id)] = normalized
+        data["factors"] = normalized_factors
+        metadata["total_factors"] = len(normalized_factors)
+        return data
+
+    def _normalize_factor_entry(self, factor_entry: dict[str, Any]) -> dict[str, Any]:
+        entry = dict(factor_entry or {})
+        entry.setdefault("factor_id", "")
+        entry.setdefault("factor_name", "")
+        entry.setdefault("factor_expression", "")
+        entry.setdefault("metadata", {})
+        entry.setdefault("backtest_results", {})
+        entry.setdefault("feedback", {})
+        entry["metadata"].setdefault("version", "1.1")
+        entry.setdefault(
+            "evaluation",
+            {
+                "status": "pending_validation",
+                "last_validated": None,
+                "stability_score": None,
+                "period_results": [],
+                "validation_summary": "",
+                "consecutive_failures": 0,
+            },
+        )
+        entry["evaluation"].setdefault("status", "pending_validation")
+        entry["evaluation"].setdefault("last_validated", None)
+        entry["evaluation"].setdefault("stability_score", None)
+        entry["evaluation"].setdefault("period_results", [])
+        entry["evaluation"].setdefault("validation_summary", "")
+        entry["evaluation"].setdefault("consecutive_failures", 0)
+        entry.setdefault("data_requirements", {})
+        entry["data_requirements"].setdefault("dimensions", self._infer_dimensions(entry))
+        entry["data_requirements"].setdefault("fields", self._infer_fields(entry))
+        return entry
+
+    def apply_validation_result(
+        self,
+        factor_entry: dict[str, Any],
+        validation_result: dict[str, Any],
+        *,
+        now: datetime | None = None,
+        config: dict[str, Any] | None = None,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        updated = update_factor_status(
+            factor_entry=factor_entry,
+            validation_result=validation_result,
+            now=now,
+            config=config,
+        )
+        if persist:
+            factor_id = updated.get("factor_id")
+            if factor_id:
+                self.data["factors"][factor_id] = updated
+                self._save()
+        return updated
+
+    def select_revalidation_candidates(
+        self,
+        *,
+        days: int | None = None,
+        status: str | None = None,
+        factor_ids: list[str] | None = None,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        selected = []
+        now = now or datetime.now()
+        factor_id_set = {fid.strip() for fid in (factor_ids or []) if fid and fid.strip()}
+        for factor_id, factor_entry in self.data.get("factors", {}).items():
+            entry = self._normalize_factor_entry(factor_entry)
+            evaluation = entry["evaluation"]
+            if factor_id_set and factor_id not in factor_id_set:
+                continue
+            if status and evaluation.get("status") != status:
+                continue
+            if days is not None:
+                last_validated = evaluation.get("last_validated")
+                if last_validated:
+                    try:
+                        validated_at = datetime.fromisoformat(str(last_validated))
+                    except ValueError:
+                        validated_at = now - timedelta(days=days + 1)
+                    if (now - validated_at).days < days:
+                        continue
+            selected.append(entry)
+        return selected
+
+    @staticmethod
+    def _infer_dimensions(factor_entry: dict[str, Any]) -> list[str]:
+        expr = str(factor_entry.get("factor_expression", ""))
+        dimensions = ["price_volume"]
+        if any(token in expr.lower() for token in ("roe", "roa", "profit", "margin")):
+            dimensions.append("financial")
+        return dimensions
+
+    @staticmethod
+    def _infer_fields(factor_entry: dict[str, Any]) -> list[str]:
+        expr = str(factor_entry.get("factor_expression", ""))
+        fields = []
+        for token in ("$close", "$open", "$high", "$low", "$volume", "$amount", "$roe", "$roa", "$net_profit_margin"):
+            if token.lower() in expr.lower():
+                fields.append(token)
+        return fields
 
     @staticmethod
     def _extract_backtest_results(experiment) -> dict:

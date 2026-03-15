@@ -63,6 +63,8 @@ class LLMSettings(ExtendedBaseSettings):
     use_gcr_endpoint: bool = False
 
     chat_model_map: str = "{}"
+    routing_default: str = ""
+    routing_tasks: str = "{}"
 
 
 LLM_SETTINGS = LLMSettings()

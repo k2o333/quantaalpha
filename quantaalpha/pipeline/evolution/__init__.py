@@ -12,7 +12,7 @@ Key components:
 - EvolutionController: Orchestrates the original→mutation→crossover cycle
 """
 
-from .trajectory import StrategyTrajectory, TrajectoryPool, RoundPhase
+from .trajectory import StrategyTrajectory, TrajectoryPool, RoundPhase, route_factor_by_status, select_parent_factors
 from .mutation import MutationOperator
 from .crossover import CrossoverOperator
 from .controller import EvolutionController, EvolutionConfig
@@ -21,9 +21,10 @@ __all__ = [
     "StrategyTrajectory",
     "TrajectoryPool",
     "RoundPhase",
+    "select_parent_factors",
+    "route_factor_by_status",
     "MutationOperator",
     "CrossoverOperator",
     "EvolutionController",
     "EvolutionConfig",
 ]
-

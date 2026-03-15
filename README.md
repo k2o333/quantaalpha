@@ -99,18 +99,32 @@
   🔬 Experiments: paper reproduction settings & metric definitions — <a href="experiment/README_EXPERIMENT.md"><b>English</b></a> · <a href="experiment/README_EXPERIMENT_CN.md"><b>中文</b></a>
 </p>
 
-### 1. Clone & Install
+This repository is already vendored into `aspipe_v4`. The practical entrypoints in this workspace are:
+
+- `quantaalpha mine`
+- `quantaalpha backtest`
+- `quantaalpha revalidate`
+- `python -m quantaalpha.backtest.run_backtest`
+
+The examples below assume you are inside `/home/quan/testdata/aspipe_v4/third_party/quantaalpha` and use the existing Conda environment:
 
 ```bash
-git clone https://github.com/QuantaAlpha/QuantaAlpha.git
-cd QuantaAlpha
-conda create -n quantaalpha python=3.10
-conda activate quantaalpha
-# Install the package in development mode
-SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0 pip install -e .
+conda activate mining
+```
 
-# Install additional dependencies
+### 1. Install / Verify Environment
+
+```bash
+cd /home/quan/testdata/aspipe_v4/third_party/quantaalpha
+SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0 pip install -e .
 pip install -r requirements.txt
+```
+
+Quick verification:
+
+```bash
+quantaalpha health_check
+python -m compileall quantaalpha
 ```
 
 ### 2. Configure Environment
@@ -198,6 +212,7 @@ FACTOR_CoSTEER_DATA_FOLDER_DEBUG=/your/custom/path/factor_source_data_debug
 ### 4. Run Factor Mining
 
 ```bash
+quantaalpha mine --help
 ./run.sh "<your input>"
 
 # Example: Run with a research direction
@@ -208,6 +223,12 @@ FACTOR_CoSTEER_DATA_FOLDER_DEBUG=/your/custom/path/factor_source_data_debug
 ```
 
 The experiment will automatically mine, evolve, and validate alpha factors, and save all discovered factors to `all_factors_library*.json`.
+
+Common outputs:
+
+- factor library JSON: `data/factorlib/all_factors_library*.json`
+- backtest metrics: `data/results/backtest_v2_results/*_backtest_metrics.json`
+- backtest summary: `data/results/backtest_v2_results/batch_summary.json`
 
 ### 5. Independent Backtesting
 
@@ -235,6 +256,89 @@ python -m quantaalpha.backtest.run_backtest \
 ```
 
 Results are saved to the directory specified in `configs/backtest.yaml` (`experiment.output_dir`).
+
+### 6. New Backtest Options In This Workspace
+
+`configs/backtest.yaml` now supports two practical controls for continuous factor research.
+
+Stock universe filtering:
+
+```yaml
+data:
+  stock_filter:
+    enabled: true
+    exclude_markets: ["bj"]
+    exclude_st: true
+    min_list_days: 60
+```
+
+Multi-period validation:
+
+```yaml
+multi_period_validation:
+  enabled: true
+  fail_fast: true
+  periods:
+    - name: recent
+      train: ["2022-01-01", "2023-12-31"]
+      valid: ["2024-01-01", "2024-06-30"]
+      test: ["2024-07-01", "2025-03-13"]
+    - name: historical
+      train: ["2017-01-01", "2019-12-31"]
+      valid: ["2020-01-01", "2020-12-31"]
+      test: ["2021-01-01", "2021-12-31"]
+```
+
+When enabled, the runner writes:
+
+- `metrics.multi_period_validation.period_results`
+- `metrics.multi_period_validation.summary`
+- `universe` metadata with filter rules and instrument counts
+
+### 7. Revalidate Existing Factors
+
+This workspace adds a lightweight `revalidate` CLI over the factor library schema.
+
+```bash
+quantaalpha revalidate data/factorlib/all_factors_library.json --dry_run
+quantaalpha revalidate data/factorlib/all_factors_library.json --status active --no_write
+quantaalpha revalidate data/factorlib/all_factors_library.json --days 30
+quantaalpha revalidate data/factorlib/all_factors_library.json --factor_ids f1,f2
+```
+
+Current behavior is intentionally minimal:
+
+- select candidates from the factor library
+- reuse existing evaluation payloads
+- update `evaluation.status`, `stability_score`, and related fields
+- optionally skip writes with `--no_write`
+
+### 8. Factor Library Schema
+
+New factor entries and normalized legacy entries now expose:
+
+```json
+{
+  "evaluation": {
+    "status": "pending_validation",
+    "last_validated": null,
+    "stability_score": null,
+    "period_results": [],
+    "validation_summary": "",
+    "consecutive_failures": 0
+  },
+  "data_requirements": {
+    "dimensions": ["price_volume"],
+    "fields": ["$close", "$volume"]
+  }
+}
+```
+
+This schema is consumed by:
+
+- `quantaalpha.factors.library.FactorLibraryManager`
+- `quantaalpha revalidate`
+- evolution parent selection / routing helpers
 
 > 📘 Need help? Check our comprehensive **[User Guide](docs/user_guide.md)** for advanced configuration, experiment reproduction, and detailed usage examples.
 

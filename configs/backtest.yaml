@@ -46,6 +46,11 @@ data:
   market: "csi300"
   start_time: "2016-01-01"
   end_time: "2025-12-26"
+  stock_filter:
+    enabled: false
+    exclude_markets: []
+    exclude_st: false
+    min_list_days: 0
 
 ######################################################################
 # 3. Dataset and preprocessing (dataset)
@@ -83,6 +88,11 @@ dataset:
     train: ["2016-01-01", "2020-12-31"]
     valid: ["2021-01-01", "2021-12-31"]
     test:  ["2022-01-01", "2025-12-26"]
+
+multi_period_validation:
+  enabled: false
+  fail_fast: true
+  periods: []
 
 ######################################################################
 # 4. Model (model)

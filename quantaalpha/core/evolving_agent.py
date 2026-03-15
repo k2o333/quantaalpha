@@ -52,6 +52,17 @@ class RAGEvoAgent(EvoAgent):
         self.with_feedback = with_feedback
         self.knowledge_self_gen = knowledge_self_gen
 
+    @staticmethod
+    def _all_feedback_passed(feedback: Feedback | None) -> bool:
+        if feedback is None:
+            return False
+        if isinstance(feedback, list):
+            return len(feedback) > 0 and all(
+                single_feedback is not None and getattr(single_feedback, "final_decision", False) is True
+                for single_feedback in feedback
+            )
+        return getattr(feedback, "final_decision", False) is True
+
     def multistep_evolve(
         self,
         evo: EvolvableSubjects,
@@ -89,6 +100,9 @@ class RAGEvoAgent(EvoAgent):
                 logger.log_object(es.feedback, tag="evolving feedback")
 
             self.evolving_trace.append(es)
+            if self.with_feedback and self._all_feedback_passed(es.feedback):
+                logger.info("All tasks passed debugging; exiting early.")
+                break
 
         # If feedback enabled and filter requested, filter by last feedback
         if self.with_feedback and filter_final_evo:

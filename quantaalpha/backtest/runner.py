@@ -15,6 +15,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from .universe import build_universe_metadata, filter_by_market, filter_stocks, normalize_stock_filter_config
+from .validation import aggregate_period_metrics, build_period_configs, validate_multi_period_config
+
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
@@ -28,6 +31,7 @@ class BacktestRunner:
         self.config_path = Path(config_path)
         self.config = self._load_config()
         self._qlib_initialized = False
+        self._active_universe_metadata: dict[str, Any] = {}
 
     def _load_config(self) -> Dict:
         with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -87,10 +91,20 @@ class BacktestRunner:
         else:
             logger.debug("[2/4] No custom factors, skip")
 
-        dataset = self._create_dataset(factor_expressions, computed_factors)
-        print("[3/4] Dataset created")
-
-        metrics = self._train_and_backtest(dataset, exp_name, rec_name, output_name=output_name)
+        multi_period_cfg = validate_multi_period_config(self.config.get("multi_period_validation"))
+        if multi_period_cfg.get("enabled"):
+            metrics = self._run_multi_period_validation(
+                factor_expressions=factor_expressions,
+                computed_factors=computed_factors,
+                exp_name=exp_name,
+                rec_name=rec_name,
+                output_name=output_name,
+                multi_period_cfg=multi_period_cfg,
+            )
+        else:
+            dataset = self._create_dataset(factor_expressions, computed_factors)
+            print("[3/4] Dataset created")
+            metrics = self._train_and_backtest(dataset, exp_name, rec_name, output_name=output_name)
         total_time = time.time() - start_time_total
         self._print_results(metrics, total_time)
         self._save_results(metrics, exp_name, factor_source or self.config['factor_source']['type'], 
@@ -148,6 +162,8 @@ class BacktestRunner:
         
         data_config = self.config['data']
         dataset_config = self.config['dataset']
+        stock_universe = self._resolve_stock_universe()
+        instruments = stock_universe if stock_universe else data_config['market']
         
         has_computed_factors = False
         if computed_factors is not None:
@@ -177,7 +193,7 @@ class BacktestRunner:
         handler_config = {
             'start_time': data_config['start_time'],
             'end_time': data_config['end_time'],
-            'instruments': data_config['market'],
+            'instruments': instruments,
             'data_loader': {
                 'class': 'QlibDataLoader',
                 'module_path': 'qlib.contrib.data.loader',
@@ -541,14 +557,7 @@ class BacktestRunner:
             try:
                 bt_start = time.time()
                 
-                market = self.config['data']['market']
-                instruments = D.instruments(market)
-                stock_list = D.list_instruments(
-                    instruments,
-                    start_time=backtest_config['start_time'],
-                    end_time=backtest_config['end_time'],
-                    as_list=True
-                )
+                stock_list = self._resolve_stock_universe(as_of_date=backtest_config['end_time'])
                 logger.debug(f"  Stock count: {len(stock_list)}")
                 if len(stock_list) < 10:
                     logger.warning(f"Stock pool too small ({len(stock_list)}), results may be unreliable")
@@ -691,6 +700,119 @@ class BacktestRunner:
         print(f"  Info Ratio: {_f(metrics.get('information_ratio'), '.4f')}  Calmar: {_f(metrics.get('calmar_ratio'), '.4f')}")
         print(f"Total time: {total_time:.1f}s")
         print(f"{'='*50}")
+
+    def _run_multi_period_validation(
+        self,
+        *,
+        factor_expressions: Dict[str, str],
+        computed_factors: Optional[pd.DataFrame],
+        exp_name: str,
+        rec_name: str,
+        output_name: Optional[str],
+        multi_period_cfg: dict[str, Any],
+    ) -> Dict:
+        original_config = self.config
+        period_results = []
+        for period_cfg in build_period_configs(original_config, multi_period_cfg):
+            self.config = period_cfg
+            period_name = period_cfg.get("_multi_period_context", {}).get("name", "period")
+            dataset = self._create_dataset(factor_expressions, computed_factors)
+            print(f"[3/4] Dataset created for {period_name}")
+            try:
+                metrics = self._train_and_backtest(
+                    dataset,
+                    f"{exp_name}_{period_name}",
+                    f"{rec_name}_{period_name}",
+                    output_name=f"{output_name}_{period_name}" if output_name else None,
+                )
+                period_results.append(
+                    {
+                        "name": period_name,
+                        "segments": period_cfg.get("_multi_period_context", {}).get("segments", {}),
+                        "metrics": metrics,
+                        "status": "success",
+                    }
+                )
+            except Exception as exc:
+                period_results.append(
+                    {
+                        "name": period_name,
+                        "segments": period_cfg.get("_multi_period_context", {}).get("segments", {}),
+                        "metrics": {},
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+                if multi_period_cfg.get("fail_fast", True):
+                    self.config = original_config
+                    raise
+        self.config = original_config
+        summary = aggregate_period_metrics(period_results)
+        result_metrics = period_results[0]["metrics"].copy() if period_results else {}
+        result_metrics["multi_period_validation"] = {
+            "period_results": period_results,
+            "summary": summary,
+        }
+        result_metrics["stability_score"] = summary.get("stability_score")
+        return result_metrics
+
+    def _resolve_stock_universe(self, as_of_date: Optional[str] = None) -> list[str]:
+        from qlib.data import D
+
+        data_config = self.config.get("data", {})
+        filter_cfg = normalize_stock_filter_config(data_config.get("stock_filter"))
+        market = data_config['market']
+        stock_list = D.list_instruments(
+            D.instruments(market),
+            start_time=data_config.get('start_time'),
+            end_time=data_config.get('end_time'),
+            as_list=True,
+        )
+        if not filter_cfg["enabled"]:
+            self._active_universe_metadata = build_universe_metadata(
+                market=market,
+                rules=filter_cfg,
+                before_count=len(stock_list),
+                after_count=len(stock_list),
+            )
+            return stock_list
+
+        filtered = filter_by_market(stock_list, filter_cfg["exclude_markets"])
+        metadata = self._load_stock_filter_metadata(filtered)
+        filtered, warnings = filter_stocks(
+            filtered,
+            metadata,
+            exclude_st=filter_cfg["exclude_st"],
+            min_list_days=filter_cfg["min_list_days"],
+            as_of_date=as_of_date or self.config['backtest']['backtest']['end_time'],
+        )
+        self._active_universe_metadata = build_universe_metadata(
+            market=market,
+            rules=filter_cfg,
+            before_count=len(stock_list),
+            after_count=len(filtered),
+            warnings=warnings,
+        )
+        return filtered
+
+    def _load_stock_filter_metadata(self, instruments: List[str]) -> Dict[str, Dict[str, Any]]:
+        from qlib.data import D
+
+        all_instruments = D.list_instruments(
+            D.instruments("all"),
+            start_time=self.config['data'].get('start_time'),
+            end_time=self.config['data'].get('end_time'),
+            as_list=False,
+        )
+        metadata: Dict[str, Dict[str, Any]] = {}
+        for instrument in instruments:
+            instrument_meta: Dict[str, Any] = {}
+            if isinstance(all_instruments, dict) and instrument in all_instruments:
+                date_range = all_instruments[instrument]
+                if isinstance(date_range, (list, tuple)) and date_range:
+                    instrument_meta["list_date"] = str(date_range[0])
+            metadata[instrument] = instrument_meta
+        return metadata
     
     def _save_results(self, metrics: Dict, exp_name: str, 
                      factor_source: str, num_factors: int, elapsed: float,
@@ -718,6 +840,8 @@ class BacktestRunner:
             },
             "elapsed_seconds": elapsed
         }
+        if self._active_universe_metadata:
+            result_data["universe"] = self._active_universe_metadata
         
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(result_data, f, ensure_ascii=False, indent=2)

@@ -172,6 +172,7 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
                 response_json = APIBackend().build_messages_and_create_chat_completion_json(
                     user_prompt=usr_prompt,
                     system_prompt=sys_prompt,
+                    task_type="feedback_summarization",
                 )
                 break
             except json.JSONDecodeError as e:

@@ -100,6 +100,8 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                 # Try manual factor execution
                 logger.info("Attempting to manually execute factors...")
                 for ws in exp.sub_workspace_list:
+                    if ws is None or "factor.py" not in getattr(ws, "code_dict", {}):
+                        continue
                     if not (ws.workspace_path / "result.h5").exists():
                         try:
                             # Ensure symlink exists
@@ -204,9 +206,16 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
 
         # Collect all exp's dataframes
         for exp in exp_or_list:
+            valid_implementations = [
+                implementation
+                for implementation in exp.sub_workspace_list
+                if implementation is not None and "factor.py" in getattr(implementation, "code_dict", {})
+            ]
+            if not valid_implementations:
+                continue
             # Iterate over sub-implementations and execute them to get each factor data
             message_and_df_list = multiprocessing_wrapper(
-                [(implementation.execute, ("All",)) for implementation in exp.sub_workspace_list],
+                [(implementation.execute, ("All",)) for implementation in valid_implementations],
                 n=RD_AGENT_SETTINGS.multi_proc_n,
             )
             for idx, (message, df) in enumerate(message_and_df_list):
@@ -215,8 +224,8 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                     # Convert Series to DataFrame if needed
                     if isinstance(df, pd.Series):
                         # Get factor name from the corresponding workspace (order should match)
-                        if idx < len(exp.sub_workspace_list):
-                            factor_name = getattr(exp.sub_workspace_list[idx].target_task, 'factor_name', None)
+                        if idx < len(valid_implementations):
+                            factor_name = getattr(valid_implementations[idx].target_task, 'factor_name', None)
                             if factor_name:
                                 df = df.to_frame(name=factor_name)
                             else:

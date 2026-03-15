@@ -68,7 +68,10 @@ class FactorMultiProcessEvolvingStrategy(MultiProcessEvolvingStrategy):
         error_summary_critics = APIBackend(
             use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache
         ).build_messages_and_create_chat_completion(
-            user_prompt=error_summary_user_prompt, system_prompt=error_summary_system_prompt, json_mode=False
+            user_prompt=error_summary_user_prompt,
+            system_prompt=error_summary_system_prompt,
+            json_mode=False,
+            task_type="factor_construction",
         )
         return error_summary_critics
 

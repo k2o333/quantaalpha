@@ -24,6 +24,15 @@ from quantaalpha.log import logger
 from quantaalpha.llm.config import LLM_SETTINGS
 
 DEFAULT_QLIB_DOT_PATH = Path("./")
+KNOWN_TASK_TYPES = {
+    "hypothesis_generation",
+    "factor_construction",
+    "evaluation_screening",
+    "feedback_summarization",
+}
+TOKENIZER_UNSUPPORTED_MODEL_PREFIXES = (
+    "qwen",
+)
 
 
 def md5_hash(input_string: str) -> str:
@@ -31,6 +40,23 @@ def md5_hash(input_string: str) -> str:
     input_bytes = input_string.encode("utf-8")
     hash_md5.update(input_bytes)
     return hash_md5.hexdigest()
+
+
+def parse_routing_tasks(raw: str) -> dict[str, str]:
+    try:
+        parsed = json.loads(raw or "{}")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid LLM routing_tasks JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM routing_tasks must be a JSON object")
+    return {str(key): str(value) for key, value in parsed.items()}
+
+
+def should_skip_tokenizer_lookup(model: str | None) -> bool:
+    if not model:
+        return False
+    normalized = model.strip().lower()
+    return any(normalized.startswith(prefix) for prefix in TOKENIZER_UNSUPPORTED_MODEL_PREFIXES)
 
 
 def _extract_balanced_json_object(text: str) -> str | None:
@@ -454,6 +480,8 @@ class APIBackend:
                 ssl._create_default_https_context = ssl._create_unverified_context  # noqa: SLF001
             self.chat_model_map = json.loads(LLM_SETTINGS.chat_model_map)
             self.chat_model = LLM_SETTINGS.chat_model if chat_model is None else chat_model
+            self.task_model_map = parse_routing_tasks(LLM_SETTINGS.routing_tasks)
+            self.routing_default = LLM_SETTINGS.routing_default or self.chat_model
             self.encoder = None
         else:
             self.use_azure = LLM_SETTINGS.use_azure
@@ -495,7 +523,16 @@ class APIBackend:
             self.chat_model = LLM_SETTINGS.chat_model if chat_model is None else chat_model
             self.reasoning_model = LLM_SETTINGS.reasoning_model if reasoning_model is None else reasoning_model
             self.chat_model_map = json.loads(LLM_SETTINGS.chat_model_map)
-            # self.encoder = self._get_encoder()
+            self.task_model_map = parse_routing_tasks(LLM_SETTINGS.routing_tasks)
+            self.routing_default = LLM_SETTINGS.routing_default or self.chat_model
+            if should_skip_tokenizer_lookup(self.chat_model):
+                self.encoder = None
+            else:
+                try:
+                    self.encoder = self._get_encoder()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"Failed to initialize tokenizer encoder for model {self.chat_model}: {exc}")
+                    self.encoder = None
             
             self.chat_api_base = LLM_SETTINGS.chat_azure_api_base if chat_api_base is None else chat_api_base
             self.chat_api_version = (
@@ -605,6 +642,18 @@ class APIBackend:
         the file name under session_cache_folder/ for each conversation
         """
         return ChatSession(self, conversation_id, session_system_prompt)
+
+    def get_model_for_task(self, task_type: str | None = None, tag: str | None = None) -> str:
+        if task_type:
+            if task_type not in KNOWN_TASK_TYPES:
+                logger.warning("Unknown llm task_type=%s; falling back to default routing", task_type)
+            model = self.task_model_map.get(task_type)
+            if model:
+                return model
+            return self.routing_default or self.chat_model_map.get(tag or "", self.chat_model)
+        if tag:
+            return self.chat_model_map.get(tag, self.chat_model)
+        return self.routing_default or self.chat_model
 
     def build_messages(
         self,
@@ -840,6 +889,7 @@ class APIBackend:
         json_mode: bool = False,
         add_json_in_prompt: bool = False,
         seed: Optional[int] = None,
+        task_type: str | None = None,
     ) -> str:
         """
         seed : Optional[int]
@@ -887,7 +937,7 @@ class APIBackend:
             model = self.reasoning_model
             json_mode = None
         else:
-            model = self.chat_model_map.get(tag, self.chat_model)
+            model = self.get_model_for_task(task_type=task_type, tag=tag)
 
         finish_reason = None
         if self.use_llama2:
@@ -1010,7 +1060,6 @@ class APIBackend:
         return resp, finish_reason
 
     def calculate_token_from_messages(self, messages: list[dict]) -> int:
-        return 0
         if self.use_llama2 or self.use_gcr_endpoint:
             logger.warning("num_tokens_from_messages() is not implemented for model llama2.")
             return 0  # TODO implement this function for llama2
@@ -1025,7 +1074,11 @@ class APIBackend:
         for message in messages:
             num_tokens += tokens_per_message
             for key, value in message.items():
-                num_tokens += len(self.encoder.encode(value))
+                if self.encoder is not None:
+                    num_tokens += len(self.encoder.encode(value))
+                else:
+                    # Conservative fallback when tokenizer is unavailable.
+                    num_tokens += max(1, len(value) // 4)
                 if key == "name":
                     num_tokens += tokens_per_name
         num_tokens += 3  # every reply is primed with <start>assistant<message>

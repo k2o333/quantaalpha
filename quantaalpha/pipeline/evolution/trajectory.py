@@ -18,6 +18,48 @@ import hashlib
 from quantaalpha.log import logger
 
 
+def select_parent_factors(
+    candidates: list["StrategyTrajectory"],
+    n: int = 3,
+    *,
+    prefer_active: bool = True,
+    min_stability_score: float = 0.5,
+    exclude_statuses: list[str] | None = None,
+) -> list["StrategyTrajectory"]:
+    excluded = set(exclude_statuses or ["deprecated", "pending_validation"])
+    filtered: list[StrategyTrajectory] = []
+    for candidate in candidates:
+        evaluation = candidate.extra_info.get("evaluation", {})
+        status = evaluation.get("status", "pending_validation")
+        stability = evaluation.get("stability_score")
+        if status in excluded:
+            continue
+        if prefer_active and status != "active":
+            continue
+        if stability is not None and stability < min_stability_score:
+            continue
+        filtered.append(candidate)
+    filtered.sort(
+        key=lambda item: (
+            item.extra_info.get("evaluation", {}).get("stability_score") or 0.0,
+            item.get_primary_metric() or 0.0,
+        ),
+        reverse=True,
+    )
+    return filtered[:n]
+
+
+def route_factor_by_status(trajectory: "StrategyTrajectory") -> str:
+    status = trajectory.extra_info.get("evaluation", {}).get("status", "pending_validation")
+    if status == "active":
+        return "evolution_pool"
+    if status == "stale":
+        return "revalidate_queue"
+    if status == "degraded":
+        return "repair_or_hold"
+    return "excluded"
+
+
 class RoundPhase(str, Enum):
     """Phase/type of a round in the evolutionary process."""
     ORIGINAL = "original"      # Initial exploration round
@@ -406,4 +448,3 @@ class TrajectoryPool:
                 logger.info(f"Deleted trajectory pool file: {self.save_path}")
             except Exception as e:
                 logger.warning(f"Failed to delete trajectory pool file: {e}")
-

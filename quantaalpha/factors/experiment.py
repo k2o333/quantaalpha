@@ -48,7 +48,8 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
                 runtime_environment=self.get_runtime_environment(),
             )
         )
-        self._source_data = deepcopy(local_get_data_folder_intro(use_local=use_local))
+        source_data = deepcopy(local_get_data_folder_intro(use_local=use_local))
+        self._source_data = source_data
         self._output_format = deepcopy(T(f"{tpl_prefix}:qlib_factor_output_format").r())
         self._interface = deepcopy(T(f"{tpl_prefix}:qlib_factor_interface").r())
         self._strategy = deepcopy(T(f"{tpl_prefix}:qlib_factor_strategy").r())

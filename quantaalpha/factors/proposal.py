@@ -204,6 +204,28 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
         super().__init__(scen)
         self.potential_direction = potential_direction
 
+    def _build_fallback_hypothesis(self) -> AlphaAgentHypothesis:
+        direction = (self.potential_direction or "daily price-volume relationship").strip()
+        return AlphaAgentHypothesis(
+            hypothesis=(
+                f"Construct a daily factor from {direction}, using only daily price and volume fields "
+                f"with short rolling windows and cross-sectional normalization."
+            ),
+            concise_observation=(
+                "The current LLM response was empty or unparsable, so a conservative daily price-volume hypothesis is used."
+            ),
+            concise_knowledge=(
+                "If intraday or microstructure data is unavailable, daily price-volume proxies with rolling normalization "
+                "can still express short-horizon trading pressure."
+            ),
+            concise_justification=(
+                "A constrained daily hypothesis keeps the pipeline executable while remaining aligned with the requested direction."
+            ),
+            concise_specification=(
+                "Use only daily OHLCV-style inputs, avoid intraday or order-book assumptions, and keep the hypothesis testable."
+            ),
+        )
+
     def prepare_context(self, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict, bool]:
         
         if len(trace.hist) > 0:
@@ -232,6 +254,8 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
         """
         Convert LLM JSON to AlphaAgentHypothesis; use default empty string for missing fields to avoid KeyError.
         """
+        if not response or not response.strip():
+            raise ValueError("Empty hypothesis response from LLM")
         response_dict = robust_json_parse(response)
         # Use get to avoid KeyError on missing fields
         hypothesis = AlphaAgentHypothesis(
@@ -271,7 +295,18 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                     )
                 )
 
-                resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag)
+                resp = ""
+                for attempt in range(3):
+                    api = APIBackend() if attempt == 0 else APIBackend(use_chat_cache=False)
+                    resp = api.build_messages_and_create_chat_completion(
+                        user_prompt,
+                        system_prompt,
+                        json_mode=json_flag,
+                        task_type="hypothesis_generation",
+                    )
+                    if resp and resp.strip():
+                        break
+                    logger.warning(f"Empty hypothesis response, retrying... attempt={attempt + 1}")
                 hypothesis = self.convert_response(resp)
                 return hypothesis
             
@@ -280,7 +315,8 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                     history_limit -= 1
                     logger.warning(f"Input length exceeded, retrying with history_limit={history_limit}...")
                 else:
-                    raise
+                    logger.warning(f"Hypothesis generation failed, falling back to deterministic hypothesis: {e}")
+                    return self._build_fallback_hypothesis()
         
         # Last attempt with minimum history limit
         context_dict, json_flag = self.prepare_context(trace, MIN_HISTORY_LIMIT)
@@ -304,9 +340,18 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                 round=len(trace.hist)
             )
         )
-        resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag)
-        hypothesis = self.convert_response(resp)
-        return hypothesis
+        resp = APIBackend().build_messages_and_create_chat_completion(
+            user_prompt,
+            system_prompt,
+            json_mode=json_flag,
+            task_type="hypothesis_generation",
+        )
+        try:
+            hypothesis = self.convert_response(resp)
+            return hypothesis
+        except Exception as e:
+            logger.warning(f"Final hypothesis generation attempt failed, using fallback hypothesis: {e}")
+            return self._build_fallback_hypothesis()
     
     
 
