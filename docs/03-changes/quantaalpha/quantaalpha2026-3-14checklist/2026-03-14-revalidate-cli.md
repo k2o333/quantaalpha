@@ -1,9 +1,9 @@
 # 手动 Revalidate CLI
 
-Status: draft
+Status: completed
 Owner: QuantaAlpha team
 Created: 2026-03-14
-Outcome: pending
+Outcome: implemented
 Phase: 2
 Depends-on:
 - /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/2026-03-14-multi-period-validation.md
@@ -148,16 +148,24 @@ Skipped: 1
 
 ## Final Result
 
-> 待实施后填写
+- 已新增最小可用的 `revalidate` CLI。
+- 当前支持：
+  - 选择候选因子
+  - `--dry-run` 预览
+  - 将复验结果回写到因子库
+- 当前仍属于轻量入口，不是完整自动调度系统。
 
 ---
 
 ## Validation Evidence
 
-> 待实施后填写
+- README 和模块文档已补充 `revalidate` 用法。
+- 验收草案已把“对 30 天未更新因子库做复验预览”列为正常用户场景。
+- 代码路径与因子库 schema 已打通，能够使用 `evaluation` 相关字段。
 
 ---
 
 ## Lessons Learned
 
-> 待实施后填写
+- 首版 CLI 最重要的是可控和可预览，而不是并行化。
+- `--dry-run` 是必要安全阀，否则人工复验很容易直接污染 JSON 资产。

@@ -1,9 +1,9 @@
 # 多周期稳定性结果接入 Evolution
 
-Status: draft
+Status: completed
 Owner: QuantaAlpha team
 Created: 2026-03-14
-Outcome: pending
+Outcome: implemented
 Phase: 2
 Depends-on:
 - /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/2026-03-14-multi-period-validation.md
@@ -152,16 +152,24 @@ evolution:
 
 ## Final Result
 
-> 待实施后填写
+- 多周期稳定性结果已接入 evolution 的 parent 选择与候选分流逻辑。
+- 当前是首版保守接入，不是完全重写 evolution controller。
+- 后续又补了运行期改进：
+  - debug 成功项会提前退出
+  - 后续轮次更偏向只处理失败项
+- 这些运行期优化与本变更目标一致，进一步减少了低价值重复调试。
 
 ---
 
 ## Validation Evidence
 
-> 待实施后填写
+- 连续因子特性测试已覆盖 stability 参与排序/分流的最小行为。
+- README、模块文档和验收草案已补充“多周期验证后让 evolution 优先选稳定因子”的场景。
+- 实际运行中 trajectory pool 已带有 routing/selection 相关元信息。
 
 ---
 
 ## Lessons Learned
 
-> 待实施后填写
+- 稳定性如果只写入库不参与选择，就只是“存档字段”。
+- 演化策略里应先做保守排序与分流，再考虑更激进的淘汰策略。

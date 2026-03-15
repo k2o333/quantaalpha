@@ -55,6 +55,7 @@ pagination:
   offset:
     enabled: true
     limit: 6000
+    commit_on_success: true
 parameters:
   end_date:
     description: 报告期 YYYYMMDD

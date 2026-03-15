@@ -97,8 +97,9 @@ One document for one concrete change.
 
 Examples:
 
-- `2026-03-13-fix-login-rate-limit.md`
-- `2026-03-13-refactor-editor-autosave.md`
+- `app4/2026-03-15-offset-atomic-fix.md`
+- `quantaalpha/2026-03-14-factor-implementation.md`
+- `common/2026-03-13-dependency-upgrade.md`
 
 Should include:
 
@@ -119,6 +120,8 @@ Rules:
 - every meaningful change should have a change doc
 - acceptance and testing must be defined before implementation
 - update final results after the task is complete
+- change docs are organized by module (app4, quantaalpha, vnpy, etc.)
+- cross-module changes go to `common/` subdirectory
 
 ---
 
@@ -309,9 +312,13 @@ docs/
     search.md
 
   03-changes/
-    2026/
-      2026-03-13-fix-login-rate-limit.md
-      2026-03-13-refactor-editor-autosave.md
+    app4/
+      2026-03-15-offset-atomic-fix.md
+    quantaalpha/
+      2026-03-14-factor-implementation.md
+    vnpy/
+    common/                    # 跨模块的通用变更
+      2026-03-13-dependency-upgrade.md
 
   04-decisions/
     ADR-001-session-strategy.md
@@ -465,14 +472,27 @@ These exist for traceability and learning, not as the default implementation sou
 Format:
 
 ```text
-YYYY-MM-DD-topic.md
+docs/03-changes/<module>/YYYY-MM-DD-topic.md
 ```
+
+Modules:
+
+- `app4/` - Tushare 数据下载模块
+- `quantaalpha/` - 因子挖掘模块
+- `vnpy/` - 交易模块
+- `common/` - 跨模块通用变更
 
 Examples:
 
-- `2026-03-13-fix-login-rate-limit.md`
-    
-- `2026-03-13-refactor-editor-autosave.md`
+- `docs/03-changes/app4/2026-03-15-offset-atomic-fix.md`
+- `docs/03-changes/quantaalpha/2026-03-14-factor-implementation.md`
+- `docs/03-changes/common/2026-03-13-dependency-upgrade.md`
+
+Rules:
+
+- place change docs in the corresponding module subdirectory
+- use `common/` for changes affecting multiple modules
+- file name follows `YYYY-MM-DD-topic.md` format
     
 
 ---
@@ -899,17 +919,19 @@ At minimum, this repo should always enforce:
     
 3. meaningful changes should have change docs
     
-4. drafts are isolated from formal docs
+4. change docs are organized by module under `docs/03-changes/<module>/`
     
-5. obsolete but useful docs go to archive
+5. drafts are isolated from formal docs
     
-6. long-term design choices go to ADRs
+6. obsolete but useful docs go to archive
     
-7. repeatable engineering experience goes to playbooks
+7. long-term design choices go to ADRs
     
-8. heavy-use framework / repo usage knowledge goes to references
+8. repeatable engineering experience goes to playbooks
     
-9. task completion requires documentation closure
+9. heavy-use framework / repo usage knowledge goes to references
+    
+10. task completion requires documentation closure
     
 
 ---

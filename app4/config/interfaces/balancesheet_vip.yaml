@@ -183,6 +183,7 @@ pagination:
   offset:
     enabled: true
     limit: 6900  # 每次请求最多 5000 条记录，避免 API 6400 条限制导致数据截断  
+    commit_on_success: true
 parameters:
   ts_code:
     description: 股票代码(可选，不填则获取全部股票)

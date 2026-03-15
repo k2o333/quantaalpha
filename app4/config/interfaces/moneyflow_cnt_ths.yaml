@@ -47,6 +47,7 @@ pagination:
   offset:
     enabled: true
     limit: 4000  # 每次请求最多 5000 条记录，避免 API 6400 条限制导致数据截断
+    commit_on_success: true   # 原子提交，确保单日数据完整性
 
 parameters:
   end_date:
@@ -61,6 +62,7 @@ parameters:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true      # 日期锚定参数，确保按日拆分请求
   ts_code:
     description: 代码
     required: false

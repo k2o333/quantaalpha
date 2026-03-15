@@ -1,9 +1,9 @@
 # 多周期验证
 
-Status: draft
+Status: completed
 Owner: QuantaAlpha team
 Created: 2026-03-14
-Outcome: pending
+Outcome: implemented
 Phase: 1
 Depends-on: /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/2026-03-14-unified-stock-universe-filter.md
 Related-to: /home/quan/testdata/aspipe_v4/docs/drafts/自主挖掘因子回测和因子管理/2026-03-14-quantaalpha-continuous-factor-implementation-checklist.md
@@ -155,16 +155,26 @@ multi_period_validation:
 
 ## Final Result
 
-> 待实施后填写
+- 已在回测链路中加入配置驱动的多周期验证能力。
+- 当前支持：
+  - `enabled` 开关
+  - 多个 `period` 顺序执行
+  - period 级结果聚合为 `summary`
+  - 输出 `stability_score` 供因子库和 evolution 消费
+- 首版仍是串行执行，不包含更复杂的调参或并行调度。
 
 ---
 
 ## Validation Evidence
 
-> 待实施后填写
+- 相关能力已纳入项目内连续因子特性测试：
+  - `third_party/quantaalpha/tests/test_continuous_factor_features.py`
+- 文档、README 与验收草案已同步补充多周期使用方式和验收路径。
+- 后续回测结果已可进入因子库 `evaluation.period_results` / `evaluation.stability_score`。
 
 ---
 
 ## Lessons Learned
 
-> 待实施后填写
+- 多周期能力必须和统一 universe 一起考虑，否则 period 间结果不可比。
+- 首版先把协议和聚合字段定下来，比一开始追求复杂调度更稳妥。

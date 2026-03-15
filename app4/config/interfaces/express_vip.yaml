@@ -42,7 +42,8 @@ pagination:
   periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
   offset:
     enabled: true
-    limit: 1500    
+    limit: 1500
+    commit_on_success: true
 parameters:
   ts_code:
     description: 股票代码(可选，不填则获取全部股票)

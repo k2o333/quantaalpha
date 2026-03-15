@@ -1,9 +1,9 @@
 # 任务级 LLM 路由
 
-Status: draft
+Status: completed
 Owner: QuantaAlpha team
 Created: 2026-03-14
-Outcome: pending
+Outcome: implemented
 Phase: 2
 Related-to: /home/quan/testdata/aspipe_v4/docs/drafts/自主挖掘因子回测和因子管理/2026-03-14-quantaalpha-continuous-factor-implementation-checklist.md
 
@@ -142,16 +142,29 @@ response = client.build_messages_and_create_chat_completion(
 
 ## Final Result
 
-> 待实施后填写
+- 已在 `llm/client.py` 中加入按 `task_type` 路由模型的能力。
+- 当前已定义并支持的任务类型包括：
+  - `hypothesis_generation`
+  - `factor_construction`
+  - `evaluation_screening`
+  - `feedback_summarization`
+- 旧 `chat_model_map` 仍保留为兼容 fallback。
 
 ---
 
 ## Validation Evidence
 
-> 待实施后填写
+- 相关关键调用点已开始显式传 `task_type`。
+- 当前环境变量可同时控制：
+  - `CHAT_MODEL`
+  - `REASONING_MODEL`
+  - 路由默认模型
+  - 路由任务映射
+- 实际排障中已能根据日志区分 chat / reasoning / embedding 的角色与来源。
 
 ---
 
 ## Lessons Learned
 
-> 待实施后填写
+- `task_type` 比隐式 `tag` 更适合长期维护。
+- 保留旧配置 fallback 很重要，否则一次性替换全部调用点风险太大。

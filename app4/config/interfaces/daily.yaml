@@ -27,6 +27,7 @@ pagination:
   offset:
     enabled: true
     limit: 10000              # 每次请求最多10000条记录
+    commit_on_success: true   # 原子提交，确保单日数据完整性
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -40,6 +41,7 @@ parameters:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true      # 日期锚定参数，确保按日拆分请求
   ts_code:
     description: 证券代码
     required: false

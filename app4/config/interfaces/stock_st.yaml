@@ -32,7 +32,8 @@ pagination:
   window_size_days: 365
   offset:
     enabled: true
-    limit: 1000 
+    limit: 1000
+    commit_on_success: true   # 原子提交，确保窗口数据完整性
 
 parameters:
   end_date:

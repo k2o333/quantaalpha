@@ -47,6 +47,7 @@ pagination:
   offset:
     enabled: true
     limit: 6000  # 每次请求最多 6000 条记录，避免 API 限制导致数据截断
+    commit_on_success: true
 
 parameters:
   ann_date:

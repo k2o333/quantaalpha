@@ -38,6 +38,7 @@ pagination:
   offset:
     enabled: true
     limit: 3000
+    commit_on_success: true
 parameters:
   end_date:
     description: 截止日期 YYYYMMDD

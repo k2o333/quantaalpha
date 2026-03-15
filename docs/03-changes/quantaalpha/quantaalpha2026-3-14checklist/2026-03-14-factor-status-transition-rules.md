@@ -1,9 +1,9 @@
 # 因子状态流转规则
 
-Status: draft
+Status: completed
 Owner: QuantaAlpha team
 Created: 2026-03-14
-Outcome: pending
+Outcome: implemented
 Phase: 2
 Depends-on:
 - /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/2026-03-14-factor-library-schema-extension.md
@@ -146,16 +146,26 @@ def update_factor_status(factor_entry, validation_result, now=None, config=None)
 
 ## Final Result
 
-> 待实施后填写
+- 已形成最小可用的因子状态流转规则，并在因子库更新路径中使用。
+- 当前状态机重点覆盖：
+  - 新入库
+  - 验证通过
+  - 效果下降
+  - 长期未复验
+  - 连续失败退化
+- 规则仍保持轻量，没有扩展为复杂审批流或数据库状态机。
 
 ---
 
 ## Validation Evidence
 
-> 待实施后填写
+- 因子库 schema 与 `evaluation.status` 已联动。
+- `revalidate` 入口和正常验证链路可以共用状态相关字段。
+- 文档与验收草案已经按 `pending_validation/active/degraded/stale/deprecated` 组织验收说明。
 
 ---
 
 ## Lessons Learned
 
-> 待实施后填写
+- 状态字段必须绑定统一规则，否则很快会退化成任意字符串。
+- 先把规则做成轻量、可解释，比过早追求复杂状态机更可靠。

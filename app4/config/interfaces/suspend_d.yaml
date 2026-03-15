@@ -31,6 +31,7 @@ pagination:
   offset:
     enabled: true
     limit: 5000
+    commit_on_success: true   # 原子提交，确保窗口数据完整性
 parameters:
   end_date:
     description: 停复牌查询结束日期 YYYYMMDD

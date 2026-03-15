@@ -1,9 +1,9 @@
 # 统一股票池过滤入口
 
-Status: draft
+Status: completed
 Owner: QuantaAlpha team
 Created: 2026-03-14
-Outcome: pending
+Outcome: implemented
 Phase: 1
 Related-to: /home/quan/testdata/aspipe_v4/docs/drafts/自主挖掘因子回测和因子管理/2026-03-14-quantaalpha-continuous-factor-implementation-checklist.md
 
@@ -153,16 +153,22 @@ data:
 
 ## Final Result
 
-> 待实施后填写
+- 已在回测链路接入统一股票池过滤配置，支持通过 `data.stock_filter` / 等价配置控制统一 universe。
+- 过滤规则会进入回测结果元数据，供后续复盘和多周期验证复用。
+- 当前保留的是最小规则集，重点是统一入口，不是扩展复杂筛选器。
 
 ---
 
 ## Validation Evidence
 
-> 待实施后填写
+- 已在代码中接入统一入口，并在后续多周期验证、因子库写回链路中复用。
+- 早期实现已通过项目内单元测试：
+  - `third_party/quantaalpha/tests/test_continuous_factor_features.py`
+- 后续运行日志未再暴露“不同阶段静默使用不同 universe”的直接症状。
 
 ---
 
 ## Lessons Learned
 
-> 待实施后填写
+- 首版最重要的是统一入口和元数据回写，不是一次性加很多筛选器。
+- universe 一旦分散到多处逻辑，后面做多周期验证和复验会非常难控。

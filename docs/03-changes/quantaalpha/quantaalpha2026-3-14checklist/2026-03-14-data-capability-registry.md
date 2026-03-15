@@ -1,9 +1,9 @@
 # 最小版数据能力注册表
 
-Status: draft
+Status: completed
 Owner: QuantaAlpha team
 Created: 2026-03-14
-Outcome: pending
+Outcome: partial
 Phase: 1
 Related-to: /home/quan/testdata/aspipe_v4/docs/drafts/自主挖掘因子回测和因子管理/2026-03-14-quantaalpha-continuous-factor-implementation-checklist.md
 
@@ -142,16 +142,24 @@ DATA_CAPABILITIES = {
 
 ## Final Result
 
-> 待实施后填写
+- 已做出最小版数据能力注册表与渲染逻辑。
+- 但“把数据能力说明注入 factor coding 主 prompt”这一步没有保留在当前主运行路径。
+- 原因是首版接入后放大了 prompt 体积和调试成本，后续排障时已从 `factors/experiment.py` 主链路回退。
+- 当前保留结果是：
+  - 数据能力注册表代码仍可作为后续复用基础
+  - 但默认运行流程不依赖它，不应把它视为当前 prompt 真相来源
 
 ---
 
 ## Validation Evidence
 
-> 待实施后填写
+- 曾完成注册表与渲染逻辑接线。
+- 后续在实际运行排障中，为降低 prompt 体积与超时风险，已去掉主链路注入。
+- 当前有效运行链路应以实际日志和代码路径为准，而不是以此文档最初设计为准。
 
 ---
 
 ## Lessons Learned
 
-> 待实施后填写
+- “统一描述来源”是对的，但不代表必须进入主 prompt。
+- 结构化注册表适合作为后续受控注入的基础，不适合在首版无节制灌入所有场景。

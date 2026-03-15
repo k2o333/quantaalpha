@@ -51,6 +51,7 @@ pagination:
   offset:
     enabled: true
     limit: 2000
+    commit_on_success: true   # 原子提交，确保窗口数据完整性
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD

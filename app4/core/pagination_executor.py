@@ -167,7 +167,9 @@ class PaginationExecutor:
         Returns:
             请求结果（如果无回调）或 记录数（如果有回调）
         """
-        result = self._execute_single_request(interface_config, params, make_request, on_data_ready)
+        result = self._execute_single_request(
+            interface_config, params, make_request, on_data_ready, save_callback
+        )
 
         # 如果是列表模式且有保存回调，直接保存并返回计数
         if result and save_callback and not on_data_ready:
