@@ -1,44 +1,8 @@
-<div align="center">
-  <img src="docs/images/overview.jpg" alt="QuantaAlpha Framework Overview" width="90%" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 10px 0;"/>
-</div>
 
-<div align="center">
 
-  <h1 align="center" style="color: #2196F3; font-size: 32px; font-weight: 700; margin: 20px 0; line-height: 1.4;">
-    🌟 QuantaAlpha: <span style="color: #555; font-weight: 400; font-size: 20px;"><em>LLM-Driven Self-Evolving Framework for Factor Mining</em></span>
-  </h1>
+🌟 QuantaAlpha: LLM-Driven Self-Evolving Framework for Factor Mining
 
-  <p align="center" style="font-size: 14px; color: #888; max-width: 700px; margin: 10px auto;">
-    🧬 <em>Achieving superior quantitative alpha through trajectory-based self-evolution with diversified planning initialization, trajectory-level evolution, and structured hypothesis-code constraint</em>
-  </p>
-
-  <p style="margin: 20px 0;">
-    <a href="https://arxiv.org/abs/2602.07085"><img src="https://img.shields.io/badge/arXiv-b31b1b.svg?style=flat-square&logo=arxiv&logoColor=white" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/License-MIT-00A98F.svg?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white" /></a>
-    <a href="https://github.com/QuantaAlpha/QuantaAlpha"><img src="https://img.shields.io/github/stars/QuantaAlpha/QuantaAlpha?style=flat-square&logo=github&logoColor=white&color=yellow" /></a>
-  </p>
-
-  <p style="font-size: 16px; color: #666; margin: 15px 0; font-weight: 500;">
-    🌐 <a href="README.md" style="text-decoration: none; color: #0066cc;">English</a> | <a href="README_CN.md" style="text-decoration: none; color: #0066cc;">中文</a>
-  </p>
-
-</div>
-
-<div align="center" style="margin: 30px 0;">
-  <a href="#-quick-start" style="text-decoration: none; margin: 0 4px;">
-    <img src="https://img.shields.io/badge/🚀_Quick_Start-Get_Started-4CAF50?style=flat-square&logo=rocket&logoColor=white&labelColor=2E7D32" alt="Quick Start" />
-  </a>
-  <a href="#️-web-dashboard" style="text-decoration: none; margin: 0 4px;">
-    <img src="https://img.shields.io/badge/🖥️_Web_UI-Try_It_Now-FF9800?style=flat-square&logo=play&logoColor=white&labelColor=F57C00" alt="Web Dashboard" />
-  </a>
-  <a href="docs/user_guide.md" style="text-decoration: none; margin: 0 4px;">
-    <img src="https://img.shields.io/badge/📖_User_Guide-Complete_Guide-2196F3?style=flat-square&logo=gitbook&logoColor=white&labelColor=1565C0" alt="User Guide" />
-  </a>
-  <a href="experiment/README_EXPERIMENT.md" style="text-decoration: none; margin: 0 4px;">
-    <img src="https://img.shields.io/badge/🔬_Experiments-Replication-9C27B0?style=flat-square&logo=labview&logoColor=white&labelColor=7B1FA2" alt="Experiments" />
-  </a>
-</div>
+🧬 Achieving superior quantitative alpha through trajectory-based self-evolution with diversified planning initialization, trajectory-level evolution, and structured hypothesis-code constraint
 
 ---
 
@@ -46,21 +10,14 @@
 
 **QuantaAlpha** transforms how you discover quantitative alpha factors by combining LLM intelligence with evolutionary strategies. Just describe your research direction, and watch as factors are automatically mined, evolved, and validated through self-evolving trajectories.
 
-<p align="center">💬 Research Direction → 🧩 Diversified Planning → 🔄 Trajectory → ✅ Validated Alpha Factors</p>
+💬 Research Direction → 🧩 Diversified Planning → 🔄 Trajectory → ✅ Validated Alpha Factors
 
-**Demo**: Below is a short demo of the full flow from research direction to factor mining and backtesting UI. 
+**Demo**: Below is a short demo of the full flow from research direction to factor mining and backtesting UI.
 
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/726511ce-a384-4727-a7be-948a2cf05e4b"
-         controls
-         style="max-width: 90%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-    Your browser does not support the video tag.
-    <a href="https://github.com/user-attachments/assets/726511ce-a384-4727-a7be-948a2cf05e4b">Watch the demo video</a>.
-  </video>
-  <p style="font-size: 12px; color: #666; margin-top: 8px;">
-    ▶ Click to play the QuantaAlpha end-to-end workflow demo.
-  </p>
-</div>
+Your browser does not support the video tag.
+[Watch the demo video](https://github.com/user-attachments/assets/726511ce-a384-4727-a7be-948a2cf05e4b).
+
+▶ Click to play the QuantaAlpha end-to-end workflow demo.
 
 ---
 
@@ -68,14 +25,10 @@
 
 ### 1. Factor Performance
 
-<div align="center">
-  <img src="docs/images/figure3.png" width="90%" alt="Zero-Shot Transfer" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
-  <p style="font-size: 12px; color: #666;">CSI 300 factors transferred to CSI 500/S&P 500</p>
-</div>
+![docs/images/figure3.png](docs/images/figure3.png)
+CSI 300 factors transferred to CSI 500/S&P 500
 
 ### 2. Key Results
-
-<div align="center">
 
 | Dimension | Metric | Performance |
 | :---: | :---: | :---: |
@@ -85,26 +38,21 @@
 | | Max Drawdown (MDD) | **7.98%** |
 | | Calmar Ratio (CR) | **3.4774** |
 
-</div>
-
-<div align="center">
-  <img src="docs/images/主实验.png" width="90%" alt="Main Experiment Results" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
-</div>
+![docs/images/主实验.png](docs/images/主实验.png)
 
 ---
 
 ## 🚀 Quick Start
 
-<p align="center" style="font-size: 13px; color: #666; margin-top: 10px;">
-  🔬 Experiments: paper reproduction settings & metric definitions — <a href="experiment/README_EXPERIMENT.md"><b>English</b></a> · <a href="experiment/README_EXPERIMENT_CN.md"><b>中文</b></a>
-</p>
+🔬 Experiments: paper reproduction settings & metric definitions — [English](experiment/README_EXPERIMENT.md) · [中文](experiment/README_EXPERIMENT_CN.md)
 
 This repository is already vendored into `aspipe_v4`. The practical entrypoints in this workspace are:
 
-- `quantaalpha mine`
-- `quantaalpha backtest`
-- `quantaalpha revalidate`
-- `python -m quantaalpha.backtest.run_backtest`
+- `quantaalpha mine` - Run factor mining experiments
+- `quantaalpha backtest` - Run independent backtests
+- `quantaalpha revalidate` - Revalidate existing factor libraries
+- `quantaalpha health_check` - Environment health check
+- `python -m quantaalpha.backtest.run_backtest` - Advanced backtest runner
 
 The examples below assume you are inside `/home/quan/testdata/aspipe_v4/third_party/quantaalpha` and use the existing Conda environment:
 
@@ -213,7 +161,7 @@ FACTOR_CoSTEER_DATA_FOLDER_DEBUG=/your/custom/path/factor_source_data_debug
 
 ```bash
 quantaalpha mine --help
-./run.sh "<your input>"
+./run.sh ""
 
 # Example: Run with a research direction
 ./run.sh "Price-Volume Factor Mining"
@@ -237,56 +185,56 @@ After mining, combine factors from the library for a full-period backtest:
 ```bash
 # Backtest with custom factors only
 python -m quantaalpha.backtest.run_backtest \
-  -c configs/backtest.yaml \
-  --factor-source custom \
-  --factor-json all_factors_library.json
+-c configs/backtest.yaml \
+--factor-source custom \
+--factor-json all_factors_library.json
 
 # Combine with Alpha158(20) baseline factors
 python -m quantaalpha.backtest.run_backtest \
-  -c configs/backtest.yaml \
-  --factor-source combined \
-  --factor-json all_factors_library.json
+-c configs/backtest.yaml \
+--factor-source combined \
+--factor-json all_factors_library.json
 
 # Dry run (load factors only, skip backtest)
 python -m quantaalpha.backtest.run_backtest \
-  -c configs/backtest.yaml \
-  --factor-source custom \
-  --factor-json all_factors_library.json \
-  --dry-run -v
+-c configs/backtest.yaml \
+--factor-source custom \
+--factor-json all_factors_library.json \
+--dry-run -v
 ```
 
 Results are saved to the directory specified in `configs/backtest.yaml` (`experiment.output_dir`).
 
 ### 6. New Backtest Options In This Workspace
 
-`configs/backtest.yaml` now supports two practical controls for continuous factor research.
+`configs/backtest.yaml` now supports two practical  for continuous factor research.
 
 Stock universe filtering:
 
 ```yaml
 data:
-  stock_filter:
-    enabled: true
-    exclude_markets: ["bj"]
-    exclude_st: true
-    min_list_days: 60
+stock_filter:
+enabled: true
+exclude_markets: ["bj"]
+exclude_st: true
+min_list_days: 60
 ```
 
 Multi-period validation:
 
 ```yaml
 multi_period_validation:
-  enabled: true
-  fail_fast: true
-  periods:
-    - name: recent
-      train: ["2022-01-01", "2023-12-31"]
-      valid: ["2024-01-01", "2024-06-30"]
-      test: ["2024-07-01", "2025-03-13"]
-    - name: historical
-      train: ["2017-01-01", "2019-12-31"]
-      valid: ["2020-01-01", "2020-12-31"]
-      test: ["2021-01-01", "2021-12-31"]
+enabled: true
+fail_fast: true
+periods:
+- name: recent
+train: ["2022-01-01", "2023-12-31"]
+valid: ["2024-01-01", "2024-06-30"]
+test: ["2024-07-01", "2025-03-13"]
+- name: historical
+train: ["2017-01-01", "2019-12-31"]
+valid: ["2020-01-01", "2020-12-31"]
+test: ["2021-01-01", "2021-12-31"]
 ```
 
 When enabled, the runner writes:
@@ -319,18 +267,18 @@ New factor entries and normalized legacy entries now expose:
 
 ```json
 {
-  "evaluation": {
-    "status": "pending_validation",
-    "last_validated": null,
-    "stability_score": null,
-    "period_results": [],
-    "validation_summary": "",
-    "consecutive_failures": 0
-  },
-  "data_requirements": {
-    "dimensions": ["price_volume"],
-    "fields": ["$close", "$volume"]
-  }
+"evaluation": {
+"status": "pending_validation",
+"last_validated": null,
+"stability_score": null,
+"period_results": [],
+"validation_summary": "",
+"consecutive_failures": 0
+},
+"data_requirements": {
+"dimensions": ["price_volume"],
+"fields": ["$close", "$volume"]
+}
 }
 ```
 
@@ -344,7 +292,107 @@ This schema is consumed by:
 
 ---
 
-## 🖥️ Web UI
+## 🏗️ Architecture Deep Dive
+
+### Core Components
+
+```
+QuantaAlpha/
+quantaalpha/
+├── pipeline/                    # Main experiment workflow
+│   ├── factor_mining.py         # Entry point for factor mining with evolution support
+│   ├── loop.py                  # AlphaAgentLoop: Main experiment loop (5 steps)
+│   ├── planning.py              # Diversified direction planning with LLM
+│   ├── factor_backtest.py       # Integrated backtest within mining loop
+│   └── evolution/               # Evolutionary exploration operators
+│       ├── controller.py        # EvolutionController: orchestrates rounds
+│       ├── trajectory.py        # StrategyTrajectory & TrajectoryPool
+│       ├── mutation.py          # MutationOperator: orthogonal exploration
+│       └── crossover.py         # CrossoverOperator: hybrid strategies
+├── factors/                     # Factor lifecycle management
+│   ├── coder/                   # Factor code generation & AST parsing
+│   │   ├── factor.py            # Factor class definition
+│   │   ├── expr_parser.py       # Expression parser for factor formulas
+│   │   └── evaluators.py        # Factor evaluation utilities
+│   ├── library.py               # FactorLibraryManager: unified JSON storage
+│   ├── proposal.py              # Hypothesis proposal generation
+│   ├── experiment.py            # QlibFactorExperiment orchestration
+│   ├── feedback.py              # Feedback summarization
+│   ├── runner.py                # Factor backtest runner
+│   ├── status_rules.py          # Factor status management rules
+│   └── regulator/               # Factor quality regulation
+│       ├── consistency_checker.py
+│       └── factor_regulator.py
+├── backtest/                    # Independent backtest module (V2)
+│   ├── run_backtest.py          # CLI entry point
+│   ├── runner.py                # BacktestRunner with Qlib integration
+│   ├── factor_loader.py         # Factor loading & preprocessing
+│   ├── factor_calculator.py     # Factor value computation
+│   ├── validation.py            # Multi-period validation
+│   └── universe.py              # Stock universe filtering
+├── llm/                         # LLM API client & configuration
+│   ├── client.py                # LLM client with caching & retry logic
+│   └── config.py                # LLM settings & timeout configuration
+├── core/                        # Core abstractions
+│   ├── developer.py             # Developer base class
+│   ├── proposal.py              # Hypothesis & experiment classes
+│   ├── evaluation.py            # Evaluation framework
+│   └── scenario.py              # Scenario definition
+├── app/                         # Application utilities
+│   ├── utils/health_check.py    # Environment health checks
+│   └── benchmark/               # Benchmark evaluation tools
+└── cli.py                       # CLI entry point (fire-based)
+configs/                         # Centralized configuration
+├── experiment.yaml              # Main experiment parameters
+├── backtest.yaml                # Backtest configuration
+└── .env.example                 # Environment template
+frontend-v2/                     # Web dashboard (React + FastAPI)
+├── backend/app.py               # FastAPI backend server
+└── src/                         # React frontend source
+```
+
+### Evolution Workflow
+
+The evolution mechanism follows a structured cycle:
+
+1. **Original Round**: Initial exploration in each planning direction
+2. **Mutation Round**: Orthogonal exploration from parent trajectories
+3. **Crossover Round**: Hybrid strategies combining multiple parents
+4. **Repeat**: Continue mutation → crossover cycles
+
+```yaml
+# Evolution configuration (configs/experiment.yaml)
+evolution:
+enabled: true
+mutation_enabled: true
+crossover_enabled: true
+max_rounds: 3
+crossover_size: 2
+crossover_n: 2
+parent_selection_strategy: best  # best | random | weighted | top_percent_plus_random
+```
+
+### Factor Mining Loop
+
+Each trajectory executes a 5-step loop:
+
+1. **Propose**: Generate hypothesis based on research direction
+2. **Construct**: Convert hypothesis to factor code
+3. **Calculate**: Compute factor values
+4. **Backtest**: Evaluate factor performance
+5. **Feedback**: Summarize results and guide next iteration
+
+### Quality Gates
+
+The system includes multiple quality control mechanisms:
+
+- **Consistency Check**: LLM verifies hypothesis-description-formula-expression alignment
+- **Complexity Check**: Limits expression length and over-parameterization
+- **Redundancy Check**: Prevents high correlation with existing factors
+
+---
+
+## 🖥️ Web Dashboard
 
 QuantaAlpha provides a web-based dashboard where you can complete the entire workflow through a visual interface — no command line needed.
 
@@ -362,7 +410,6 @@ bash start.sh
 
 ---
 
-<a id="windows-deploy"></a>
 ## 🪟 Windows Deployment
 
 QuantaAlpha is natively developed for Linux. Below is a guide to run it on **Windows 10/11**.
@@ -443,15 +490,40 @@ Visit http://localhost:3000.
 
 ---
 
-## 💬 User Community
+## 📚 API Reference
 
-<div align="center">
+### CLI Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `quantaalpha mine` | Run factor mining experiment | `quantaalpha mine --direction "momentum factors"` |
+| `quantaalpha backtest` | Run independent backtest | `quantaalpha backtest -c configs/backtest.yaml` |
+| `quantaalpha revalidate` | Revalidate factor library | `quantaalpha revalidate path/to/library.json` |
+| `quantaalpha health_check` | Check environment | `quantaalpha health_check` |
+| `quantaalpha collect_info` | Collect system info | `quantaalpha collect_info` |
+
+### Python API
+
+```python
+from quantaalpha.factors.library import FactorLibraryManager
+from quantaalpha.backtest.runner import BacktestRunner
+
+# Load factor library
+manager = FactorLibraryManager("path/to/library.json")
+factors = manager.data["factors"]
+
+# Run backtest
+runner = BacktestRunner("configs/backtest.yaml")
+runner.run(factor_source="custom", factor_json=["factors.json"])
+```
+
+---
+
+## 💬 User Community
 
 | WeChat Group |
 | :---: |
-| <img src="docs/images/WeChat.jpg" width="250" alt="WeChat Group" /> |
-
-</div>
+| ![docs/images/WeChat.jpg](docs/images/WeChat.jpg) |
 
 ---
 
@@ -477,33 +549,21 @@ Special thanks to:
 ---
 
 ## 🌐 About QuantaAlpha
-- QuantaAlpha was founded in **April 2025** by a team of professors, postdocs, PhDs, and master's students from **Tsinghua University, Peking University, CAS, CMU, HKUST**, and more.  
+- QuantaAlpha was founded in **April 2025** by a team of professors, postdocs, PhDs, and master's students from **Tsinghua University, Peking University, CAS, CMU, HKUST**, and more.
 
-🌟 Our mission is to explore the **"quantum"** of intelligence and pioneer the **"alpha"** frontier of agent research — from **CodeAgents** to **self-evolving intelligence**, and further to **financial and cross-domain specialized agents**, we are committed to redefining the boundaries of AI. 
+In **2026**, we will continue to produce high-quality research in the following directions:
 
-✨ In **2026**, we will continue to produce high-quality research in the following directions:  
+- **CodeAgent**: End-to-end autonomous execution of real-world tasks
 
-- **CodeAgent**: End-to-end autonomous execution of real-world tasks  
+- **DeepResearch**: Deep reasoning and retrieval-augmented intelligence
 
-- **DeepResearch**: Deep reasoning and retrieval-augmented intelligence  
+- **Agentic Reasoning / Agentic RL**: Agent-based reasoning and reinforcement learning
 
-- **Agentic Reasoning / Agentic RL**: Agent-based reasoning and reinforcement learning 
-
-- **Self-evolution and collaborative learning**: Evolution and coordination of multi-agent systems  
-
-📢 We welcome students and researchers interested in these directions to join us!  
-
-🔗 **Team Homepage**: [QuantaAlpha](https://quantaalpha.github.io/)
-
-📧 **Email**: quantaalpha.ai@gmail.com
+- **Self-evolution and collaborative learning**: Evolution and coordination of multi-agent systems
 
 ## 🌐 About AIFin Lab
 
-Initiated by Professor Liwen Zhang from Shanghai University of Finance and Economics (SUFE), **AIFin Lab** is deeply rooted in the interdisciplinary fields of **AI + Finance, Statistics, and Data Science**. The team brings together cutting-edge scholars from top institutions such as SUFE, FDU, SEU, CMU, and CUHK. We are dedicated to building a comprehensive "full-link" system covering data, models, benchmarks, and intelligent prompting. 
-
-📢 We are actively looking for talented students (UG/Master/PhD) and researchers worldwide who are passionate about AI Agent security and financial intelligence to join **AIFin Lab**! 
-
-📧 **Email**: [aifinlab.sufe@gmail.com](mailto:aifinlab.sufe@gmail.com) (please CC to [zhang.liwen@shufe.edu.cn](mailto:zhang.liwen@shufe.edu.cn))
+Initiated by Professor Liwen Zhang from Shanghai University of Finance and Economics (SUFE), **AIFin Lab** is deeply rooted in the interdisciplinary fields of **AI + Finance, Statistics, and Data Science**. The team brings together cutting-edge scholars from top institutions such as SUFE, FDU, SEU, CMU, and CUHK. We are dedicated to building a comprehensive "full-link" system covering data, models, benchmarks, and intelligent prompting.
 
 We look forward to hearing from you!
 
@@ -515,13 +575,13 @@ If you find QuantaAlpha useful in your research, please cite our work:
 
 ```bibtex
 @misc{han2026quantaalphaevolutionaryframeworkllmdriven,
-      title={QuantaAlpha: An Evolutionary Framework for LLM-Driven Alpha Mining}, 
-      author={Jun Han and Shuo Zhang and Wei Li and Zhi Yang and Yifan Dong and Tu Hu and Jialuo Yuan and Xiaomin Yu and Yumo Zhu and Fangqi Lou and Xin Guo and Zhaowei Liu and Tianyi Jiang and Ruichuan An and Jingping Liu and Biao Wu and Rongze Chen and Kunyi Wang and Yifan Wang and Sen Hu and Xinbing Kong and Liwen Zhang and Ronghao Chen and Huacan Wang},
-      year={2026},
-      eprint={2602.07085},
-      archivePrefix={arXiv},
-      primaryClass={q-fin.ST},
-      url={https://arxiv.org/abs/2602.07085}, 
+title={QuantaAlpha: An Evolutionary Framework for LLM-Driven Alpha Mining},
+author={Jun Han and Shuo Zhang and Wei Li and Zhi Yang and Yifan Dong and Tu Hu and Jialuo Yuan and Xiaomin Yu and Yumo Zhu and Fangqi Lou and Xin Guo and Zhaowei Liu and Tianyi Jiang and Ruichuan An and Jingping Liu and Biao Wu and Rongze Chen and Kunyi Wang and Yifan Wang and Sen Hu and Xinbing Kong and Liwen Zhang and Ronghao Chen and Huacan Wang},
+year={2026},
+eprint={2602.07085},
+archivePrefix={arXiv},
+primaryClass={q-fin.ST},
+url={https://arxiv.org/abs/2602.07085},
 }
 ```
 
@@ -533,10 +593,7 @@ If you find QuantaAlpha useful in your research, please cite our work:
 
 ---
 
-<div align="center">
-
 **⭐ If QuantaAlpha helps you, please give us a star!**
 
 Made with ❤️ by the QuantaAlpha Team
 
-</div>
