@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from typing import List
 import os
+import numpy as np
 import pandas as pd
 from pandarallel import pandarallel
 
@@ -35,6 +36,9 @@ DIRNAME_local = Path.cwd()
 
 
 class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
+    MIN_VALID_RATIO = 0.6
+    MAX_NAN_RATIO = 0.4
+    MIN_UNIQUE_VALUES = 2
     """
     Docker run
     Everything in a folder
@@ -149,6 +153,10 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                 pd.set_option('display.width', 1000)
                 logger.info(f"Factor correlation: \n\n{combined_factors.corr()}\n")
 
+            combined_factors = self._apply_combined_quality_gate(combined_factors)
+            if combined_factors.empty:
+                raise FactorEmptyError("No valid factor data remained after combined quality gate.")
+
             # Sort and nest the combined factors under 'feature'
             combined_factors = combined_factors.sort_index()
             combined_factors = combined_factors.loc[:, ~combined_factors.columns.duplicated(keep="last")]
@@ -189,6 +197,47 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         exp.result = result
 
         return exp
+
+    def _validate_factor_frame(self, df: pd.DataFrame) -> pd.DataFrame | None:
+        valid_columns = []
+        for col in df.columns:
+            series = df[col].replace([np.inf, -np.inf], np.nan)
+            total = len(series)
+            if total == 0:
+                logger.warning(f"Skipping factor {col}: empty output.")
+                continue
+            nan_ratio = float(series.isna().mean())
+            valid_ratio = 1.0 - nan_ratio
+            non_null = series.dropna()
+            unique_count = int(non_null.nunique()) if not non_null.empty else 0
+            if valid_ratio < self.MIN_VALID_RATIO or nan_ratio > self.MAX_NAN_RATIO:
+                logger.warning(
+                    f"Skipping factor {col}: valid_ratio={valid_ratio:.3f}, nan_ratio={nan_ratio:.3f}."
+                )
+                continue
+            if unique_count < self.MIN_UNIQUE_VALUES:
+                logger.warning(f"Skipping factor {col}: unique non-null values={unique_count}.")
+                continue
+            valid_columns.append(series.to_frame(name=col))
+        if not valid_columns:
+            return None
+        return pd.concat(valid_columns, axis=1)
+
+    def _apply_combined_quality_gate(self, df: pd.DataFrame) -> pd.DataFrame:
+        cleaned = df.replace([np.inf, -np.inf], np.nan)
+        column_nan_ratio = cleaned.isna().mean()
+        keep_columns = column_nan_ratio[column_nan_ratio <= self.MAX_NAN_RATIO].index.tolist()
+        dropped_columns = sorted(set(cleaned.columns) - set(keep_columns))
+        for col in dropped_columns:
+            logger.warning(
+                f"Dropping factor {col} from combined dataframe: nan_ratio={float(column_nan_ratio[col]):.3f}."
+            )
+        cleaned = cleaned.loc[:, keep_columns]
+        if cleaned.empty:
+            return cleaned
+        cleaned = cleaned.dropna(how="any")
+        keep_columns = [col for col in cleaned.columns if cleaned[col].nunique() >= self.MIN_UNIQUE_VALUES]
+        return cleaned.loc[:, keep_columns]
 
     def process_factor_data(self, exp_or_list: List[QlibFactorExperiment] | QlibFactorExperiment) -> pd.DataFrame:
         """
@@ -234,7 +283,9 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                             df = df.to_frame(name=df.name if df.name else f'factor_{idx}')
                     time_diff = df.index.get_level_values("datetime").to_series().diff().dropna().unique()
                     if pd.Timedelta(minutes=1) not in time_diff:
-                        factor_dfs.append(df)
+                        validated_df = self._validate_factor_frame(df)
+                        if validated_df is not None:
+                            factor_dfs.append(validated_df)
 
         # Combine all successful factor data
         if factor_dfs:

@@ -65,10 +65,18 @@ class MultiProcessEvolvingStrategy(EvolvingStrategy):
         to_be_finished_task_index = []
         for index, target_task in enumerate(evo.sub_tasks):
             target_task_desc = target_task.get_task_information()
+            if (
+                index < len(evo.sub_workspace_list)
+                and evo.sub_workspace_list[index] is not None
+                and getattr(target_task, "factor_implementation", False)
+            ):
+                continue
             if target_task_desc in queried_knowledge.success_task_to_knowledge_dict:
                 evo.sub_workspace_list[index] = queried_knowledge.success_task_to_knowledge_dict[
                     target_task_desc
                 ].implementation
+                if hasattr(target_task, "factor_implementation"):
+                    target_task.factor_implementation = True
             elif (
                 target_task_desc not in queried_knowledge.success_task_to_knowledge_dict
                 and target_task_desc not in queried_knowledge.failed_task_info_set

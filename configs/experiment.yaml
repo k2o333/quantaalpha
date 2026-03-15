@@ -107,7 +107,7 @@ evolution:
 # ============================================================
 quality_gate:
   # Consistency check (hypothesis–description–expression). Uses LLM to verify and correct expression if needed
-  consistency_enabled: false
+  consistency_enabled: true
 
   # Complexity check: symbol length, base features count, free args ratio
   complexity_enabled: true

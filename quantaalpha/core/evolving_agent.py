@@ -63,6 +63,26 @@ class RAGEvoAgent(EvoAgent):
             )
         return getattr(feedback, "final_decision", False) is True
 
+    @staticmethod
+    def _update_workspace_state_from_feedback(evo: EvolvableSubjects, feedback: Feedback | None) -> None:
+        if feedback is None or not isinstance(feedback, list):
+            return
+        if not hasattr(evo, "sub_workspace_list") or not hasattr(evo, "sub_tasks"):
+            return
+        for index, single_feedback in enumerate(feedback):
+            if single_feedback is None or index >= len(evo.sub_workspace_list):
+                continue
+            if getattr(single_feedback, "final_decision", False):
+                if hasattr(evo.sub_tasks[index], "factor_implementation"):
+                    evo.sub_tasks[index].factor_implementation = True
+                continue
+            workspace = evo.sub_workspace_list[index]
+            if workspace is not None:
+                workspace.clear()
+                evo.sub_workspace_list[index] = None
+            if hasattr(evo.sub_tasks[index], "factor_implementation"):
+                evo.sub_tasks[index].factor_implementation = False
+
     def multistep_evolve(
         self,
         evo: EvolvableSubjects,
@@ -98,6 +118,7 @@ class RAGEvoAgent(EvoAgent):
                     else eva.evaluate(evo, queried_knowledge=queried_knowledge)  # type: ignore[arg-type, call-arg]
                 )
                 logger.log_object(es.feedback, tag="evolving feedback")
+                self._update_workspace_state_from_feedback(evo, es.feedback)
 
             self.evolving_trace.append(es)
             if self.with_feedback and self._all_feedback_passed(es.feedback):

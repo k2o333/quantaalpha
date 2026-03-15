@@ -83,8 +83,23 @@ class CoSTEERMultiEvaluator(Evaluator):
         queried_knowledge: QueriedKnowledge = None,
         **kwargs,
     ) -> CoSTEERMultiFeedback:
-        multi_implementation_feedback = multiprocessing_wrapper(
-            [
+        selected_indices = set(evo.corresponding_selection or [])
+        multi_implementation_feedback = [None for _ in range(len(evo.sub_tasks))]
+        func_calls = []
+        func_call_indices = []
+        for index in range(len(evo.sub_tasks)):
+            already_passed = (
+                index not in selected_indices
+                and evo.sub_workspace_list[index] is not None
+                and getattr(evo.sub_tasks[index], "factor_implementation", False)
+            )
+            if already_passed:
+                multi_implementation_feedback[index] = CoSTEERSingleFeedback(
+                    final_decision=True,
+                    final_feedback="Previously passed; skipped re-evaluation.",
+                )
+                continue
+            func_calls.append(
                 (
                     self.single_evaluator.evaluate,
                     (
@@ -94,10 +109,15 @@ class CoSTEERMultiEvaluator(Evaluator):
                         queried_knowledge,
                     ),
                 )
-                for index in range(len(evo.sub_tasks))
-            ],
+            )
+            func_call_indices.append(index)
+
+        evaluated_feedback = multiprocessing_wrapper(
+            func_calls,
             n=RD_AGENT_SETTINGS.multi_proc_n,
         )
+        for idx, feedback in zip(func_call_indices, evaluated_feedback):
+            multi_implementation_feedback[idx] = feedback
 
         final_decision = [
             None if single_feedback is None else single_feedback.final_decision

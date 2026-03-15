@@ -33,6 +33,8 @@ KNOWN_TASK_TYPES = {
 TOKENIZER_UNSUPPORTED_MODEL_PREFIXES = (
     "qwen",
 )
+DEFAULT_FALLBACK_TOKENIZER = "cl100k_base"
+_TOKENIZER_FALLBACK_WARNED_MODELS: set[str] = set()
 
 
 def md5_hash(input_string: str) -> str:
@@ -57,6 +59,19 @@ def should_skip_tokenizer_lookup(model: str | None) -> bool:
         return False
     normalized = model.strip().lower()
     return any(normalized.startswith(prefix) for prefix in TOKENIZER_UNSUPPORTED_MODEL_PREFIXES)
+
+
+def log_tokenizer_fallback_once(model: str | None, reason: str) -> None:
+    normalized = (model or "").strip().lower() or "<empty>"
+    if normalized in _TOKENIZER_FALLBACK_WARNED_MODELS:
+        return
+    _TOKENIZER_FALLBACK_WARNED_MODELS.add(normalized)
+    logger.warning(
+        "Tokenizer lookup failed for model %s; falling back to %s. reason=%s",
+        model,
+        DEFAULT_FALLBACK_TOKENIZER,
+        reason,
+    )
 
 
 def _extract_balanced_json_object(text: str) -> str | None:
@@ -526,13 +541,17 @@ class APIBackend:
             self.task_model_map = parse_routing_tasks(LLM_SETTINGS.routing_tasks)
             self.routing_default = LLM_SETTINGS.routing_default or self.chat_model
             if should_skip_tokenizer_lookup(self.chat_model):
-                self.encoder = None
+                log_tokenizer_fallback_once(
+                    self.chat_model,
+                    "configured to skip model-specific tokenizer lookup",
+                )
+                self.encoder = tiktoken.get_encoding(DEFAULT_FALLBACK_TOKENIZER)
             else:
                 try:
                     self.encoder = self._get_encoder()
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning(f"Failed to initialize tokenizer encoder for model {self.chat_model}: {exc}")
-                    self.encoder = None
+                    log_tokenizer_fallback_once(self.chat_model, str(exc))
+                    self.encoder = tiktoken.get_encoding(DEFAULT_FALLBACK_TOKENIZER)
             
             self.chat_api_base = LLM_SETTINGS.chat_azure_api_base if chat_api_base is None else chat_api_base
             self.chat_api_version = (
@@ -624,13 +643,12 @@ class APIBackend:
         try:
             return tiktoken.encoding_for_model(model)
         except KeyError:
-            logger.warning(f"Failed to get encoder. Trying to patch the model name")
             for patch_func in [_azure_patch]:
                 try:
                     return tiktoken.encoding_for_model(patch_func(model))
                 except KeyError:
-                    logger.error(f"Failed to get encoder even after patching with {patch_func.__name__}")
-                    raise
+                    continue
+            raise KeyError(f"Could not automatically map {model} to a tokeniser.")
 
     def build_chat_session(
         self,
@@ -1077,7 +1095,6 @@ class APIBackend:
                 if self.encoder is not None:
                     num_tokens += len(self.encoder.encode(value))
                 else:
-                    # Conservative fallback when tokenizer is unavailable.
                     num_tokens += max(1, len(value) // 4)
                 if key == "name":
                     num_tokens += tokens_per_name

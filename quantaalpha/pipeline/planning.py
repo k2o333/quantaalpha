@@ -10,6 +10,20 @@ import yaml
 from quantaalpha.log import logger
 from quantaalpha.llm.client import APIBackend
 
+FORBIDDEN_DIRECTION_TERMS = (
+    "news",
+    "sentiment",
+    "supply chain",
+    "order flow",
+    "order book",
+    "level-2",
+    "level 2",
+    "tick",
+    "intraday",
+    "alternative data",
+    "fundamental",
+)
+
 
 def _load_prompts(prompt_file: Path) -> dict[str, str]:
     if not prompt_file.exists():
@@ -48,15 +62,39 @@ def _parse_directions(message: str, n: int) -> list[str] | None:
     return vals if len(vals) >= n else None
 
 
+def _violates_data_constraints(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return any(term in normalized for term in FORBIDDEN_DIRECTION_TERMS)
+
+
+def _sanitize_directions(initial_direction: str, directions: list[str], n: int) -> list[str]:
+    fallback = _fallback_directions(initial_direction, n)
+    out: list[str] = []
+    fallback_idx = 0
+    for direction in directions:
+        if _violates_data_constraints(direction):
+            replacement = fallback[fallback_idx % len(fallback)]
+            fallback_idx += 1
+            logger.warning(
+                f"Planning direction violates daily-data constraints, replacing with fallback: {direction}"
+            )
+            out.append(replacement)
+        else:
+            out.append(direction)
+    while len(out) < n:
+        out.append(fallback[len(out) % len(fallback)])
+    return out[:n]
+
+
 def _fallback_directions(initial_direction: str, n: int) -> list[str]:
-    base = initial_direction.strip() if initial_direction else "market microstructure"
+    base = initial_direction.strip() if initial_direction else "daily cross-sectional factor mining"
     patterns = [
         f"{base} + short-term momentum signal with volume confirmation",
         f"{base} + volatility regime switch using rolling variance",
         f"{base} + liquidity/turnover adjustment for noise reduction",
         f"{base} + cross-sectional rank with sector-neutralization",
-        f"{base} + intraday reversal vs overnight drift decomposition",
-        f"{base} + fundamental proxy alignment (price-to-book, earnings momentum)",
+        f"{base} + overnight gap versus recent daily range",
+        f"{base} + price-volume divergence and mean reversion",
         f"{base} + calendar effects and seasonality-aware normalization",
         f"{base} + risk-adjusted return features (downside volatility focus)",
     ]
@@ -97,13 +135,13 @@ def generate_parallel_directions(
             )
             directions = _parse_directions(resp, n)
             if directions:
-                return directions[:n]
+                return _sanitize_directions(initial_direction, directions[:n], n)
             system_prompt += "\n\nStrictly output valid JSON. No extra text."
             logger.warning(f"Planning parse failed (attempt {attempt}), retrying...")
         except Exception as exc:
             logger.warning(f"Planning LLM call failed (attempt {attempt}): {exc}")
 
-    return _fallback_directions(initial_direction, n) if allow_fallback else []
+    return _sanitize_directions(initial_direction, _fallback_directions(initial_direction, n), n) if allow_fallback else []
 
 
 def load_run_config(config_path: Path) -> dict[str, Any]:
@@ -114,4 +152,3 @@ def load_run_config(config_path: Path) -> dict[str, Any]:
     except Exception as exc:
         logger.warning(f"Failed to load run config: {exc}")
         return {}
-
