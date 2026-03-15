@@ -1,0 +1,21 @@
+在/home/quan/testdata/aspipe_v4/app4/config/interfaces中，
+reverse date range的接口，有部分是date anchor。
+那部分不是date anchor的如果接口本来就有start date和end date和end
+就会有这么个问题：因为是从头到尾下载，虽然有offset，但是一旦接口error，
+下载就会中断。中断的时候应该会持久化保存，你可以验证一下。
+可是这样某一个交易日的数据就不完整
+
+因此我想，把reverse date range的接口都改为 is date anchor。
+这样，即使出发offset，也就一次
+
+然后保证offset中间出现error的数据都不保存，看看这个需求是不是合理
+
+
+
+
+把你的看法放到/home/quan/testdata/aspipe_v4/docs/drafts/tushare app4/offset-error目录
+
+有问题吧，如果error出在 start date 和end date 当中，开了原
+  子提交只是把中间文件保存了（现在貌似也会保存，你可以确定一
+  下），但是根据offset截断的保存必然会含有某个日期的不完整的数据
+ 

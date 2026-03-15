@@ -1,5 +1,47 @@
 # quantaalpha
 
+**Status:** active
+**Created:** 2026-03-14
+
+---
+
+## TL;DR
+
+- `quantaalpha` is the factor mining and evaluation subsystem under `third_party/quantaalpha/`.
+- Most task entrypoints are CLI commands, backtest config, factor library files, and tests.
+- High-risk edits are factor-library schema changes, evaluation status rules, and backtest semantics.
+
+## Entrypoints
+
+- CLI: `third_party/quantaalpha/quantaalpha/cli.py`
+- Configs: `third_party/quantaalpha/configs/`
+- Factor library: `third_party/quantaalpha/data/factorlib/`
+- Core package: `third_party/quantaalpha/quantaalpha/`
+- Tests: `third_party/quantaalpha/tests/`
+
+## Validation
+
+- Test suite: `pytest third_party/quantaalpha/tests -v`
+- Health check: `quantaalpha health_check`
+- Compile check: `python -m compileall third_party/quantaalpha/quantaalpha`
+
+## Do Not Touch Blindly
+
+- factor-library schema and migration behavior
+- status transition rules
+- backtest validation flow
+- LLM routing behavior
+
+Check related change docs in `docs/03-changes/quantaalpha/` before editing these areas.
+
+## Known Risks At A Glance
+
+- schema drift can break existing factor libraries
+- evaluation logic changes can invalidate prior statuses
+- environment assumptions often depend on the `mining` conda environment
+
+---
+
 `quantaalpha` 是仓库里的因子挖掘与回测子系统，代码位于 [third_party/quantaalpha](/home/quan/testdata/aspipe_v4/third_party/quantaalpha)。当前这个工作区已经在原始项目基础上补了持续因子研究相关入口，所以这里更关注“怎么用”和“实际有哪些能力”。
 
 ## 主要职责

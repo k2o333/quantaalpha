@@ -5,6 +5,45 @@
 
 ---
 
+## TL;DR
+
+- `app4` is the config-driven downloader and storage system for Tushare data.
+- Most behavior changes happen in `app4/core/`, `app4/update/`, or `app4/config/interfaces/*.yaml`.
+- High-risk edits are pagination, storage, dedup, schema, and update semantics.
+
+## Entrypoints
+
+- CLI: `python app4/main.py`
+- Main config: `app4/config/settings.yaml`
+- Interface configs: `app4/config/interfaces/*.yaml`
+- Core logic: `app4/core/`
+- Update flow: `app4/update/`
+
+## Validation
+
+- Config validation: `python -c "from app4.core.config_loader import ConfigLoader; ConfigLoader().validate_config()"`
+- Single-interface smoke test: `python app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131`
+- Update preview: `python app4/main.py --update --update-dry-run`
+- Targeted tests: `pytest test/ -v`
+
+## Do Not Touch Blindly
+
+- `pagination.py`
+- `pagination_executor.py`
+- `storage.py`
+- `dedup.py`
+- `schema_manager.py`
+
+Read the relevant sections below and review `docs/00-governance/rules.md` first.
+
+## Known Risks At A Glance
+
+- large interfaces such as `stk_factor_pro` and `cyq_chips` can stress memory
+- pagination mistakes can create silent gaps or duplicates
+- write-path changes can corrupt datasets if not validated
+
+---
+
 ## Responsibility
 
 app4 是配置驱动的金融数据下载与存储模块，负责：

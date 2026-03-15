@@ -5,6 +5,41 @@
 
 ---
 
+## TL;DR
+
+- `backtest` contains standalone scripts for factor validation, currently centered on Alpha101 workflows.
+- The main entrypoints live under `backtest/start/`.
+- High-risk edits are factor formulas, rolling-window semantics, and trading assumptions.
+
+## Entrypoints
+
+- Main run: `python backtest/start/backtest_alpha101_polars.py`
+- Comparison run: `python backtest/start/backtest_alpha101.py`
+- Debug scripts: `python backtest/start/debug_pure_polars_fixed.py`
+- Input data: `data/stk_factor_pro/`
+
+## Validation
+
+- Full run: `python backtest/start/backtest_alpha101_polars.py`
+- Short debug run: `python backtest/start/debug_pure_polars_fixed.py`
+- Compare outputs between pure-Polars and mixed implementations when changing factor logic
+
+## Do Not Touch Blindly
+
+- rolling correlation implementation
+- sorting assumptions on `ts_code` and `trade_date_dt`
+- trading cost and portfolio rules
+
+Read the risk notes below before changing factor computation or transaction assumptions.
+
+## Known Risks At A Glance
+
+- incorrect sort order breaks rolling-window math
+- full-dataset runs can be memory-heavy
+- formula changes can invalidate previous result comparisons
+
+---
+
 ## Responsibility
 
 backtest 是基于 Alpha101 因子的股票策略回测模块，负责：
