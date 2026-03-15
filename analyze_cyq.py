@@ -18,19 +18,22 @@ def process_file(file):
 
 files = [f for f in os.listdir(data_dir) if f.endswith(".parquet")]
 
-company_start_years = defaultdict(int)
-all_ts_codes = set()
+company_min_dates = {}
 
 with ProcessPoolExecutor(max_workers=4) as executor:
     results = executor.map(process_file, files)
 
 for result in results:
     for ts_code, start_date in result:
-        all_ts_codes.add(ts_code)
-        year = start_date.year
-        company_start_years[year] += 1
+        if ts_code not in company_min_dates or start_date < company_min_dates[ts_code]:
+            company_min_dates[ts_code] = start_date
 
-total_companies = len(all_ts_codes)
+company_start_years = defaultdict(int)
+for ts_code, start_date in company_min_dates.items():
+    year = start_date.year
+    company_start_years[year] += 1
+
+total_companies = len(company_min_dates)
 print(f"总公司数量: {total_companies}")
 for year in sorted(company_start_years.keys()):
     print(f"{year}年: {company_start_years[year]}家")
