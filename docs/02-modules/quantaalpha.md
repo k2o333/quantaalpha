@@ -1,194 +1,204 @@
 # quantaalpha
 
-LLM-driven alpha factor mining framework for quantitative trading research.
+`quantaalpha` 是仓库里的因子挖掘与回测子系统，代码位于 [third_party/quantaalpha](/home/quan/testdata/aspipe_v4/third_party/quantaalpha)。当前这个工作区已经在原始项目基础上补了持续因子研究相关入口，所以这里更关注“怎么用”和“实际有哪些能力”。
 
----
+## 主要职责
 
-## Responsibility
+- 用 LLM 生成因子研究假设和因子表达式
+- 调用 Qlib 数据与回测链路验证因子
+- 把结果写入统一因子库
+- 支持多轮 evolution
+- 支持连续研究需要的复验、状态字段、多周期验证结果
 
-- Generate trading factor hypotheses using LLM
-- Construct factor expressions from natural language hypotheses
-- Calculate factor values using Qlib data
-- Run backtests to evaluate factor performance
-- Manage factor library (storage, retrieval, deduplication)
-- Support evolution-based factor optimization (mutation, crossover)
+## 当前可用命令
 
----
-
-## External Interfaces
-
-### CLI Commands
+在本仓库建议使用：
 
 ```bash
-quantaalpha mine --direction "[direction]" --config_path configs/experiment.yaml
-quantaalpha backtest -c configs/backtest.yaml --factor-source custom --factor-json factors.json
+cd /home/quan/testdata/aspipe_v4/third_party/quantaalpha
+conda activate mining
+```
+
+CLI 入口：
+
+```bash
+quantaalpha mine
+quantaalpha backtest
+quantaalpha revalidate
 quantaalpha health_check
 quantaalpha collect_info
 ```
 
-### Programmatic Entry Points
-
-| Entry Point | Module | Description |
-|-------------|--------|-------------|
-| `quantaalpha.pipeline.factor_mining.main()` | `pipeline/factor_mining.py` | Factor mining main loop |
-| `quantaalpha.pipeline.factor_backtest.main()` | `pipeline/factor_backtest.py` | Standalone backtest |
-| `quantaalpha.backtest.run_backtest.main()` | `backtest/run_backtest.py` | CLI backtest entry |
-
-### Factor Library API
-
-```python
-from quantaalpha.factors.library import FactorLibraryManager
-
-manager = FactorLibraryManager("data/factorlib/all_factors_library.json")
-manager.add_factors_from_experiment(experiment, ...)
-FactorLibraryManager.check_cache_status(library_path)
-FactorLibraryManager.warm_cache_from_json(library_path)
-```
-
----
-
-## Key Data Structures
-
-### AlphaAgentLoop (5-Step Workflow)
-
-| Step | Method | Output Type |
-|------|--------|-------------|
-| 1 | `factor_propose()` | `AlphaAgentHypothesis` |
-| 2 | `factor_construct()` | `QlibFactorExperiment` |
-| 3 | `factor_calculate()` | `QlibFactorExperiment` with sub_workspace_list |
-| 4 | `factor_backtest()` | `QlibFactorExperiment` with result |
-| 5 | `feedback()` | `HypothesisFeedback` |
-
-### Core Classes
-
-| Class | Module | Purpose |
-|-------|--------|---------|
-| `AlphaAgentLoop` | `pipeline/loop.py` | Main workflow orchestrator |
-| `EvolutionController` | `pipeline/evolution/controller.py` | Evolution phase management |
-| `EvolutionConfig` | `pipeline/evolution/controller.py` | Evolution parameters |
-| `StrategyTrajectory` | `pipeline/evolution/controller.py` | Factor evolution trajectory |
-| `FactorLibraryManager` | `factors/library.py` | Factor library CRUD |
-| `Trace` | `core/proposal.py` | Hypothesis history tracking |
-| `QlibFactorExperiment` | `factors/experiment.py` | Experiment container with sub_tasks |
-
-### Evolution Phases
-
-- `ORIGINAL`: Initial exploration from planning directions
-- `MUTATION`: Orthogonal exploration from parent trajectories
-- `CROSSOVER`: Hybrid strategies from multiple parents
-
-### Configuration Classes
-
-| Class | Prefix | Purpose |
-|-------|--------|---------|
-| `AlphaAgentFactorBasePropSetting` | `QLIB_FACTOR_` | Main factor mining settings |
-| `FactorBasePropSetting` | `QLIB_FACTOR_` | Traditional RD Loop mode |
-| `LLMSettings` | - | LLM API configuration |
-| `RDAgentSettings` | - | Workspace and cache settings |
-
----
-
-## Dependencies
-
-### Python Packages
-
-| Package | Purpose |
-|---------|---------|
-| `rdagent==0.8.0` | RD-agent framework (pinned) |
-| `pyqlib` | Quantitative research framework |
-| `openai` | LLM API client |
-| `langchain-community` | LLM tooling |
-| `pandas`, `numpy` | Data processing |
-| `pydantic-settings` | Configuration management |
-| `tables` | HDF5 factor storage |
-| `docker` | Container-based backtest (optional) |
-
-### External Services
-
-- **LLM API**: OpenAI-compatible endpoint (required for factor generation)
-- **Qlib Data**: Local data files in `QLIB_DATA_DIR`
-
-### Environment Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `WORKSPACE_PATH` | `data/results/workspace` | Working directory |
-| `QLIB_DATA_DIR` | - | Qlib data directory |
-| `DATA_RESULTS_DIR` | `data/results` | Output directory |
-| `FACTOR_LIBRARY_SUFFIX` | - | Custom factor library name |
-| `USE_LOCAL` | `True` | Local vs Docker backtest |
-| `CHAT_MODEL` | `gpt-4-turbo` | LLM model name |
-| `openai_base_url` | - | LLM API endpoint |
-
----
-
-## Constraints
-
-1. **LLM Required**: Factor generation requires a working OpenAI-compatible API
-2. **Qlib Data**: Must have Qlib data initialized before backtest
-3. **Python Version**: Compatible with Python 3.9+
-4. **SOTA Factor Merge Disabled**: Current implementation uses only new factors per round (not merged with historical SOTA)
-5. **Evolution Mode**: Requires `evolution.enabled=true` in config; not default
-6. **Planning Optional**: Planning phase is disabled by default
-
----
-
-## Known Risks
-
-1. **LLM Rate Limiting**: Long-running mining may hit API rate limits; built-in retry with exponential backoff
-2. **Memory Growth**: Large factor experiments can consume significant memory during parallel execution
-3. **JSON Parse Failures**: LLM responses may fail JSON parsing; handled with retry and `robust_json_parse()`
-4. **Factor Expression Errors**: Invalid factor expressions may fail during calculation; captured in `CoderError`
-5. **Parallel Evolution Deadlock**: File lock disabled during evolution mode to avoid cross-process deadlocks
-6. **SOTA Factor Not Merged**: `runner.py` has SOTA factor merge disabled (`if False:`); factors are not accumulated across rounds
-
----
-
-## Test Entry Points
-
-### CLI Test
+更底层的回测入口：
 
 ```bash
-# Health check
-quantaalpha health_check
-
-# Dry-run backtest
-python -m quantaalpha.backtest.run_backtest -c configs/backtest.yaml --dry-run
-
-# Quick mine test (few steps)
-quantaalpha mine --direction "momentum reversal" --step_n 5
+python -m quantaalpha.backtest.run_backtest -c configs/backtest.yaml
 ```
 
-### Programmatic Test
+## 常见使用方式
 
-```python
-# Test factor mining loop
-from quantaalpha.pipeline.loop import AlphaAgentLoop
-from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+### 1. 运行因子挖掘
 
-loop = AlphaAgentLoop(
-    ALPHA_AGENT_FACTOR_PROP_SETTING,
-    potential_direction="test direction",
-    stop_event=None,
-    use_local=True,
-)
-loop.run(step_n=5)
-
-# Test backtest runner
-from quantaalpha.backtest.runner import BacktestRunner
-runner = BacktestRunner("configs/backtest.yaml")
-runner.run(factor_source="alpha158_20")
+```bash
+./run.sh "Price-Volume Factor Mining"
 ```
 
-### Test Files
+或直接走 CLI 主入口：
 
-- `/home/quan/testdata/aspipe_v4/backtest/start/backtest_alpha101.py` - Alpha101 backtest examples
-- `/home/quan/testdata/aspipe_v4/backtest/qa/` - Qlib-based backtest tests
+```bash
+quantaalpha mine --help
+```
 
----
+产物通常会落在：
 
-## Related Docs
+- `data/results/`
+- `data/factorlib/all_factors_library*.json`
 
-- `docs/06-references/factormining-mvp-requirements.txt` - MVP requirements
-- `docs/07-technical/quantaalpha-factor-mining-flow.md` - Detailed flow documentation
-- `docs/drafts/2026-03-14-quantaalpha-structure.md` - Module structure overview
+### 2. 运行独立回测
+
+```bash
+python -m quantaalpha.backtest.run_backtest \
+  -c configs/backtest.yaml \
+  --factor-source custom \
+  --factor-json data/factorlib/all_factors_library.json
+```
+
+也可以混合官方因子：
+
+```bash
+python -m quantaalpha.backtest.run_backtest \
+  -c configs/backtest.yaml \
+  --factor-source combined \
+  --factor-json data/factorlib/all_factors_library.json
+```
+
+### 3. 启用统一股票池过滤
+
+配置文件： [backtest.yaml](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/configs/backtest.yaml)
+
+```yaml
+data:
+  stock_filter:
+    enabled: true
+    exclude_markets: ["bj"]
+    exclude_st: true
+    min_list_days: 60
+```
+
+作用：
+
+- 统一 dataset 构建和回测使用的股票池
+- 在结果 JSON 写入 `universe` 元数据
+
+### 4. 启用多周期验证
+
+```yaml
+multi_period_validation:
+  enabled: true
+  fail_fast: true
+  periods:
+    - name: recent
+      train: ["2022-01-01", "2023-12-31"]
+      valid: ["2024-01-01", "2024-06-30"]
+      test: ["2024-07-01", "2025-03-13"]
+    - name: historical
+      train: ["2017-01-01", "2019-12-31"]
+      valid: ["2020-01-01", "2020-12-31"]
+      test: ["2021-01-01", "2021-12-31"]
+```
+
+输出位置：
+
+- `metrics.multi_period_validation.period_results`
+- `metrics.multi_period_validation.summary`
+- `metrics.stability_score`
+
+### 5. 复验因子库
+
+```bash
+quantaalpha revalidate data/factorlib/all_factors_library.json --dry_run
+quantaalpha revalidate data/factorlib/all_factors_library.json --status active --no_write
+quantaalpha revalidate data/factorlib/all_factors_library.json --days 30
+```
+
+当前这个命令是“最小版”：
+
+- 负责筛选候选因子
+- 复用已有 `evaluation` 载荷进行状态更新
+- 支持 `--dry_run` 和 `--no_write`
+
+## 关键模块
+
+| 模块 | 路径 | 作用 |
+|---|---|---|
+| CLI | `quantaalpha/cli.py` | `mine/backtest/revalidate` 入口 |
+| 回测执行 | `quantaalpha/backtest/runner.py` | 单周期/多周期回测、股票池过滤 |
+| 股票池工具 | `quantaalpha/backtest/universe.py` | 过滤规则纯函数 |
+| 多周期聚合 | `quantaalpha/backtest/validation.py` | period 校验与聚合 |
+| 因子库 | `quantaalpha/factors/library.py` | 因子库兼容、写回、筛选 |
+| 状态规则 | `quantaalpha/factors/status_rules.py` | `pending_validation/active/stale/degraded/deprecated` |
+| 数据能力注册表 | `quantaalpha/factors/data_capability.py` | prompt 注入用的数据能力描述 |
+| 场景组装 | `quantaalpha/factors/experiment.py` | 将数据能力说明拼进 scenario |
+| evolution | `quantaalpha/pipeline/evolution/` | parent 选择、轨迹、分流 |
+| LLM 路由 | `quantaalpha/llm/client.py` | `task_type` 优先的模型选择 |
+
+## 因子库结构
+
+当前因子库会兼容旧 JSON，并在读取时补齐新字段：
+
+```json
+{
+  "evaluation": {
+    "status": "pending_validation",
+    "last_validated": null,
+    "stability_score": null,
+    "period_results": [],
+    "validation_summary": "",
+    "consecutive_failures": 0
+  },
+  "data_requirements": {
+    "dimensions": ["price_volume"],
+    "fields": ["$close", "$volume"]
+  }
+}
+```
+
+## LLM 路由
+
+当前支持任务级路由，优先级高于旧的 `chat_model_map`：
+
+1. 显式 `task_type`
+2. `routing_tasks`
+3. `chat_model_map`
+4. `chat_model`
+
+已接入的任务类型：
+
+- `hypothesis_generation`
+- `factor_construction`
+- `feedback_summarization`
+
+## 测试与验证
+
+这次工作区新增能力的轻量测试在：
+
+- [test_continuous_factor_features.py](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/tests/test_continuous_factor_features.py)
+
+推荐验证命令：
+
+```bash
+/root/miniforge3/envs/mining/bin/python -m unittest -q third_party/quantaalpha/tests/test_continuous_factor_features.py
+/root/miniforge3/envs/mining/bin/python -m compileall third_party/quantaalpha/quantaalpha
+```
+
+## 依赖前提
+
+- 需要可用的 Qlib 数据目录
+- 因子挖掘需要可用的 OpenAI-compatible LLM API
+- 建议使用 `mining` Conda 环境而不是系统 Python
+
+## 相关文档
+
+- [README.md](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/README.md)
+- [backtest.yaml](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/configs/backtest.yaml)
+- [quantaalpha2026-3-14checklist README](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/README.md)

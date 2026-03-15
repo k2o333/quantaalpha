@@ -1,0 +1,14 @@
+文档总体与代码库一致，但有以下不合理或需要澄清的地方：
+
+1. **dedup_enabled 配置不统一**：文档假设所有接口都有 dedup_enabled: true，但实际配置中：
+   - daily.yaml 有 dedup_enabled: true
+   - 但 cyq_chips.yaml, fina_audit.yaml, stk_rewards.yaml, pledge_detail.yaml 等第一批推荐接口都没有 dedup_enabled 配置
+   需要统一添加 dedup_enabled: true 到这些接口的 output 部分。
+
+2. **pledge_detail 的分类**：文档将 pledge_detail 分类为“无日期过滤型 stock_loop”，最小键为 ts_code，但实际配置有 date_column: "ann_date"，且数据包含 ann_date 字段。建议澄清是否需要 ann_date 作为最小键的一部分。
+
+3. **字段命名**：建议的字段 tushare_download 可能不够清晰，考虑改为 download_attempted 或 probed_for_data 以提高可读性。
+
+4. **覆盖率检测依赖**：对于 reverse_date_range 接口如 daily，文档建议不加空占位，但如果将来改为 stock_level_detection，需要重新评估。
+
+建议先统一 dedup_enabled 配置，然后从小范围测试空占位方案。

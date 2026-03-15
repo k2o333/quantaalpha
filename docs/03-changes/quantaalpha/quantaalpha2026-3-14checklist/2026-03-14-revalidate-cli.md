@@ -6,96 +6,76 @@ Created: 2026-03-14
 Outcome: pending
 Phase: 2
 Depends-on:
-- /home/quan/testdata/aspipe_v4/docs/drafts/自主挖掘因子回测和因子管理/quantaalpha2026-3-14checklist/2026-03-14-multi-period-validation.md
-- /home/quan/testdata/aspipe_v4/docs/drafts/自主挖掘因子回测和因子管理/quantaalpha2026-3-14checklist/2026-03-14-factor-library-schema-extension.md
+- /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/2026-03-14-multi-period-validation.md
+- /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/2026-03-14-factor-library-schema-extension.md
 Related-to: /home/quan/testdata/aspipe_v4/docs/drafts/自主挖掘因子回测和因子管理/2026-03-14-quantaalpha-continuous-factor-implementation-checklist.md
 
 ---
 
 ## Background
 
-因子入库后缺乏定期复验机制：
-- 因子状态无法自动更新
-- 无法批量筛选需要复验的因子
-- 复验结果无法便捷回写因子库
+因子入库以后，当前系统缺少一个明确、低风险、人工可控的复验入口。结果是：
+
+- 很难批量找出需要复验的因子
+- 验证结果无法统一回写
+- 状态管理只能依赖手工改 JSON 或临时脚本
+
+自动调度可以以后再做，首版先提供一个人工触发的 CLI。
 
 ---
 
 ## Goal
 
-新增命令行入口，支持：
-- 按时间条件筛选需要复验的因子
-- 执行复验后回写因子库
-- 更新因子状态
+新增手动 `revalidate` 命令行入口，支持：
+
+- 选择候选因子
+- 对候选因子执行复验
+- 把结果回写到因子库
+- 输出清晰的成功、失败、跳过统计
 
 ---
 
 ## Non-goals
 
-- 不实现自动调度（Phase 3）
-- 不支持并行复验（首版串行执行）
-- 不实现复验失败后的自动修复
+- 不实现定时任务或自动调度。
+- 不做多进程并行复验。
+- 不做失败因子的自动修复或自动下线。
 
 ---
 
 ## Acceptance Criteria
 
-1. 可以手动批量复验指定因子集
-2. CLI 结果明确显示成功、失败、跳过数量
-3. 因子库被正确更新
+1. 可按时间、状态或显式因子 ID 筛选候选因子。
+2. 支持 `--dry-run` 只预览不执行。
+3. 成功执行后，因子库的验证结果和状态字段会被正确更新。
+4. 输出结果包含成功、失败、跳过数量与原因。
 
 ---
 
-## Test Plan
+## Design Decision
 
-### 单元测试
-
-1. 因子筛选函数能正确识别 `last_validated` 超过阈值的因子
-2. 状态筛选函数能正确识别 `stale` 或 `degraded` 因子
-
-### 集成测试
-
-3. 能筛选 `last_validated` 超过阈值的因子
-4. 能仅复验 `stale` 或 `degraded` 因子
-5. 复验后状态和验证信息被正确回写
-
-### 手工验收
-
-6. 一个 `stale` 因子的完整复验流程
-
----
-
-## Implementation Plan
-
-### 主要修改点
-
-- CLI 入口
-- 因子库筛选逻辑
-- 回测调用逻辑
-- 状态回写逻辑
-
-### 命令设计
+### 命令形态
 
 ```bash
-# 复验超过30天未验证的因子
 quantaalpha revalidate --days 30
-
-# 仅复验 stale 状态的因子
 quantaalpha revalidate --status stale
-
-# 仅复验 degraded 状态的因子
 quantaalpha revalidate --status degraded
-
-# 复验指定因子
 quantaalpha revalidate --factor-ids factor_001,factor_002
-
-# 干跑模式（不实际执行）
 quantaalpha revalidate --days 30 --dry-run
+quantaalpha revalidate --days 30 --no-write
 ```
 
-### 输出格式
+### 执行流程
 
-```
+1. 读取因子库。
+2. 根据筛选条件选出候选因子。
+3. 对每个因子调用已有回测或多周期验证入口。
+4. 生成新的 `evaluation` 结果。
+5. 根据是否允许写回，更新 JSON 并输出报告。
+
+### 输出示例
+
+```text
 Revalidation Report
 ===================
 Total candidates: 15
@@ -103,28 +83,66 @@ Success: 12
 Failed: 2
 Skipped: 1
 
-Details:
-  - factor_001: active (stability_score: 0.82)
-  - factor_002: degraded (stability_score: 0.45)
-  - factor_003: FAILED (error: data not available)
-  ...
+- factor_001: active (stability_score=0.82)
+- factor_002: degraded (stability_score=0.41)
+- factor_003: failed (reason=data not available)
 ```
+
+---
+
+## Affected Modules
+
+- `third_party/quantaalpha/launcher.py`
+- CLI 解析入口
+- 因子库筛选和写回逻辑
+- 多周期验证调用链
+
+---
+
+## Implementation Plan
+
+1. 在 CLI 入口增加 `revalidate` 子命令及参数校验。
+2. 在因子库层增加候选因子筛选函数，支持 days、status、factor_ids。
+3. 将多周期验证封装成可复用函数，避免 CLI 直接拼接 runner 内部逻辑。
+4. 将结果回写到 `evaluation`，并输出终端报告。
+5. 增加 `--dry-run` 和 `--no-write`，保证手工操作安全。
+
+---
+
+## Test Plan
+
+### 单元测试
+
+1. `last_validated` 超过阈值时，会被 `--days` 正确选中。
+2. `--status stale` 和 `--status degraded` 的筛选结果正确。
+3. `--factor-ids` 对不存在的因子给出明确提示。
+4. `--dry-run` 模式不会写文件。
+
+### 集成测试
+
+5. CLI 能读取因子库并筛出目标因子。
+6. 复验完成后，`evaluation.last_validated`、`stability_score`、`status` 被正确更新。
+7. 回写失败时，CLI 会返回非零退出码并保留失败原因。
+
+### 手工验收
+
+8. 选一个 `stale` 因子执行完整复验，确认报告输出、JSON 回写和最终状态一致。
 
 ---
 
 ## Risk Points
 
-1. 批量复验可能耗时较长
-2. 复验期间数据源不可用可能导致批量失败
-3. 状态回写失败需要重试机制
+1. 批量复验耗时长，用户需要可预估的候选数量。
+2. 若 CLI 直接修改原始 JSON，没有备份或 `--no-write` 会提高误操作风险。
+3. 如果复验入口和主回测入口协议不一致，后续维护成本会很高。
 
 ---
 
 ## Rollback Plan
 
-- `--dry-run` 模式可预览而不执行
-- 复验前自动备份因子库
-- 提供 `--no-write` 选项仅输出结果不回写
+- 提供 `--dry-run` 和 `--no-write`。
+- 写回前先生成备份文件或临时文件，再原子替换。
+- 若 CLI 入口不稳定，可先只上线筛选和预览能力。
 
 ---
 
