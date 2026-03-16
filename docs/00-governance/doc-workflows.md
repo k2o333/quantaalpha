@@ -22,6 +22,8 @@ Create a draft when work is still exploratory:
 - open risks
 - tentative recommendations
 
+For task-oriented drafts, also follow the minimum content expectations in `docs/00-governance/doc-standards.md#draft-docs`.
+
 ### What does not belong in a draft
 
 - accepted implementation truth
@@ -36,6 +38,51 @@ A draft should end in one of these states:
 3. archived
 4. deleted if low-value and non-reusable
 
+## Lifecycle Signals
+
+Use these signals together to decide what a document currently is:
+- document path
+- document type
+- status header
+- whether the content has been promoted into a higher-truth doc
+
+### Typical interpretation
+
+- `docs/drafts/` + `draft`:
+  broad exploration, options, or not-yet-module-scoped thinking
+- `docs/03-changes/<module>/draft/` + `draft`:
+  module-scoped task exploration that is not yet approved as a planned task
+- `docs/03-changes/<module>/planned/` + `planned`:
+  concrete implementation task, approved to do, but not yet started
+- `docs/03-changes/<module>/in_progress/` + `in_progress`:
+  a concrete implementation task, not yet fully closed
+- `docs/03-changes/<module>/blocked/` + `blocked`:
+  a concrete implementation task that cannot continue for now
+- `docs/03-changes/<module>/implemented/` + `implemented`:
+  implementation landed, but closure is not complete
+- `docs/03-changes/<module>/tested/` + `tested`:
+  validation is complete and task is near closure
+- `docs/03-changes/<module>/accepted/` + `accepted`:
+  implemented task record with closure evidence
+- `docs/03-changes/<module>/archived/` + `archived` or `superseded`:
+  historical task record, not current active work
+- `docs/02-modules/` + `active`:
+  current module truth
+- any formal doc + `archived` or `superseded`:
+  history only, not current truth
+
+### Important rule
+
+A document is not treated as current truth just because it is detailed or complete.
+
+Current truth comes from:
+- module docs
+- active governance docs
+- valid ADRs
+- other formal truth-layer docs
+
+Detailed drafts and completed change docs are still process material unless their knowledge has been promoted.
+
 ## Draft To Change
 
 Use this path when exploratory work becomes a concrete implementation task.
@@ -46,6 +93,22 @@ Use this path when exploratory work becomes a concrete implementation task.
 - a real code/config change is planned or completed
 - validation scope can be named
 - the work needs traceability
+
+### Important clarification
+
+If a document already describes:
+- a scoped implementation target
+- dependencies
+- validation expectations
+- concrete code-facing work
+
+then it should usually be managed as a change doc even if implementation has not started yet.
+
+In that case:
+- if it is approved but not started, move it under `docs/03-changes/<module>/planned/`
+- if work has started, move it under the matching lifecycle directory
+- set status to match the lifecycle directory
+- keep unfinished design-only material in drafts if still useful
 
 ### When promoting, keep in the change doc
 
@@ -80,6 +143,16 @@ This is the default closure order after meaningful implementation work:
 - what was validated
 - what remains risky
 - whether higher-level docs also changed
+
+### If code and docs disagree at closure time
+
+Use this order:
+1. verify the real behavior from code and validation evidence
+2. update the change doc to match what was actually implemented
+3. decide whether current truth changed
+4. if current truth changed, update the module doc or ADR
+
+Do not force code to match an old draft if the validated implementation intentionally evolved.
 
 ## Change To Module
 

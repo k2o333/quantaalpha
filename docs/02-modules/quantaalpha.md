@@ -243,4 +243,4 @@ quantaalpha revalidate data/factorlib/all_factors_library.json --days 30
 
 - [README.md](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/README.md)
 - [backtest.yaml](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/configs/backtest.yaml)
-- [quantaalpha2026-3-14checklist README](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/quantaalpha2026-3-14checklist/README.md)
+- [continuous factor research checklist](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/2026-03-14-continuous-factor-research-checklist.md)
