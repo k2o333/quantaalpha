@@ -44,6 +44,10 @@ pagination:
   enabled: true
   mode: reverse_date_range
   window_size_days: 365
+  offset:
+    enabled: true
+    limit: 6000
+    commit_on_success: true   # 原子提交，确保窗口数据完整性
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
