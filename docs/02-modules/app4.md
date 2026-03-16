@@ -19,12 +19,19 @@
 - Core logic: `app4/core/`
 - Update flow: `app4/update/`
 
+## Execution Environment
+
+- Preferred Python: `/root/miniforge3/envs/get/bin/python`
+- Conda environment: `get`
+- Do not assume system `python` has the required downloader dependencies
+- When documenting or running validation commands for `app4`, prefer the explicit interpreter path above
+
 ## Validation
 
-- Config validation: `python -c "from app4.core.config_loader import ConfigLoader; ConfigLoader().validate_config()"`
-- Single-interface smoke test: `python app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131`
-- Update preview: `python app4/main.py --update --update-dry-run`
-- Targeted tests: `pytest test/ -v`
+- Config validation: `/root/miniforge3/envs/get/bin/python -c "from app4.core.config_loader import ConfigLoader; ConfigLoader().validate_config()"`
+- Single-interface smoke test: `/root/miniforge3/envs/get/bin/python app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131`
+- Update preview: `/root/miniforge3/envs/get/bin/python app4/main.py --update --update-dry-run`
+- Targeted tests: `/root/miniforge3/envs/get/bin/python -m pytest test/ -v`
 
 ## Do Not Touch Blindly
 
@@ -61,7 +68,7 @@ app4 是配置驱动的金融数据下载与存储模块，负责：
 ### CLI 入口
 
 ```bash
-python app4/main.py [options]
+/root/miniforge3/envs/get/bin/python app4/main.py [options]
 ```
 
 | 参数 | 说明 |
@@ -82,6 +89,12 @@ python app4/main.py [options]
 - **Tushare Pro API**：`http://api.tushare.pro`
 - 需要配置 `TUSHARE_TOKEN` 环境变量
 - 积分权限决定可访问的接口范围
+
+### 运行环境
+
+- 建议使用 `get` Conda 环境
+- 显式解释器路径：`/root/miniforge3/envs/get/bin/python`
+- 如果只写 `python app4/main.py`，默认前提是 shell 已经激活 `get` 环境
 
 ---
 
@@ -248,10 +261,10 @@ pytest test/test/test_update_module.py
 
 ```bash
 # 使用 --dry-run 预览更新
-python app4/main.py --update --update-dry-run
+/root/miniforge3/envs/get/bin/python app4/main.py --update --update-dry-run
 
 # 测试单个接口
-python app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131
+/root/miniforge3/envs/get/bin/python app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131
 ```
 
 ---

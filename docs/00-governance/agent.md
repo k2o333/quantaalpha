@@ -36,6 +36,7 @@ Required order:
 ### app4
 
 - CLI: `app4/main.py`
+- Runtime Python: `/root/miniforge3/envs/get/bin/python`
 - Global config: `app4/config/settings.yaml`
 - Interface configs: `app4/config/interfaces/*.yaml`
 - Core logic: `app4/core/`
@@ -44,6 +45,7 @@ Required order:
 ### quantaalpha
 
 - CLI: `third_party/quantaalpha/quantaalpha/cli.py`
+- Runtime Python: `/root/miniforge3/envs/mining/bin/python`
 - Configs: `third_party/quantaalpha/configs/`
 - Factor library: `third_party/quantaalpha/data/factorlib/`
 - Tests: `third_party/quantaalpha/tests/`
@@ -57,14 +59,14 @@ Required order:
 
 ### app4
 
-- Config check: `python -c "from app4.core.config_loader import ConfigLoader; ConfigLoader().validate_config()"`
-- Smoke run: `python app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131`
-- Update preview: `python app4/main.py --update --update-dry-run`
+- Config check: `/root/miniforge3/envs/get/bin/python -c "from app4.core.config_loader import ConfigLoader; ConfigLoader().validate_config()"`
+- Smoke run: `/root/miniforge3/envs/get/bin/python app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131`
+- Update preview: `/root/miniforge3/envs/get/bin/python app4/main.py --update --update-dry-run`
 
 ### quantaalpha
 
-- Tests: `pytest third_party/quantaalpha/tests -v`
-- Health check: `quantaalpha health_check`
+- Tests: `/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests -v`
+- Health check: `/root/miniforge3/envs/mining/bin/quantaalpha health_check`
 
 ### backtest
 

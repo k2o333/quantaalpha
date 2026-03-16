@@ -19,11 +19,18 @@
 - Core package: `third_party/quantaalpha/quantaalpha/`
 - Tests: `third_party/quantaalpha/tests/`
 
+## Execution Environment
+
+- Preferred Python: `/root/miniforge3/envs/mining/bin/python`
+- Preferred CLI binary: `/root/miniforge3/envs/mining/bin/quantaalpha`
+- Conda environment: `mining`
+- When documenting or running validation commands for `quantaalpha`, prefer the explicit interpreter or CLI path above
+
 ## Validation
 
-- Test suite: `pytest third_party/quantaalpha/tests -v`
-- Health check: `quantaalpha health_check`
-- Compile check: `python -m compileall third_party/quantaalpha/quantaalpha`
+- Test suite: `/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests -v`
+- Health check: `/root/miniforge3/envs/mining/bin/quantaalpha health_check`
+- Compile check: `/root/miniforge3/envs/mining/bin/python -m compileall third_party/quantaalpha/quantaalpha`
 
 ## Do Not Touch Blindly
 
