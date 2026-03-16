@@ -23,6 +23,7 @@ Not every task passes through every stage, but this is the default model for org
 | closing a finished task | `docs/00-governance/doc-workflows.md#change-closure` |
 | deciding whether current truth changed | `docs/00-governance/doc-workflows.md#change-to-module` |
 | promoting reusable lessons | `docs/00-governance/doc-workflows.md#promotion-targets` |
+| drafting a controlled governance-doc task | `docs/00-governance/doc-task-template.md` |
 | choosing a doc type or placement | `docs/00-governance/doc-standards.md#document-types` |
 | applying naming or status headers | `docs/00-governance/doc-standards.md#naming-and-status` |
 | deciding whether something is truth or history | `docs/00-governance/doc-standards.md#truth-vs-history` |

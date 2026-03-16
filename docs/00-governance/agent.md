@@ -24,7 +24,10 @@ Required order:
 | quantaalpha factor mining and validation | `docs/02-modules/quantaalpha.md` |
 | backtest scripts and factor validation | `docs/02-modules/backtest.md` |
 | detailed execution flow | `docs/07-technical/*.md` |
-| ongoing or previous implementation context | `docs/03-changes/...` |
+| implementation context for a module | `docs/03-changes/<module>/<status>/` |
+| long-term architectural decisions | `docs/04-decisions/` |
+| reusable patterns and lessons | `docs/05-playbooks/` |
+| upstream or framework usage notes | `docs/06-references/` |
 | documentation conversion or cleanup | `docs/00-governance/doc-rules.md` |
 | branch and review workflow | `docs/00-governance/development-workflow.md` |
 
@@ -71,7 +74,8 @@ Required order:
 ## Do Not Assume
 
 - `docs/drafts/` is not source of truth
-- `docs/03-changes/` may contain task context, but module docs define the current state
+- module docs under `docs/02-modules/` define the current valid state
+- change docs under `docs/03-changes/` provide implementation context, not current truth
 - `third_party/vnpy/` is not a normal edit target
 - `third_party/glue/` is not a normal edit target
 - passing tests do not replace the review rules in `rules.md`
