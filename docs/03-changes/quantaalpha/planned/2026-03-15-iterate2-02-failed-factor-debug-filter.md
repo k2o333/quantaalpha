@@ -43,7 +43,13 @@ Depends-on: 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
 - 全部成功时应提前结束 debug
 - 全部失败时仍受最大轮次保护，不能无限重试
 
-### 2.3 What Does Not Count As Done
+### 2.3 Caller Contract
+
+- 循环内部调用方：需要得到一个真实缩减后的下一轮处理集合
+- 日志消费者：只能辅助观察，不构成功能完成证据
+- reviewer：必须能从真实执行路径判断失败集合是否被消费
+
+### 2.4 What Does Not Count As Done
 
 - 只新增 `successful_factor_ids` / `failed_factor_ids` 字段不算完成
 - 只打印 round summary 不算完成
@@ -162,6 +168,19 @@ cd /home/quan/testdata/aspipe_v4
 /root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_debug_failure_filter.py -q
 ```
 
+### 5.6 Primary Evidence / Secondary Evidence
+
+Primary evidence:
+
+- 至少 1 个测试直接断言第二轮传给 coder/backtest 的集合只包含失败因子
+- 至少 1 个测试直接断言成功因子不会再次进入高成本步骤
+
+Secondary evidence:
+
+- 失败原因统计
+- round summary 日志
+- getter 返回值测试但未验证消费路径
+
 ---
 
 ## 六、验收标准
@@ -172,6 +191,20 @@ cd /home/quan/testdata/aspipe_v4
 4. 不引入新的无限循环或整批重复回测
 5. 自动化测试能覆盖混合成功/失败的主路径
 6. 至少有一个断言证明“失败集合被真实消费”
+
+### 6.1 Move Blockers / Move-to-Tested Conditions
+
+出现以下任一情况，文档不得移到 `tested`：
+
+- 只能证明 tracker 正确，不能证明控制流已改变
+- 第二轮集合缩减只体现在日志里
+- 成功因子仍可能重新进入 coder/backtest
+
+仅当以下条件同时满足时，才允许移到 `tested`：
+
+- `Disproof Command` 已执行
+- `Primary Evidence` 已满足
+- 失败集合被真实执行路径消费，而不是只被记录
 
 ---
 

@@ -28,6 +28,7 @@ Required order:
 | long-term architectural decisions | `docs/04-decisions/` |
 | reusable patterns and lessons | `docs/05-playbooks/` |
 | auditing agent delivery quality or closure gaps | `docs/05-playbooks/agent-delivery-audit-playbook.md` |
+| writing or hardening a `planned` change doc | `docs/05-playbooks/planned-doc-hardening-playbook.md` |
 | upstream or framework usage notes | `docs/06-references/` |
 | documentation conversion or cleanup | `docs/00-governance/doc-rules.md` |
 | branch and review workflow | `docs/00-governance/development-workflow.md` |

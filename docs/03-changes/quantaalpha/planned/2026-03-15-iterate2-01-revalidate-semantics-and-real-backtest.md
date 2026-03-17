@@ -54,11 +54,18 @@ Depends-on: none
 - 单因子真实回测失败不得污染旧 `period_results`
 - 缺少 `backtest_config` 或下游无法执行时，调用方必须能看见明确失败，而不是只在 report 里埋字段
 
-### 2.4 What Does Not Count As Done
+### 2.4 Caller Contract
+
+- Python 调用方：`revalidate()` 应保持可消费的返回结构，不应为了 CLI 退出码要求破坏库函数契约
+- CLI 调用方：命令行入口必须能区分成功与失败，并在需要时返回非零退出码
+- 调度或 operator：只能看到进程退出码和命令输出，因此失败语义必须在真实入口层可见
+
+### 2.5 What Does Not Count As Done
 
 - 只改 CLI help 或 report 字段，不算真实复验链路完成
 - 只让 loader 能读取输入，不核对 runner 返回结构，不算集成完成
 - 只做 mock helper 测试，不算主链路验收
+- 为了满足 CLI 失败退出而直接改变库函数契约，不算正确完成
 
 ---
 
@@ -200,6 +207,23 @@ cd /home/quan/testdata/aspipe_v4/third_party/quantaalpha
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli revalidate data/factorlib/all_factors_library.json --real-backtest --backtest-config configs/backtest.yaml
 ```
 
+### 5.6 Primary Evidence / Secondary Evidence
+
+Primary evidence:
+
+- 真实 CLI 命令能区分三种模式
+- 至少 1 条真实边界验证证明输入契约和输出契约都被满足
+- 至少 1 条真实入口失败验证证明 failure semantics 对 CLI caller 可见
+
+Secondary evidence:
+
+- helper 级单元测试
+- fallback harness
+- mirrored logic 测试
+- 只检查 report 字段的 mock 测试
+
+Secondary evidence 可以辅助说明实现意图，但不能单独支撑 `tested`。
+
 ---
 
 ## 六、验收标准
@@ -210,6 +234,22 @@ cd /home/quan/testdata/aspipe_v4/third_party/quantaalpha
 4. 真实复验模式失败时不会污染历史验证结果
 5. 自动化测试覆盖上述核心分支
 6. 已同时验证输入契约和输出契约
+
+### 6.1 Move Blockers / Move-to-Tested Conditions
+
+出现以下任一情况，文档不得移到 `tested`：
+
+- 真实 CLI 失败场景仍返回 0
+- 输入契约已修，但输出契约仍靠推断而非真实边界验证
+- 主要验收证据来自 fallback 或 mirrored logic
+- 为满足 CLI 失败语义而破坏了 Python 调用方契约
+
+仅当以下条件同时满足时，才允许移到 `tested`：
+
+- `Disproof Command` 已执行
+- `Primary Evidence` 已满足
+- `Failure Semantics` 已在真实入口层验证
+- Python 调用方契约与 CLI 调用方契约未被混淆
 
 ---
 

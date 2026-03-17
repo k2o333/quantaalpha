@@ -41,7 +41,13 @@ Depends-on: 2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
 - 写入失败不得破坏原文件
 - 如果宣称支持多进程/并发写，必须明确说明验证条件和平台限制
 
-### 2.3 What Does Not Count As Done
+### 2.3 Caller Contract
+
+- `FactorLibraryManager` 调用方：应继续通过既有接口保存数据
+- 文件系统层：必须看到原子写和失败保护的结果
+- reviewer：必须能区分“实现了保护”与“当前环境无法完整证明”
+
+### 2.4 What Does Not Count As Done
 
 - 只做到“最终 JSON 可读”不算充分完成
 - 只做单线程测试不算并发写保护完成
@@ -139,6 +145,19 @@ cd /home/quan/testdata/aspipe_v4
 /root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_factor_library_locking.py -q
 ```
 
+### 5.6 Primary Evidence / Secondary Evidence
+
+Primary evidence:
+
+- 至少 1 个测试证明失败写入不会破坏旧文件
+- 至少 1 个并发写场景证明不会出现截断 JSON
+
+Secondary evidence:
+
+- 单线程写入成功
+- 仅最终 JSON 可读
+- 只在注释或报告中说明“理论上支持并发”
+
 ---
 
 ## 六、验收标准
@@ -148,6 +167,20 @@ cd /home/quan/testdata/aspipe_v4
 3. 并发测试可稳定通过
 4. 不引入数据库迁移或大规模重构
 5. 报告中如有环境限制，已明确区分“已通过”和“无法在当前环境验证”
+
+### 6.1 Move Blockers / Move-to-Tested Conditions
+
+出现以下任一情况，文档不得移到 `tested`：
+
+- 只有单线程证据，没有并发或失败写入证据
+- 多进程验证在当前环境跑不通，却被写成“全部通过”
+- 只能证明最终文件可读，不能证明旧文件在失败时被保护
+
+仅当以下条件同时满足时，才允许移到 `tested`：
+
+- `Disproof Command` 已执行
+- `Primary Evidence` 已满足，或受限验证已明确标注边界
+- 报告中清楚区分“已通过”与“当前环境无法验证”
 
 ---
 

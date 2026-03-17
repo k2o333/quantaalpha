@@ -1,0 +1,82 @@
+所有agent，包括主agent和subagent做任何事情前，按以下顺序阅读：
+
+1. /home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+2. /home/quan/testdata/aspipe_v4/docs/00-governance/rules.md
+3. /home/quan/testdata/aspipe_v4/docs/02-modules/quantaalpha.md
+4. /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/README.md
+5. /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
+
+只完成这一个任务，不要提前做其他 iterate，也不要顺手整理其他无关文档。
+
+按照以下顺序完成：
+
+1. 用一个 python 专家的 subagent，先完成实现。
+要求：
+- 先把任务翻译成 contract，再编码。
+- 明确写出 downstream consumer、write target、failure surface、disproof command。
+- 不要只改 help、日志或 report 字段来冒充主链路完成。
+
+2. 用一个擅长 code review 的 subagent，先阅读以上文档，再根据实现做一次 code review 优化。
+重点检查：
+- 输入契约是否真的被下游消费
+- 输出契约是否真的被调用方正确读取
+- `real_backtest` 失败时是否仍然被调用方当成成功
+- 有没有只加 tracking / summary 但没有改真实行为
+
+3. 用一个擅长测试的 subagent，先阅读以上文档，再根据优化后的 code 和任务文档写测试、执行测试、发现问题。
+要求：
+- 不要把 fallback 或 mirrored logic 作为主要验收证据
+- 至少保留 1 条真实 CLI 或真实模块边界验证
+- 测试报告里必须给出精确命令、工作目录、解释器路径
+- collection/import error 视为测试失败，不算通过
+
+4. 用一个擅长 debug 的 subagent，根据测试结果持续修复代码或修复测试，直到关键验收命令通过。
+要求：
+- 如果 task doc 要求 operator / scheduler 可见失败，必须验证真实入口 exit code
+- 不能只看返回 dict，不检查 failure semantics
+- 不能只证明 happy path，通过不了 failure path 也不能算完成
+
+最后由主 agent 做收尾，但只允许处理这一个任务相关文档。
+
+硬约束：
+
+- 不允许仅凭“代码写了很多”“测试数量很多”“总结看起来完整”就宣称完成
+- 不允许只验证输入契约，不验证输出契约
+- 不允许只跑 mock helper 测试就把任务移到 tested
+- 不允许在关键 disproof command 没跑之前把文档从 planned 移到 tested
+- 不允许把 failure semantics 只写进返回 report，而不验证真实入口行为
+- 如果真实 CLI 无法导入或无法运行，必须明确写为 blocker 或未完成，不能用 fallback 测试掩盖
+
+这次任务 1 的最低验收要求：
+
+- `revalidate` 必须明确区分 `dry_run`、`status_refresh`、`real_backtest`
+- 必须验证临时 JSON 能被真实下游读取
+- 必须验证 `BacktestRunner.run()` 的返回结构被当前实现正确消费
+- 必须验证 `real_backtest` 失败时不会污染旧 `period_results`
+- 如果任务文档要求调用方可见失败，必须验证真实 CLI 的 exit code，而不是只看返回 dict
+
+只有在以下条件全部满足时，才允许把该文档从 planned 移到 tested：
+
+1. 任务文档中的 `Disproof Command` 已执行
+2. `Required Boundary Test` 已满足
+3. 关键 failure semantics 已验证
+4. 测试不是主要依赖 fallback / mirrored logic
+5. 主 agent 在总结里明确说明为什么满足 tested 条件
+
+最终输出必须包含：
+
+1. 实际读取了哪些文档
+2. 实际修改了哪些文件
+3. 实际执行了哪些命令
+4. 每条关键命令的结果
+5. 是否满足 tested 迁移条件
+6. 如果不满足，明确说明停留在 planned 的原因
+
+如果无头模式会把过程打印到 txt 文件，日志中必须保留：
+
+- 文档读取顺序
+- 每一步 subagent 的职责
+- 关键测试命令
+- 关键 CLI 验证命令
+- 失败后如何修复
+- 为什么最终可以或不可以移到 tested

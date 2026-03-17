@@ -46,11 +46,18 @@ Depends-on:
 - `revalidate` 失败时脚本必须返回非零
 - 不能把“report 里有 failed>0”包装成调度成功
 
-### 2.3 What Does Not Count As Done
+### 2.3 Caller Contract
+
+- 脚本调用方：通过退出码和标准输出消费结果
+- scheduler/operator：只能看到脚本的最终退出语义和摘要输出
+- Python 内部函数：可以返回结构化结果，但不能替代脚本层失败语义
+
+### 2.4 What Does Not Count As Done
 
 - 只新增脚本文件不算完成
 - 只打印摘要、不核对默认路径与真实写路径，不算完成
 - 只记录 audit，不验证何时应该退出非零，不算完成
+- 只修 Python 内部 report，不修脚本层 failure semantics，不算完成
 
 ---
 
@@ -182,6 +189,19 @@ cd /home/quan/testdata/aspipe_v4
 /root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_scheduler_summary.py -q
 ```
 
+### 5.6 Primary Evidence / Secondary Evidence
+
+Primary evidence:
+
+- 至少 1 个测试验证脚本默认路径与真实写路径一致
+- 至少 1 个测试或真实命令验证下游失败时脚本退出码非零
+
+Secondary evidence:
+
+- library summary 的纯统计测试
+- audit 记录结构测试
+- 只检查 report 字段的内部单元测试
+
 ---
 
 ## 六、验收标准
@@ -193,6 +213,20 @@ cd /home/quan/testdata/aspipe_v4
 5. 自动化测试覆盖 summary 与 audit 主路径
 6. 已验证脚本默认路径与真实写路径一致
 7. 已验证脚本退出码语义可被调度器正确消费
+
+### 6.1 Move Blockers / Move-to-Tested Conditions
+
+出现以下任一情况，文档不得移到 `tested`：
+
+- 脚本默认路径仍与真实写路径脱节
+- 失败信息只停留在内部 report，脚本退出码仍为 0
+- 主要证据只有统计和 audit 测试，没有脚本层验证
+
+仅当以下条件同时满足时，才允许移到 `tested`：
+
+- `Disproof Command` 已执行
+- `Primary Evidence` 已满足
+- 脚本层 failure semantics 已验证
 
 ---
 

@@ -43,7 +43,13 @@ Depends-on: 2026-03-15-iterate2-02-failed-factor-debug-filter.md
 - 坏样本应被明确挡在质量门控前段，而不是等到后面失败
 - 阈值变更如果影响状态流转，测试必须第一时间失败
 
-### 2.3 What Does Not Count As Done
+### 2.3 Caller Contract
+
+- 规则调用方：helper 或规则函数返回值必须能稳定表达真实边界
+- 流程调用方：质量门控结果必须足以阻止后续高成本步骤
+- reviewer：应能从测试直接看出“规则是否阻止了后续流程”
+
+### 2.4 What Does Not Count As Done
 
 - 只按当前实现重拼 report 结构不算回归保护
 - 只断言 `False` / `None`，不说明具体规则原因，不算合格测试
@@ -158,6 +164,19 @@ cd /home/quan/testdata/aspipe_v4
 /root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_status_transition.py third_party/quantaalpha/tests/test_planning_constraints.py third_party/quantaalpha/tests/test_quality_gate.py -q
 ```
 
+### 5.6 Primary Evidence / Secondary Evidence
+
+Primary evidence:
+
+- 至少 1 个测试证明坏样本会阻止后续高成本步骤
+- 至少 1 组阈值断言覆盖真实状态流转边界
+
+Secondary evidence:
+
+- 仅针对 helper 的形状测试
+- 仅验证 report 或消息文本的测试
+- 不影响后续流程的局部布尔值测试
+
 ---
 
 ## 六、验收标准
@@ -168,6 +187,20 @@ cd /home/quan/testdata/aspipe_v4
 4. planning 越界方向有可复现测试
 5. 测试执行不依赖外部服务
 6. 至少有一个测试直接证明 gate 会阻止后续高成本步骤
+
+### 6.1 Move Blockers / Move-to-Tested Conditions
+
+出现以下任一情况，文档不得移到 `tested`：
+
+- 只证明 helper 当前实现，不证明真实规则边界
+- 坏样本会失败，但仍可能进入后续高成本步骤
+- 阈值变更无法通过测试立即暴露
+
+仅当以下条件同时满足时，才允许移到 `tested`：
+
+- `Disproof Command` 已执行
+- `Primary Evidence` 已满足
+- 关键规则边界已通过测试固定
 
 ---
 
