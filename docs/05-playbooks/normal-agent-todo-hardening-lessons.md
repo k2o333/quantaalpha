@@ -19,6 +19,10 @@ Use this playbook when:
 - review failures repeat around the same weak points
 - a task needs a subagent review and a reliable completion report
 
+Boundary:
+- this playbook is for documentation-heavy and governance-heavy tasks where the main risk is vague intent or overclaiming
+- if the main risk is code integration, runtime closure, test reproducibility, or seam verification, use `agent-delivery-audit-playbook.md`
+
 ## Core Lesson
 
 If a task depends on subtle interpretation, a normal agent will often optimize for:
@@ -149,7 +153,9 @@ The report should not just summarize changes.
 
 It should also constrain what the agent is allowed to claim.
 
-Useful report rules:
+For general validation-claim rules such as reproducible test commands and closure checks, see `agent-delivery-audit-playbook.md`.
+
+Useful report rules for doc/governance tasks:
 - do not mark reviewed-but-unchanged files as modified
 - if a check is only partially satisfied, write `partial` or `not complete`
 - do not write `Residual Gaps: None` unless the weak spots were explicitly checked
@@ -233,6 +239,8 @@ Before handing a task to a normal agent, check:
 - does the report have rules against over-claiming
 
 If two or more answers are "no", the task is probably still too abstract.
+
+For code-delivery checks such as runtime path alignment, exit semantics, downstream payload shape, or exact test-command reproducibility, defer to `agent-delivery-audit-playbook.md`.
 
 ## Repository-Specific Lesson
 

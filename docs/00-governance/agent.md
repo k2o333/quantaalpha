@@ -27,6 +27,7 @@ Required order:
 | implementation context for a module | `docs/03-changes/<module>/<status>/` |
 | long-term architectural decisions | `docs/04-decisions/` |
 | reusable patterns and lessons | `docs/05-playbooks/` |
+| auditing agent delivery quality or closure gaps | `docs/05-playbooks/agent-delivery-audit-playbook.md` |
 | upstream or framework usage notes | `docs/06-references/` |
 | documentation conversion or cleanup | `docs/00-governance/doc-rules.md` |
 | branch and review workflow | `docs/00-governance/development-workflow.md` |
@@ -89,3 +90,9 @@ Identify these four items first:
 - target files
 - required validation
 - whether the task requires human review under `rules.md`
+
+For high-risk tasks, identify these four seams before editing:
+- downstream consumer
+- write target or source-of-truth path
+- failure surface seen by operators or schedulers
+- one concrete command that could disprove the claimed completion

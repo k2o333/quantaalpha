@@ -165,9 +165,14 @@ multi_period_validation:
 ### 5. 复验因子库
 
 ```bash
-quantaalpha revalidate data/factorlib/all_factors_library.json --dry_run
-quantaalpha revalidate data/factorlib/all_factors_library.json --status active --no_write
-quantaalpha revalidate data/factorlib/all_factors_library.json --days 30
+# dry_run 模式：只输出候选列表
+quantaalpha revalidate data/factorlib/all_factors_library.json --dry-run
+
+# status_refresh 模式（默认）：基于历史结果刷新状态
+quantaalpha revalidate data/factorlib/all_factors_library.json --status active --no-write
+
+# real_backtest 模式：真正重跑回测
+quantaalpha revalidate data/factorlib/all_factors_library.json --real-backtest --backtest-config configs/backtest.yaml
 ```
 
 当前这个命令是“最小版”：
@@ -176,20 +181,54 @@ quantaalpha revalidate data/factorlib/all_factors_library.json --days 30
 - 复用已有 `evaluation` 载荷进行状态更新
 - 支持 `--dry_run` 和 `--no_write`
 
+revalidate 支持三种模式：
+
+| 模式 | 参数 | 行为 |
+|------|------|------|
+| `dry_run` | `--dry-run` | 只输出候选列表，不写库 |
+| `status_refresh` | (默认) | 基于已有 period_results 刷新状态 |
+| `real_backtest` | `--real-backtest` | 真正重跑回测并写回新结果 |
+
+返回结构包含：
+- `mode`: 当前模式
+- `total_candidates`: 候选因子数
+- `success/failed/skipped`: 执行结果统计
+- `used_existing_results`: 是否使用历史结果
+- `library_summary`: 因子库状态分布
+
+### 6. 外部调度
+
+```bash
+cd third_party/quantaalpha
+bash scripts/continuous_mine.sh
+```
+
+脚本职责：
+1. 执行一次 `mine`
+2. 执行一次 `revalidate --dry-run`
+3. 输出本轮摘要（`SUMMARY: key=value` 格式）
+
+环境变量覆盖：
+- `PROJECT_ROOT`: 项目根目录
+- `FACTOR_LIBRARY_PATH`: 因子库路径
+- `MINE_CONFIG`: mine 配置文件
+
 ## 关键模块
 
 | 模块 | 路径 | 作用 |
 |---|---|---|
-| CLI | `quantaalpha/cli.py` | `mine/backtest/revalidate` 入口 |
+| CLI | `quantaalpha/cli.py` | `mine/backtest/revalidate` 入口（支持三种 revalidate 模式） |
 | 回测执行 | `quantaalpha/backtest/runner.py` | 单周期/多周期回测、股票池过滤 |
 | 股票池工具 | `quantaalpha/backtest/universe.py` | 过滤规则纯函数 |
-| 多周期聚合 | `quantaalpha/backtest/validation.py` | period 校验与聚合 |
-| 因子库 | `quantaalpha/factors/library.py` | 因子库兼容、写回、筛选 |
-| 状态规则 | `quantaalpha/factors/status_rules.py` | `pending_validation/active/stale/degraded/deprecated` |
+| 多周期聚合 | `quantaalpha/backtest/validation.py` | period 校验与聚合、稳定性分数计算 |
+| 因子库 | `quantaalpha/factors/library.py` | 因子库兼容、写回、筛选、摘要、审计、文件锁 |
+| 状态规则 | `quantaalpha/factors/status_rules.py` | `pending_validation/active/stale/degraded/deprecated` 状态流转 |
+| 失败追踪 | `quantaalpha/factors/failure_tracker.py` | 失败因子追踪、重试筛选 |
 | 数据能力注册表 | `quantaalpha/factors/data_capability.py` | prompt 注入用的数据能力描述 |
 | 场景组装 | `quantaalpha/factors/experiment.py` | 将数据能力说明拼进 scenario |
 | evolution | `quantaalpha/pipeline/evolution/` | parent 选择、轨迹、分流 |
 | LLM 路由 | `quantaalpha/llm/client.py` | `task_type` 优先的模型选择 |
+| 调度脚本 | `scripts/continuous_mine.sh` | 外部调度入口 |
 
 ## 因子库结构
 
@@ -229,14 +268,25 @@ quantaalpha revalidate data/factorlib/all_factors_library.json --days 30
 
 ## 测试与验证
 
-这次工作区新增能力的轻量测试在：
+Iterate 2 新增测试文件：
 
-- [test_continuous_factor_features.py](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/tests/test_continuous_factor_features.py)
+| 测试文件 | 覆盖范围 |
+|---------|---------|
+| `test_revalidate_cli.py` | revalidate 三种模式、返回结构 |
+| `test_debug_failure_filter.py` | 失败因子追踪、重试筛选 |
+| `test_status_transition.py` | 状态流转规则、阈值断言 |
+| `test_planning_constraints.py` | 规划约束、禁止方向拦截 |
+| `test_quality_gate.py` | 质量门控、数据质量检查 |
+| `test_scheduler_summary.py` | 调度摘要、审计记录 |
+| `test_factor_library_locking.py` | 文件锁、并发写入保护 |
 
 推荐验证命令：
 
 ```bash
-/root/miniforge3/envs/mining/bin/python -m unittest -q third_party/quantaalpha/tests/test_continuous_factor_features.py
+# 运行所有 Iterate 2 测试
+/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_revalidate_cli.py third_party/quantaalpha/tests/test_status_transition.py third_party/quantaalpha/tests/test_planning_constraints.py third_party/quantaalpha/tests/test_quality_gate.py third_party/quantaalpha/tests/test_factor_library_locking.py -v
+
+# 编译检查
 /root/miniforge3/envs/mining/bin/python -m compileall third_party/quantaalpha/quantaalpha
 ```
 
@@ -251,3 +301,11 @@ quantaalpha revalidate data/factorlib/all_factors_library.json --days 30
 - [README.md](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/README.md)
 - [backtest.yaml](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/configs/backtest.yaml)
 - [continuous factor research checklist](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/2026-03-14-continuous-factor-research-checklist.md)
+
+### Iterate 2 变更文档 (已测试)
+
+- [2.1 revalidate语义澄清与真实复验链路](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/tested/2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md)
+- [2.2 失败因子重试过滤](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/tested/2026-03-15-iterate2-02-failed-factor-debug-filter.md)
+- [2.3 质量门控与状态流转回归测试](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/tested/2026-03-15-iterate2-03-quality-gate-and-state-regression.md)
+- [2.4 外部调度脚本与状态审计](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/tested/2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md)
+- [2.5 因子库写入保护](/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/tested/2026-03-15-iterate2-05-factor-library-write-lock.md)

@@ -31,6 +31,7 @@ Use this priority order when documents disagree:
 - read `agent.md` before starting work
 - read the relevant module doc before changing module behavior
 - identify validation scope before editing
+- for high-risk integration work, identify the downstream consumer, write path, and failure surface before editing
 - keep changes atomic and scoped to the task
 - update docs when behavior or contract actually changes
 - stop for human review on high-risk changes
@@ -41,6 +42,8 @@ Use this priority order when documents disagree:
 - do not edit code before locating the correct module context
 - do not widen scope into unrelated modules
 - do not treat passing tests as automatic approval
+- do not report tracking, logging, summaries, or audit records as a completed behavior change unless they are actually consumed by control flow
+- do not treat an integration as complete after checking only the input side; output contracts must also be verified
 - do not merge uncertain or experimental work into `main` by default
 - do not leave disposable artifacts in source directories
 
@@ -89,6 +92,7 @@ Examples:
 
 Expectation:
 - targeted tests or smoke commands
+- validation claims should include the exact command, working directory, and interpreter when reproducibility is non-obvious
 
 ### High Risk
 
@@ -102,6 +106,9 @@ Examples:
 
 Expectation:
 - strong validation
+- verify both input and output contracts at system seams
+- verify script or scheduler defaults against the real write path or source-of-truth path
+- make test-pass claims reproducible with the exact command and working directory
 - explicit rollback thinking
 - human review before acceptance
 
