@@ -28,6 +28,18 @@ Boundary:
 - this playbook is for code delivery, integration seams, validation claims, and operational closure
 - if the task is mainly about governance/doc structure hardening, use `normal-agent-todo-hardening-lessons.md`
 
+## What This Adds Beyond `agent.md`
+
+`docs/00-governance/agent.md` already defines the repository entry order and the minimum editing posture.
+
+This playbook turns those entry rules into audit actions for medium-level agents:
+
+- route first, then edit
+- translate the task into explicit contracts before coding
+- treat `tested` as a reviewer-verifiable state, not an author claim
+- reject tracking, summaries, and reports when they are not consumed by real control flow
+- prefer low-coupling logic modules when the task is supposed to be unit-testable in isolation
+
 ## Core Lesson
 
 Do not evaluate this kind of delivery by:
@@ -179,6 +191,12 @@ Minimum read order:
 
 This prevents the review from being anchored on the completion report.
 
+Practical interpretation of `agent.md`:
+
+- do not start from the report, start from governance and task routing
+- do not assume the change doc is true just because it is detailed
+- do not accept `tested` as evidence before the validation command is rerun
+
 ### 2. Translate the task into contracts
 
 Before reading diffs, write down:
@@ -195,6 +213,9 @@ Example questions:
 - What file does the script actually operate on?
 - What makes the command fail from the scheduler's perspective?
 - What exact line uses the "retry only failed items" result?
+
+This is the operational form of `agent.md`'s "Output Expectation Before Editing".
+If these items were never made explicit during implementation, expect closure gaps.
 
 ### 3. Review the code by seam, not by file
 
@@ -223,6 +244,34 @@ Examples:
 - if a runner integration was changed, inspect one real returned payload and compare field paths
 
 Do not stop at "tests pass".
+
+### 5. Verify that documentation state does not run ahead of code truth
+
+Typical pattern:
+
+- the change doc is moved to `tested/`
+- the completion report says all work is done
+- but the key validation command still fails, or only passes in a hidden local setup
+
+Required countermeasure:
+
+- treat `tested` as a verification state, not a development milestone
+- rerun the key proof command before accepting any `planned -> tested` move
+- if the proof fails, move the focus back to the code, not the report language
+
+### 6. Check new logic modules for unnecessary runtime coupling
+
+Typical pattern:
+
+- the task introduces a small logic module that should be easy to test
+- the module imports heavyweight runtime logging, app bootstrap, or external framework code
+- unit tests now fail during import, before the logic can even be exercised
+
+Required countermeasure:
+
+- for pure tracking, validation, parsing, or selection logic, prefer minimal imports
+- if the module is meant to be testable in isolation, check whether it can import without booting unrelated runtime systems
+- when review finds import-time coupling, treat that as an integration defect, not just a test inconvenience
 
 ## Task-Writing Hardening Rules
 

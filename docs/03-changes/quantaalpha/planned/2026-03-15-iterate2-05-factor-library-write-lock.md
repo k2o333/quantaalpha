@@ -31,6 +31,22 @@ Depends-on: 2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
 - 分布式锁
 - 跨机器协调
 
+### 2.1 Write Target / Source of Truth
+
+- 本迭代只保护 `FactorLibraryManager._save()` 对真实因子库 JSON 的写入
+- 不得在旁路文件或测试专用格式上自证“写保护已完成”
+
+### 2.2 Failure Semantics
+
+- 写入失败不得破坏原文件
+- 如果宣称支持多进程/并发写，必须明确说明验证条件和平台限制
+
+### 2.3 What Does Not Count As Done
+
+- 只做到“最终 JSON 可读”不算充分完成
+- 只做单线程测试不算并发写保护完成
+- 在当前环境跑不通的并发验证，不能写成“全部通过”
+
 ---
 
 ## 三、代码落点
@@ -107,6 +123,22 @@ Depends-on: 2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
 - 因子库仍是合法 JSON
 - 没有出现明显截断或空文件
 
+### 5.4 Required Boundary Test
+
+至少包含：
+
+- 1 个失败写入场景，证明旧文件不被破坏
+- 1 个并发写场景，证明不会出现截断 JSON
+
+如果环境限制导致多进程测试无法执行，必须在报告中明确写为未验证或受限验证。
+
+### 5.5 Disproof Command
+
+```bash
+cd /home/quan/testdata/aspipe_v4
+/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_factor_library_locking.py -q
+```
+
 ---
 
 ## 六、验收标准
@@ -115,6 +147,7 @@ Depends-on: 2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
 2. 因子库写入失败不会破坏旧文件
 3. 并发测试可稳定通过
 4. 不引入数据库迁移或大规模重构
+5. 报告中如有环境限制，已明确区分“已通过”和“无法在当前环境验证”
 
 ---
 

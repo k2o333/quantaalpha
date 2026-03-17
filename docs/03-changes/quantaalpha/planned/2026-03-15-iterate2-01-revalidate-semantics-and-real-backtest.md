@@ -37,6 +37,29 @@ Depends-on: none
 - 状态审计
 - 文件锁
 
+### 2.1 Downstream Consumer
+
+- `quantaalpha.backtest.factor_loader.FactorLoader` 负责读取临时 factor JSON
+- `quantaalpha.backtest.runner.BacktestRunner.run()` 返回真实回测结果
+- `FactorLibraryManager.apply_validation_result()` 负责消费回测结果并更新因子库
+
+### 2.2 Write Target / Source of Truth
+
+- 因子库真实写入目标是 `third_party/quantaalpha/data/factorlib/all_factors_library.json`
+- `revalidate --real-backtest` 的临时 JSON 只用于调用真实 loader，不得演化成另一套私有格式
+
+### 2.3 Failure Semantics
+
+- `status_refresh` 模式不得伪装成真实回测
+- 单因子真实回测失败不得污染旧 `period_results`
+- 缺少 `backtest_config` 或下游无法执行时，调用方必须能看见明确失败，而不是只在 report 里埋字段
+
+### 2.4 What Does Not Count As Done
+
+- 只改 CLI help 或 report 字段，不算真实复验链路完成
+- 只让 loader 能读取输入，不核对 runner 返回结构，不算集成完成
+- 只做 mock helper 测试，不算主链路验收
+
 ---
 
 ## 三、代码落点
@@ -155,6 +178,28 @@ python -m quantaalpha.cli revalidate --library_path <path> --status active --no_
 - 是否使用历史结果
 - 是否真实回测
 
+### 5.4 Required Boundary Test
+
+必须至少有 1 个测试直接验证：
+
+- 临时 JSON 能被真实 loader 读取
+- `BacktestRunner.run()` 的真实返回结构能被 `revalidate` 正确消费
+- 真实回测失败时旧 `period_results` 保持不变
+
+### 5.5 Disproof Command
+
+下面任一结果都应直接推翻“本迭代已完成”的说法：
+
+```bash
+cd /home/quan/testdata/aspipe_v4
+/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_revalidate_cli.py -q
+```
+
+```bash
+cd /home/quan/testdata/aspipe_v4/third_party/quantaalpha
+/root/miniforge3/envs/mining/bin/python -m quantaalpha.cli revalidate data/factorlib/all_factors_library.json --real-backtest --backtest-config configs/backtest.yaml
+```
+
 ---
 
 ## 六、验收标准
@@ -164,6 +209,7 @@ python -m quantaalpha.cli revalidate --library_path <path> --status active --no_
 3. 状态维护模式不会篡改旧 `period_results`
 4. 真实复验模式失败时不会污染历史验证结果
 5. 自动化测试覆盖上述核心分支
+6. 已同时验证输入契约和输出契约
 
 ---
 

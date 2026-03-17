@@ -32,6 +32,23 @@ Depends-on: 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
 - 多模型 fanout
 - 质量门控阈值配置化
 
+### 2.1 Downstream Consumer
+
+- `AlphaAgentLoop` 的后续 debug 轮次是这个功能的真实消费者
+- 验收重点不是日志里出现了 `failed_factor_ids`，而是下一轮实际处理集合变了
+
+### 2.2 Failure Semantics
+
+- 成功因子不得再次进入 coder/backtest
+- 全部成功时应提前结束 debug
+- 全部失败时仍受最大轮次保护，不能无限重试
+
+### 2.3 What Does Not Count As Done
+
+- 只新增 `successful_factor_ids` / `failed_factor_ids` 字段不算完成
+- 只打印 round summary 不算完成
+- 只暴露 getter，但没有任何执行路径消费它，不算完成
+
 ---
 
 ## 三、代码落点
@@ -129,6 +146,22 @@ Depends-on: 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
 
 并且第二轮开始时处理数量小于第一轮。
 
+### 5.4 Required Boundary Test
+
+必须至少有 1 个测试直接断言：
+
+- 第二轮传给 coder/backtest 的集合只包含失败因子
+- 成功因子不会再次进入高成本步骤
+
+### 5.5 Disproof Command
+
+下面命令只要出现 collection error、关键断言失败，或无法证明第二轮集合缩减，就应视为未完成：
+
+```bash
+cd /home/quan/testdata/aspipe_v4
+/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_debug_failure_filter.py -q
+```
+
 ---
 
 ## 六、验收标准
@@ -138,6 +171,7 @@ Depends-on: 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
 3. 日志能说明每轮缩减了多少待处理对象
 4. 不引入新的无限循环或整批重复回测
 5. 自动化测试能覆盖混合成功/失败的主路径
+6. 至少有一个断言证明“失败集合被真实消费”
 
 ---
 

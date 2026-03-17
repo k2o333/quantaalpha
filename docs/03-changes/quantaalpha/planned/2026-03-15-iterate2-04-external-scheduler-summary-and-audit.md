@@ -35,6 +35,23 @@ Depends-on:
 - 队列系统
 - 告警平台接入
 
+### 2.1 Write Target / Source of Truth
+
+- 脚本默认操作路径必须与 `loop.py` 的真实因子库写路径一致
+- 摘要和审计都必须围绕真实因子库，而不是另一份平行 JSON
+
+### 2.2 Failure Semantics
+
+- `mine` 失败时脚本必须返回非零
+- `revalidate` 失败时脚本必须返回非零
+- 不能把“report 里有 failed>0”包装成调度成功
+
+### 2.3 What Does Not Count As Done
+
+- 只新增脚本文件不算完成
+- 只打印摘要、不核对默认路径与真实写路径，不算完成
+- 只记录 audit，不验证何时应该退出非零，不算完成
+
 ---
 
 ## 三、代码落点
@@ -151,6 +168,20 @@ bash scripts/continuous_mine.sh
 - 因子总数
 - stale/degraded/active 分布
 
+### 5.4 Required Boundary Test
+
+至少包含：
+
+- 1 个测试断言脚本默认路径与真实写路径一致
+- 1 个测试断言下游失败时脚本退出码非零
+
+### 5.5 Disproof Command
+
+```bash
+cd /home/quan/testdata/aspipe_v4
+/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_scheduler_summary.py -q
+```
+
 ---
 
 ## 六、验收标准
@@ -160,6 +191,8 @@ bash scripts/continuous_mine.sh
 3. 状态变化可以追溯到最近一次触发原因
 4. 不引入 daemon 或复杂调度器
 5. 自动化测试覆盖 summary 与 audit 主路径
+6. 已验证脚本默认路径与真实写路径一致
+7. 已验证脚本退出码语义可被调度器正确消费
 
 ---
 

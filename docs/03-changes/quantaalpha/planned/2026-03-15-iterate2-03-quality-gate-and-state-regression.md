@@ -33,6 +33,22 @@ Depends-on: 2026-03-15-iterate2-02-failed-factor-debug-filter.md
 - 审计日志
 - 文件锁
 
+### 2.1 Downstream Consumer
+
+- 状态流转规则最终由 `FactorLibraryManager.apply_validation_result()` 消费
+- 质量门控结果最终影响是否进入高成本 backtest
+
+### 2.2 Failure Semantics
+
+- 坏样本应被明确挡在质量门控前段，而不是等到后面失败
+- 阈值变更如果影响状态流转，测试必须第一时间失败
+
+### 2.3 What Does Not Count As Done
+
+- 只按当前实现重拼 report 结构不算回归保护
+- 只断言 `False` / `None`，不说明具体规则原因，不算合格测试
+- 需要保护真实规则边界，而不是只保护 helper 当前写法
+
 ---
 
 ## 三、代码落点
@@ -128,6 +144,20 @@ cd /home/quan/testdata/aspipe_v4
 - 坏样本应在 gate 被挡下
 - 正常样本应仍能继续进入后续流程
 
+### 5.4 Required Boundary Test
+
+至少包含：
+
+- 1 个坏样本证明不会进入高成本 backtest
+- 1 组状态阈值断言，覆盖 `active / degraded / stale / deprecated`
+
+### 5.5 Disproof Command
+
+```bash
+cd /home/quan/testdata/aspipe_v4
+/root/miniforge3/envs/mining/bin/python -m pytest third_party/quantaalpha/tests/test_status_transition.py third_party/quantaalpha/tests/test_planning_constraints.py third_party/quantaalpha/tests/test_quality_gate.py -q
+```
+
 ---
 
 ## 六、验收标准
@@ -137,6 +167,7 @@ cd /home/quan/testdata/aspipe_v4
 3. 坏样本不会再轻易穿透质量门控
 4. planning 越界方向有可复现测试
 5. 测试执行不依赖外部服务
+6. 至少有一个测试直接证明 gate 会阻止后续高成本步骤
 
 ---
 

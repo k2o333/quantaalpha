@@ -107,6 +107,37 @@ cd /home/quan/testdata/aspipe_v4
 - `third_party/quantaalpha/tests/test_scheduler_summary.py`
 - `third_party/quantaalpha/tests/test_factor_library_locking.py`
 
+高风险任务在开始编码前，必须先写清 4 个 seam：
+
+- downstream consumer
+- write target 或 source-of-truth path
+- operator / scheduler 可见的 failure surface
+- 1 条能推翻“已经完成”说法的 disproof command
+
+高风险任务至少包括：
+
+- 新 CLI 模式
+- 调度脚本
+- 写路径或因子库持久化
+- 状态流转
+- 失败重试控制流
+
+所有 `planned` 文档默认都应包含以下硬约束：
+
+- `Downstream Consumer`
+- `Write Target / Source of Truth`
+- `Failure Semantics`
+- `Required Boundary Test`
+- `Disproof Command`
+- `What Does Not Count As Done`
+
+统一反假完成约束：
+
+- 只新增 tracker / log / summary 不算行为完成
+- 只修输入格式、不核对输出结构不算集成完成
+- 只给测试数量、不提供可复跑命令不算验证完成
+- 文档不得先于关键验证进入 `tested/`
+
 ---
 
 ## 五、完成定义
@@ -114,6 +145,8 @@ cd /home/quan/testdata/aspipe_v4
 单个迭代完成，至少应满足：
 
 1. 文档中列出的代码修改点已经落地
-2. 自动化测试已经补齐并通过
-3. 命令行或结果文件能直接体现改动效果
-4. 验收标准可由另一个工程师按文档复现
+2. 自动化测试已经补齐，并且关键命令可由 reviewer 原样复跑
+3. 命令行、结果文件或运行时控制流能直接体现改动效果
+4. 下游输入契约和输出契约都已核对
+5. `Disproof Command` 已执行且未推翻完成声明
+6. 验收标准可由另一个工程师按文档复现
