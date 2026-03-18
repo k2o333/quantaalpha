@@ -1,0 +1,4 @@
+根据/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/parrelell目录下面
+的四个需求，分4个subagent开发
+开发完成后，具体做了什么为什么这么做，每个subagent都要把原因写一份报告，
+放到/home/quan/testdata/aspipe_v4/docs/drafts/report/paralell目录，报告文件名和需求文件名对应
