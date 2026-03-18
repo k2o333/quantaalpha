@@ -1,4 +1,12 @@
 api_name: cyq_chips
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - trade_date        # 交易日期
+  - price             # 成本价
+  - percent           # 筹码比例（%）
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -6,18 +14,31 @@ derived_fields:
     source: trade_date
     type: date
 description: 每日筹码分布
+duplicate_detection:
+  enabled: true
+  date_column: "trade_date"
+  stock_level_detection: true
 name: cyq_chips
 output:
   primary_key:
   - ts_code
   - trade_date
   - price
+  - percent
   sort_by:
   - price
 pagination:
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: stock_loop
+  skip_time_range_in_full_history: false
+  time_range:
+    enabled: true 
+    window: 90d
+    stop_on_empty: 90   # 连续90天无数据停止
+  offset:
+    enabled: true
+    limit: 3000
+    commit_on_success: true
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -33,7 +54,7 @@ parameters:
     type: string
   ts_code:
     description: 股票代码
-    required: false
+    required: true
     type: string
 permissions:
   min_points: 120

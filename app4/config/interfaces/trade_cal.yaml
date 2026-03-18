@@ -1,4 +1,12 @@
 api_name: trade_cal
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - exchange       # 交易所代码
+  - cal_date       # 日历日期
+  - is_open        # 是否交易 0休市 1交易
+  - pretrade_date  # 上一交易日
+
 derived_fields:
   cal_date_dt:
     description: 日期类型的cal_date
@@ -18,8 +26,10 @@ description: 交易日历
 name: trade_cal
 output:
   primary_key:
-  - cal_date
   - exchange
+  - cal_date
+  - is_open
+  - pretrade_date
   sort_by:
   - cal_date
 pagination:

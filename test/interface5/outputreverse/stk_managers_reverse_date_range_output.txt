@@ -1,0 +1,78 @@
+2026-02-28 15:33:34,761 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-28 15:33:34,855 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-28 15:33:34,883 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-28 15:33:34,885 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-28 15:33:34,885 - core.storage - INFO - Storage writer and process threads started
+2026-02-28 15:33:34,886 - __main__ - INFO - Interfaces to update (after permission filter): ['stk_managers']
+2026-02-28 15:33:34,886 - update.update_reporter - INFO - 更新开始: 2026-02-28 15:33:34
+2026-02-28 15:33:34,886 - update.update_manager - INFO - ============================================================
+2026-02-28 15:33:34,886 - update.update_manager - INFO - 开始增量更新
+2026-02-28 15:33:34,886 - update.update_manager - INFO - ============================================================
+2026-02-28 15:33:34,886 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-28 15:33:34,886 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-28 15:33:34,886 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-28 15:33:34,886 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-28 15:33:34,887 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-28 15:33:34,887 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-28 15:33:34,887 - update.update_manager - INFO - 
+[1/1] 处理接口: stk_managers
+2026-02-28 15:33:34,887 - update.update_reporter - INFO - 开始更新接口: stk_managers
+2026-02-28 15:33:34,887 - update.date_calculator - INFO - [stk_managers] 使用强制指定的日期范围: 20260210 ~ 20260222
+2026-02-28 15:33:34,887 - update.update_manager - INFO - 开始更新 stk_managers: 20260210 ~ 20260222
+2026-02-28 15:33:34,888 - core.coverage_manager - INFO - 检测缺口: stk_managers (20260210 ~ 20260222)
+2026-02-28 15:33:34,888 - core.coverage_manager - INFO - 已有数据: 0 天
+2026-02-28 15:33:34,888 - core.coverage_manager - INFO - 期望交易日: 4 天
+2026-02-28 15:33:34,888 - core.coverage_manager - INFO - 无已有数据，需要完整下载
+2026-02-28 15:33:34,888 - update.update_manager - INFO - 下载缺口 [1/1]: 20260210 ~ 20260222
+2026-02-28 15:33:35,833 - core.downloader - INFO - API returned 12 fields for stk_managers
+2026-02-28 15:33:35,834 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'name', 'gender', 'lev', 'title', 'edu', 'national', 'birthday', 'begin_date', 'end_date', 'resume']
+2026-02-28 15:33:35,834 - core.downloader - INFO - Downloaded 0 records for stk_managers
+2026-02-28 15:33:35,918 - core.downloader - INFO - API returned 12 fields for stk_managers
+2026-02-28 15:33:35,919 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'name', 'gender', 'lev', 'title', 'edu', 'national', 'birthday', 'begin_date', 'end_date', 'resume']
+2026-02-28 15:33:35,919 - core.downloader - INFO - Downloaded 0 records for stk_managers
+2026-02-28 15:33:37,922 - core.downloader - INFO - API returned 12 fields for stk_managers
+2026-02-28 15:33:37,923 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'name', 'gender', 'lev', 'title', 'edu', 'national', 'birthday', 'begin_date', 'end_date', 'resume']
+2026-02-28 15:33:37,923 - core.downloader - INFO - Downloaded 0 records for stk_managers
+2026-02-28 15:33:38,201 - core.downloader - INFO - API returned 12 fields for stk_managers
+2026-02-28 15:33:38,202 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'name', 'gender', 'lev', 'title', 'edu', 'national', 'birthday', 'begin_date', 'end_date', 'resume']
+2026-02-28 15:33:38,202 - core.downloader - INFO - Downloaded 0 records for stk_managers
+2026-02-28 15:33:38,203 - update.update_manager - INFO - 接口 stk_managers 更新完成，共 0 条记录，耗时 3.32秒
+2026-02-28 15:33:38,203 - update.update_reporter - INFO - ✓ stk_managers: SUCCESS [3.32s]
+2026-02-28 15:33:38,203 - update.update_reporter - INFO - 更新结束: 2026-02-28 15:33:38
+2026-02-28 15:33:38,204 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-28 15:33:38,204 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-28 15:33:38,205 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260228_153338.markdown
+2026-02-28 15:33:38,205 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-28 15:33:38,205 - __main__ - INFO - 正在停止调度器...
+2026-02-28 15:33:38,205 - core.scheduler - INFO - Task scheduler stopped
+2026-02-28 15:33:38,205 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-28 15:33:38,205 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-28 15:33:38,206 - core.storage - INFO - Process worker received stop signal
+2026-02-28 15:33:38,206 - core.storage - INFO - Stopping writer thread...
+2026-02-28 15:33:38,207 - core.storage - INFO - Storage threads stopped
+2026-02-28 15:33:38,207 - __main__ - INFO - 限流统计: 总请求=4, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-28 15:33:38,207 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-28 15:33:34
+- **结束时间**: 2026-02-28 15:33:38
+- **总耗时**: 3.3秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 0
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| stk_managers | ✓ 成功 | 20260210 ~ 20260222 | - | 3.32s |  |
+
+============================================================

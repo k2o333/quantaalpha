@@ -1,0 +1,32 @@
+做任何事情前，先/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+
+/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned 目录下
+有5个任务（readme不算，参考用）
+
+按顺序完成这些任务，有编号
+每个编号的任务，按照以下顺序完成
+
+用一个python 专家的subagent，在先阅读/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+ 根据文档完成开发
+用一个擅长code review的subagent，在先阅读/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+   根据文档和开发情况，做一次code review优化
+用一个擅长测试的subagent，在先阅读/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+   根据文档和开发情况  根据优化好的code，和文档，写测试用例，写测试脚本，进行测试，发现问题
+用一个擅长debug的专家，在先阅读/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+根据测试结果，不断调优代码，或者发现测试脚本有问题，让测试的subagent重新写测试脚本
+总之要让所有代码都通过测试，并且符合文档要求
+
+以上这些5个文档任务都做好了
+
+用一个擅长优化和简化代码的专家subagent，在先阅读/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+之后，好好的优化代码
+用一个擅长测试的subagent，在先阅读/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+再把优化过的代码进行测试
+用一个擅长debug的专家，在先阅读/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+根据测试结果，不断调优代码，或者发现测试脚本有问题，让测试的subagent重新写测试脚本
+总之要让所有代码都通过测试，并且符合文档要求
+
+
+然后主agent 根据/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+整理所有文档
+

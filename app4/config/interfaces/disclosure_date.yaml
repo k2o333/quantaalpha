@@ -1,4 +1,14 @@
 api_name: disclosure_date
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - pre_date          # 预计披露日期
+  - actual_date       # 实际披露日期
+  - modify_date       # 披露日期修正记录
+
 derived_fields:
   actual_date_dt:
     description: 日期类型的actual_date
@@ -15,11 +25,6 @@ derived_fields:
     format: '%Y%m%d'
     source: end_date
     type: date
-  modify_date_dt:
-    description: 日期类型的modify_date
-    format: '%Y%m%d'
-    source: modify_date
-    type: date
   pre_date_dt:
     description: 日期类型的pre_date
     format: '%Y%m%d'
@@ -31,32 +36,32 @@ output:
   primary_key:
   - ts_code
   - end_date
+  - ann_date
+  - pre_date
+  - actual_date
+  - modify_date
   sort_by:
   - end_date
+  dedup_enabled: true
+duplicate_detection:
+  enabled: true
+  date_column: "end_date"
+  stock_level_detection: false
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  mode: period_range
+  period_field: end_date
+  periods_per_batch: 1
+  offset:
+    enabled: true
+    limit: 6000
+    commit_on_success: true
 parameters:
-  actual_date:
-    description: 实际披露日期 YYYYMMDD
-    required: false
-    type: string
-  ann_date:
-    description: 最新披露公告日 YYYYMMDD
-    required: false
-    type: string
   end_date:
-    description: 财报周期 YYYYMMDD
-    required: false
-    type: string
-  pre_date:
-    description: 计划披露日期 YYYYMMDD
-    required: false
+    description: 报告期 YYYYMMDD
     type: string
   ts_code:
     description: TS股票代码
-    required: false
     type: string
 permissions:
   min_points: 500

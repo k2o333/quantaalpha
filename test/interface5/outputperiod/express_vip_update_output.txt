@@ -1,0 +1,100 @@
+2026-02-21 22:12:45,249 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-21 22:12:45,344 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-21 22:12:45,372 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-21 22:12:45,373 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-21 22:12:45,374 - core.storage - INFO - Storage writer and process threads started
+2026-02-21 22:12:45,374 - __main__ - INFO - Interfaces to update (after permission filter): ['express_vip']
+2026-02-21 22:12:45,374 - update.update_reporter - INFO - 更新开始: 2026-02-21 22:12:45
+2026-02-21 22:12:45,374 - update.update_manager - INFO - ============================================================
+2026-02-21 22:12:45,374 - update.update_manager - INFO - 开始增量更新
+2026-02-21 22:12:45,375 - update.update_manager - INFO - ============================================================
+2026-02-21 22:12:45,375 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-21 22:12:45,375 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-21 22:12:45,375 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-21 22:12:45,375 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-21 22:12:45,375 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-21 22:12:45,375 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-21 22:12:45,376 - update.update_manager - INFO - 
+[1/1] 处理接口: express_vip
+2026-02-21 22:12:45,376 - update.update_reporter - INFO - 开始更新接口: express_vip
+2026-02-21 22:12:45,376 - update.update_manager - INFO - 开始更新 express_vip: 20241001 ~ 20260221
+2026-02-21 22:12:45,376 - update.update_manager - INFO - 开始下载 express_vip: 20241001 ~ 20260221
+2026-02-21 22:12:47,377 - core.downloader - INFO - API returned 17 fields for express_vip
+2026-02-21 22:12:47,378 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'total_assets', 'total_hldr_eqy_exc_min_int', 'diluted_eps', 'diluted_roe', 'yoy_net_profit', 'bps', 'open_net_assets', 'open_bps', 'perf_summary', 'update_flag']
+2026-02-21 22:12:47,396 - core.downloader - INFO - Downloaded 1408 records for express_vip
+2026-02-21 22:12:47,439 - core.pagination_executor - INFO - [express_vip] Saved 1408 records for period 20241231
+2026-02-21 22:12:48,810 - core.downloader - INFO - API returned 17 fields for express_vip
+2026-02-21 22:12:48,811 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'total_assets', 'total_hldr_eqy_exc_min_int', 'diluted_eps', 'diluted_roe', 'yoy_net_profit', 'bps', 'open_net_assets', 'open_bps', 'perf_summary', 'update_flag']
+2026-02-21 22:12:48,811 - core.downloader - INFO - Downloaded 16 records for express_vip
+2026-02-21 22:12:48,812 - core.pagination_executor - INFO - [express_vip] Saved 16 records for period 20250331
+2026-02-21 22:12:48,899 - core.processor - INFO - Processed 1424 records for express_vip
+2026-02-21 22:12:48,916 - core.storage - INFO - Processed and queued 1424 records for express_vip
+2026-02-21 22:12:48,952 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for express_vip，记录数: 1424
+2026-02-21 22:12:48,956 - core.storage - INFO - Wrote 1424 records to /home/quan/testdata/aspipe_v4/data/express_vip/express_vip_20250108_20250508_1771683168916_1df7b44b.parquet
+2026-02-21 22:12:50,603 - core.downloader - INFO - API returned 17 fields for express_vip
+2026-02-21 22:12:50,603 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'total_assets', 'total_hldr_eqy_exc_min_int', 'diluted_eps', 'diluted_roe', 'yoy_net_profit', 'bps', 'open_net_assets', 'open_bps', 'perf_summary', 'update_flag']
+2026-02-21 22:12:50,605 - core.downloader - INFO - Downloaded 79 records for express_vip
+2026-02-21 22:12:50,608 - core.pagination_executor - INFO - [express_vip] Saved 79 records for period 20250630
+2026-02-21 22:12:50,639 - core.processor - INFO - Processed 79 records for express_vip
+2026-02-21 22:12:50,655 - core.storage - INFO - Deduplication completed for express_vip: input=79, output=79, removed=0
+2026-02-21 22:12:50,656 - core.storage - INFO - Processed and queued 79 records for express_vip
+2026-02-21 22:12:50,665 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for express_vip，记录数: 79
+2026-02-21 22:12:50,668 - core.storage - INFO - Wrote 79 records to /home/quan/testdata/aspipe_v4/data/express_vip/express_vip_20250710_20250828_1771683170657_50b6cebc.parquet
+2026-02-21 22:12:51,164 - core.downloader - INFO - API returned 17 fields for express_vip
+2026-02-21 22:12:51,164 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'total_assets', 'total_hldr_eqy_exc_min_int', 'diluted_eps', 'diluted_roe', 'yoy_net_profit', 'bps', 'open_net_assets', 'open_bps', 'perf_summary', 'update_flag']
+2026-02-21 22:12:51,165 - core.downloader - INFO - Downloaded 9 records for express_vip
+2026-02-21 22:12:51,166 - core.pagination_executor - INFO - [express_vip] Saved 9 records for period 20250930
+2026-02-21 22:12:51,195 - core.processor - INFO - Processed 9 records for express_vip
+2026-02-21 22:12:51,212 - core.storage - INFO - Deduplication completed for express_vip: input=9, output=9, removed=0
+2026-02-21 22:12:51,212 - core.storage - INFO - Processed and queued 9 records for express_vip
+2026-02-21 22:12:51,230 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for express_vip，记录数: 9
+2026-02-21 22:12:51,232 - core.storage - INFO - Wrote 9 records to /home/quan/testdata/aspipe_v4/data/express_vip/express_vip_20251010_20251022_1771683171213_36646a8d.parquet
+2026-02-21 22:12:52,720 - core.downloader - INFO - API returned 17 fields for express_vip
+2026-02-21 22:12:52,721 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'total_assets', 'total_hldr_eqy_exc_min_int', 'diluted_eps', 'diluted_roe', 'yoy_net_profit', 'bps', 'open_net_assets', 'open_bps', 'perf_summary', 'update_flag']
+2026-02-21 22:12:52,723 - core.downloader - INFO - Downloaded 169 records for express_vip
+2026-02-21 22:12:52,729 - core.pagination_executor - INFO - [express_vip] Saved 169 records for period 20251231
+2026-02-21 22:12:52,730 - update.update_manager - INFO - 接口 express_vip 更新完成，共 1681 条记录，耗时 7.35秒
+2026-02-21 22:12:52,731 - update.update_reporter - INFO - ✓ express_vip: SUCCESS (1681 条记录) [7.35s]
+2026-02-21 22:12:52,731 - update.update_reporter - INFO - 更新结束: 2026-02-21 22:12:52
+2026-02-21 22:12:52,731 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-21 22:12:52,732 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-21 22:12:52,732 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260221_221252.markdown
+2026-02-21 22:12:52,733 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-21 22:12:52,733 - __main__ - INFO - 正在停止调度器...
+2026-02-21 22:12:52,733 - core.scheduler - INFO - Task scheduler stopped
+2026-02-21 22:12:52,733 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-21 22:12:52,733 - core.storage - INFO - Flushed 169 remaining records for processing: express_vip
+2026-02-21 22:12:52,736 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-21 22:12:52,776 - core.processor - INFO - Processed 169 records for express_vip
+2026-02-21 22:12:52,794 - core.storage - INFO - Deduplication completed for express_vip: input=169, output=169, removed=0
+2026-02-21 22:12:52,796 - core.storage - INFO - Processed and queued 169 records for express_vip
+2026-02-21 22:12:52,799 - core.storage - INFO - Stopping writer thread...
+2026-02-21 22:12:52,817 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for express_vip，记录数: 169
+2026-02-21 22:12:52,820 - core.storage - INFO - Wrote 169 records to /home/quan/testdata/aspipe_v4/data/express_vip/express_vip_20260105_20260214_1771683172796_97e37981.parquet
+2026-02-21 22:12:52,820 - core.storage - INFO - Storage threads stopped
+2026-02-21 22:12:52,821 - __main__ - INFO - 限流统计: 总请求=5, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-21 22:12:52,821 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-21 22:12:45
+- **结束时间**: 2026-02-21 22:12:52
+- **总耗时**: 7.4秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 1681
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| express_vip | ✓ 成功 | 20241001 ~ 20260221 | 1681 | 7.35s |  |
+
+============================================================

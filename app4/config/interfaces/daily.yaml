@@ -1,16 +1,8 @@
 api_name: daily
 description: 日线行情
-
-# fields 配置：如果需要额外字段，请取消注释并配置
-# fields:
-#   - pre_close      # 前一日收盘价
-#   - change         # 涨跌额
-#   - pct_change     # 涨跌幅
-#   - vol            # 成交量
-#   - amount         # 成交额
 derived_fields:
   trade_date_dt:
-    description: 日期类型的trade_date（关联trade_cal.cal_date_dt）
+    description: 日期类型的trade_date
     format: '%Y%m%d'
     source: trade_date
     type: date
@@ -29,8 +21,13 @@ output:
   - trade_date
 pagination:
   enabled: true
-  mode: date_range
-  window_size_days: 1
+  mode: reverse_date_range    # 反向日期范围模式
+  window_size_days: 1         # 每1天一个窗口
+  empty_threshold_days: 90    # 连续90天无数据停止
+  offset:
+    enabled: true
+    limit: 10000              # 每次请求最多10000条记录
+    commit_on_success: true   # 原子提交，确保单日数据完整性
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -44,6 +41,7 @@ parameters:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true      # 日期锚定参数，确保按日拆分请求
   ts_code:
     description: 证券代码
     required: false
@@ -56,3 +54,15 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+fields:
+  ts_code: string          # 股票代码
+  trade_date: string       # 交易日期
+  open: Float64            # 开盘价
+  high: Float64            # 最高价
+  low: Float64             # 最低价
+  close: Float64           # 收盘价
+  pre_close: Float64       # 昨收价（除权价，前复权）
+  change: Float64          # 涨跌额
+  pct_chg: Float64         # 涨跌幅（基于除权后的昨收计算）
+  vol: Float64             # 成交量（手）
+  amount: Float64          # 成交额（千元）

@@ -1,0 +1,39 @@
+name: dividend_example
+api_name: dividend
+description: "示例：分红配送信息 - 使用日期锚定参数 period"
+
+permissions:
+  min_points: 2000
+  rate_limit: 500
+  query_limit: 5000
+
+pagination:
+  enabled: true
+  mode: "stock_loop"
+  window_size_days: 9999
+
+parameters:
+  ts_code:
+    type: string
+    required: false
+    description: "股票代码"
+  period:
+    type: string
+    required: false
+    description: "报告期 YYYYMMDD"
+    is_date_anchor: true  # 标识为日期锚定参数
+
+output:
+  primary_key: ["ts_code", "ann_date"]
+  sort_by: ["ann_date"]
+
+# 统一的去重配置
+dedup_enabled: true
+
+# 新增：衍生字段配置
+derived_fields:
+  ann_date_dt:
+    source: ann_date
+    type: date
+    format: '%Y%m%d'
+    description: "日期类型的公告日期"

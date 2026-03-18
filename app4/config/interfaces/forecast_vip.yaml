@@ -1,4 +1,20 @@
 api_name: forecast_vip
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - type              # 业绩预告类型
+  - p_change_min      # 预告净利润变动幅度下限（%）
+  - p_change_max      # 预告净利润变动幅度上限（%）
+  - net_profit_min    # 预告净利润下限（万元）
+  - net_profit_max    # 预告净利润上限（万元）
+  - last_parent_net   # 上年同期归属母公司净利润
+  - first_ann_date    # 首次公告日
+  - summary           # 业绩预告摘要
+  - change_reason     # 业绩变动原因
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -22,12 +38,25 @@ output:
   - ts_code
   - ann_date
   - end_date
+  - type
+  - p_change_min
+  - p_change_max
+  - net_profit_min
+  - net_profit_max
+  - last_parent_net
+  - first_ann_date
+  - summary
+  - change_reason
   sort_by:
   - ann_date
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  mode: period_range
+  periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
+  offset:
+    enabled: true
+    limit: 5600
+    commit_on_success: true
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
@@ -37,6 +66,7 @@ parameters:
     description: 公告结束日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   period:
     description: 报告期 YYYYMMDD
     required: false
@@ -45,6 +75,7 @@ parameters:
     description: 公告开始日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   ts_code:
     description: 股票代码(可选，不填则获取全部股票)
     required: false
@@ -61,3 +92,6 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date

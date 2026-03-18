@@ -1,4 +1,19 @@
 api_name: cyq_perf
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - trade_date        # 交易日期
+  - his_low           # 获利盘最低价
+  - his_high          # 获利盘最高价
+  - cost_5pct         # 5%获利盘对应价格
+  - cost_15pct        # 15%获利盘对应价格
+  - cost_50pct        # 50%获利盘对应价格
+  - cost_85pct        # 85%获利盘对应价格
+  - cost_95pct        # 95%获利盘对应价格
+  - weight_avg        # 加权平均价
+  - winner_rate       # 获利盘比例（%）
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -11,25 +26,28 @@ output:
   primary_key:
   - ts_code
   - trade_date
+  - his_low
+  - his_high
+  - cost_5pct
+  - cost_15pct
+  - cost_50pct
+  - cost_85pct
+  - cost_95pct
+  - weight_avg
+  - winner_rate
   sort_by:
   - trade_date
 pagination:
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: reverse_date_range    # 改为反向日期范围模式
+  window_size_days: 1         # 每天一个窗口（该接口适合按天下载）
+  empty_threshold_days: 90    # 连续90天无数据停止
 parameters:
-  end_date:
-    description: 结束日期 YYYYMMDD
-    required: false
-    type: string
-  start_date:
-    description: 开始日期 YYYYMMDD
-    required: false
-    type: string
   trade_date:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true  # 标识为日期锚定参数
   ts_code:
     description: 股票代码
     required: false

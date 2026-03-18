@@ -1,0 +1,23 @@
+做任何事情前，先/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+
+/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned 目录下
+有5个任务（readme不算，参考用）
+
+按顺序完成这些任务，有编号
+每个编号的任务，按照以下顺序完成
+
+$python-pro 根据文档完成开发
+$code-reviewer  根据文档和开发情况，做一次code review优化
+$test-automator  根据完成的开发进行测试
+$debugger  跟测试情况debug
+
+以上这些5个文档任务都做好了
+
+$code-optimization-expert  优化代码
+$test-automator  根据完成的开发进行测试
+$debugger  跟测试情况debug
+
+
+然后主agent 根据/home/quan/testdata/aspipe_v4/docs/00-governance/agent.md
+整理所有文档
+

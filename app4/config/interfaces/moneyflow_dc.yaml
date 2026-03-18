@@ -1,4 +1,23 @@
 api_name: moneyflow_dc
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - trade_date        # 交易日期
+  - name              # 股票名称
+  - pct_change        # 涨跌幅
+  - close             # 收盘价
+  - net_amount        # 主力净流入额（万元）
+  - net_amount_rate   # 主力净流入率（%）
+  - buy_elg_amount    # 超大单净流入（万元）
+  - buy_elg_amount_rate # 超大单净流入率（%）
+  - buy_lg_amount     # 大单净流入（万元）
+  - buy_lg_amount_rate # 大单净流入率（%）
+  - buy_md_amount     # 中单净流入（万元）
+  - buy_md_amount_rate # 中单净流入率（%）
+  - buy_sm_amount     # 小单净流入（万元）
+  - buy_sm_amount_rate # 小单净流入率（%）
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -11,12 +30,29 @@ output:
   primary_key:
   - ts_code
   - trade_date
+  - name
+  - pct_change
+  - close
+  - net_amount
+  - net_amount_rate
+  - buy_elg_amount
+  - buy_elg_amount_rate
+  - buy_lg_amount
+  - buy_lg_amount_rate
+  - buy_md_amount
+  - buy_md_amount_rate
+  - buy_sm_amount
+  - buy_sm_amount_rate
   sort_by:
   - trade_date
 pagination:
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: reverse_date_range
+  window_size_days: 1
+  offset:
+    enabled: true
+    limit: 6000
+    commit_on_success: true   # 原子提交，确保单日数据完整性
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -30,6 +66,7 @@ parameters:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true      # 日期锚定参数，确保按日拆分请求
   ts_code:
     description: 股票代码
     required: false
@@ -42,3 +79,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: trade_date
+  stock_level_detection: false

@@ -5,6 +5,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class CacheWarmer:
     """全局缓存预热器 - 在程序启动时加载常用数据到内存"""
 
@@ -18,24 +19,27 @@ class CacheWarmer:
         if self.trade_calendar_cache is not None:
             return self.trade_calendar_cache
 
-        trade_cal_dir = os.path.join(self.data_dir, 'trade_cal')
+        trade_cal_dir = os.path.join(self.data_dir, "trade_cal")
 
         if not os.path.exists(trade_cal_dir):
             logger.warning(f"交易日历目录不存在: {trade_cal_dir}")
             return None
 
         try:
-            # 读取所有交易日历文件
-            df = pl.read_parquet(trade_cal_dir)
+            # ✅ 修复：使用scan_parquet并设置extra_columns='ignore'来处理schema不一致问题
+            df = (
+                pl.scan_parquet(trade_cal_dir, extra_columns="ignore")
+                .select(["cal_date", "is_open", "exchange"])
+                .collect()
+            )
 
             # 过滤有效交易日
             df = df.filter(
-                (pl.col('is_open') == 1) &
-                (pl.col('exchange') == 'SSE')
-            ).select(['cal_date', 'is_open', 'exchange'])
+                (pl.col("is_open") == 1) & (pl.col("exchange") == "SSE")
+            ).select(["cal_date", "is_open", "exchange"])
 
             # 去重并排序
-            df = df.unique(subset=['cal_date'], keep='last').sort('cal_date')
+            df = df.unique(subset=["cal_date"], keep="last").sort("cal_date")
 
             # 转换为字典列表
             self.trade_calendar_cache = df.to_dicts()
@@ -53,26 +57,50 @@ class CacheWarmer:
         if self.stock_list_cache is not None:
             return self.stock_list_cache
 
-        stock_basic_dir = os.path.join(self.data_dir, 'stock_basic')
+        stock_basic_dir = os.path.join(self.data_dir, "stock_basic")
 
         if not os.path.exists(stock_basic_dir):
             logger.warning(f"股票列表目录不存在: {stock_basic_dir}")
             return None
 
         try:
-            # 读取股票列表
-            df = pl.read_parquet(stock_basic_dir)
+            # [优化] 使用 scan_parquet + fetch 来只获取列名，不加载所有数据
+            lazy_df = pl.scan_parquet(stock_basic_dir)
+            # 使用 fetch(1) 只读取一行来获取 schema
+            sample_schema = lazy_df.fetch(1).schema
+            existing_columns = set(sample_schema.keys())
+
+            # 定义期望读取的列（按优先级排序）
+            desired_columns = [
+                "ts_code",
+                "symbol",
+                "name",
+                "area",
+                "industry",
+                "cnspell",
+                "market",
+                "list_date",
+                "act_name",
+                "act_ent_type",
+                "exchange",
+                "list_status",
+                "is_hs",
+                "delist_date",
+                "list_date_dt",
+                "_update_time",
+            ]
+
+            # 只读取实际存在的列
+            actual_columns = [col for col in desired_columns if col in existing_columns]
+
+            # 重新读取，只包含存在的列
+            df = pl.read_parquet(stock_basic_dir, columns=actual_columns)
 
             # 过滤有效股票
-            # 检查 'status' 列是否存在，如果不存在则使用 'list_status'
-            if 'status' in df.columns:
-                df = df.filter(pl.col('status') == 'L')  # 只保留上市股票
-            elif 'list_status' in df.columns:
-                df = df.filter(pl.col('list_status') == 'L')  # 只保留上市股票
+            if "list_status" in df.columns:
+                df = df.filter(pl.col("list_status") == "L")
             else:
-                # 如果两个字段都不存在，则不过滤，返回所有股票
-                logger.warning("Neither 'status' nor 'list_status' column found, returning all stocks")
-                pass
+                logger.warning("'list_status' column not found, returning all stocks")
 
             # 转换为字典列表
             self.stock_list_cache = df.to_dicts()
@@ -85,15 +113,18 @@ class CacheWarmer:
             logger.error(f"预加载股票列表失败: {str(e)}")
             return None
 
-    def get_trade_calendar(self, start_date: str, end_date: str) -> Optional[List[Dict[str, Any]]]:
+    def get_trade_calendar(
+        self, start_date: str, end_date: str
+    ) -> Optional[List[Dict[str, Any]]]:
         """从缓存获取指定日期范围的交易日历"""
         if self.trade_calendar_cache is None:
             return None
 
         # 过滤日期范围
         filtered = [
-            day for day in self.trade_calendar_cache
-            if start_date <= day['cal_date'] <= end_date
+            day
+            for day in self.trade_calendar_cache
+            if start_date <= day["cal_date"] <= end_date
         ]
 
         return filtered if filtered else None

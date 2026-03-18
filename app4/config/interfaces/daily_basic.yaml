@@ -1,23 +1,25 @@
 api_name: daily_basic
 
-# fields 配置：如果需要额外字段，请取消注释并配置
-# fields:
-#   - close         # 当日收盘价
-#   - turnover_rate # 换手率
-#   - turnover_rate_f # 换手率(自由流通股)
-#   - volume_ratio # 量比
-#   - pe           # 市盈率
-#   - pe_ttm       # 市盈率TTM
-#   - pb           # 市净率
-#   - ps           # 市销率
-#   - ps_ttm       # 市销率TTM
-#   - dv_ratio   # 股息率
-#   - dv_ttm     # 股息率TTM
-#   - total_share # 总股本
-#   - float_share # 流通股本
-#   - free_share  # 自由流通股本
-#   - total_mv    # 总市值
-#   - circ_mv     # 流通市值
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - trade_date        # 交易日期
+  - close             # 收盘价
+  - turnover_rate     # 换手率（%）
+  - turnover_rate_f   # 换手率（自由流通股）
+  - volume_ratio      # 量比
+  - pe                # 市盈率（总市值/净利润）
+  - pe_ttm            # 市盈率TTM
+  - pb                # 市净率（总市值/净资产）
+  - ps                # 市销率
+  - ps_ttm            # 市销率TTM
+  - dv_ratio          # 股息率（%）
+  - dv_ttm            # 股息率TTM（%）
+  - total_share       # 总股本（万股）
+  - float_share       # 流通股本（万股）
+  - free_share        # 自由流通股本（万）
+  - total_mv          # 总市值（万元）
+  - circ_mv           # 流通市值（万元）
 
 derived_fields:
   trade_date_dt:
@@ -31,12 +33,32 @@ output:
   primary_key:
   - ts_code
   - trade_date
+  - close
+  - turnover_rate
+  - turnover_rate_f
+  - volume_ratio
+  - pe
+  - pe_ttm
+  - pb
+  - ps
+  - ps_ttm
+  - dv_ratio
+  - dv_ttm
+  - total_share
+  - float_share
+  - free_share
+  - total_mv
+  - circ_mv
   sort_by:
   - trade_date
 pagination:
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: reverse_date_range
+  window_size_days: 1
+  offset:
+    enabled: true
+    limit: 6000
+    commit_on_success: true   # 原子提交，确保单日数据完整性
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -50,6 +72,7 @@ parameters:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true      # 日期锚定参数，确保按日拆分请求
   ts_code:
     description: 股票代码
     required: false

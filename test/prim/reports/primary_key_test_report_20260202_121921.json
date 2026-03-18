@@ -1,0 +1,32 @@
+{
+  "timestamp": "20260202_121921",
+  "summary": {
+    "total_interfaces": 1,
+    "passed": 1,
+    "passed_with_duplicates": 0,
+    "failed": 0,
+    "error": 0
+  },
+  "results": [
+    {
+      "interface": "cashflow_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 80,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    }
+  ]
+}

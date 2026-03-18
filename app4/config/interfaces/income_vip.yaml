@@ -18,22 +18,116 @@ derived_fields:
 description: 利润表(VIP) - 按季度获取全部上市公司数据
 duplicate_detection:
   enabled: true
-  key_column: period
-  mode: set
+  date_column: "end_date"
 name: income_vip
 output:
   dedup_enabled: true
   primary_key:
   - ts_code
   - ann_date
+  - f_ann_date
   - end_date
+  - report_type
+  - comp_type
+  - end_type
+  - basic_eps
+  - diluted_eps
+  - total_revenue
+  - revenue
+  - int_income
+  - prem_earned
+  - comm_income
+  - n_commis_income
+  - n_oth_income
+  - n_oth_b_income
+  - prem_income
+  - out_prem
+  - une_prem_reser
+  - reins_income
+  - n_sec_tb_income
+  - n_sec_uw_income
+  - n_asset_mg_income
+  - oth_b_income
+  - fv_value_chg_gain
+  - invest_income
+  - ass_invest_income
+  - forex_gain
+  - total_cogs
+  - oper_cost
+  - int_exp
+  - comm_exp
+  - biz_tax_surchg
+  - sell_exp
+  - admin_exp
+  - fin_exp
+  - assets_impair_loss
+  - prem_refund
+  - compens_payout
+  - reser_insur_liab
+  - div_payt
+  - reins_exp
+  - oper_exp
+  - compens_payout_refu
+  - insur_reser_refu
+  - reins_cost_refund
+  - other_bus_cost
+  - operate_profit
+  - non_oper_income
+  - non_oper_exp
+  - nca_disploss
+  - total_profit
+  - income_tax
+  - n_income
+  - n_income_attr_p
+  - minority_gain
+  - oth_compr_income
+  - t_compr_income
+  - compr_inc_attr_p
+  - compr_inc_attr_m_s
+  - ebit
+  - ebitda
+  - insurance_exp
+  - undist_profit
+  - distable_profit
+  - rd_exp
+  - fin_exp_int_exp
+  - fin_exp_int_inc
+  - transfer_surplus_rese
+  - transfer_housing_imprest
+  - transfer_oth
+  - adj_lossgain
+  - withdra_legal_surplus
+  - withdra_legal_pubfund
+  - withdra_biz_devfund
+  - withdra_rese_fund
+  - withdra_oth_ersu
+  - workers_welfare
+  - distr_profit_shrhder
+  - prfshare_payable_dvd
+  - comshare_payable_dvd
+  - capit_comstock_div
+  - net_after_nr_lp_correct
+  - credit_impa_loss
+  - net_expo_hedging_benefits
+  - oth_impair_loss_assets
+  - total_opcost
+  - amodcost_fin_assets
+  - oth_income
+  - asset_disp_income
+  - continued_net_profit
+  - end_net_profit
+  - update_flag
   sort_by:
   - ann_date
   - end_date
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 3650
+  mode: period_range
+  periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
+  offset:
+    enabled: true
+    limit: 9000
+    commit_on_success: true
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
@@ -47,6 +141,7 @@ parameters:
     description: 报告期结束日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
   f_ann_date:
     description: 实际公告日期 YYYYMMDD
     required: false
@@ -63,6 +158,7 @@ parameters:
     description: 报告期开始日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false  # 明确标识为日期范围参数，不是锚定参数
   ts_code:
     description: 股票代码(可选，不填则获取全部股票)
     required: false
@@ -80,8 +176,9 @@ fields:
   ann_date: string
   f_ann_date: string
   end_date: string
-  comp_type: Int64
   report_type: string
+  comp_type: string
+  end_type: string
   basic_eps: Float64
   diluted_eps: Float64
   total_revenue: Float64
@@ -100,10 +197,10 @@ fields:
   n_sec_uw_income: Float64
   n_asset_mg_income: Float64
   oth_b_income: Float64
-  fv_value_chg: Float64
+  fv_value_chg_gain: Float64
   invest_income: Float64
   ass_invest_income: Float64
-  forex_income: Float64
+  forex_gain: Float64
   total_cogs: Float64
   oper_cost: Float64
   int_exp: Float64
@@ -112,7 +209,7 @@ fields:
   sell_exp: Float64
   admin_exp: Float64
   fin_exp: Float64
-  assets_impair: Float64
+  assets_impair_loss: Float64
   prem_refund: Float64
   compens_payout: Float64
   reser_insur_liab: Float64
@@ -140,7 +237,32 @@ fields:
   ebitda: Float64
   insurance_exp: Float64
   undist_profit: Float64
-  dist_to_d_continu_oper: Float64
-  dist_to_p_fix_int_payable: Float64
-  dist_to_min_inter: Float64
+  distable_profit: Float64
+  rd_exp: Float64
+  fin_exp_int_exp: Float64
+  fin_exp_int_inc: Float64
+  transfer_surplus_rese: Float64
+  transfer_housing_imprest: Float64
+  transfer_oth: Float64
+  adj_lossgain: Float64
+  withdra_legal_surplus: Float64
+  withdra_legal_pubfund: Float64
+  withdra_biz_devfund: Float64
+  withdra_rese_fund: Float64
+  withdra_oth_ersu: Float64
+  workers_welfare: Float64
+  distr_profit_shrhder: Float64
+  prfshare_payable_dvd: Float64
+  comshare_payable_dvd: Float64
+  capit_comstock_div: Float64
+  net_after_nr_lp_correct: Float64
+  credit_impa_loss: Float64
+  net_expo_hedging_benefits: Float64
+  oth_impair_loss_assets: Float64
+  total_opcost: Float64
+  amodcost_fin_assets: Float64
+  oth_income: Float64
+  asset_disp_income: Float64
+  continued_net_profit: Float64
+  end_net_profit: Float64
   update_flag: string

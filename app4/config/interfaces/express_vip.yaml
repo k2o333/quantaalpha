@@ -1,4 +1,16 @@
 api_name: express_vip
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - revenue           # 营业收入（万元）
+  - operate_profit     # 营业利润（万元）
+  - total_profit      # 利润总额（万元）
+  - n_income          # 净利润（万元）
+  - total_assets      # 总资产（万元）
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -17,31 +29,40 @@ output:
   - ts_code
   - ann_date
   - end_date
+  - revenue
+  - operate_profit
+  - total_profit
+  - n_income
+  - total_assets
   sort_by:
   - ann_date
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  mode: period_range
+  periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
+  offset:
+    enabled: true
+    limit: 1500
+    commit_on_success: true
 parameters:
-  ann_date:
-    description: 公告日期 YYYYMMDD
-    required: false
-    type: string
-  end_date:
-    description: 公告结束日期 YYYYMMDD
+  ts_code:
+    description: 股票代码(可选，不填则获取全部股票)
     required: false
     type: string
   period:
     description: 报告期 YYYYMMDD
     required: false
     type: string
+  ann_date:
+    description: 公告日期 YYYYMMDD
+    required: false
+    type: string
   start_date:
     description: 公告开始日期 YYYYMMDD
     required: false
     type: string
-  ts_code:
-    description: 股票代码(可选，不填则获取全部股票)
+  end_date:
+    description: 公告结束日期 YYYYMMDD
     required: false
     type: string
 permissions:

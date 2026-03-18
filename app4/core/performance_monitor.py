@@ -97,6 +97,13 @@ class PerformanceMonitor:
         """保存详细报告"""
         summary = self.get_summary()
 
+        if filepath.endswith('.json'):
+            self._save_json_report(filepath, summary)
+        else:
+            self._save_markdown_report(filepath, summary)
+
+    def _save_markdown_report(self, filepath: str, summary: Dict[str, Any]):
+        """保存 Markdown 格式的报告"""
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write("# 性能监控报告\n\n")
             f.write(f"生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -114,3 +121,28 @@ class PerformanceMonitor:
                 f.write(f"- 平均记录数: {stats['avg_records']:.0f}条\n\n")
 
         logger.info(f"性能报告已保存: {filepath}")
+
+    def _save_json_report(self, filepath: str, summary: Dict[str, Any]):
+        """保存 JSON 格式的报告"""
+        report_data = {
+            'generated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'total_runtime_seconds': time.time() - self.start_time,
+            'total_requests': len(self.metrics),
+            'summary': summary,
+            'raw_metrics': [
+                {
+                    'interface': metric.interface,
+                    'duration': metric.duration,
+                    'record_count': metric.record_count,
+                    'retry_count': metric.retry_count,
+                    'window_start': metric.window_start,
+                    'window_end': metric.window_end,
+                    'timestamp': metric.timestamp
+                } for metric in self.metrics
+            ]
+        }
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"JSON性能报告已保存: {filepath}")

@@ -1,0 +1,416 @@
+{
+  "fina_mainbz_vip_20241231": {
+    "interface_name": "fina_mainbz_vip",
+    "period": "20241231",
+    "difference": 14,
+    "primary_keys": [
+      "ts_code",
+      "end_date",
+      "bz_item"
+    ],
+    "duplicate_pairs": []
+  },
+  "balancesheet_vip_20250630": {
+    "interface_name": "balancesheet_vip",
+    "period": "20250630",
+    "difference": 5,
+    "primary_keys": [
+      "ts_code",
+      "ann_date",
+      "end_date",
+      "update_flag"
+    ],
+    "duplicate_pairs": []
+  },
+  "balancesheet_vip_20250930": {
+    "interface_name": "balancesheet_vip",
+    "period": "20250930",
+    "difference": 1,
+    "primary_keys": [
+      "ts_code",
+      "ann_date",
+      "end_date",
+      "update_flag"
+    ],
+    "duplicate_pairs": [
+      {
+        "primary_key": {
+          "ts_code": "874382.BJ",
+          "ann_date": "20251030",
+          "end_date": "20250930",
+          "update_flag": "1"
+        },
+        "record_count": 2,
+        "field_differences": {
+          "total_assets": [
+            1623982591.72,
+            1624032908.64
+          ],
+          "total_liab": [
+            485595272.05,
+            485537018.2
+          ],
+          "total_cur_liab": [
+            374376109.96,
+            374317856.11
+          ]
+        },
+        "sample_records": [
+          {
+            "ts_code": "874382.BJ",
+            "ann_date": "20251030",
+            "end_date": "20250930",
+            "comp_type": "1",
+            "report_type": "1",
+            "total_share": 187500000.0,
+            "total_assets": 1623982591.72,
+            "const_materials": null,
+            "r_and_d": null,
+            "total_liab": 485595272.05,
+            "total_cur_liab": 374376109.96,
+            "treasury_share": null,
+            "update_flag": "1",
+            "_pk": {
+              "ts_code": "874382.BJ",
+              "ann_date": "20251030",
+              "end_date": "20250930",
+              "update_flag": "1"
+            },
+            "_is_pk_dup": true
+          },
+          {
+            "ts_code": "874382.BJ",
+            "ann_date": "20251030",
+            "end_date": "20250930",
+            "comp_type": "1",
+            "report_type": "1",
+            "total_share": 187500000.0,
+            "total_assets": 1624032908.64,
+            "const_materials": null,
+            "r_and_d": null,
+            "total_liab": 485537018.2,
+            "total_cur_liab": 374317856.11,
+            "treasury_share": null,
+            "update_flag": "1",
+            "_pk": {
+              "ts_code": "874382.BJ",
+              "ann_date": "20251030",
+              "end_date": "20250930",
+              "update_flag": "1"
+            },
+            "_is_pk_dup": true
+          }
+        ]
+      }
+    ]
+  },
+  "forecast_vip_20241231": {
+    "interface_name": "forecast_vip",
+    "period": "20241231",
+    "difference": 4,
+    "primary_keys": [
+      "ts_code",
+      "ann_date",
+      "end_date",
+      "update_flag"
+    ],
+    "duplicate_pairs": [
+      {
+        "primary_key": {
+          "ts_code": "600588.SH",
+          "ann_date": "20250124",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "record_count": 2,
+        "field_differences": {
+          "type": [
+            "续亏",
+            "扭亏"
+          ],
+          "p_change_min": [
+            -98.5173,
+            277.8384
+          ],
+          "net_profit_max": [
+            -172000.0,
+            192000.0
+          ],
+          "net_profit_min": [
+            -192000.0,
+            172000.0
+          ],
+          "p_change_max": [
+            -77.8384,
+            298.5173
+          ],
+          "summary": [
+            "预计:净利润-192000--172000",
+            "预计净利润172000-192000万"
+          ]
+        },
+        "sample_records": [
+          {
+            "ts_code": "600588.SH",
+            "ann_date": "20250124",
+            "end_date": "20241231",
+            "type": "续亏",
+            "p_change_min": -98.5173,
+            "p_change_max": -77.8384,
+            "net_profit_min": -192000.0,
+            "net_profit_max": -172000.0,
+            "last_parent_net": -96717.0,
+            "first_ann_date": "20250124",
+            "summary": "预计:净利润-192000--172000",
+            "change_reason": "1、受外部宏观环境影响，公司部分客户需求阶段性延后，导致公司全年签约金额同比下降。公司预计实现营业收入910,000万元到920,000万元，同比下降6.1%-7.1%。2、公司研发投入形成的无形资产摊销金额同比增加约30,000万元。3、公司控制人员规模，离职补偿金同比增加约14,000万元。报告期内，公司进一步打磨产品，发布了BIP3R6版本，成功上线招商局、中国西电、比亚迪、万达商管等一批战略级客户，替代国际厂商系统的产品能力进一步增强；加速拥抱AI，发布企业服务垂类大模型YonGPT2.0和多项智能服务，一批行业领先企业选择了用友的智能平台和服务；持续推进云服务优先、订阅优先的战略，订阅收入同比增长超25%；销售商品、提供劳务收到的现金超过960,000万元，保持基本稳定。报告期内，公司控制人员规模，员工数量相较2024年初减少约3,700人，成本费用控制取得一定成效，为2025年经营效益的改进提升建立了良好基础。2025年，公司将坚持客户成功、生态共荣、全球市场、AI至上、产品第一、交付革新的发展战略，以战略客户和区域客户两个层级并行推进行业化客户经营深化，拓宽收入渠道和来源，积极增长收入，实现效益化经营。",
+            "update_flag": "0",
+            "_pk": {
+              "ts_code": "600588.SH",
+              "ann_date": "20250124",
+              "end_date": "20241231",
+              "update_flag": "0"
+            },
+            "_is_pk_dup": true
+          },
+          {
+            "ts_code": "600588.SH",
+            "ann_date": "20250124",
+            "end_date": "20241231",
+            "type": "扭亏",
+            "p_change_min": 277.8384,
+            "p_change_max": 298.5173,
+            "net_profit_min": 172000.0,
+            "net_profit_max": 192000.0,
+            "last_parent_net": -96717.0,
+            "first_ann_date": "20250124",
+            "summary": "预计净利润172000-192000万",
+            "change_reason": "1、受外部宏观环境影响，公司部分客户需求阶段性延后，导致公司全年签约金额同比下降。公司预计实现营业收入910,000万元到920,000万元，同比下降6.1%-7.1%。2、公司研发投入形成的无形资产摊销金额同比增加约30,000万元。3、公司控制人员规模，离职补偿金同比增加约14,000万元。报告期内，公司进一步打磨产品，发布了BIP3R6版本，成功上线招商局、中国西电、比亚迪、万达商管等一批战略级客户，替代国际厂商系统的产品能力进一步增强；加速拥抱AI，发布企业服务垂类大模型YonGPT2.0和多项智能服务，一批行业领先企业选择了用友的智能平台和服务；持续推进云服务优先、订阅优先的战略，订阅收入同比增长超25%；销售商品、提供劳务收到的现金超过960,000万元，保持基本稳定。报告期内，公司控制人员规模，员工数量相较2024年初减少约3,700人，成本费用控制取得一定成效，为2025年经营效益的改进提升建立了良好基础。2025年，公司将坚持客户成功、生态共荣、全球市场、AI至上、产品第一、交付革新的发展战略，以战略客户和区域客户两个层级并行推进行业化客户经营深化，拓宽收入渠道和来源，积极增长收入，实现效益化经营。",
+            "update_flag": "0",
+            "_pk": {
+              "ts_code": "600588.SH",
+              "ann_date": "20250124",
+              "end_date": "20241231",
+              "update_flag": "0"
+            },
+            "_is_pk_dup": true
+          }
+        ]
+      },
+      {
+        "primary_key": {
+          "ts_code": "603906.SH",
+          "ann_date": "20250118",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "record_count": 2,
+        "field_differences": {
+          "type": [
+            "续亏",
+            "扭亏"
+          ],
+          "p_change_min": [
+            43.493,
+            148.2193
+          ],
+          "change_reason": [
+            "(一)主营业务影响2024 年度,由于新能源汽车产业链供需关系格局发生变化,锂电池材料产业链在行业底部区间持续运行,磷酸铁锂产品价格较 2023 年有较大幅度调整,叠加部分产品的存货跌价损失以及资产减值,商誉减值等事项影响,外加公司因计提港股上市费用和少数股东金融负债等原因产生了较大金额非经常性损益,尽管公司通过坚持产品差异化发展战略,积极寻求出海机遇,贯彻降本增效理念等减亏举措,仍在短期内难以扭转局势,导致公司 2024 年度业绩预计亏损.(二)非经常性损益的影响非经常性损益对公司业绩预亏没有重大影响.(三)会计处理的影响会计处理对公司业绩预亏没有重大影响.",
+            "（一）主营业务影响2024年度，由于新能源汽车产业链供需关系格局发生变化，锂电池材料产业链在行业底部区间持续运行，磷酸铁锂产品价格较2023年有较大幅度调整，叠加部分产品的存货跌价损失以及资产减值、商誉减值等事项影响，外加公司因计提港股上市费用和少数股东金融负债等原因产生了较大金额非经常性损益，尽管公司通过坚持产品差异化发展战略、积极寻求出海机遇、贯彻降本增效理念等减亏举措，仍在短期内难以扭转局势，导致公司2024年度业绩预计亏损。（二）非经常性损益的影响非经常性损益对公司业绩预亏没有重大影响。（三）会计处理的影响会计处理对公司业绩预亏没有重大影响。"
+          ],
+          "net_profit_max": [
+            -59470.0,
+            69691.0
+          ],
+          "net_profit_min": [
+            -69691.0,
+            59470.0
+          ],
+          "p_change_max": [
+            51.7807,
+            156.507
+          ],
+          "summary": [
+            "预计:净利润-69691--59470",
+            "预计净利润59470-69691万"
+          ]
+        },
+        "sample_records": [
+          {
+            "ts_code": "603906.SH",
+            "ann_date": "20250118",
+            "end_date": "20241231",
+            "type": "续亏",
+            "p_change_min": 43.493,
+            "p_change_max": 51.7807,
+            "net_profit_min": -69691.0,
+            "net_profit_max": -59470.0,
+            "last_parent_net": -123332.35,
+            "first_ann_date": "20250118",
+            "summary": "预计:净利润-69691--59470",
+            "change_reason": "(一)主营业务影响2024 年度,由于新能源汽车产业链供需关系格局发生变化,锂电池材料产业链在行业底部区间持续运行,磷酸铁锂产品价格较 2023 年有较大幅度调整,叠加部分产品的存货跌价损失以及资产减值,商誉减值等事项影响,外加公司因计提港股上市费用和少数股东金融负债等原因产生了较大金额非经常性损益,尽管公司通过坚持产品差异化发展战略,积极寻求出海机遇,贯彻降本增效理念等减亏举措,仍在短期内难以扭转局势,导致公司 2024 年度业绩预计亏损.(二)非经常性损益的影响非经常性损益对公司业绩预亏没有重大影响.(三)会计处理的影响会计处理对公司业绩预亏没有重大影响.",
+            "update_flag": "0",
+            "_pk": {
+              "ts_code": "603906.SH",
+              "ann_date": "20250118",
+              "end_date": "20241231",
+              "update_flag": "0"
+            },
+            "_is_pk_dup": true
+          },
+          {
+            "ts_code": "603906.SH",
+            "ann_date": "20250118",
+            "end_date": "20241231",
+            "type": "扭亏",
+            "p_change_min": 148.2193,
+            "p_change_max": 156.507,
+            "net_profit_min": 59470.0,
+            "net_profit_max": 69691.0,
+            "last_parent_net": -123332.35,
+            "first_ann_date": "20250118",
+            "summary": "预计净利润59470-69691万",
+            "change_reason": "（一）主营业务影响2024年度，由于新能源汽车产业链供需关系格局发生变化，锂电池材料产业链在行业底部区间持续运行，磷酸铁锂产品价格较2023年有较大幅度调整，叠加部分产品的存货跌价损失以及资产减值、商誉减值等事项影响，外加公司因计提港股上市费用和少数股东金融负债等原因产生了较大金额非经常性损益，尽管公司通过坚持产品差异化发展战略、积极寻求出海机遇、贯彻降本增效理念等减亏举措，仍在短期内难以扭转局势，导致公司2024年度业绩预计亏损。（二）非经常性损益的影响非经常性损益对公司业绩预亏没有重大影响。（三）会计处理的影响会计处理对公司业绩预亏没有重大影响。",
+            "update_flag": "0",
+            "_pk": {
+              "ts_code": "603906.SH",
+              "ann_date": "20250118",
+              "end_date": "20241231",
+              "update_flag": "0"
+            },
+            "_is_pk_dup": true
+          }
+        ]
+      },
+      {
+        "primary_key": {
+          "ts_code": "600268.SH",
+          "ann_date": "20240329",
+          "end_date": "20241231",
+          "update_flag": "1"
+        },
+        "record_count": 2,
+        "field_differences": {
+          "type": [
+            "略增",
+            "不确定"
+          ],
+          "summary": [
+            "预计:净利润27224",
+            "不确定"
+          ]
+        },
+        "sample_records": [
+          {
+            "ts_code": "600268.SH",
+            "ann_date": "20240329",
+            "end_date": "20241231",
+            "type": "略增",
+            "p_change_min": 20.0,
+            "p_change_max": 20.0,
+            "net_profit_min": 27224.0,
+            "net_profit_max": 27224.0,
+            "last_parent_net": 22686.6535,
+            "first_ann_date": "20240329",
+            "summary": "预计:净利润27224",
+            "change_reason": null,
+            "update_flag": "1",
+            "_pk": {
+              "ts_code": "600268.SH",
+              "ann_date": "20240329",
+              "end_date": "20241231",
+              "update_flag": "1"
+            },
+            "_is_pk_dup": true
+          },
+          {
+            "ts_code": "600268.SH",
+            "ann_date": "20240329",
+            "end_date": "20241231",
+            "type": "不确定",
+            "p_change_min": null,
+            "p_change_max": null,
+            "net_profit_min": null,
+            "net_profit_max": null,
+            "last_parent_net": 22686.6535,
+            "first_ann_date": "20240329",
+            "summary": "不确定",
+            "change_reason": null,
+            "update_flag": "1",
+            "_pk": {
+              "ts_code": "600268.SH",
+              "ann_date": "20240329",
+              "end_date": "20241231",
+              "update_flag": "1"
+            },
+            "_is_pk_dup": true
+          }
+        ]
+      },
+      {
+        "primary_key": {
+          "ts_code": "600268.SH",
+          "ann_date": "20240329",
+          "end_date": "20241231",
+          "update_flag": "0"
+        },
+        "record_count": 2,
+        "field_differences": {
+          "type": [
+            "略增",
+            "不确定"
+          ],
+          "summary": [
+            "预计:净利润27224",
+            "不确定"
+          ]
+        },
+        "sample_records": [
+          {
+            "ts_code": "600268.SH",
+            "ann_date": "20240329",
+            "end_date": "20241231",
+            "type": "略增",
+            "p_change_min": 20.0,
+            "p_change_max": 20.0,
+            "net_profit_min": 27224.0,
+            "net_profit_max": 27224.0,
+            "last_parent_net": 22686.6535,
+            "first_ann_date": "20240329",
+            "summary": "预计:净利润27224",
+            "change_reason": null,
+            "update_flag": "0",
+            "_pk": {
+              "ts_code": "600268.SH",
+              "ann_date": "20240329",
+              "end_date": "20241231",
+              "update_flag": "0"
+            },
+            "_is_pk_dup": true
+          },
+          {
+            "ts_code": "600268.SH",
+            "ann_date": "20240329",
+            "end_date": "20241231",
+            "type": "不确定",
+            "p_change_min": null,
+            "p_change_max": null,
+            "net_profit_min": null,
+            "net_profit_max": null,
+            "last_parent_net": 22686.6535,
+            "first_ann_date": "20240329",
+            "summary": "不确定",
+            "change_reason": null,
+            "update_flag": "0",
+            "_pk": {
+              "ts_code": "600268.SH",
+              "ann_date": "20240329",
+              "end_date": "20241231",
+              "update_flag": "0"
+            },
+            "_is_pk_dup": true
+          }
+        ]
+      }
+    ]
+  }
+}

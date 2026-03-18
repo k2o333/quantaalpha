@@ -1,5 +1,4 @@
 app:
-  name: "aspipe_v4"
   version: "4.0.0"
 
 tushare:
@@ -16,19 +15,19 @@ concurrency:
   max_queue_size: 1000
 
 request:
+  rate_limit: 250
   max_retries: 3
   retry_delay: 1.0
   timeout: 30
-
-cache:
-  directory: "cache"
-  ttl_hours: 24
-  max_size_gb: 10
+  jitter_min: 0.05
+  jitter_max: 0.15
 
 storage:
-  base_dir: "data"
+  base_dir: "/home/quan/testdata/aspipe_v4/data"
   format: "parquet"
   batch_size: 10000  # [优化] 从 1000 增大到 10000
+  # 新增：小数据量阈值，低于此值立即处理
+  small_batch_threshold: 100
 
 logging:
   level: "INFO"
@@ -36,73 +35,47 @@ logging:
   max_size_mb: 100
   backup_count: 5
 
+# 性能监控和报告配置
+performance:
+  enabled: true
+  auto_generate_report: true
+  output_format: "markdown"
+  output_dir: "log/reports/"
+  report_filename_prefix: "performance_report"
+
+# 缺口检测配置
+gap_detection:
+  enabled: true           # 是否启用缺口检测优化
+  min_gap_size: 3         # 最小空洞大小（交易日数），小于此阈值的空洞将被跳过
+  max_gaps: 50            # 最大缺口数量
+
 groups:
-  # 需要股票循环的接口组（默认起始日期19900101）
-  tscode_historical:
+  # 股票循环模式接口组 - 需要遍历每只股票
+  stock_loop:
     - stk_rewards
+    - cyq_chips
+    - fina_audit
+    - pledge_detail
+  
+  # 报告期范围模式接口组 - 按季度报告期获取数据
+  period_range:
     - income_vip
     - balancesheet_vip
     - cashflow_vip
     - forecast_vip
     - express_vip
     - fina_indicator_vip
-    - fina_audit
     - fina_mainbz_vip
     - disclosure_date
     - top10_floatholders
     - top10_holders
     - pledge_stat
-    - pledge_detail
-    - dividend  # 新增
-    - stk_factor
-    - stk_factor_pro
-
-  # 股东数据组
-  holders:
-    - top10_holders
-    - top10_floatholders
-    - stk_holdertrade
-    - pledge_detail
-    - pledge_stat
-    - share_float
-    - stk_rewards
-    - stk_managers
-    - stk_surv
-
-  # VIP财务数据组
-  financial_vip:
-    - income_vip
-    - balancesheet_vip
-    - cashflow_vip
-    - fina_indicator_vip
-    - fina_mainbz_vip
-    - express_vip
-    - forecast_vip
-
-  # 基础财务数据组
-  financial_basic:
-    - income
-    - balancesheet
-    - cashflow
-    - fina_indicator
-    - fina_mainbz
-    - fina_audit
-    - express
-    - forecast
-
-  # 日线市场数据组
-  daily:
-    - daily
+  
+  # 反向日期范围模式接口组 - 从最新日期向前遍历
+  reverse_date_range:
     - daily_basic
-    - pro_bar
-    - trade_cal
     - block_trade
-    - bak_daily
-    - bak_basic
     - suspend_d
-
-  # 资金流向数据组
-  moneyflow:
     - moneyflow
     - moneyflow_ths
     - moneyflow_dc
@@ -110,35 +83,127 @@ groups:
     - moneyflow_ind_dc
     - moneyflow_cnt_ths
     - moneyflow_mkt_dc
-
-  # 特色指标数据组
-  features:
-    - cyq_chips
     - cyq_perf
-    - stk_factor
-    - stk_factor_pro
-    - stk_premarket
-
-  # 公司信息数据组
-  company_info:
-    - stock_basic
-    - stock_company
     - namechange
     - new_share
-    - disclosure_date
-
-  # 其他数据组
-  others:
     - repurchase
-    - stock_hsgt
     - stock_st
-    - suspend_d
-    - bak_basic
-    - bak_daily
-    - report_rc  # 卖方盈利预测数据
-    - broker_recommend
     - dividend
-    - share_float
     - stk_holdertrade
     - stk_managers
     - stk_surv
+    - report_rc
+    - share_float
+    - stk_factor_pro
+  
+  # 日期范围模式接口组
+  date_range:
+    - trade_cal
+  
+  # 偏移量分页模式接口组
+  offset:
+    - stock_basic
+    - stock_company
+  
+  # 类型分割模式接口组
+  type_split:
+    - stock_hsgt
+  
+  # 无分页接口组
+  no_pagination:
+    - broker_recommend
+
+# 增量更新模块配置
+update:
+  # 默认更新策略
+  default_strategy:
+    start_date: "20000101"      # 默认起始日期
+    lookback_days: 7            # 回溯天数（处理数据延迟）
+    end_date: "today"           # 结束日期，支持 "today" 或具体日期
+
+  # 特殊接口配置
+  special_interfaces:
+    trade_cal:
+      start_date: "19900101"
+      update_frequency: "weekly"
+      date_column: "cal_date"
+
+    stock_basic:
+      start_date: "19900101"
+      update_frequency: "daily"
+      date_column: "list_date"
+
+    daily:
+      start_date: "20000101"
+      date_column: "trade_date"
+
+    daily_basic:
+      start_date: "20000101"
+      date_column: "trade_date"
+
+    # 财务数据类
+    income_vip:
+      date_column: "end_date"
+    balancesheet_vip:
+      date_column: "end_date"
+    cashflow_vip:
+      date_column: "end_date"
+    fina_indicator_vip:
+      date_column: "end_date"
+
+    # 股东数据类
+    top10_holders:
+      date_column: "end_date"
+    top10_floatholders:
+      date_column: "end_date"
+    stk_rewards:
+      date_column: "end_date"
+
+  # 排除接口（不自动更新）
+  excluded_interfaces:
+    - stock_basic      # 基础数据通常不需要频繁更新
+    - trade_cal        # 交易日历更新频率低
+
+  # 更新顺序（按依赖关系）
+  # 未在此列表中的接口按字母顺序排在最后
+  update_order:
+    - trade_cal
+    - stock_basic
+    - daily_basic
+    - moneyflow
+    - income_vip
+    - balancesheet_vip
+    - cashflow_vip
+    - fina_indicator_vip
+    - fina_mainbz_vip
+    - express_vip
+    - forecast_vip
+    - fina_audit
+    - disclosure_date
+    - top10_holders
+    - top10_floatholders
+    - pledge_stat
+    - pledge_detail
+    - dividend
+    - stk_rewards
+
+  # 报告配置
+  reporting:
+    enabled: true
+    output_format: "markdown"
+    save_report: true
+    report_dir: "log/update_reports/"
+    console_output: true
+
+  # 容错配置
+  fault_tolerance:
+    skip_on_error: true         # 出错时跳过继续
+    stop_on_storage_error: true # 存储错误时停止
+    max_consecutive_errors: 5   # 最大连续错误数
+
+  # 断点续传配置
+  checkpoint:
+    enabled: true               # 启用断点续传
+    file: "data/.update_checkpoint.json"  # 断点文件路径
+    interval: 10                # 每N个接口保存一次断点
+    auto_resume: true           # 启动时自动检测并恢复断点

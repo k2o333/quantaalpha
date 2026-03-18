@@ -1,4 +1,14 @@
 api_name: stock_hsgt
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - trade_date        # 交易日期
+  - type              # 类型
+  - name              # 股票名称
+  - type_name         # 类型名称
+
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -12,13 +22,17 @@ output:
   - ts_code
   - trade_date
   - type
+  - name
+  - type_name
+
   sort_by:
   - trade_date
   - ts_code
 pagination:
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: type_split
+  window_size_days: 1  # 每天每个分类请求一次，确保不超过 2000 条限制
+type_values: ['HK_SZ', 'SZ_HK', 'HK_SH', 'SH_HK']
 parameters:
   end_date:
     description: 结束时间

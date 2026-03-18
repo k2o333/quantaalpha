@@ -158,8 +158,12 @@ class DataDeduplicator:
             self.stats.add_warning("No duplicates found in data")
 
         if self.config['enable_stats']:
-            self.logger.debug(f"Deduplication completed: {self.stats.input_rows} -> {self.stats.output_rows} rows "
-                            f"({self.stats.get_dedup_rate():.2f}% dedup rate)")
+            # 使用 INFO 级别记录去重结果，提高可观测性
+            import logging
+            log_level = logging.INFO if self.stats.removed_rows > 0 else logging.DEBUG
+            self.logger.log(log_level,
+                           f"Deduplication completed: {self.stats.input_rows} -> {self.stats.output_rows} rows "
+                           f"({self.stats.get_dedup_rate():.2f}% dedup rate)")
 
         return result_df, self.stats
 
@@ -190,10 +194,16 @@ class DataDeduplicator:
                 # Keep the row with the latest date in the specified date field
                 date_field = self.config['date_field']
                 if date_field in df.columns:
-                    # Sort by date field in descending order and keep first
-                    deduplicated_df = df.sort(date_field, descending=True).unique(
+                    # Sort by primary keys first, then by date field in descending order
+                    # This ensures we keep the latest date for each unique combination of primary keys
+                    sort_cols = primary_keys + [date_field]
+                    sort_descending = [False] * len(primary_keys) + [True]  # Ascending for primary keys, descending for date
+                    deduplicated_df = df.sort(sort_cols, descending=sort_descending).unique(
                         subset=primary_keys, keep='first'
-                    ).sort(date_field, descending=False)  # Re-sort to ascending order
+                    )
+                    # Now sort back to a logical order (by date ascending)
+                    if date_field in deduplicated_df.columns:
+                        deduplicated_df = deduplicated_df.sort(date_field, descending=False)
                 else:
                     # Fallback to 'first' strategy if date field is missing
                     self.logger.warning(f"Date field '{date_field}' not found, using 'first' strategy")
@@ -309,12 +319,30 @@ def deduplicate_against_existing(
             stats.add_error(error_msg)
             return new_data, stats
 
+        # Ensure join key types match - convert to string if needed
+        # This handles cases like str vs cat type mismatch
+        new_data_aligned = new_data.clone()
+        existing_df_aligned = existing_df.clone()
+
+        for key in keys_to_use:
+            new_dtype = new_data_aligned[key].dtype
+            existing_dtype = existing_df_aligned[key].dtype
+
+            if new_dtype != existing_dtype:
+                # Convert both to string for join comparison
+                new_data_aligned = new_data_aligned.with_columns(
+                    pl.col(key).cast(pl.String).alias(key)
+                )
+                existing_df_aligned = existing_df_aligned.with_columns(
+                    pl.col(key).cast(pl.String).alias(key)
+                )
+
         # Perform anti-join to filter out existing records
         comparison_start = time.time()
 
         # Join new data with existing data to identify duplicates
-        joined = new_data.join(
-            existing_df.select(keys_to_use).unique(),
+        joined = new_data_aligned.join(
+            existing_df_aligned.select(keys_to_use).unique(),
             on=keys_to_use,
             how='anti'  # Keep only rows from new_data that don't exist in existing_data
         )

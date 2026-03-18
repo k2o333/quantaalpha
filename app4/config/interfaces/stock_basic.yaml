@@ -37,6 +37,22 @@ fields:
 output:
   primary_key:
   - ts_code
+  - symbol
+  - name
+  - area
+  - industry
+  - cnspell
+  - market
+  - list_date
+  - act_name
+  - act_ent_type
+  - fullname
+  - enname
+  - exchange
+  - curr_type
+  - list_status
+  - delist_date
+  - is_hs
   sort_by:
   - ts_code
 

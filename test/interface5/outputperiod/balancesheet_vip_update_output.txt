@@ -1,0 +1,92 @@
+2026-02-21 22:09:53,783 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-21 22:09:53,876 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-21 22:09:53,907 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-21 22:09:53,908 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-21 22:09:53,909 - core.storage - INFO - Storage writer and process threads started
+2026-02-21 22:09:53,909 - __main__ - INFO - Interfaces to update (after permission filter): ['balancesheet_vip']
+2026-02-21 22:09:53,909 - update.update_reporter - INFO - 更新开始: 2026-02-21 22:09:53
+2026-02-21 22:09:53,910 - update.update_manager - INFO - ============================================================
+2026-02-21 22:09:53,910 - update.update_manager - INFO - 开始增量更新
+2026-02-21 22:09:53,910 - update.update_manager - INFO - ============================================================
+2026-02-21 22:09:53,910 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-21 22:09:53,910 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-21 22:09:53,910 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-21 22:09:53,910 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-21 22:09:53,910 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-21 22:09:53,911 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-21 22:09:53,911 - update.update_manager - INFO - 
+[1/1] 处理接口: balancesheet_vip
+2026-02-21 22:09:53,911 - update.update_reporter - INFO - 开始更新接口: balancesheet_vip
+2026-02-21 22:09:53,915 - update.update_manager - INFO - 开始更新 balancesheet_vip: 20241001 ~ 20260221
+2026-02-21 22:09:53,917 - core.coverage_manager - INFO - Loaded 9 existing periods for balancesheet_vip
+2026-02-21 22:09:53,918 - update.update_manager - INFO - 开始下载 balancesheet_vip: 20241001 ~ 20260221
+2026-02-21 22:09:53,918 - core.pagination_executor - INFO - [balancesheet_vip] Skipping period 20241231 - already covered
+2026-02-21 22:09:53,918 - core.pagination_executor - INFO - [balancesheet_vip] Skipping period 20250331 - already covered
+2026-02-21 22:09:59,785 - core.downloader - INFO - API returned 13 fields for balancesheet_vip
+2026-02-21 22:09:59,785 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'comp_type', 'report_type', 'total_share', 'total_assets', 'const_materials', 'r_and_d', 'total_liab', 'total_cur_liab', 'treasury_share', 'update_flag']
+2026-02-21 22:09:59,836 - core.downloader - INFO - Downloaded 6633 records for balancesheet_vip
+2026-02-21 22:09:59,934 - core.pagination_executor - INFO - [balancesheet_vip] Saved 6633 records for period 20250630
+2026-02-21 22:10:00,083 - core.processor - WARNING - Found 29 duplicate records for interface balancesheet_vip
+2026-02-21 22:10:00,094 - core.processor - INFO - Processed 6604 records for balancesheet_vip
+2026-02-21 22:10:00,150 - core.storage - INFO - Deduplication completed for balancesheet_vip: input=6604, output=6604, removed=0
+2026-02-21 22:10:00,179 - core.storage - INFO - Processed and queued 6604 records for balancesheet_vip
+2026-02-21 22:10:00,308 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for balancesheet_vip，记录数: 6604
+2026-02-21 22:10:00,314 - core.storage - INFO - Wrote 6604 records to /home/quan/testdata/aspipe_v4/data/balancesheet_vip/balancesheet_vip_20250630_20250630_1771683000180_08b34179.parquet
+2026-02-21 22:10:04,348 - core.downloader - INFO - API returned 13 fields for balancesheet_vip
+2026-02-21 22:10:04,349 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'comp_type', 'report_type', 'total_share', 'total_assets', 'const_materials', 'r_and_d', 'total_liab', 'total_cur_liab', 'treasury_share', 'update_flag']
+2026-02-21 22:10:04,398 - core.downloader - INFO - Downloaded 5918 records for balancesheet_vip
+2026-02-21 22:10:04,486 - core.pagination_executor - INFO - [balancesheet_vip] Saved 5918 records for period 20250930
+2026-02-21 22:10:04,633 - core.processor - WARNING - Found 2 duplicate records for interface balancesheet_vip
+2026-02-21 22:10:04,645 - core.processor - INFO - Processed 5916 records for balancesheet_vip
+2026-02-21 22:10:04,704 - core.storage - INFO - Deduplication completed for balancesheet_vip: input=5916, output=5916, removed=0
+2026-02-21 22:10:04,729 - core.storage - INFO - Processed and queued 5916 records for balancesheet_vip
+2026-02-21 22:10:04,813 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for balancesheet_vip，记录数: 5916
+2026-02-21 22:10:04,819 - core.storage - INFO - Wrote 5916 records to /home/quan/testdata/aspipe_v4/data/balancesheet_vip/balancesheet_vip_20250930_20250930_1771683004735_d620a4b1.parquet
+2026-02-21 22:10:05,791 - core.downloader - INFO - API returned 13 fields for balancesheet_vip
+2026-02-21 22:10:05,791 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'end_date', 'comp_type', 'report_type', 'total_share', 'total_assets', 'const_materials', 'r_and_d', 'total_liab', 'total_cur_liab', 'treasury_share', 'update_flag']
+2026-02-21 22:10:05,792 - core.downloader - INFO - Downloaded 59 records for balancesheet_vip
+2026-02-21 22:10:05,794 - core.pagination_executor - INFO - [balancesheet_vip] Saved 59 records for period 20251231
+2026-02-21 22:10:05,799 - update.update_manager - INFO - 接口 balancesheet_vip 更新完成，共 12610 条记录，耗时 11.89秒
+2026-02-21 22:10:05,799 - update.update_reporter - INFO - ✓ balancesheet_vip: SUCCESS (12610 条记录) [11.89s]
+2026-02-21 22:10:05,800 - update.update_reporter - INFO - 更新结束: 2026-02-21 22:10:05
+2026-02-21 22:10:05,812 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-21 22:10:05,813 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-21 22:10:05,826 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260221_221005.markdown
+2026-02-21 22:10:05,827 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-21 22:10:05,827 - __main__ - INFO - 正在停止调度器...
+2026-02-21 22:10:05,827 - core.scheduler - INFO - Task scheduler stopped
+2026-02-21 22:10:05,828 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-21 22:10:05,828 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-21 22:10:05,833 - core.processor - INFO - Processed 59 records for balancesheet_vip
+2026-02-21 22:10:05,856 - core.storage - INFO - Deduplication completed for balancesheet_vip: input=59, output=59, removed=0
+2026-02-21 22:10:05,860 - core.storage - INFO - Processed and queued 59 records for balancesheet_vip
+2026-02-21 22:10:05,869 - core.storage - INFO - Stopping writer thread...
+2026-02-21 22:10:05,891 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for balancesheet_vip，记录数: 59
+2026-02-21 22:10:05,893 - core.storage - INFO - Wrote 59 records to /home/quan/testdata/aspipe_v4/data/balancesheet_vip/balancesheet_vip_20251231_20251231_1771683005867_764d9320.parquet
+2026-02-21 22:10:05,895 - core.storage - INFO - Storage threads stopped
+2026-02-21 22:10:05,895 - __main__ - INFO - 限流统计: 总请求=3, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-21 22:10:05,895 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-21 22:09:53
+- **结束时间**: 2026-02-21 22:10:05
+- **总耗时**: 11.9秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 12610
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| balancesheet_vip | ✓ 成功 | 20241001 ~ 20260221 | 12610 | 11.89s |  |
+
+============================================================

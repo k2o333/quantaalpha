@@ -29,6 +29,9 @@ class SchemaManager:
     def load_derived_fields_config(interface_name: str) -> Dict[str, Any]:
         """加载转化字段配置"""
         config_file = SchemaManager._get_config_file_path(interface_name)
+        if not os.path.exists(config_file):
+            logger.warning(f"Derived fields config not found for interface: {interface_name}")
+            return {}
         with open(config_file, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
         return config.get('derived_fields', {})
@@ -94,6 +97,23 @@ class SchemaManager:
         return cleaned_data
 
     @staticmethod
+    def _auto_cast_numeric_columns(df: pl.DataFrame) -> pl.DataFrame:
+        exclude_keywords = ['code', 'date', 'name']
+        for col_name in df.columns:
+            if df[col_name].dtype != pl.String:
+                continue
+            lower_name = col_name.lower()
+            if any(keyword in lower_name for keyword in exclude_keywords):
+                continue
+            numeric_series = df[col_name].cast(pl.Float64, strict=False)
+            if df.height == 0:
+                continue
+            non_null_ratio = (df.height - numeric_series.null_count()) / df.height
+            if non_null_ratio >= 0.9:
+                df = df.with_columns(numeric_series.alias(col_name))
+        return df
+
+    @staticmethod
     def create_dataframe(data: List[Dict[str, Any]], interface_name: str) -> pl.DataFrame:
         """混合策略：先尝试预定义schema，失败后回退到智能推断，再回退到宽松模式"""
         if not data:
@@ -104,20 +124,22 @@ class SchemaManager:
         logger.debug(f"清理空字符串后，数据量: {len(data)}")
 
         try:
-            # 尝试1：使用预定义schema
             predefined_schema = SchemaManager.load_schema(interface_name)
+            data_length = len(data)
+            infer_length = min(data_length, 10000 if data_length > 10000 else data_length)
             if predefined_schema:
                 logger.debug(f"使用预定义 schema，字段数: {len(predefined_schema)}")
                 logger.debug(f"Schema 字段: {list(predefined_schema.keys())}")
 
-                # 先尝试使用预定义schema创建DataFrame
-                df = pl.DataFrame(data, schema=predefined_schema)
+                df = pl.DataFrame(data, infer_schema_length=infer_length)
+                for col_name, col_type in predefined_schema.items():
+                    if col_name in df.columns:
+                        df = df.with_columns([
+                            pl.col(col_name).cast(col_type, strict=False).alias(col_name)
+                        ])
                 logger.debug(f"成功创建 DataFrame，记录数: {len(df)}")
 
             else:
-                # 尝试2：智能推断，根据数据量动态调整，增加推断长度
-                data_length = len(data)
-                infer_length = min(data_length, 10000 if data_length > 10000 else data_length)
                 logger.debug(f"使用自动推断，推断长度: {infer_length}")
                 df = pl.DataFrame(data, infer_schema_length=infer_length)
                 logger.debug(f"成功创建 DataFrame，记录数: {len(df)}")
@@ -194,6 +216,8 @@ class SchemaManager:
             df = pl.DataFrame(data, infer_schema_length=min(len(data), 100000))
             logger.debug(f"安全模式：成功创建 DataFrame，记录数: {len(df)}")
 
+            df = SchemaManager._auto_cast_numeric_columns(df)
+
             # 应用衍生字段
             df = SchemaManager.apply_derived_fields(df, interface_name)
 
@@ -254,6 +278,10 @@ class SchemaManager:
 
         合并后，所有字段类型定义都保存在 interfaces 目录的配置文件中。
         该方法从接口配置中读取 fields 定义，用于创建精确类型的 DataFrame。
+
+        支持两种 fields 配置格式：
+        1. 字典格式（带类型）：{ts_code: string, ann_date: string, ...}
+        2. 列表格式（仅字段名）：[ts_code, symbol, ...] - 返回 None 让系统自动推断
         """
         config_file = SchemaManager._get_config_file_path(interface_name)
         if os.path.exists(config_file):
@@ -261,10 +289,22 @@ class SchemaManager:
             with open(config_file, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 fields = config.get('fields')
-                # 如果配置中没有fields键，或者fields为None，或者fields为空字典，则返回None
-                if fields is None or (isinstance(fields, dict) and len(fields) == 0):
+
+                # 如果配置中没有fields键，或者fields为None，或者fields为空字典/列表，则返回None
+                if fields is None:
                     return None
 
+                # 支持列表格式：[ts_code, symbol, ...]
+                # 列表格式没有类型信息，返回 None 让系统自动推断
+                if isinstance(fields, list):
+                    logger.debug(f"fields 配置为列表格式（无类型信息），使用自动推断 for {interface_name}")
+                    return None
+
+                # 支持空字典
+                if isinstance(fields, dict) and len(fields) == 0:
+                    return None
+
+                # 字典格式：{ts_code: string, ...}
                 # 将字符串类型转换为Polars类型
                 converted_fields = {}
                 type_mapping = {

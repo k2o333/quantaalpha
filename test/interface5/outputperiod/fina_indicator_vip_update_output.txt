@@ -1,0 +1,103 @@
+2026-02-21 22:10:14,240 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-21 22:10:14,334 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-21 22:10:14,366 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-21 22:10:14,367 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-21 22:10:14,369 - core.storage - INFO - Storage writer and process threads started
+2026-02-21 22:10:14,369 - __main__ - INFO - Interfaces to update (after permission filter): ['fina_indicator_vip']
+2026-02-21 22:10:14,369 - update.update_reporter - INFO - 更新开始: 2026-02-21 22:10:14
+2026-02-21 22:10:14,369 - update.update_manager - INFO - ============================================================
+2026-02-21 22:10:14,369 - update.update_manager - INFO - 开始增量更新
+2026-02-21 22:10:14,369 - update.update_manager - INFO - ============================================================
+2026-02-21 22:10:14,370 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-21 22:10:14,370 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-21 22:10:14,370 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-21 22:10:14,370 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-21 22:10:14,370 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-21 22:10:14,370 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-21 22:10:14,370 - update.update_manager - INFO - 
+[1/1] 处理接口: fina_indicator_vip
+2026-02-21 22:10:14,370 - update.update_reporter - INFO - 开始更新接口: fina_indicator_vip
+2026-02-21 22:10:14,374 - update.update_manager - INFO - 开始更新 fina_indicator_vip: 20241001 ~ 20260221
+2026-02-21 22:10:14,377 - core.coverage_manager - INFO - Loaded 4 existing periods for fina_indicator_vip
+2026-02-21 22:10:14,377 - update.update_manager - INFO - 开始下载 fina_indicator_vip: 20241001 ~ 20260221
+2026-02-21 22:10:48,134 - core.downloader - INFO - API returned 109 fields for fina_indicator_vip
+2026-02-21 22:10:48,134 - core.downloader - INFO - First 10 fields: ['ts_code', 'ann_date', 'end_date', 'eps', 'dt_eps', 'total_revenue_ps', 'revenue_ps', 'capital_rese_ps', 'surplus_rese_ps', 'undist_profit_ps']
+2026-02-21 22:10:48,135 - core.downloader - INFO - Last 10 fields: ['roe_yoy', 'bps_yoy', 'assets_yoy', 'eqt_yoy', 'tr_yoy', 'or_yoy', 'q_sales_yoy', 'q_op_qoq', 'equity_yoy', 'update_flag']
+2026-02-21 22:10:48,457 - core.downloader - INFO - Downloaded 7318 records for fina_indicator_vip
+2026-02-21 22:10:49,242 - core.pagination_executor - INFO - [fina_indicator_vip] Saved 7318 records for period 20241231
+2026-02-21 22:10:49,258 - core.pagination_executor - INFO - [fina_indicator_vip] Skipping period 20250331 - already covered
+2026-02-21 22:10:50,087 - core.processor - INFO - Processed 7318 records for fina_indicator_vip
+2026-02-21 22:10:50,263 - core.storage - INFO - Deduplication completed for fina_indicator_vip: input=7318, output=7318, removed=0
+2026-02-21 22:10:50,396 - core.storage - INFO - Processed and queued 7318 records for fina_indicator_vip
+2026-02-21 22:10:50,801 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for fina_indicator_vip，记录数: 7318
+2026-02-21 22:10:50,820 - core.storage - INFO - Wrote 7318 records to /home/quan/testdata/aspipe_v4/data/fina_indicator_vip/fina_indicator_vip_20250125_20260213_1771683050396_11386537.parquet
+2026-02-21 22:11:28,920 - core.downloader - INFO - API returned 109 fields for fina_indicator_vip
+2026-02-21 22:11:28,920 - core.downloader - INFO - First 10 fields: ['ts_code', 'ann_date', 'end_date', 'eps', 'dt_eps', 'total_revenue_ps', 'revenue_ps', 'capital_rese_ps', 'surplus_rese_ps', 'undist_profit_ps']
+2026-02-21 22:11:28,920 - core.downloader - INFO - Last 10 fields: ['roe_yoy', 'bps_yoy', 'assets_yoy', 'eqt_yoy', 'tr_yoy', 'or_yoy', 'q_sales_yoy', 'q_op_qoq', 'equity_yoy', 'update_flag']
+2026-02-21 22:11:29,242 - core.downloader - INFO - Downloaded 7882 records for fina_indicator_vip
+2026-02-21 22:11:30,015 - core.pagination_executor - INFO - [fina_indicator_vip] Saved 7882 records for period 20250630
+2026-02-21 22:11:30,832 - core.processor - INFO - Processed 7882 records for fina_indicator_vip
+2026-02-21 22:11:31,076 - core.storage - INFO - Deduplication completed for fina_indicator_vip: input=7882, output=7882, removed=0
+2026-02-21 22:11:31,215 - core.storage - INFO - Processed and queued 7882 records for fina_indicator_vip
+2026-02-21 22:11:31,616 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for fina_indicator_vip，记录数: 7882
+2026-02-21 22:11:31,635 - core.storage - INFO - Wrote 7882 records to /home/quan/testdata/aspipe_v4/data/fina_indicator_vip/fina_indicator_vip_20250715_20260213_1771683091234_e8da0208.parquet
+2026-02-21 22:11:58,100 - core.downloader - INFO - API returned 109 fields for fina_indicator_vip
+2026-02-21 22:11:58,101 - core.downloader - INFO - First 10 fields: ['ts_code', 'ann_date', 'end_date', 'eps', 'dt_eps', 'total_revenue_ps', 'revenue_ps', 'capital_rese_ps', 'surplus_rese_ps', 'undist_profit_ps']
+2026-02-21 22:11:58,101 - core.downloader - INFO - Last 10 fields: ['roe_yoy', 'bps_yoy', 'assets_yoy', 'eqt_yoy', 'tr_yoy', 'or_yoy', 'q_sales_yoy', 'q_op_qoq', 'equity_yoy', 'update_flag']
+2026-02-21 22:11:58,387 - core.downloader - INFO - Downloaded 6928 records for fina_indicator_vip
+2026-02-21 22:11:59,081 - core.pagination_executor - INFO - [fina_indicator_vip] Saved 6928 records for period 20250930
+2026-02-21 22:11:59,440 - core.processor - INFO - Filtered 20 records with null primary keys for interface fina_indicator_vip, kept 6908/6928
+2026-02-21 22:11:59,820 - core.processor - INFO - Processed 6908 records for fina_indicator_vip
+2026-02-21 22:12:00,043 - core.storage - INFO - Deduplication completed for fina_indicator_vip: input=6908, output=6908, removed=0
+2026-02-21 22:12:00,166 - core.storage - INFO - Processed and queued 6908 records for fina_indicator_vip
+2026-02-21 22:12:00,521 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for fina_indicator_vip，记录数: 6908
+2026-02-21 22:12:00,540 - core.storage - INFO - Wrote 6908 records to /home/quan/testdata/aspipe_v4/data/fina_indicator_vip/fina_indicator_vip_20251011_20260209_1771683120185_7904865e.parquet
+2026-02-21 22:12:00,551 - core.downloader - INFO - API returned 109 fields for fina_indicator_vip
+2026-02-21 22:12:00,552 - core.downloader - INFO - First 10 fields: ['ts_code', 'ann_date', 'end_date', 'eps', 'dt_eps', 'total_revenue_ps', 'revenue_ps', 'capital_rese_ps', 'surplus_rese_ps', 'undist_profit_ps']
+2026-02-21 22:12:00,552 - core.downloader - INFO - Last 10 fields: ['roe_yoy', 'bps_yoy', 'assets_yoy', 'eqt_yoy', 'tr_yoy', 'or_yoy', 'q_sales_yoy', 'q_op_qoq', 'equity_yoy', 'update_flag']
+2026-02-21 22:12:00,557 - core.downloader - INFO - Downloaded 62 records for fina_indicator_vip
+2026-02-21 22:12:00,571 - core.pagination_executor - INFO - [fina_indicator_vip] Saved 62 records for period 20251231
+2026-02-21 22:12:00,616 - update.update_manager - INFO - 接口 fina_indicator_vip 更新完成，共 22190 条记录，耗时 106.25秒
+2026-02-21 22:12:00,621 - update.update_reporter - INFO - ✓ fina_indicator_vip: SUCCESS (22190 条记录) [106.25s]
+2026-02-21 22:12:00,631 - update.update_reporter - INFO - 更新结束: 2026-02-21 22:12:00
+2026-02-21 22:12:00,631 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-21 22:12:00,634 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-21 22:12:00,635 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260221_221200.markdown
+2026-02-21 22:12:00,636 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-21 22:12:00,636 - __main__ - INFO - 正在停止调度器...
+2026-02-21 22:12:00,636 - core.scheduler - INFO - Task scheduler stopped
+2026-02-21 22:12:00,637 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-21 22:12:00,637 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-21 22:12:00,682 - core.processor - INFO - Processed 62 records for fina_indicator_vip
+2026-02-21 22:12:00,801 - core.storage - INFO - Deduplication completed for fina_indicator_vip: input=62, output=62, removed=0
+2026-02-21 22:12:00,827 - core.storage - INFO - Processed and queued 62 records for fina_indicator_vip
+2026-02-21 22:12:00,858 - core.storage - INFO - Stopping writer thread...
+2026-02-21 22:12:00,861 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for fina_indicator_vip，记录数: 62
+2026-02-21 22:12:00,868 - core.storage - INFO - Wrote 62 records to /home/quan/testdata/aspipe_v4/data/fina_indicator_vip/fina_indicator_vip_20260108_20260214_1771683120843_81cc557f.parquet
+2026-02-21 22:12:00,869 - core.storage - INFO - Storage threads stopped
+2026-02-21 22:12:00,869 - __main__ - INFO - 限流统计: 总请求=4, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-21 22:12:00,870 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-21 22:10:14
+- **结束时间**: 2026-02-21 22:12:00
+- **总耗时**: 1.8分钟
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 22190
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| fina_indicator_vip | ✓ 成功 | 20241001 ~ 20260221 | 22190 | 106.25s |  |
+
+============================================================

@@ -1,0 +1,1 @@
+iflow -p "$(cat '/home/quan/testdata/aspipe_v4/docs/drafts/prompts/2026-3-16/2026-3-17 16:04:37 copy')" -y --debug 2>&1 | tee "/home/quan/testdata/aspipe_v4/docs/drafts/output/$(date +%Y%m%d_%H%M%S)_iflow_full.txt"

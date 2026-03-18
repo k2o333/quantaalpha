@@ -1,0 +1,207 @@
+App4 空结果探测记录方案分析报告
+=====================================
+
+日期: 2026-03-15
+
+一、总体评价
+-----------
+
+草稿文档整体思路清晰，对问题的分析深入，方案设计合理。但经过代码库审查，
+发现以下几处与实际实现存在偏差或不合理的地方：
+
+
+二、主要问题及建议
+-----------------
+
+【问题1】stock_loop 接口的缺口检测逻辑已有实现，但文档未提及
+
+文档建议对 stock_loop 接口"第一批做同表空占位"，但实际上代码库中
+CoverageManager 已经实现了完整的股票级缺口检测逻辑：
+
+- detect_stock_gaps() 方法：统一入口，支持四种检测模式
+- _detect_trade_date_gaps()：类型A，交易日历检测（cyq_chips适用）
+- _detect_report_period_gaps()：类型B，报告期检测（fina_audit适用）
+- _detect_date_anchor_gaps()：类型C，日期锚定检测（stk_rewards适用）
+- _detect_no_date_filter_gaps()：类型D，无日期过滤（pledge_detail适用）
+
+建议：
+- 文档应明确说明：空占位方案是在现有缺口检测基础上的"补充"，而非"替代"
+- 空占位的核心价值是：缺口检测判断"需要下载"后，如果API返回空结果，
+  避免下次重复下载
+
+
+【问题2】cyq_chips 的最小键设计需考虑多行数据特性
+
+文档建议 cyq_chips 最小键为 `ts_code + trade_date`，但查看接口配置：
+
+```yaml
+output:
+  primary_key:
+  - ts_code
+  - trade_date
+  - price
+  - percent
+```
+
+实际主键包含 price 和 percent，因为同一股票同一天可能有多个筹码分布
+（不同成本价区间）。
+
+建议：
+- 空占位最小键仍使用 `ts_code + trade_date`（这是请求参数，不是存储主键）
+- 但需明确：空占位检测逻辑在 CoverageManager.should_skip() 层面，
+  而非存储层主键约束
+- 当前 should_skip() 的 stock 策略只检查 ts_code 存在性，
+  对于 cyq_chips 需要扩展为检查 ts_code + trade_date 组合
+
+
+【问题3】stk_rewards 的日期锚定逻辑与文档描述不一致
+
+文档建议 stk_rewards 最小键为 `ts_code + end_date`，但配置显示：
+
+```yaml
+parameters:
+  end_date:
+    is_date_anchor: true  # 标记为日期锚定参数
+```
+
+日期锚定接口的缺口检测走的是 `_detect_date_anchor_gaps()` 路径，
+而非 `_detect_report_period_gaps()` 路径。
+
+建议：
+- 文档应区分"报告期型 stock_loop"和"日期锚定型 stock_loop"
+- stk_rewards 属于日期锚定型，其空占位逻辑与报告期型有所不同
+- 日期锚定接口的空占位检测应在 should_skip() 中使用 date_anchor 策略
+
+
+【问题4】覆盖率检测策略与空占位的协作关系未明确
+
+当前 should_skip() 方法有以下策略：
+- date_range：范围覆盖率检测
+- period：报告期存在性检测
+- stock：股票存在性检测
+- date_anchor：日期锚定存在性检测
+
+但现有代码中，stock 策略只检查 ts_code 是否存在：
+
+```python
+def _check_stock_existence(self, interface_name, params):
+    # 只检查 ts_code 存在性
+    df = self.storage_manager.read_interface_data(
+        interface_name, columns=[key_column], unique=True
+    )
+    return target_stock in self._cache[cache_key]
+```
+
+建议：
+- 需要新增 stock_date 策略：检查 ts_code + date 组合存在性
+- 或扩展现有 stock 策略，支持传入额外日期参数进行联合检测
+
+
+【问题5】is_empty_probe 字段的实际写入时机未明确
+
+文档建议增加 is_empty_probe 字段标记空结果占位，但：
+
+1. 当前 StorageManager 没有空结果写入逻辑
+2. API 返回空结果时，流程直接跳过，不写入任何记录
+
+建议在代码层面明确：
+
+```python
+# 在 pagination_executor._execute_single_request() 中
+if not data:  # API返回空
+    if should_write_empty_probe(interface_config, params):
+        write_empty_probe_record(interface_name, params)
+    return []
+```
+
+需要新增配置项：
+```yaml
+duplicate_detection:
+  empty_probe_enabled: true
+  empty_probe_fields: [ts_code, trade_date]  # 空占位字段
+```
+
+
+【问题6】读取默认过滤的实现位置建议
+
+文档建议"所有业务读取默认加 is_empty_probe = 0"，但当前：
+
+- StorageManager.read_interface_data() 是通用读取入口
+- 直接修改会影响所有接口
+
+建议：
+- 方案A：新增参数 filter_empty_probe=True（默认过滤）
+- 方案B：在返回 DataFrame 后，下游业务层自行过滤
+- 方案C：使用视图层过滤（parquet 不支持，需在内存层处理）
+
+推荐方案A，修改签名：
+```python
+def read_interface_data(
+    self,
+    interface_name: str,
+    start_date: str = None,
+    end_date: str = None,
+    columns: Optional[List[str]] = None,
+    unique: bool = False,
+    filter_empty_probe: bool = True,  # 新增
+) -> pl.DataFrame:
+```
+
+
+【问题7】pledge_detail 的"无日期过滤"模式特殊处理
+
+文档建议 pledge_detail 最小键为 `ts_code`，但代码显示：
+
+```yaml
+pagination:
+  mode: stock_loop
+  # 无 time_range 配置
+```
+
+这类接口的特点：
+- 只传 ts_code，不传日期参数
+- 每次请求返回该股票的全部历史质押记录
+- 空结果意味着该股票没有任何质押记录
+
+建议：
+- 空占位检测应在请求前检查（避免重复请求）
+- 而非请求后检查（因为无法区分"无质押"和"数据未下载"）
+- 应使用 stock_level_detection 现有逻辑，而非空占位
+
+
+三、代码实现层面需要的修改
+-------------------------
+
+1. CoverageManager 扩展：
+   - 新增 should_skip_stock_date() 方法
+   - 新增 _check_stock_date_existence() 内部方法
+   - 扩展 should_skip() 支持 stock_date 策略
+
+2. StorageManager 扩展：
+   - 新增 write_empty_probe() 方法
+   - read_interface_data() 增加 filter_empty_probe 参数
+   - 新增 _build_empty_probe_record() 内部方法
+
+3. PaginationExecutor 扩展：
+   - _execute_single_request() 返回空时检查是否需要写空占位
+   - 新增 _should_write_empty_probe() 判断方法
+
+4. 配置文件扩展：
+   - duplicate_detection 新增 empty_probe 相关配置项
+
+
+四、总结
+--------
+
+文档的核心思路是正确的：
+1. 同表空占位避免删除文件不同步问题
+2. 只在 stock_loop 接口优先落地
+3. 区分不同类型的检测模式
+
+但需要补充：
+1. 与现有缺口检测逻辑的协作关系
+2. 具体代码实现位置和修改点
+3. 配置项设计
+4. pledge_detail 等特殊接口的专门处理
+
+建议将文档从"方案草案"升级为"实现规格书"，增加上述细节后再开始编码。

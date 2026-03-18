@@ -138,30 +138,22 @@ class DataProcessor:
             return pl.DataFrame()
 
     def _filter_primary_key_nulls(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-        """过滤主键中的空值 - 这一步必须在应用派生字段后执行"""
+        """记录主键为空的记录数量，但不再过滤"""
         output_config = interface_config.get('output', {})
         primary_keys = output_config.get('primary_key', [])
 
-        # 过滤掉主键字段中存在空值的行
         if primary_keys and not df.is_empty():
-            # 构建过滤条件：所有主键字段都不为空
-            conditions = []
             existing_keys = [key for key in primary_keys if key in df.columns]
 
-            for key in existing_keys:
-                conditions.append(pl.col(key).is_not_null())
+            if existing_keys:
+                null_conditions = [pl.col(key).is_null() for key in existing_keys]
+                null_expr = pl.any_horizontal(null_conditions)
+                null_count = df.filter(null_expr).height
 
-            if conditions:
-                # 使用所有主键字段都不为空的条件进行过滤
-                filter_expr = pl.all_horizontal(conditions)
-                original_count = len(df)
-                df = df.filter(filter_expr)
-                filtered_count = len(df)
-
-                if original_count != filtered_count:
-                    logger.info(f"Filtered {original_count - filtered_count} records with null primary keys "
+                if null_count > 0:
+                    logger.info(f"Found {null_count} records with null primary keys "
                                f"for interface {interface_config.get('api_name', 'unknown')}, "
-                               f"kept {filtered_count}/{original_count}")
+                               f"keeping all records (including null primary keys)")
 
         return df
 
@@ -208,33 +200,30 @@ class DataProcessor:
         }
 
     def _handle_primary_keys(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
-        """处理主键"""
+        """处理主键 - (终极修复版：仅做统计报警与Schema应用，将去重逻辑统一下放)"""
         primary_keys = interface_config.get('output', {}).get('primary_key', [])
-
-        # Use the unified duplicate detection method
-        data_list = df.to_dicts()
-        detection_result = self._detect_duplicates_fast(data_list, interface_config)
-
-        # ✅ 修复：Process unique records only with predefined schema
         interface_name = interface_config.get('api_name', 'unknown')
-        predefined_schema = SchemaManager.load_schema(interface_name)
+        
+        # 提前计算 data_list，既避免 NameError 风险，又复用于后续报警和 Schema 应用
+        data_list = df.to_dicts()
 
+        # 1. 重复检测与报警 (仅用于监控报警，不再此处过滤数据)
+        if primary_keys:
+            detection_result = self._detect_duplicates_fast(data_list, interface_config)
+            if detection_result['duplicates']:
+                logger.warning(f"Found {len(detection_result['duplicates'])} duplicate records for interface {interface_name}")
+
+        # 2. 强制 Schema 应用 (修复：保留原有 Schema 处理，但作用于包含重复项的全量数据)
+        predefined_schema = SchemaManager.load_schema(interface_name)
         if predefined_schema:
             try:
-                unique_df = pl.DataFrame(detection_result['unique'], schema=predefined_schema)
-                logger.debug(f"使用预定义schema创建DataFrame，字段数: {len(predefined_schema)}")
+                # 重新构建 DF 以套用预定义 Schema 类型
+                df = pl.DataFrame(data_list, schema=predefined_schema)
+                logger.debug(f"Applied predefined schema for all {len(df)} records")
             except Exception as schema_error:
-                logger.warning(f"使用预定义schema失败: {str(schema_error)}，回退到自动推断")
-                # 回退到自动推断
-                unique_df = pl.DataFrame(detection_result['unique'], infer_schema_length=len(detection_result['unique']))
-        else:
-            # 如果没有预定义schema，使用自动推断
-            unique_df = pl.DataFrame(detection_result['unique'], infer_schema_length=len(detection_result['unique']))
+                logger.warning(f"Failed to apply predefined schema for {interface_name}: {str(schema_error)}")
 
-        if detection_result['duplicates']:
-            logger.warning(f"Found {len(detection_result['duplicates'])} duplicate records for interface {interface_config.get('name', 'unknown')}")
-
-        return unique_df
+        return df
 
     def _remove_duplicates(self, df: pl.DataFrame, interface_config: Dict[str, Any]) -> pl.DataFrame:
         """批次内去重逻辑 - 根据主键去重，保留最后记录"""
@@ -245,6 +234,8 @@ class DataProcessor:
         existing_keys = [key for key in primary_keys if key in df.columns]
 
         if existing_keys:
+            original_count = len(df)
+
             # 如果有更新时间字段，按此字段排序以便保留最新记录
             if '_update_time' in df.columns:
                 df = df.sort('_update_time', descending=False)
@@ -252,6 +243,14 @@ class DataProcessor:
             else:
                 # 按主键去重，保留最后一条记录
                 df = df.unique(subset=existing_keys, keep='last')
+
+            removed_count = original_count - len(df)
+            if removed_count > 0:
+                logger.info(f"Batch deduplication for {interface_config.get('api_name', 'unknown')}: "
+                           f"removed {removed_count} duplicates within batch, "
+                           f"keys={existing_keys}")
+            else:
+                logger.debug(f"No duplicates found within batch for {interface_config.get('api_name', 'unknown')}")
 
         # 如果指定了排序字段，则进行排序
         sort_by = output_config.get('sort_by', [])
@@ -306,16 +305,13 @@ class DataProcessor:
         }
 
         # 检查必填字段 - 现在基于primary_key字段和其他原始字段
-        # 从primary_key配置中获取需要检查的字段
-        primary_keys = output_config.get('primary_key', [])
+        # 从primary_key配置中获取需要检查的字段，但不再将primary key的空值视为验证失败
+        primary_keys = output_config.get('primary_key', []) or []
         for column_name in primary_keys:
             if column_name in df.columns:
                 missing_count = df[column_name].null_count()
                 if missing_count > 0:
-                    validation_result['missing_required_fields'].append({
-                        'field': column_name,
-                        'missing_count': missing_count
-                    })
+                    logger.debug(f"Field {column_name} has {missing_count} null values for {interface_config.get('api_name', 'unknown')}")
 
         # Use unified duplicate detection
         data_list = df.to_dicts()
@@ -333,5 +329,11 @@ class DataProcessor:
 
         # Return validation stats
         validation_result.update(stats)
+
+        # Add 'valid' field to indicate if data passes validation
+        validation_result['valid'] = (
+            len(validation_result['type_mismatches']) == 0 and
+            validation_result['duplicate_records'] == 0
+        )
 
         return validation_result

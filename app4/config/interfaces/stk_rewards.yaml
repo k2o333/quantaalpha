@@ -1,4 +1,15 @@
 api_name: stk_rewards
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - name              # 姓名
+  - title             # 职务
+  - reward            # 报酬（万元）
+  - hold_vol          # 持股数量（股）
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -17,18 +28,24 @@ output:
   - ts_code
   - name
   - ann_date
+  - end_date
+  - title
+  - reward
+  - hold_vol
   sort_by:
   - ann_date
   - ts_code
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  time_range:
+    window: 9999d
 parameters:
   end_date:
     description: 报告期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true
   ts_code:
     description: TS股票代码
     required: true
@@ -41,3 +58,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date
+  stock_level_detection: true

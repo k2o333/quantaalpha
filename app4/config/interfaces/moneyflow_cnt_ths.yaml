@@ -1,4 +1,20 @@
 api_name: moneyflow_cnt_ths
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - trade_date        # 交易日期
+  - ts_code           # 板块代码
+  - name              # 板块名称
+  - lead_stock        # 领涨股票名称
+  - close_price       # 最新价（收盘点位）
+  - pct_change        # 行业涨跌幅（%）
+  - industry_index    # 板块指数
+  - company_num       # 公司数量
+  - pct_change_stock  # 领涨股涨跌幅（%）
+  - net_buy_amount    # 流入资金（亿元）
+  - net_sell_amount   # 流出资金（亿元）
+  - net_amount        # 净额（亿元）
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -11,13 +27,28 @@ output:
   primary_key:
   - trade_date
   - ts_code
+  - name
+  - lead_stock
+  - close_price
+  - pct_change
+  - industry_index
+  - company_num
+  - pct_change_stock
+  - net_buy_amount
+  - net_sell_amount
+  - net_amount
   sort_by:
   - trade_date
 pagination:
   date_field: trade_date
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: reverse_date_range
+  window_size_days: 1
+  offset:
+    enabled: true
+    limit: 6000
+    commit_on_success: true   # 原子提交，确保单日数据完整性
+
 parameters:
   end_date:
     description: 结束日期 YYYYMMDD
@@ -31,6 +62,7 @@ parameters:
     description: 交易日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true      # 日期锚定参数，确保按日拆分请求
   ts_code:
     description: 代码
     required: false

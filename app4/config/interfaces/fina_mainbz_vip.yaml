@@ -1,42 +1,65 @@
 api_name: fina_mainbz_vip
+
+# Fields 配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS 代码
+  - end_date          # 报告期
+  - bz_item           # 主营业务来源
+  - bz_sales          # 主营业务收入 (元)
+  - bz_profit         # 主营业务利润 (元)
+  - bz_cost           # 主营业务成本 (元)
+  - curr_type         # 货币代码
+  - update_flag       # 是否更新
+
 derived_fields:
   end_date_dt:
-    description: 日期类型的end_date
+    description: 日期类型的 end_date
     format: '%Y%m%d'
     source: end_date
     type: date
-description: 主营业务构成(VIP) - 按季度获取全部上市公司数据
+description: 主营业务构成 (VIP) - 按季度获取全部上市公司数据
 name: fina_mainbz_vip
 output:
   primary_key:
   - ts_code
   - end_date
   - bz_item
+  - bz_sales
+  - bz_profit
+  - bz_cost
+  - curr_type
+  - update_flag
   sort_by:
   - end_date
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  mode: period_range
+  periods_per_batch: 1  # 每次下载的 period 数量，默认为 1
+  offset:
+    enabled: true
+    limit: 10000
+    commit_on_success: true
 parameters:
   end_date:
     description: 报告期结束日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   period:
-    description: 报告期(每个季度最后一天的日期,比如20171231表示年报)
+    description: 报告期 (每个季度最后一天的日期，比如 20171231 表示年报)
     required: false
     type: string
   start_date:
     description: 报告期开始日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   ts_code:
-    description: 股票代码(可选，不填则获取全部股票)
+    description: 股票代码 (可选，不填则获取全部股票)
     required: false
     type: string
   type:
-    description: 类型：P按产品 D按地区 I按行业
+    description: 类型：P 按产品 D 按地区 I 按行业
     required: false
     type: string
 permissions:
@@ -47,3 +70,6 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date

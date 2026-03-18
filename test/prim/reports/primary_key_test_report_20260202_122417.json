@@ -1,0 +1,332 @@
+{
+  "timestamp": "20260202_122417",
+  "summary": {
+    "total_interfaces": 16,
+    "passed": 14,
+    "passed_with_duplicates": 0,
+    "failed": 0,
+    "error": 2
+  },
+  "results": [
+    {
+      "interface": "balancesheet_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 113,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "cashflow_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 80,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "disclosure_date",
+      "status": "passed",
+      "details": {
+        "total_records": 104,
+        "primary_key": [
+          "ts_code",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "dividend",
+      "status": "passed",
+      "details": {
+        "total_records": 39,
+        "primary_key": [
+          "ts_code",
+          "end_date",
+          "ann_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date",
+        "ann_date"
+      ]
+    },
+    {
+      "interface": "express_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 1,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "fina_audit",
+      "status": "passed",
+      "details": {
+        "total_records": 26,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "fina_indicator_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 114,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "fina_mainbz_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 1027,
+        "primary_key": [
+          "ts_code",
+          "end_date",
+          "bz_item"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date",
+        "bz_item"
+      ]
+    },
+    {
+      "interface": "forecast_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 20,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "income_vip",
+      "status": "passed",
+      "details": {
+        "total_records": 124,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "end_date",
+          "update_flag"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "end_date",
+        "update_flag"
+      ]
+    },
+    {
+      "interface": "pledge_detail",
+      "status": "passed",
+      "details": {
+        "total_records": 87,
+        "primary_key": [
+          "ts_code",
+          "ann_date",
+          "holder_name",
+          "start_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "ann_date",
+        "holder_name",
+        "start_date"
+      ]
+    },
+    {
+      "interface": "pledge_stat",
+      "status": "passed",
+      "details": {
+        "total_records": 612,
+        "primary_key": [
+          "ts_code",
+          "end_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "end_date"
+      ]
+    },
+    {
+      "interface": "stk_factor_pro",
+      "status": "passed",
+      "details": {
+        "total_records": 8282,
+        "primary_key": [
+          "ts_code",
+          "trade_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "trade_date"
+      ]
+    },
+    {
+      "interface": "stk_rewards",
+      "status": "passed",
+      "details": {
+        "total_records": 756,
+        "primary_key": [
+          "ts_code",
+          "name",
+          "ann_date"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": []
+      },
+      "primary_key": [
+        "ts_code",
+        "name",
+        "ann_date"
+      ]
+    },
+    {
+      "interface": "top10_floatholders",
+      "status": "error",
+      "details": {
+        "total_records": 135,
+        "primary_key": [
+          "ts_code",
+          "period",
+          "holder_name"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": [],
+        "error": "主键字段不存在: ['period']"
+      },
+      "primary_key": [
+        "ts_code",
+        "period",
+        "holder_name"
+      ]
+    },
+    {
+      "interface": "top10_holders",
+      "status": "error",
+      "details": {
+        "total_records": 40,
+        "primary_key": [
+          "ts_code",
+          "period",
+          "holder_name"
+        ],
+        "duplicate_groups": 0,
+        "problematic_groups": 0,
+        "samples": [],
+        "error": "主键字段不存在: ['period']"
+      },
+      "primary_key": [
+        "ts_code",
+        "period",
+        "holder_name"
+      ]
+    }
+  ]
+}

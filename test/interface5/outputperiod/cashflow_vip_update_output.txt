@@ -1,0 +1,90 @@
+2026-02-21 22:10:06,744 - __main__ - INFO - Starting aspipe_v4 App4 - Incremental Update Mode
+2026-02-21 22:10:06,833 - core.cache_warmer - INFO - 预加载交易日历成功: 8585条记录
+2026-02-21 22:10:06,861 - core.cache_warmer - INFO - 预加载股票列表成功: 5484只股票
+2026-02-21 22:10:06,862 - core.scheduler - INFO - Task scheduler started with 4 workers
+2026-02-21 22:10:06,863 - core.storage - INFO - Storage writer and process threads started
+2026-02-21 22:10:06,863 - __main__ - INFO - Interfaces to update (after permission filter): ['cashflow_vip']
+2026-02-21 22:10:06,863 - update.update_reporter - INFO - 更新开始: 2026-02-21 22:10:06
+2026-02-21 22:10:06,863 - update.update_manager - INFO - ============================================================
+2026-02-21 22:10:06,863 - update.update_manager - INFO - 开始增量更新
+2026-02-21 22:10:06,864 - update.update_manager - INFO - ============================================================
+2026-02-21 22:10:06,864 - update.checkpoint_manager - INFO - 初始化新的断点记录
+2026-02-21 22:10:06,864 - update.interface_selector - INFO - 总共有 42 个可用接口
+2026-02-21 22:10:06,864 - update.interface_selector - INFO - 应用包含规则后剩余 1 个接口
+2026-02-21 22:10:06,864 - update.interface_selector - INFO - 应用排除规则后剩余 1 个接口
+2026-02-21 22:10:06,864 - update.interface_selector - INFO - 最终选定 1 个接口进行更新
+2026-02-21 22:10:06,864 - update.checkpoint_manager - INFO - 加载断点文件: data/.update_checkpoint.json
+2026-02-21 22:10:06,865 - update.update_manager - INFO - 
+[1/1] 处理接口: cashflow_vip
+2026-02-21 22:10:06,865 - update.update_reporter - INFO - 开始更新接口: cashflow_vip
+2026-02-21 22:10:06,869 - update.update_manager - INFO - 开始更新 cashflow_vip: 20241001 ~ 20260221
+2026-02-21 22:10:06,872 - core.coverage_manager - INFO - Loaded 9 existing periods for cashflow_vip
+2026-02-21 22:10:06,872 - update.update_manager - INFO - 开始下载 cashflow_vip: 20241001 ~ 20260221
+2026-02-21 22:10:06,872 - core.pagination_executor - INFO - [cashflow_vip] Skipping period 20241231 - already covered
+2026-02-21 22:10:06,872 - core.pagination_executor - INFO - [cashflow_vip] Skipping period 20250331 - already covered
+2026-02-21 22:10:09,285 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-21 22:10:09,285 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-21 22:10:09,322 - core.downloader - INFO - Downloaded 6400 records for cashflow_vip
+2026-02-21 22:10:09,420 - core.pagination_executor - INFO - [cashflow_vip] Saved 6400 records for period 20250630
+2026-02-21 22:10:09,652 - core.processor - INFO - Processed 6400 records for cashflow_vip
+2026-02-21 22:10:09,768 - core.storage - INFO - Deduplication completed for cashflow_vip: input=6400, output=6400, removed=0
+2026-02-21 22:10:09,839 - core.storage - INFO - Processed and queued 6400 records for cashflow_vip
+2026-02-21 22:10:10,098 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 6400
+2026-02-21 22:10:10,106 - core.storage - INFO - Wrote 6400 records to /home/quan/testdata/aspipe_v4/data/cashflow_vip/cashflow_vip_20250630_20250630_1771683009839_43ba3b90.parquet
+2026-02-21 22:10:12,274 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-21 22:10:12,274 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-21 22:10:12,329 - core.downloader - INFO - Downloaded 6400 records for cashflow_vip
+2026-02-21 22:10:12,420 - core.pagination_executor - INFO - [cashflow_vip] Saved 6400 records for period 20250930
+2026-02-21 22:10:12,609 - core.processor - INFO - Processed 6400 records for cashflow_vip
+2026-02-21 22:10:12,746 - core.storage - INFO - Deduplication completed for cashflow_vip: input=6400, output=6400, removed=0
+2026-02-21 22:10:12,828 - core.storage - INFO - Processed and queued 6400 records for cashflow_vip
+2026-02-21 22:10:13,063 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 6400
+2026-02-21 22:10:13,071 - core.storage - INFO - Wrote 6400 records to /home/quan/testdata/aspipe_v4/data/cashflow_vip/cashflow_vip_20250930_20250930_1771683012843_c329ee69.parquet
+2026-02-21 22:10:13,210 - core.downloader - INFO - API returned 13 fields for cashflow_vip
+2026-02-21 22:10:13,211 - core.downloader - INFO - Returned fields: ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'comp_type', 'report_type', 'net_profit', 'finan_exp', 'recp_tax_rends', 'st_cash_out_act', 'pay_handling_chrg', 'pay_comm_insur_plcy', 'update_flag']
+2026-02-21 22:10:13,212 - core.downloader - INFO - Downloaded 63 records for cashflow_vip
+2026-02-21 22:10:13,215 - core.pagination_executor - INFO - [cashflow_vip] Saved 63 records for period 20251231
+2026-02-21 22:10:13,219 - update.update_manager - INFO - 接口 cashflow_vip 更新完成，共 12863 条记录，耗时 6.35秒
+2026-02-21 22:10:13,220 - update.update_reporter - INFO - ✓ cashflow_vip: SUCCESS (12863 条记录) [6.35s]
+2026-02-21 22:10:13,230 - update.update_reporter - INFO - 更新结束: 2026-02-21 22:10:13
+2026-02-21 22:10:13,245 - update.checkpoint_manager - INFO - 清除断点文件: data/.update_checkpoint.json
+2026-02-21 22:10:13,246 - update.update_manager - INFO - 所有接口更新成功，清除断点记录
+2026-02-21 22:10:13,247 - update.update_reporter - INFO - 报告已保存到: log/update_reports/update_report_20260221_221013.markdown
+2026-02-21 22:10:13,247 - __main__ - INFO - 
+更新成功完成: 1 成功, 0 跳过
+2026-02-21 22:10:13,247 - __main__ - INFO - 正在停止调度器...
+2026-02-21 22:10:13,249 - core.scheduler - INFO - Task scheduler stopped
+2026-02-21 22:10:13,255 - __main__ - INFO - 正在刷新并关闭存储写入...
+2026-02-21 22:10:13,276 - core.storage - INFO - Waiting for process queue to empty...
+2026-02-21 22:10:13,316 - core.processor - INFO - Processed 63 records for cashflow_vip
+2026-02-21 22:10:13,351 - core.storage - INFO - Deduplication completed for cashflow_vip: input=63, output=63, removed=0
+2026-02-21 22:10:13,355 - core.storage - INFO - Processed and queued 63 records for cashflow_vip
+2026-02-21 22:10:13,370 - core.storage - INFO - Stopping writer thread...
+2026-02-21 22:10:13,393 - core.storage - INFO - 使用SchemaManager成功创建DataFrame for cashflow_vip，记录数: 63
+2026-02-21 22:10:13,397 - core.storage - INFO - Wrote 63 records to /home/quan/testdata/aspipe_v4/data/cashflow_vip/cashflow_vip_20251231_20251231_1771683013368_aa4be36b.parquet
+2026-02-21 22:10:13,398 - core.storage - INFO - Storage threads stopped
+2026-02-21 22:10:13,398 - __main__ - INFO - 限流统计: 总请求=3, 总等待=0.0s, 平均等待=0.0s, 最大等待=0.0s
+2026-02-21 22:10:13,398 - __main__ - INFO - 资源清理完毕，程序退出。
+
+============================================================
+# App4 增量更新报告
+
+## 概览
+
+- **开始时间**: 2026-02-21 22:10:06
+- **结束时间**: 2026-02-21 22:10:13
+- **总耗时**: 6.4秒
+- **总接口数**: 1
+- **成功**: 1
+- **跳过**: 0
+- **失败**: 0
+- **成功率**: 100.0%
+- **总记录数**: 12863
+
+## 接口详情
+
+| 接口名称 | 状态 | 日期范围 | 记录数 | 耗时 | 备注 |
+|---------|------|---------|--------|------|------|
+| cashflow_vip | ✓ 成功 | 20241001 ~ 20260221 | 12863 | 6.35s |  |
+
+============================================================

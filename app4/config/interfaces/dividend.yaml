@@ -1,4 +1,24 @@
 api_name: dividend
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - end_date          # 分红年度
+  - ann_date          # 公告日期
+  - div_proc          # 实施进度
+  - stk_div           # 每股送股
+  - stk_bo_rate       # 每股转增
+  - stk_co_rate       # 每股拆细
+  - cash_div          # 每股分红（税后）
+  - cash_div_tax      # 每股分红（税前）
+  - record_date       # 股权登记日
+  - ex_date           # 除权除息日
+  - pay_date          # 派息日
+  - div_listdate      # 红股上市日
+  - imp_ann_date      # 实施公告日
+  - base_date         # 基准日
+  - base_share        # 基准股本（万股）
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -17,17 +37,31 @@ output:
   - ts_code
   - end_date
   - ann_date
+  - div_proc
+  - stk_div
+  - stk_bo_rate
+  - stk_co_rate
+  - cash_div
+  - cash_div_tax
+  - record_date
+  - ex_date
+  - pay_date
+  - div_listdate
+  - imp_ann_date
+  - base_date
+  - base_share
   sort_by:
   - ann_date
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  mode: reverse_date_range
+  window_size_days: 1
 parameters:
   ann_date:
     description: 公告日 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: true
   ex_date:
     description: 除权除息日 YYYYMMDD
     required: false
@@ -52,3 +86,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: ann_date
+  stock_level_detection: false

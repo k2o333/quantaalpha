@@ -1,4 +1,20 @@
 api_name: new_share
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS代码
+  - sub_code          # 申购代码
+  - name              # 股票名称
+  - ipo_date          # 上网发行日期
+  - issue_date        # 上市日期
+  - amount            # 发行总量（万股）
+  - market_amount     # 上网发行总量（万股）
+  - price             # 发行价格
+  - pe                # 市盈率
+  - limit_amount      # 单户申购上限（万股）
+  - funds             # 募集资金（亿元）
+  - ballot            # 中签率
+
 derived_fields:
   ipo_date_dt:
     description: 日期类型的ipo_date
@@ -15,11 +31,22 @@ name: new_share
 output:
   primary_key:
   - ts_code
+  - sub_code
+  - name
+  - ipo_date
+  - issue_date
+  - amount
+  - market_amount
+  - price
+  - pe
+  - limit_amount
+  - funds
+  - ballot
   sort_by:
   - ipo_date
 pagination:
   enabled: true
-  mode: date_range
+  mode: reverse_date_range
   window_size_days: 365
 parameters:
   end_date:

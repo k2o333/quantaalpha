@@ -1,4 +1,15 @@
 api_name: pledge_stat
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - end_date          # 截止日期
+  - pledge_count      # 质押次数
+  - unrest_pledge     # 未解押质押数量（股）
+  - rest_pledge       # 已解押质押数量（股）
+  - total_share       # 总股本（股）
+  - pledge_ratio      # 质押比例（%）
+
 derived_fields:
   end_date_dt:
     description: 日期类型的end_date
@@ -11,18 +22,29 @@ output:
   primary_key:
   - ts_code
   - end_date
+  - pledge_count
+  - unrest_pledge
+  - rest_pledge
+  - total_share
+  - pledge_ratio
   sort_by:
   - end_date
   - ts_code
 pagination:
   enabled: true
-  mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  mode: period_range
+  period_field: end_date
+  periods_per_batch: 1
+  offset:
+    enabled: true
+    limit: 3000
+    commit_on_success: true
 parameters:
   end_date:
     description: 截止日期 YYYYMMDD
     required: false
     type: string
+
   ts_code:
     description: 股票代码
     required: false
@@ -35,3 +57,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date
+  stock_level_detection: false

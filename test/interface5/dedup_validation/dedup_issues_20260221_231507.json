@@ -1,0 +1,91 @@
+{
+  "fina_mainbz_vip": {
+    "interface_name": "fina_mainbz_vip",
+    "total_duplicates": 10397,
+    "total_downloaded": 23040,
+    "total_saved": 23040,
+    "periods": {
+      "20241231": {
+        "downloaded": 10000,
+        "duplicates": 18,
+        "saved": 10000
+      },
+      "20250331": {
+        "downloaded": 639,
+        "duplicates": 8851,
+        "saved": 639
+      },
+      "20250630": {
+        "downloaded": 10000,
+        "duplicates": 1528,
+        "saved": 10000
+      },
+      "20250930": {
+        "downloaded": 674,
+        "duplicates": 0,
+        "saved": 674
+      },
+      "20251231": {
+        "downloaded": 1727,
+        "duplicates": 0,
+        "saved": 1727
+      }
+    }
+  },
+  "balancesheet_vip": {
+    "interface_name": "balancesheet_vip",
+    "total_duplicates": 31,
+    "total_downloaded": 12610,
+    "total_saved": 12610,
+    "periods": {
+      "20250630": {
+        "downloaded": 6633,
+        "duplicates": 29,
+        "saved": 6633
+      },
+      "20250930": {
+        "downloaded": 5918,
+        "duplicates": 2,
+        "saved": 5918
+      },
+      "20251231": {
+        "downloaded": 59,
+        "duplicates": 0,
+        "saved": 59
+      }
+    }
+  },
+  "forecast_vip": {
+    "interface_name": "forecast_vip",
+    "total_duplicates": 5,
+    "total_downloaded": 10833,
+    "total_saved": 10833,
+    "periods": {
+      "20241231": {
+        "downloaded": 3955,
+        "duplicates": 4,
+        "saved": 3955
+      },
+      "20250331": {
+        "downloaded": 308,
+        "duplicates": 1,
+        "saved": 308
+      },
+      "20250630": {
+        "downloaded": 1854,
+        "duplicates": 0,
+        "saved": 1854
+      },
+      "20250930": {
+        "downloaded": 228,
+        "duplicates": 0,
+        "saved": 228
+      },
+      "20251231": {
+        "downloaded": 4488,
+        "duplicates": 0,
+        "saved": 4488
+      }
+    }
+  }
+}

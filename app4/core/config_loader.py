@@ -138,8 +138,13 @@ class ConfigLoader:
 
                 with open(interface_path, 'r', encoding='utf-8') as f:
                     config = yaml.safe_load(f)
-                    configs[interface_name] = config
-                    logger.debug(f"Loaded interface configuration: {interface_name}")
+                    # 检查 enabled 字段，默认为 True
+                    is_enabled = config.get('enabled', True)
+                    if is_enabled:
+                        configs[interface_name] = config
+                        logger.debug(f"Loaded interface configuration: {interface_name}")
+                    else:
+                        logger.debug(f"Skipped disabled interface: {interface_name}")
 
         logger.info(f"Loaded {len(configs)} interface configurations")
         return configs
@@ -170,14 +175,22 @@ class ConfigLoader:
 
             # 验证 output 配置
             output_config = config.get('output', {})
+            # primary_key 现在是可选的，如果没有配置则不进行去重
             if 'primary_key' not in output_config or not output_config.get('primary_key', []):
-                logger.error(f"Interface '{interface_name}' must have non-empty primary_key")
-                return False
+                logger.warning(f"Interface '{interface_name}' has no primary_key, deduplication will be disabled")
+                # 确保 dedup 配置中禁用去重
+                if 'dedup' not in config:
+                    config['dedup'] = {}
+                config['dedup']['dedup_enabled'] = False
 
             # 验证 dedup_enabled 是否为布尔类型（如果存在）
             dedup_enabled = config.get('dedup_enabled')
             if dedup_enabled is not None and not isinstance(dedup_enabled, bool):
                 logger.error(f"Interface '{interface_name}' dedup_enabled must be boolean, got {type(dedup_enabled).__name__}")
+                return False
+
+            # 验证日期锚定参数配置
+            if not self._validate_date_anchor_parameters(config):
                 return False
 
             # 验证 derived_fields 配置（新架构）或 columns 配置（旧架构）
@@ -188,4 +201,26 @@ class ConfigLoader:
             pass  # 在新架构中不强制要求特定的字段配置
 
         logger.info("Configuration validation passed")
+        return True
+
+    def _validate_date_anchor_parameters(self, interface_config: Dict[str, Any]) -> bool:
+        """
+        验证日期锚定参数配置
+        
+        规则：
+        1. 一个接口只能有一个日期锚定参数
+        2. start_date 和 end_date 可以作为日期锚定参数（如果配置了 is_date_anchor）
+           - 如果配置了 is_date_anchor，则按锚定参数处理
+           - 如果没有配置 is_date_anchor，则作为普通参数透传
+        """
+        parameter_config = interface_config.get('parameters', {})
+        date_anchor_params = []
+        
+        for param_name, param_def in parameter_config.items():
+            if param_def.get('is_date_anchor', False):
+                date_anchor_params.append(param_name)
+        
+        if len(date_anchor_params) > 1:
+            logger.warning(f"Multiple date anchor parameters found in interface {interface_config.get('name')}: {date_anchor_params}. Only the first one will be used")
+        
         return True

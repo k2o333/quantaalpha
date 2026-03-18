@@ -1,4 +1,15 @@
 api_name: fina_audit
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # TS股票代码
+  - ann_date          # 公告日期
+  - end_date          # 报告期
+  - audit_result      # 审计结果
+  - audit_fees        # 审计费用（元）
+  - audit_sign        # 审计机构签字
+  - audit_agency
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -17,12 +28,17 @@ output:
   - ts_code
   - ann_date
   - end_date
+  - audit_result
+  - audit_fees
+  - audit_sign
+  - audit_agency
   sort_by:
   - ann_date
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  time_range:
+    window: 9999d
 parameters:
   ann_date:
     description: 公告日期 YYYYMMDD
@@ -32,6 +48,7 @@ parameters:
     description: 公告结束日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   period:
     description: 报告期 YYYYMMDD
     required: false
@@ -40,6 +57,7 @@ parameters:
     description: 公告开始日期 YYYYMMDD
     required: false
     type: string
+    is_date_anchor: false
   ts_code:
     description: 股票代码
     required: false
@@ -52,3 +70,7 @@ request:
   extra_path: ''
   method: POST
   timeout: 30
+duplicate_detection:
+  enabled: true
+  date_column: end_date
+  stock_level_detection: true

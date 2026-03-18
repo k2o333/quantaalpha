@@ -1,325 +1,738 @@
 """
-分页执行器 - 负责执行分页参数生成器产生的参数
-实现"零回调"模式，只执行请求，不生成参数
+分页执行器 - 负责执行组合后的分页参数流
+实现统一的分页执行逻辑，支持并发和顺序执行
 """
 
+import logging
 from typing import Dict, Any, List, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from .pagination import ParameterGenerator, PaginationContext
-import logging
+from .pagination import PaginationComposer, PaginationContext
 from datetime import datetime
-from collections import OrderedDict, defaultdict, deque
 
 logger = logging.getLogger(__name__)
 
 
 class PaginationExecutor:
-    """分页执行器 - 专门负责执行分页请求，通过回调函数执行具体请求"""
+    """
+    分页执行器 - 专门负责执行分页请求，通过回调函数执行具体请求
 
-    def execute_offset_pagination(self, interface_config: Dict[str, Any],
-                                params: Dict[str, Any],
-                                context: PaginationContext,
-                                make_request_callback: Callable) -> List[Dict[str, Any]]:
-        """执行offset分页，通过回调函数执行请求"""
-        all_data = []
-        limit = context.pagination_config.get('default_limit', 5000)
-        param_gen = ParameterGenerator(context)
+    支持的执行模式：
+    1. 单请求执行
+    2. 顺序执行
+    3. 并发执行
 
-        for page_params in param_gen.generate_offset_params(params):
-            page_data = make_request_callback(interface_config, page_params)
+    执行逻辑：
+    1. 使用 PaginationComposer 组合分页维度
+    2. 根据参数数量和接口类型选择执行模式
+    3. 执行请求并收集结果
+    4. 处理错误和重试
+    """
 
-            if not page_data:
-                break
-            all_data.extend(page_data)
+    # 非并发接口列表
+    NON_CONCURRENT_INTERFACES = [
+        "fina_audit",
+        "forecast_vip",
+        "express_vip",
+        "disclosure_date",
+    ]
 
-            if len(page_data) < limit:
-                break
+    # 低并发接口列表
+    LOW_CONCURRENT_INTERFACES = [
+        "top10_holders",
+        "top10_floatholders",
+        "pledge_detail",
+        "dividend",
+    ]
 
-        return all_data
+    def __init__(self, max_workers: int = 4):
+        """
+        初始化分页执行器
 
-    def execute_date_range_pagination(self, interface_config: Dict[str, Any],
-                                    params: Dict[str, Any],
-                                    context: PaginationContext,
-                                    make_request_callback: Callable,
-                                    coverage_manager: Optional[Any] = None,
-                                    force_download: bool = False,
-                                    get_trade_calendar_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
-        """执行日期范围分页（并发），通过回调函数执行请求"""
-        interface_name = interface_config['name']
+        Args:
+            max_workers: 最大并发数
+        """
+        self.max_workers = max_workers
 
-        # 财务接口全量返回
-        if interface_name in ['balancesheet_vip', 'income_vip', 'cashflow_vip', 'fina_indicator_vip']:
-            logger.info(f"财务接口{interface_name}使用全量请求")
-            return make_request_callback(interface_config, params)
+    def _should_commit_offset_on_success(
+        self, interface_config: Dict[str, Any], offset_config: Dict[str, Any]
+    ) -> bool:
+        """是否在 offset 任务完整成功后再提交数据。"""
+        if "commit_on_success" in offset_config:
+            return bool(offset_config.get("commit_on_success"))
 
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+        pagination = interface_config.get("pagination", {})
+        offset_settings = pagination.get("offset", {})
+        return bool(offset_settings.get("commit_on_success", False))
 
-        # 获取交易日历
-        if hasattr(context, 'trade_calendar') and context.trade_calendar:
-            trade_calendar = context.trade_calendar
-        else:
-            # 如果上下文中没有交易日历，需要通过某种方式获取
-            trade_calendar = self._get_trade_calendar(start_date, end_date, get_trade_calendar_callback)
-            context.trade_calendar = trade_calendar
+    def execute(
+        self,
+        interface_config: Dict[str, Any],
+        base_params: Dict[str, Any],
+        context: PaginationContext,
+        make_request: Callable[[Dict[str, Any], Dict[str, Any]], List[Dict[str, Any]]],
+        coverage_manager: Optional[Any] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        执行分页请求（统一入口）
 
-        if not trade_calendar:
-            logger.warning("Failed to get trade calendar, using offset fallback")
-            offset_config = interface_config.get('offset_pagination', {})
-            if offset_config.get('enabled', False):
-                offset_context = PaginationContext(
-                    interface_config=interface_config,
-                    force_download=force_download
+        Args:
+            interface_config: 接口配置
+            base_params: 基础请求参数
+            context: 分页上下文
+            make_request: 请求执行回调函数
+            coverage_manager: 覆盖率管理器
+            progress_callback: 进度回调函数
+            save_callback: 保存回调函数，用于逐批次保存数据 (interface_name, data) -> None
+            on_data_ready: 数据准备好的回调函数（流式处理，避免内存累积）
+
+        Returns:
+            所有请求的数据结果（如果无回调）或 总记录数（如果有回调）
+        """
+        composer = PaginationComposer(context)
+        params_list = list(composer.compose(base_params))
+
+        # 检测 period_range 模式且 periods_per_batch=1，使用逐个保存模式
+        periods_per_batch = None
+        if params_list:
+            periods_per_batch = params_list[0].get("_periods_per_batch")
+            if periods_per_batch is not None:
+                periods_per_batch = int(periods_per_batch)
+
+        if periods_per_batch == 1 and save_callback:
+            return self._execute_period_range_sequential(
+                interface_config,
+                params_list,
+                make_request,
+                coverage_manager,
+                progress_callback,
+                save_callback,
+                on_data_ready,
+            )
+
+        if len(params_list) <= 1:
+            if params_list:
+                # 新增：覆盖率检查
+                if coverage_manager and self._should_skip_by_coverage(
+                    interface_config, params_list[0], coverage_manager
+                ):
+                    logger.info(f"Skipping request due to coverage check")
+                    return []
+                return self._execute_single(
+                    interface_config, params_list[0], make_request, on_data_ready, save_callback
                 )
-                return self.execute_offset_pagination(interface_config, params, offset_context, make_request_callback)
-            return make_request_callback(interface_config, params)
-
-        # 确定并发数
-        if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
-            max_workers = 1
-        elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
-            max_workers = 2
-        else:
-            max_workers = 4
-
-        # 创建参数生成器并收集窗口
-        param_gen = ParameterGenerator(context)
-        windows = []
-        window_params_list = []
-
-        for window_params, window_id in param_gen.generate_date_range_params(params, start_date, end_date):
-            windows.append(window_id)
-            window_params_list.append(window_params)
-
-        # 并发执行
-        all_data = []
-        results_by_window = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_window = {}
-
-            for idx, window_params in enumerate(window_params_list):
-                window_start, window_end = windows[idx]
-
-                # 覆盖率检查
-                should_skip = False
-                if coverage_manager and not force_download:
-                    should_skip = coverage_manager.should_skip(
-                        interface_config['api_name'],
-                        window_params,
-                        strategy='date_range'
-                    )
-
-                if should_skip:
-                    logger.info(f"Skipping window {window_start} - {window_end}")
-                    results_by_window[(window_start, window_end)] = []
-                else:
-                    offset_config = interface_config.get('offset_pagination', {})
-                    if offset_config.get('enabled', False):
-                        future = executor.submit(
-                            self._make_request_with_offset_check,
-                            interface_config,
-                            window_params,
-                            make_request_callback,
-                            coverage_manager,
-                            force_download
-                        )
-                    else:
-                        future = executor.submit(
-                            make_request_callback,
-                            interface_config,
-                            window_params
-                        )
-                    future_to_window[future] = (window_start, window_end)
-
-            # 收集结果
-            for future in as_completed(future_to_window):
-                window_start, window_end = future_to_window[future]
-                try:
-                    result = future.result()
-                    results_by_window[(window_start, window_end)] = result
-                except Exception as e:
-                    logger.error(f"Error fetching window {window_start} to {window_end}: {e}")
-                    results_by_window[(window_start, window_end)] = []
-
-        # 合并结果（保持顺序）
-        for window_start, window_end in windows:
-            window_data = results_by_window.get((window_start, window_end), [])
-            all_data.extend(window_data)
-
-        return all_data
-
-    def execute_stock_loop_pagination(self, interface_config: Dict[str, Any],
-                                    params: Dict[str, Any],
-                                    context: PaginationContext,
-                                    make_request_callback: Callable,
-                                    get_stock_list_callback: Callable,
-                                    coverage_manager: Optional[Any] = None,
-                                    force_download: bool = False) -> List[Dict[str, Any]]:
-        """执行股票循环分页，通过回调函数执行请求"""
-        # 获取股票列表
-        logger.info("正在获取股票列表...")
-        stock_list = get_stock_list_callback()
-
-        if not stock_list:
-            logger.error("Failed to get stock list for stock loop pagination")
             return []
 
-        # 更新上下文
-        context.stock_list = stock_list
-
-        # 创建参数生成器
-        param_gen = ParameterGenerator(context)
-
-        # 确定并发数
-        interface_name = interface_config['name']
-        if interface_name in ['fina_audit', 'forecast_vip', 'express_vip', 'disclosure_date']:
-            max_workers = 1
-        elif interface_name in ['top10_holders', 'top10_floatholders', 'pledge_detail', 'dividend']:
-            max_workers = 2
+        # 当有 save_callback 时，强制使用顺序执行以保证逐次保存
+        if save_callback or not self._should_use_concurrency(interface_config):
+            return self._execute_sequential(
+                interface_config,
+                params_list,
+                make_request,
+                coverage_manager,
+                progress_callback,
+                on_data_ready,
+                save_callback,
+            )
         else:
-            max_workers = 4
+            return self._execute_concurrent(
+                interface_config,
+                params_list,
+                make_request,
+                coverage_manager,
+                progress_callback,
+                on_data_ready,
+            )
 
+    def _execute_single(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        make_request: Callable,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        执行单个请求
+
+        Args:
+            interface_config: 接口配置
+            params: 请求参数
+            make_request: 请求执行回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理）
+            save_callback: 保存回调函数
+
+        Returns:
+            请求结果（如果无回调）或 记录数（如果有回调）
+        """
+        result = self._execute_single_request(
+            interface_config, params, make_request, on_data_ready, save_callback
+        )
+
+        # 如果是列表模式且有保存回调，直接保存并返回计数
+        if result and save_callback and not on_data_ready:
+            interface_name = interface_config.get("name", "unknown")
+            save_callback(interface_name, result)
+            logger.info(f"[{interface_name}] 单次请求数据已保存 ({len(result)} 条)")
+            return len(result)  # 返回计数而非数据列表
+
+        return result
+
+    def _execute_sequential(
+        self,
+        interface_config: Dict[str, Any],
+        params_list: List[Dict[str, Any]],
+        make_request: Callable,
+        coverage_manager: Optional[Any],
+        progress_callback: Optional[Callable],
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        顺序执行多个请求
+
+        Args:
+            interface_config: 接口配置
+            params_list: 请求参数列表
+            make_request: 请求执行回调函数
+            coverage_manager: 覆盖率管理器
+            progress_callback: 进度回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理）
+            save_callback: 保存回调函数，每次请求完成后立即保存 (interface_name, data) -> None
+
+        Returns:
+            所有请求的结果（如果无回调）或 总记录数（如果有回调）
+        """
         all_data = []
-        results = []
+        total_count = 0
+        consecutive_empty = 0
+        stop_on_empty = self._get_stop_on_empty_config(interface_config)
+        interface_name = interface_config.get("name", "unknown")
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {}
+        for idx, params in enumerate(params_list):
+            if progress_callback:
+                progress_callback(idx + 1, len(params_list))
 
-            for stock_params, stock_info in param_gen.generate_stock_params(
-                params,
-                existing_stocks_checker=lambda name, code: self._is_stock_data_exists(name, code, coverage_manager)
-            ):
-                future = executor.submit(
-                    make_request_callback,
-                    interface_config,
-                    stock_params
-                )
-                futures[future] = (stock_info['ts_code'], stock_params)
+            if coverage_manager:
+                if self._should_skip_by_coverage(
+                    interface_config, params, coverage_manager
+                ):
+                    continue
 
-            for future in as_completed(futures):
-                ts_code, stock_params = futures[future]
-                try:
-                    data = future.result()
-                    if data:
-                        all_data.extend(data)
-                        logger.info(f"Downloaded {len(data)} records for {ts_code}")
-                        results.append((ts_code, data))
-                except Exception as e:
-                    logger.error(f"Error downloading stock {ts_code}: {e}")
+            result = self._execute_single_request(interface_config, params, make_request, on_data_ready)
 
+            if result:
+                if on_data_ready:
+                    # 流式模式：result 是计数
+                    total_count += result
+                    consecutive_empty = 0
+                elif save_callback:
+                    # 【修复点】逐次保存模式：立即保存，累加计数，不累积内存
+                    save_callback(interface_name, result)
+                    total_count += len(result)
+                    logger.info(
+                        f"[{interface_name}] 已保存 {len(result)} 条记录 (第{idx+1}/{len(params_list)}批)"
+                    )
+                    consecutive_empty = 0
+                else:
+                    # 普通模式：累积数据到列表
+                    all_data.extend(result)
+                    consecutive_empty = 0
+            else:
+                consecutive_empty += self._estimate_empty_days(params)
+                if stop_on_empty > 0 and consecutive_empty >= stop_on_empty:
+                    logger.info(
+                        f"Stopping after {consecutive_empty} consecutive empty days"
+                    )
+                    break
+
+        # 返回逻辑统一
+        if on_data_ready or save_callback:
+            return total_count
         return all_data
 
-    def execute_period_range_pagination(self, interface_config: Dict[str, Any],
-                                      params: Dict[str, Any],
-                                      context: PaginationContext,
-                                      make_request_callback: Callable,
-                                      coverage_manager: Optional[Any] = None,
-                                      force_download: bool = False) -> List[Dict[str, Any]]:
-        """执行报告期分页"""
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
+    def _execute_period_range_sequential(
+        self,
+        interface_config: Dict[str, Any],
+        params_list: List[Dict[str, Any]],
+        make_request: Callable,
+        coverage_manager: Optional[Any],
+        progress_callback: Optional[Callable],
+        save_callback: Callable,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        顺序执行 period_range 请求，每完成一个请求立即保存数据
 
-        param_gen = ParameterGenerator(context)
+        Args:
+            interface_config: 接口配置
+            params_list: 请求参数列表
+            make_request: 请求执行回调函数
+            coverage_manager: 覆盖率管理器
+            progress_callback: 进度回调函数
+            save_callback: 保存回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理，避免内存累积）
+
+        Returns:
+            所有请求的结果（如果无回调）或 总记录数（如果有回调）
+        """
         all_data = []
+        total_count = 0
+        interface_name = interface_config.get("name", "unknown")
 
-        for period_params, period in param_gen.generate_period_params(params, start_date, end_date):
+        for idx, params in enumerate(params_list):
+            if progress_callback:
+                progress_callback(idx + 1, len(params_list))
+
             # 覆盖率检查
-            should_skip = False
-            if coverage_manager and not force_download:
-                should_skip = coverage_manager.should_skip(
-                    interface_config['api_name'],
-                    period_params,
-                    strategy='period'
+            if coverage_manager and self._should_skip_by_coverage(
+                interface_config, params, coverage_manager
+            ):
+                period_field = params.get("_period_field", "period")
+                period = params.get(period_field, "unknown")
+                logger.info(
+                    f"[{interface_name}] Skipping period {period} - already covered"
                 )
-
-            if should_skip:
-                logger.info(f"Skipping period {period}")
                 continue
 
-            logger.info(f"Fetching data for period {period}")
-
-            period_data = make_request_callback(interface_config, period_params)
-
-            if period_data:
-                # 将period参数添加到每条记录中
-                for record in period_data:
-                    record['period'] = period
-                all_data.extend(period_data)
-
-        return all_data
-
-    def execute_quarterly_pagination(self, interface_config: Dict[str, Any],
-                                   params: Dict[str, Any],
-                                   context: PaginationContext,
-                                   make_request_callback: Callable) -> List[Dict[str, Any]]:
-        """执行季度范围分页"""
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-
-        param_gen = ParameterGenerator(context)
-        all_data = []
-
-        for range_params, (range_start, range_end) in param_gen.generate_quarterly_params(params, start_date, end_date):
-            logger.info(f"Downloading data for quarterly range {range_start} - {range_end}")
-
-            range_data = make_request_callback(interface_config, range_params)
-
-            if range_data:
-                all_data.extend(range_data)
-
-        return all_data
-
-    def execute_periodic_pagination(self, interface_config: Dict[str, Any],
-                                  params: Dict[str, Any],
-                                  context: PaginationContext,
-                                  make_request_callback: Callable) -> List[Dict[str, Any]]:
-        """执行周期性时间范围分页"""
-        start_date = params.get('start_date', '20050101')
-        end_date = params.get('end_date', datetime.now().strftime('%Y%m%d'))
-
-        # 获取周期类型，默认为月
-        period_type = context.pagination_config.get('period_type', 'month')
-
-        param_gen = ParameterGenerator(context)
-        all_data = []
-
-        for range_params, (range_start, range_end) in param_gen.generate_periodic_params(params, start_date, end_date, period_type):
-            logger.info(f"Downloading data for {period_type} range {range_start} - {range_end}")
-
-            range_data = make_request_callback(interface_config, range_params)
-
-            if range_data:
-                all_data.extend(range_data)
-
-        return all_data
-
-    def _make_request_with_offset_check(self, interface_config: Dict[str, Any], 
-                                      params: Dict[str, Any],
-                                      make_request_callback: Callable,
-                                      coverage_manager: Optional[Any] = None,
-                                      force_download: bool = False) -> List[Dict[str, Any]]:
-        """内部方法：带偏移检查的请求"""
-        # 检查内部偏移分页配置
-        offset_config = interface_config.get('offset_pagination', {})
-        if offset_config.get('enabled', False):
-            context = PaginationContext(
-                interface_config=interface_config,
-                force_download=force_download
+            # 执行请求（传递 on_data_ready 以启用流式处理）
+            result = self._execute_single_request(
+                interface_config, params, make_request, on_data_ready
             )
-            return self.execute_offset_pagination(interface_config, params, context, make_request_callback)
+
+            if result:
+                if on_data_ready:
+                    # 流式模式：result 是计数，数据已通过回调处理
+                    total_count += result
+                    period_field = params.get("_period_field", "period")
+                    period = params.get(period_field, "unknown")
+                    logger.info(
+                        f"[{interface_name}] Streamed {result} records for period {period}"
+                    )
+                elif save_callback:
+                    # 【修复点】立即保存并计数，不累积到 all_data
+                    save_callback(interface_name, result)
+                    total_count += len(result)
+                    period_field = params.get("_period_field", "period")
+                    period = params.get(period_field, "unknown")
+                    logger.info(
+                        f"[{interface_name}] Saved {len(result)} records for period {period}"
+                    )
+                else:
+                    # 普通模式：累积数据到列表
+                    all_data.extend(result)
+
+        # 返回逻辑统一
+        if on_data_ready or save_callback:
+            return total_count
+        return all_data
+
+    def _execute_concurrent(
+        self,
+        interface_config: Dict[str, Any],
+        params_list: List[Dict[str, Any]],
+        make_request: Callable,
+        coverage_manager: Optional[Any],
+        progress_callback: Optional[Callable],
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        并发执行多个请求
+
+        Args:
+            interface_config: 接口配置
+            params_list: 请求参数列表
+            make_request: 请求执行回调函数
+            coverage_manager: 覆盖率管理器
+            progress_callback: 进度回调函数
+            on_data_ready: 数据准备好的回调函数（流式处理）
+
+        Returns:
+            所有请求的结果（如果无回调）或 总记录数（如果有回调）
+        """
+        all_data = []
+        total_count = 0
+        max_workers = self._get_max_workers(interface_config)
+
+        filtered_params = [
+            p
+            for p in params_list
+            if not (
+                coverage_manager
+                and self._should_skip_by_coverage(interface_config, p, coverage_manager)
+            )
+        ]
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_params = {
+                executor.submit(
+                    self._execute_single_request, interface_config, p, make_request, on_data_ready
+                ): p
+                for p in filtered_params
+            }
+
+            completed = 0
+            for future in as_completed(future_to_params):
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(filtered_params))
+                try:
+                    result = future.result()
+                    if result:
+                        if on_data_ready:
+                            # 流式模式：result 是计数
+                            total_count += result
+                        else:
+                            # 兼容模式：result 是数据列表
+                            all_data.extend(result)
+                except Exception as e:
+                    logger.error(f"Task failed: {e}")
+
+        if on_data_ready:
+            return total_count
+        return all_data
+
+    def _execute_single_request(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        make_request: Callable,
+        on_data_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+        save_callback: Optional[Callable[[str, List[Dict[str, Any]]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        执行单个请求，处理offset分页
+
+        Args:
+            interface_config: 接口配置
+            params: 请求参数
+            make_request: 请求执行回调函数
+            on_data_ready: 数据准备好的回调函数（用于流式处理，避免内存累积）
+                           如果提供，数据通过回调传递，返回计数
+            save_callback: 批次保存回调，防止内存溢出
+
+        Returns:
+            请求结果（如果无回调）或 记录数（如果有回调）
+        """
+        offset_config = params.get("_offset_pagination", {})
+
+        if not offset_config.get("enabled"):
+            clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+            try:
+                data = make_request(interface_config, clean_params)
+                if on_data_ready and data:
+                    on_data_ready(data)
+                    return len(data)
+                return data
+            except RuntimeError as e:
+                # API错误向上传播
+                logger.error(f"请求失败: {e}")
+                raise
+
+        # 执行offset分页
+        all_data = []
+        total_count = 0
+        limit = offset_config["limit"]
+        offset = 0
+        base_params = {k: v for k, v in params.items() if not k.startswith("_")}
+        interface_name = interface_config.get("name", "unknown")
+        commit_on_success = self._should_commit_offset_on_success(
+            interface_config, offset_config
+        )
+
+        # 批次保存阈值
+        batch_threshold = 50000
+
+        logger.info(f"[{interface_name}] Offset分页开始 - 配置限额: limit={limit}")
+        page_num = 0
+
+        try:
+            while True:
+                request_params = base_params.copy()
+                request_params["limit"] = limit
+                request_params["offset"] = offset
+    
+                data = make_request(interface_config, request_params)
+                if not data:
+                    logger.info(
+                        f"[{interface_name}] 第{page_num + 1}页请求无数据 - offset={offset}, limit={limit}"
+                    )
+                    break
+    
+                data_count = len(data)
+
+                if on_data_ready and not commit_on_success:
+                    # 流式处理：每页数据立即回调，不累积
+                    on_data_ready(data)
+                else:
+                    # 原子提交模式或普通模式：当前窗口内先累积
+                    all_data.extend(data)
+
+                    # 非原子模式下允许分批保存
+                    if (
+                        save_callback
+                        and not commit_on_success
+                        and len(all_data) >= batch_threshold
+                    ):
+                        save_callback(interface_name, all_data)
+                        logger.info(
+                            f"[{interface_name}] 批次保存 {len(all_data)} 条记录 "
+                            f"(累计 {total_count + len(all_data)} 条)"
+                        )
+                        all_data = []
+
+                page_num += 1
+                total_count += data_count
+    
+                logger.info(
+                    f"[{interface_name}] 第{page_num}页完成 - offset={offset}, 请求limit={limit}, 实际返回={data_count}条"
+                )
+    
+                if data_count < limit:
+                    logger.info(
+                        f"[{interface_name}] 分页完成 - 最后1页返回{data_count}条 < 限额{limit}，停止请求"
+                    )
+                    break
+    
+                offset += limit
+                if offset > limit * 10000:  # 安全限制
+                    logger.warning(f"[{interface_name}] Offset分页超过安全限制，停止请求")
+                    break
+        except RuntimeError as e:
+            # 原子提交模式下丢弃当前窗口残留数据，避免写入半截结果
+            if commit_on_success and all_data:
+                logger.warning(
+                    f"[{interface_name}] Offset分页异常，丢弃当前窗口已下载的 "
+                    f"{len(all_data)} 条未完整数据"
+                )
+            # 非原子模式保持原有行为
+            elif save_callback and all_data:
+                save_callback(interface_name, all_data)
+                logger.warning(
+                    f"[{interface_name}] 异常中断，已保存 {len(all_data)} 条残留数据"
+                )
+            raise
+
+        # 循环完整结束后，统一提交当前窗口的数据
+        if all_data:
+            if on_data_ready:
+                on_data_ready(all_data)
+                if commit_on_success:
+                    logger.info(
+                        f"[{interface_name}] 当前窗口完整成功，提交 {len(all_data)} 条记录"
+                    )
+            elif save_callback:
+                save_callback(interface_name, all_data)
+                logger.info(f"[{interface_name}] 最终批次保存 {len(all_data)} 条记录")
+
+        if on_data_ready:
+            logger.info(
+                f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={total_count}"
+            )
+            return total_count
         else:
-            return make_request_callback(interface_config, params)
+            logger.info(
+                f"[{interface_name}] Offset分页结束 - 总页数={page_num}, 总记录数={total_count}"
+            )
+            # 在使用了save_callback并且成功返回时，all_data已经被清空。我们返回total_count以供兼容。
+            if save_callback:
+                return total_count
+            return all_data
 
-    def _get_trade_calendar(self, start_date: str, end_date: str, get_trade_calendar_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
-        """内部方法：获取交易日历"""
-        if get_trade_calendar_callback:
-            return get_trade_calendar_callback(start_date, end_date)
-        return []
+    def _should_use_concurrency(self, interface_config: Dict[str, Any]) -> bool:
+        """
+        判断是否应该使用并发执行
 
-    def _is_stock_data_exists(self, interface_name: str, ts_code: str, coverage_manager: Optional[Any] = None) -> bool:
-        """内部方法：检查股票数据是否存在"""
-        if coverage_manager:
-            # 使用覆盖率管理器检查
-            return coverage_manager.check_stock_coverage(interface_name, ts_code)
-        return False
+        Args:
+            interface_config: 接口配置
+
+        Returns:
+            是否使用并发
+        """
+        pagination = interface_config.get("pagination", {})
+        time_range = pagination.get("time_range", {})
+        if time_range.get("reverse", False) and time_range.get("stop_on_empty", 0) > 0:
+            return False
+        return interface_config.get("name") not in self.NON_CONCURRENT_INTERFACES
+
+    def _get_max_workers(self, interface_config: Dict[str, Any]) -> int:
+        """
+        获取最大并发数
+
+        Args:
+            interface_config: 接口配置
+
+        Returns:
+            最大并发数
+        """
+        name = interface_config.get("name", "")
+        if name in self.NON_CONCURRENT_INTERFACES:
+            return 1
+        elif name in self.LOW_CONCURRENT_INTERFACES:
+            return 2
+        return self.max_workers
+
+    def _get_stop_on_empty_config(self, interface_config: Dict[str, Any]) -> int:
+        """
+        获取连续无数据停止配置
+
+        Args:
+            interface_config: 接口配置
+
+        Returns:
+            连续无数据停止天数
+        """
+        time_range = interface_config.get("pagination", {}).get("time_range", {})
+        if time_range.get("reverse", False):
+            return time_range.get("stop_on_empty", 0)
+        return 0
+
+    def _should_skip_by_coverage(
+        self,
+        interface_config: Dict[str, Any],
+        params: Dict[str, Any],
+        coverage_manager: Any,
+    ) -> bool:
+        """
+        根据覆盖率判断是否跳过请求
+
+        修正版：复用 CoverageManager 的统一策略，避免重复逻辑
+        """
+        api_name = interface_config.get("api_name", "")
+
+        # 仅在明确 stock_loop 场景下短路，避免跨股票误判
+        if "ts_code" in params:
+            return False
+
+        param_defs = interface_config.get("parameters", {})
+        for param_name, param_def in param_defs.items():
+            if param_def.get("is_date_anchor", False) and param_name in params:
+                clean_params = {
+                    k: v for k, v in params.items() if not k.startswith("_")
+                }
+                try:
+                    return coverage_manager.should_skip(
+                        api_name, clean_params, strategy="auto"
+                    )
+                except:
+                    return False
+
+        # 【修复】先构建 clean_params，再根据 _time_window 更新日期范围
+        # 注意：需要保留 _period_field 和 _period_query 参数，用于 period_range 模式的覆盖率检测
+        clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+
+        # 保留内部参数（用于 period_range 模式）
+        if "_period_field" in params:
+            clean_params["_period_field"] = params["_period_field"]
+        if "_period_query" in params:
+            clean_params["_period_query"] = params["_period_query"]
+
+        # 如果有 _time_window，使用窗口日期替换原始 start_date/end_date
+        # 这样覆盖率检查只检查当前窗口范围，而不是整个请求范围
+        if "_time_window" in params:
+            start, end = params["_time_window"]
+            clean_params["start_date"] = start
+            clean_params["end_date"] = end
+
+        # 确定检测策略
+        if "_time_window" in params:
+            strategy = "date_range"
+        elif "_period_query" in params:
+            strategy = "period"
+        elif "_stock_info" in params:
+            strategy = "stock"
+        elif "_type_value" in params:
+            strategy = "type"
+        else:
+            strategy = "default"
+
+        try:
+            return coverage_manager.should_skip(
+                api_name, clean_params, strategy=strategy
+            )
+        except:
+            return False
+
+        param_defs = interface_config.get("parameters", {})
+        for param_name, param_def in param_defs.items():
+            if param_def.get("is_date_anchor", False) and param_name in params:
+                clean_params = {
+                    k: v for k, v in params.items() if not k.startswith("_")
+                }
+                try:
+                    return coverage_manager.should_skip(
+                        api_name, clean_params, strategy="auto"
+                    )
+                except:
+                    return False
+
+        # 【修复】先构建 clean_params，再根据 _time_window 更新日期范围
+        # 注意：需要保留 _period_field 和 _period_query 参数，用于 period_range 模式的覆盖率检测
+        clean_params = {k: v for k, v in params.items() if not k.startswith("_")}
+
+        # 保留内部参数（用于 period_range 模式）
+        if "_period_field" in params:
+            clean_params["_period_field"] = params["_period_field"]
+        if "_period_query" in params:
+            clean_params["_period_query"] = params["_period_query"]
+
+        # 如果有 _time_window，使用窗口日期替换原始 start_date/end_date
+        # 这样覆盖率检查只检查当前窗口范围，而不是整个请求范围
+        if "_time_window" in params:
+            start, end = params["_time_window"]
+            clean_params["start_date"] = start
+            clean_params["end_date"] = end
+            logger.debug(
+                f"[Coverage] Window dates applied: {start} ~ {end} for {api_name}"
+            )
+        else:
+            logger.debug(
+                f"[Coverage] No _time_window in params, using original dates for {api_name}"
+            )
+
+        # 确定检测策略
+        logger.debug(
+            f"[Coverage] Checking strategy, params keys: {list(params.keys())}"
+        )
+        if "_time_window" in params:
+            strategy = "date_range"
+        elif "_period_query" in params:
+            strategy = "period"
+        elif "_stock_info" in params:
+            strategy = "stock"
+        elif "_type_value" in params:
+            strategy = "type"
+        else:
+            strategy = "default"
+
+        logger.debug(f"[Coverage] Strategy: {strategy}, params: {clean_params}")
+
+        try:
+            return coverage_manager.should_skip(
+                api_name, clean_params, strategy=strategy
+            )
+        except:
+            return False
+
+    def _estimate_empty_days(self, params: Dict[str, Any]) -> int:
+        """
+        估算空数据的天数
+
+        Args:
+            params: 请求参数
+
+        Returns:
+            估算的天数
+        """
+        if "_time_window" in params:
+            try:
+                start, end = params["_time_window"]
+                return (
+                    datetime.strptime(end, "%Y%m%d")
+                    - datetime.strptime(start, "%Y%m%d")
+                ).days + 1
+            except:
+                pass
+        return 1

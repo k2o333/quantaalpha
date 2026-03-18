@@ -1,4 +1,18 @@
 api_name: stk_surv
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - name              # 股票名称
+  - surv_date         # 调研日期
+  - fund_visitors     # 机构参与人员
+  - rece_place        # 接待地点
+  - rece_mode         # 接待方式
+  - rece_org          # 接待的公司
+  - org_type          # 接待公司类型
+  - comp_rece         # 上市公司接待人员
+  - content           # 调研内容
+
 derived_fields:
   surv_date_dt:
     description: 日期类型的surv_date
@@ -10,15 +24,27 @@ name: stk_surv
 output:
   primary_key:
   - ts_code
+  - name
   - surv_date
   - fund_visitors
+  - rece_place
+  - rece_mode
+  - rece_org
+  - org_type
+  - comp_rece
+  - content
   sort_by:
   - surv_date
 pagination:
-  date_field: trade_date
   enabled: true
-  mode: date_range
+  mode: reverse_date_range
   window_size_days: 365
+  empty_threshold_days: 90
+  offset:
+    enabled: true
+    limit: 400  # 每次请求最多 5000 条记录，避免 API 6400 条限制导致数据截断
+    commit_on_success: true   # 原子提交，确保窗口数据完整性
+
 parameters:
   end_date:
     description: 调研结束日期 YYYYMMDD
@@ -26,14 +52,6 @@ parameters:
     type: string
   start_date:
     description: 调研开始日期 YYYYMMDD
-    required: false
-    type: string
-  trade_date:
-    description: 调研日期 YYYYMMDD
-    required: false
-    type: string
-  ts_code:
-    description: 股票代码
     required: false
     type: string
 permissions:

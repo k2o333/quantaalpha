@@ -1,4 +1,22 @@
 api_name: pledge_detail
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 股票代码
+  - ann_date          # 公告日期
+  - holder_name       # 股东名称
+  - pledge_amount     # 质押数量（万股）
+  - start_date        # 质押开始日期
+  - end_date          # 质押结束日期
+  - is_release        # 是否已解除 Y是 N否
+  - release_date      # 解除日期
+  - pledgor           # 质押人
+  - holding_amount    # 持股总数（万股）
+  - pledged_amount    # 质押总数（万股）
+  - p_total_ratio     # 本次质押占总股本比例
+  - h_total_ratio     # 持股占总股本比例
+  - is_buyback        # 是否回购
+
 derived_fields:
   ann_date_dt:
     description: 日期类型的ann_date
@@ -21,20 +39,35 @@ derived_fields:
     source: start_date
     type: date
 description: 股权质押明细
+duplicate_detection:
+  enabled: true
+  date_column: "ann_date"
+  stock_level_detection: true
 name: pledge_detail
 output:
   primary_key:
   - ts_code
   - ann_date
   - holder_name
+  - pledge_amount
   - start_date
+  - end_date
+  - is_release
+  - release_date
+  - pledgor
+  - holding_amount
+  - pledged_amount
+  - p_total_ratio
+  - h_total_ratio
+  - is_buyback
   sort_by:
   - ann_date
   - ts_code
 pagination:
   enabled: true
   mode: stock_loop
-  window_size_days: 3650  # 每个股票请求10年数据
+  time_range:
+    window: 9999d
 parameters:
   ts_code:
     description: 股票代码

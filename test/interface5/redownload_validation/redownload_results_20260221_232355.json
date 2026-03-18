@@ -1,0 +1,66 @@
+{
+  "fina_mainbz_vip_20250630": {
+    "interface_name": "fina_mainbz_vip",
+    "period": "20250630",
+    "downloaded": 10000,
+    "unique": 1149,
+    "duplicates": 8851,
+    "issues": [
+      "处理过程中发生错误: column with name 'count' has more than one occurrences"
+    ],
+    "sample_duplicates": []
+  },
+  "fina_mainbz_vip_20250331": {
+    "interface_name": "fina_mainbz_vip",
+    "period": "20250331",
+    "downloaded": 639,
+    "unique": 639,
+    "duplicates": 0,
+    "issues": [],
+    "sample_duplicates": []
+  },
+  "fina_mainbz_vip_20241231": {
+    "interface_name": "fina_mainbz_vip",
+    "period": "20241231",
+    "downloaded": 10000,
+    "unique": 9982,
+    "duplicates": 18,
+    "issues": [
+      "处理过程中发生错误: column with name 'count' has more than one occurrences"
+    ],
+    "sample_duplicates": []
+  },
+  "balancesheet_vip_20250630": {
+    "interface_name": "balancesheet_vip",
+    "period": "20250630",
+    "downloaded": 6633,
+    "unique": 6604,
+    "duplicates": 29,
+    "issues": [
+      "处理过程中发生错误: column with name 'count' has more than one occurrences"
+    ],
+    "sample_duplicates": []
+  },
+  "balancesheet_vip_20250930": {
+    "interface_name": "balancesheet_vip",
+    "period": "20250930",
+    "downloaded": 5918,
+    "unique": 5916,
+    "duplicates": 2,
+    "issues": [
+      "处理过程中发生错误: column with name 'count' has more than one occurrences"
+    ],
+    "sample_duplicates": []
+  },
+  "forecast_vip_20241231": {
+    "interface_name": "forecast_vip",
+    "period": "20241231",
+    "downloaded": 3955,
+    "unique": 3951,
+    "duplicates": 4,
+    "issues": [
+      "处理过程中发生错误: column with name 'count' has more than one occurrences"
+    ],
+    "sample_duplicates": []
+  }
+}

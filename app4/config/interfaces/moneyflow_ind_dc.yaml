@@ -1,4 +1,16 @@
 api_name: moneyflow_ind_dc
+
+# Fields配置：显式指定所有返回字段
+fields:
+  - ts_code           # 行业代码
+  - trade_date        # 交易日期
+  - name              # 行业名称
+  - close             # 收盘价
+  - pct_change        # 涨跌幅（%）
+  - net_amount        # 净流入额（万元）
+  - net_amount_rate   # 净流入率（%）
+  - rank              # 排名
+
 derived_fields:
   trade_date_dt:
     description: 日期类型的trade_date
@@ -9,20 +21,30 @@ description: 行业/概念资金流向（东财）
 name: moneyflow_ind_dc
 output:
   primary_key:
-  - trade_date
   - ts_code
+  - trade_date
+  - name
+  - close
+  - pct_change
+  - net_amount
+  - net_amount_rate
+  - rank
   sort_by:
   - trade_date
 pagination:
-  date_field: trade_date
   enabled: true
-  mode: date_range
-  window_size_days: 365
+  mode: reverse_date_range
+  window_size_days: 10
+  offset:
+    enabled: true
+    limit: 6000
+    commit_on_success: true   # 原子提交，确保窗口数据完整性
 parameters:
   content_type:
     description: 资金类型(行业、概念、地域)
     required: false
     type: string
+    default: 行业
   end_date:
     description: 结束日期 YYYYMMDD
     required: false
