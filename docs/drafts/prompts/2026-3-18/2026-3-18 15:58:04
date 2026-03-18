@@ -1,0 +1,9 @@
+我现在想转变打发
+
+在确定需求文档之后，我会把需求文档中分为4个不相关的地方，让coding agent
+分为4个subagent并行开发。
+然后再让下一个coding agent 分为4个subagent，并行测试
+再让下一个coding agent 分为4个subagent，并行debug
+最后才让一个coding agent的主agent收尾
+
+这样的情况下，我应该怎么变换我的doc系统/home/quan/testdata/aspipe_v4/docs，给我在/home/quan/testdata/aspipe_v4/docs/drafts/macro目录写下方案
