@@ -1,0 +1,148 @@
+# CLI-Anything 综合报告
+
+## 📌 概述
+
+**CLI-Anything** 是由**香港大学数据科学实验室（HKUDS）**开源的革命性工具，能够自动将任何有源代码的软件（如 GIMP、Blender、LibreOffice 等）转化为 AI Agent 可直接调用的命令行工具。该项目于 2026 年 3 月发布，目前在 GitHub 上已获得 **18.3k+ stars**。
+
+**核心理念**：今天的软件服务于人类，明天的用户将是 AI 智能体。
+
+---
+
+## ✨ 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| **7 阶段自动化流水线** | 从代码分析到发布，全自动完成架构设计、实现、测试、文档 |
+| **真实软件集成** | 直接调用真实应用后端，非 GUI 自动化，结果确定可靠 |
+| **结构化 JSON 输出** | 内置 `--json` 标志，为 AI Agent 提供机器可读的结构化数据 |
+| **自描述命令** | 每个命令支持 `--help`，AI 可运行时自动发现功能 |
+| **会话状态管理** | 支持跨命令的持久化项目状态和 undo/redo 功能 |
+| **零配置安装** | 简单的 `pip install -e .` 即可将 CLI 添加到 PATH |
+| **SKILL.md 生成** | 每个生成的 CLI 包含 AI 可发现的技能定义文件 |
+
+---
+
+## 🔧 工作原理：7 阶段全自动流水线
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. 🔍 分析 (Analyze)   → 扫描源代码，将 GUI 操作映射到 API          │
+│  2. 📐 设计 (Design)    → 架构命令组和状态模型                     │
+│  3. 🔨 实现 (Implement) → 构建带 REPL 和 JSON 输出的 Click CLI      │
+│  4. 📋 计划测试 (Plan)  → 创建 TEST.md                            │
+│  5. 🧪 编写测试 (Write) → 实现全面的测试套件                       │
+│  6. 📝 文档 (Document)  → 更新 TEST.md                            │
+│  7. 📦 发布 (Publish)   → 创建 setup.py 并安装到 PATH              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 技术架构特点
+
+- **统一 REPL 接口**：所有生成的 CLI 提供一致的交互式体验（ReplSkin）
+- **清晰的包架构**：所有 CLI 组织在 `cli_anything.*` 命名空间下
+- **双模式交互**：状态化 REPL（交互式）+ 子命令接口（脚本/流水线）
+
+---
+
+## 📦 支持的应用
+
+CLI-Anything 已为以下软件生成 CLI（**1,588 个测试 100% 通过率**）：
+
+| 类别 | 软件 | 测试数 |
+|------|------|--------|
+| **创意 & 媒体工具** | GIMP, Blender, Inkscape, Audacity, Kdenlive, Shotcut, OBS Studio | 1,138 |
+| **AI & ML 平台** | Stable Diffusion, ComfyUI, InvokeAI, AnyGen | 120 |
+| **办公 & 企业应用** | LibreOffice, Zoom | 180 |
+| **图表 & 可视化** | Draw.io, Mermaid | 148 |
+
+---
+
+## 💡 使用示例
+
+### 安装插件（Claude Code）
+
+```bash
+# 添加插件市场
+/plugin marketplace add HKUDS/CLI-Anything
+
+# 安装插件
+/plugin install cli-anything
+```
+
+### 生成 CLI
+
+```bash
+# 为 GIMP 生成完整 CLI
+/cli-anything ./gimp
+
+# 从 GitHub 仓库生成
+/cli-anything https://github.com/blender/blender
+```
+
+### 使用生成的 CLI
+
+```bash
+# 查看帮助
+cli-anything-gimp --help
+
+# JSON 输出（供 Agent 使用）
+cli-anything-gimp layer add -n "Background" --json
+# 输出：{"status": "success", "layer_id": 1, "dimensions": [1920, 1080]}
+
+# 进入交互式 REPL
+$ cli-anything-blender
+blender> scene new --name ProductShot
+✓ Created scene: ProductShot
+blender[ProductShot]> render execute --output render.png
+✓ Rendered: render.png (1920×1080, 2.3 MB)
+```
+
+---
+
+## 🎯 使用场景
+
+| 场景 | 说明 |
+|------|------|
+| **AI Agent 工具集成** | 让 Claude Code、Cursor 等 AI 助手直接控制专业软件 |
+| **自动化工作流** | 链式组合命令实现复杂任务（如批量图像处理） |
+| **脚本化操作** | 将 GUI 软件操作转化为可脚本化的命令行任务 |
+| **CI/CD 集成** | 在持续集成流程中调用专业软件进行渲染/转换 |
+| **远程操作** | 在无 GUI 的服务器环境中使用专业软件 |
+
+---
+
+## 🔍 与 RPA/GUI 自动化的区别
+
+| CLI-Anything | RPA 工具 |
+|--------------|----------|
+| 直接调用真实应用后端 | 截图、像素点击 |
+| 确定性、一致的结果 | 脆弱的 UI 解析 |
+| 结构化输出 | 需要解析 hacks |
+| 适合 AI Agent 规模化 | 易出错 |
+
+---
+
+## 📚 资源链接
+
+- **GitHub**: [HKUDS/CLI-Anything](https://github.com/HKUDS/CLI-Anything)
+- **官方网站**: [clianything.org](https://clianything.org/)
+- **文档**: [HARNESS.md](https://github.com/HKUDS/CLI-Anything/blob/main/cli-anything-plugin/HARNESS.md)
+- **快速入门**: [QUICKSTART.md](https://github.com/HKUDS/CLI-Anything/blob/main/cli-anything-plugin/QUICKSTART.md)
+
+---
+
+## ⚠️ 限制
+
+1. **需要强大的基础模型** - 依赖前沿模型（如 Claude Opus 4.6、GPT-5.4）进行可靠的 harness 生成
+2. **依赖可用源代码** - 当目标软件仅提供编译二进制文件时，harness 质量会下降
+3. **可能需要迭代优化** - 单次运行可能无法覆盖所有功能，通常需要多次 `/refine`
+
+---
+
+## 🛣️ 路线图
+
+- 支持更多应用类别（CAD、DAW、IDE、EDA、科学工具）
+- 智能体任务完成率的基准测试套件
+- 社区贡献的内部/定制软件 CLI harnesses
+- 与更多智能体框架集成
+- 支持将闭源软件和 Web 服务 API 打包为 CLI

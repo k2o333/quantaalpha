@@ -1,0 +1,46 @@
+{
+  "agents": {
+    "codebuddy": {
+      "enabled": true,
+      "command": ["codebuddy", "-p"],
+      "append_args": ["-y"],
+      "output_mode": "text",
+      "prompt_style": "inline_after_command"
+    },
+    "iflow": {
+      "enabled": true,
+      "command": ["iflow", "-p"],
+      "append_args": ["-y"],
+      "output_mode": "text",
+      "prompt_style": "inline_after_command"
+    },
+    "gemini": {
+      "enabled": false,
+      "command": ["gemini", "-p"],
+      "append_args": ["--approval-mode=yolo", "--output-format", "json"],
+      "output_mode": "json",
+      "prompt_style": "inline_after_command"
+    },
+    "kilocode": {
+      "enabled": true,
+      "command": ["kilo", "run"],
+      "append_args": ["--auto", "--format", "json"],
+      "output_mode": "json",
+      "prompt_style": "append_last"
+    },
+    "opencode": {
+      "enabled": false,
+      "command": ["opencode", "run"],
+      "append_args": ["--format", "json"],
+      "output_mode": "json",
+      "prompt_style": "append_last"
+    },
+    "qwen": {
+      "enabled": true,
+      "command": ["qwen", "-p"],
+      "append_args": ["--yolo", "--output-format", "json"],
+      "output_mode": "json",
+      "prompt_style": "inline_after_command"
+    }
+  }
+}

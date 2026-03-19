@@ -1,0 +1,6 @@
+{
+  "task_id": "task-20260318T145710Z-3-parallel-04-quality-gate-and-state-regression",
+  "run_id": "run-20260318T145710Z",
+  "agent": "qwen",
+  "status": "dry_run"
+}

@@ -77,7 +77,7 @@ class InterfaceSelector:
             List[str]: 过滤后的接口列表
         """
         # 如果指定了具体接口
-        if options.interfaces:
+        if options.interfaces is not None:
             # 验证接口是否存在
             valid_interfaces = []
             for iface in options.interfaces:
@@ -88,7 +88,7 @@ class InterfaceSelector:
             return valid_interfaces
         
         # 如果指定了组
-        if options.groups:
+        if options.groups is not None and len(options.groups) > 0:
             selected = set()
             for group_name in options.groups:
                 group_interfaces = self._get_group_interfaces(group_name)

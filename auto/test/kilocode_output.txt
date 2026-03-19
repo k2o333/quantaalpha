@@ -1,0 +1,83 @@
+[0m
+> code · x-ai/grok-code-fast-1:optimized:free
+[0m
+[0m◈ [0mExa Web Search "cli anythin"
+[0m% [0mWebFetch https://github.com/HKUDS/CLI-Anything
+[0m• [0mExtract key information from CLI-Anything README[90m Explore Agent[0m
+[0m✓ [0mExtract key information from CLI-Anything README[90m Explore Agent[0m
+# Comprehensive Report on CLI-Anything
+
+## Introduction
+CLI-Anything is an innovative open-source project that enables AI agents to control virtually any software application through automatically generated command-line interfaces (CLIs). Launched in March 2026, it has rapidly gained popularity with over 18,000 GitHub stars and 1,600 forks, addressing a critical gap where AI agents excel at reasoning but struggle with using professional software that lacks APIs or has fragile GUI automation.
+
+## What is CLI-Anything?
+CLI-Anything transforms software into "agent-native" tools by generating production-ready CLIs from source codebases. It bridges the divide between AI agents and software ecosystems, allowing agents to perform complex workflows in applications like GIMP, Blender, LibreOffice, and OBS Studio without relying on screenshots, mouse clicks, or limited APIs. The project provides a unified methodology to make any codebase controllable via structured commands, enabling seamless integration with AI coding platforms.
+
+## Key Features
+- **Automated 7-Phase Pipeline**: Generates complete CLIs through analysis, design, implementation, testing, documentation, and publishing phases.
+- **Agent-Native Design**: Built-in JSON output for machine consumption (--json flag) alongside human-readable interfaces; includes SKILL.md files for automatic skill discovery by agents.
+- **Authentic Software Integration**: Calls real application backends (e.g., Blender's bpy module, LibreOffice headless) for genuine rendering and processing, avoiding compromises or toy implementations.
+- **Unified User Experience**: All CLIs share a consistent REPL interface (repl_skin.py) with branded banners, command history, progress indicators, and standardized formatting.
+- **Production-Grade Testing**: Comprehensive multi-layered testing (unit, end-to-end native, end-to-end true backend, CLI subprocess) with a 100% pass rate across 1,588 tests for 13 diverse applications.
+- **Zero-Config Installation**: CLIs install via pip to system PATH; agents discover capabilities through standard --help and which commands.
+- **Extensible and Community-Driven**: Plugin-based architecture with a CLI-Hub registry for browsing and installing community CLIs; supports iterative refinement to expand coverage.
+- **Platform-Agnostic**: Designed to work across AI coding agents with contributions for multiple platforms.
+
+## How It Works
+CLI-Anything operates through a sophisticated 7-phase automated pipeline:
+1. **Analyze**: Scans the source code to map GUI actions to underlying APIs and capabilities.
+2. **Design**: Architects command groups, state management models, and output formats.
+3. **Implement**: Builds Click-based CLI with REPL support, JSON output, and undo/redo functionality.
+4. **Plan Tests**: Creates detailed test plans covering unit and end-to-end scenarios.
+5. **Write Tests**: Implements comprehensive test suites with synthetic and real data.
+6. **Document**: Updates documentation with test results and usage examples.
+7. **Publish**: Generates setup.py for pip installation and PATH integration.
+
+Users invoke it via platform-specific commands (e.g., /cli-anything in Claude Code) pointing to a software path or GitHub repo. Refinement commands allow iterative expansion of coverage. Generated CLIs support both interactive REPL mode and scripted subcommands, with persistent project state and authentic backend integration.
+
+## Supported Platforms
+- **Claude Code**: Primary platform; install via marketplace or manual plugin setup.
+- **OpenClaw**: Community-supported with native SKILL.md skill definition.
+- **OpenCode**: Experimental; requires copying commands and methodology files.
+- **Qodercli**: Community plugin with automated setup script.
+- **Codex**: Experimental skill with installer for Windows and Linux.
+- **Goose (Desktop/CLI)**: Experimental; leverages underlying CLI providers.
+- **Planned**: Cursor, Windsurf, and others; contributions welcome for additional agents.
+
+## Use Cases
+CLI-Anything enables agents to automate workflows across diverse domains:
+- **GitHub Repositories**: Convert open-source tools like VSCodium, WordPress, and Calibre into programmable interfaces.
+- **AI/ML Platforms**: Automate model training, inference, and hyperparameter tuning in Stable Diffusion, ComfyUI, InvokeAI, and Text-generation-webui.
+- **Data & Analytics**: Enable programmatic data processing in JupyterLab, Apache Superset, Metabase, and Redash.
+- **Development Tools**: Streamline coding workflows via Jenkins, Gitea, pgAdmin, and SonarQube.
+- **Creative & Media**: Control content creation in GIMP, OBS Studio, Audacity, Kdenlive, Shotcut, Inkscape, and Darktable.
+- **Scientific Computing**: Automate research in ImageJ, FreeCAD, QGIS, ParaView, and Gephi.
+- **Enterprise & Office**: Access productivity apps like NextCloud, GitLab, LibreOffice, and ERPNext.
+- **Communication**: Manage meetings and recordings in Zoom, Jitsi Meet, and BigBlueButton.
+- **Diagramming**: Generate visualizations with Draw.io, Mermaid, PlantUML, and Excalidraw.
+- **AI Content Generation**: Produce deliverables via AnyGen, Gamma, and Beautiful.ai.
+
+It replaces fragile GUI automation, unifies scattered APIs, and enables automated task synthesis and benchmarking.
+
+## Demonstrations and Testing
+CLI-Anything has been validated across 13 complex applications spanning creative, productivity, and AI domains:
+- GIMP (107 tests): Image editing with Pillow + GEGL/Script-Fu backend.
+- Blender (208 tests): 3D modeling via bpy scripting.
+- Inkscape (202 tests): Vector graphics with SVG/XML manipulation.
+- Audacity (161 tests): Audio processing using wave + sox.
+- LibreOffice (158 tests): Office suite with ODF generation and headless rendering.
+- OBS Studio (153 tests): Live streaming via JSON scenes and obs-websocket.
+- Kdenlive (155 tests): Video editing with MLT XML + melt renderer.
+- Shotcut (154 tests): Video editing via direct MLT XML manipulation.
+- Zoom (22 tests): Video conferencing through REST API with OAuth2.
+- Draw.io (138 tests): Diagramming with mxGraph XML and draw.io CLI.
+- Mermaid (10 tests): Diagrams via Mermaid state and mermaid.ink renderer.
+- AnyGen (50 tests): AI content generation using AnyGen REST API.
+- ComfyUI (70 tests): AI image generation via ComfyUI REST API.
+
+All tests achieve 100% pass rate, including real software invocation for authentic output verification (e.g., PDF generation in LibreOffice, PNG rendering in Blender).
+
+## Community and Future
+The project features active community contributions, including Windows compatibility fixes, platform integrations (OpenClaw, Qodercli), and localization (Japanese README). Recent updates include CLI-Hub for centralized CLI discovery and SKILL.md generation for enhanced agent integration. Under MIT license, it encourages contributions for new targets, methodology improvements, and platform support. Future roadmap focuses on expanding categories, automated benchmarks, and deeper integrations.
+
+CLI-Anything represents a paradigm shift in human-agent collaboration, making professional software universally accessible to AI while maintaining full capabilities and reliability.

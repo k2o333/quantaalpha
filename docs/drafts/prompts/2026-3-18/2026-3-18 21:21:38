@@ -1,0 +1,19 @@
+我要改变思路，现在要用coding agent的无头模式来做并行
+这些cli coding agent的无头模式说明书在/home/quan/testdata/aspipe_v4/docs/06-references/headless-cli目录
+
+现在，写一个方案，方案是要用sh脚本，对于一个目录中有多个任务（对任务文档名称和内容都有一定格式要求）
+用目录内6个cli coding agent的无头模式来完成任务。至于用哪几个，有yaml文件配置
+每个cli工具的
+
+一开始就布置开发任务，也别测试了。
+给agent的任务的文档，到底是要区分开发需求和提示词，还是合在一起
+
+到底是一开始用sh脚本让4个coding agent开发，还是先让一个开发
+
+这6个可以用的coding agent的 无头模式的文档在/home/quan/testdata/aspipe_v4/docs/06-references/headless-cli
+
+这个/home/quan/testdata/aspipe_v4/auto/test/test_all_headless_cli.sh
+
+是一个串行简单运行6个coding agent无头模式的脚本，我要并行运行
+
+你先给我方案，放在/home/quan/testdata/aspipe_v4/docs/drafts/macro目录

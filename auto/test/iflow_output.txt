@@ -1,0 +1,42 @@
+[WebFetchTool] Using Xinliu proxy server at https://apis.iflow.cn/v1 to fetch: https://cli-anything.com/
+[WebFetchTool] Using Xinliu proxy server at https://apis.iflow.cn/v1 to fetch: https://github.com/HKUDS/CLI-Anything
+[WebFetchTool] Using Xinliu proxy server at https://apis.iflow.cn/v1 to fetch: https://clianything.org/
+Let me check the existing report file to see if I should update it:I found an existing report file. Let me update it with the comprehensive information I gathered:Report updated at `/home/quan/testdata/aspipe_v4/auto/test/cli_anythin_report.md`.
+
+---
+
+## CLI-Anything Summary
+
+**CLI-Anything** is an open-source Claude Code plugin from HKUDS that automatically generates production-ready CLI interfaces for any software with a codebase. Its mission: make all software "agent-native."
+
+**Key Highlights**:
+- **2,000+ GitHub stars**, **1,588 tests** (100% pass rate)
+- **7-phase automated pipeline**: Analyze → Design → Implement → Test → Document → Publish
+- **Real software integration**: Calls actual backends (LibreOffice generates real PDFs, Blender renders real 3D)
+- **Agent-native design**: Built-in `--json` flag, auto-generated `SKILL.md` for AI discovery
+- **Interactive REPL**: Stateful interface with undo/redo
+
+**Supported Apps**: GIMP, Blender, Inkscape, Audacity, LibreOffice, OBS Studio, Kdenlive, Shotcut, Zoom, Draw.io, Mermaid, AnyGen, ComfyUI
+
+**Quick Start**:
+```bash
+/plugin marketplace add HKUDS/CLI-Anything
+/plugin install cli-anything
+/cli-anything ./your-software
+```
+
+**Limitations**: Requires strong LLMs (Claude Opus/Sonnet), needs source code access, target software must be installed locally.
+
+<Execution Info>
+{
+  "session-id": "session-704bfaf6-fe53-4736-a013-1b5604d37146",
+  "conversation-id": "d0c04b23-eb2b-4b4c-9915-3ed001f7253e",
+  "assistantRounds": 6,
+  "executionTimeMs": 110767,
+  "tokenUsage": {
+    "input": 34066,
+    "output": 311,
+    "total": 34377
+  }
+}
+</Execution Info>

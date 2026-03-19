@@ -571,6 +571,10 @@ def run_update_mode(args):
             for iface in interfaces_to_update:
                 if iface not in all_interfaces:
                     logger.warning(f"指定的接口 '{iface}' 不存在，已忽略")
+            
+            if not valid_interfaces and interfaces_to_update:
+                logger.error(f"所有指定的接口都不存在或无效，将退出更新")
+                return 1
         else:
             valid_interfaces = all_interfaces
             logger.info(

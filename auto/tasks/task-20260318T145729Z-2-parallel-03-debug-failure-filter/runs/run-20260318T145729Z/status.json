@@ -1,0 +1,10 @@
+{
+  "task_id": "task-20260318T145729Z-2-parallel-03-debug-failure-filter",
+  "run_id": "run-20260318T145729Z",
+  "agent": "kilocode",
+  "status": "success",
+  "exit_code": "0",
+  "stdout": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260318T145729Z-2-parallel-03-debug-failure-filter/runs/run-20260318T145729Z/kilocode.stdout.log",
+  "stderr": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260318T145729Z-2-parallel-03-debug-failure-filter/runs/run-20260318T145729Z/kilocode.stderr.log",
+  "result_report": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260318T145729Z-2-parallel-03-debug-failure-filter/runs/run-20260318T145729Z/kilocode.result.md"
+}
