@@ -5,6 +5,9 @@ Uses project QlibFBWorkspace (no ProcessInf / pandas 1.5.x issues).
 
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from rdagent.scenarios.qlib.experiment.factor_experiment import (  # type: ignore
     QlibFactorScenario,
@@ -18,6 +21,53 @@ from quantaalpha.factors.workspace import QlibFBWorkspace
 from rdagent.scenarios.qlib.experiment.factor_experiment import (
     QlibFactorExperiment as _OrigQlibFactorExperiment,
 )
+from quantaalpha.factors.data_capability import render_data_capabilities
+from quantaalpha.log import logger
+
+
+EXPERIMENT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "experiment.yaml"
+DEFAULT_REGISTRY_ENABLED = True
+
+
+def _load_experiment_config(config_path: Path = EXPERIMENT_CONFIG_PATH) -> dict[str, Any]:
+    if not config_path.exists():
+        return {}
+    try:
+        return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def _is_registry_enabled(
+    registry_enabled: bool | None = None,
+    config_path: Path = EXPERIMENT_CONFIG_PATH,
+) -> bool:
+    if registry_enabled is not None:
+        return registry_enabled
+    run_config = _load_experiment_config(config_path)
+    registry_config = run_config.get("data_capability_registry", {})
+    return bool(registry_config.get("enabled", DEFAULT_REGISTRY_ENABLED))
+
+
+def _merge_source_data_with_registry(base_source_data: str, registry_text: str | None) -> str:
+    if not registry_text:
+        return base_source_data
+    return f"{base_source_data}\n\n{registry_text}"
+
+
+def _build_source_data_description(
+    use_local: bool,
+    registry_enabled: bool,
+    capabilities: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    from quantaalpha.factors.qlib_utils import get_data_folder_intro as local_get_data_folder_intro
+
+    base_source_data = deepcopy(local_get_data_folder_intro(use_local=use_local))
+    if not registry_enabled:
+        return base_source_data
+
+    registry_text = render_data_capabilities(capabilities)
+    return _merge_source_data_with_registry(base_source_data, registry_text)
 
 
 class QlibFactorExperiment(_OrigQlibFactorExperiment):
@@ -38,7 +88,10 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
 
     def __init__(self, use_local: bool = True, *args, **kwargs):
         from rdagent.core.scenario import Scenario
-        from quantaalpha.factors.qlib_utils import get_data_folder_intro as local_get_data_folder_intro
+
+        registry_enabled = kwargs.pop("data_capability_registry_enabled", None)
+        capabilities = kwargs.pop("data_capabilities", None)
+        config_path = kwargs.pop("experiment_config_path", EXPERIMENT_CONFIG_PATH)
 
         Scenario.__init__(self)
         tpl_prefix = "scenarios.qlib.experiment.prompts"
@@ -48,7 +101,24 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
                 runtime_environment=self.get_runtime_environment(),
             )
         )
-        source_data = deepcopy(local_get_data_folder_intro(use_local=use_local))
+        resolved_registry_enabled = _is_registry_enabled(
+            registry_enabled=registry_enabled,
+            config_path=Path(config_path),
+        )
+        try:
+            source_data = _build_source_data_description(
+                use_local=use_local,
+                registry_enabled=resolved_registry_enabled,
+                capabilities=capabilities,
+            )
+        except Exception:
+            from quantaalpha.factors.qlib_utils import get_data_folder_intro as local_get_data_folder_intro
+
+            logger.warning(
+                "Failed to inject data capability registry, falling back to basic source data.",
+                exc_info=True,
+            )
+            source_data = deepcopy(local_get_data_folder_intro(use_local=use_local))
         self._source_data = source_data
         self._output_format = deepcopy(T(f"{tpl_prefix}:qlib_factor_output_format").r())
         self._interface = deepcopy(T(f"{tpl_prefix}:qlib_factor_interface").r())

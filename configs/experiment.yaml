@@ -182,3 +182,11 @@ logging:
 prompts:
   planning: planning_prompts.yaml
   evolution: evolution_prompts.yaml
+
+
+# ============================================================
+# DATA CAPABILITY REGISTRY CONFIGURATION
+# Controls prompt-time capability injection for factor mining
+# ============================================================
+data_capability_registry:
+  enabled: true
