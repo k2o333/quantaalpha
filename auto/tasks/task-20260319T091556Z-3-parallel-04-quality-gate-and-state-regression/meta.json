@@ -1,0 +1,6 @@
+{
+  "task_id": "task-20260319T091556Z-3-parallel-04-quality-gate-and-state-regression",
+  "source_task_file": "/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-04-quality-gate-and-state-regression.task.md",
+  "source_prompt_file": "/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-04-quality-gate-and-state-regression.prompt.txt",
+  "pair_name": "parallel-04-quality-gate-and-state-regression"
+}

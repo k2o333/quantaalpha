@@ -1,0 +1,10 @@
+{
+  "task_id": "task-20260319T071440Z-5-smoke-06-qwen",
+  "run_id": "run-20260319T071440Z",
+  "agent": "qwen",
+  "status": "success",
+  "exit_code": "0",
+  "stdout": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T071440Z-5-smoke-06-qwen/runs/run-20260319T071440Z/qwen.stdout.log",
+  "stderr": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T071440Z-5-smoke-06-qwen/runs/run-20260319T071440Z/qwen.stderr.log",
+  "result_report": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T071440Z-5-smoke-06-qwen/runs/run-20260319T071440Z/qwen.result.md"
+}

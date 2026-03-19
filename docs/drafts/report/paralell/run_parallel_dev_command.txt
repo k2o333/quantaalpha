@@ -1,0 +1,1 @@
+/home/quan/testdata/aspipe_v4/auto/scripts/run_parallel_headless_dev.sh --batch-dir /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/parrelell/dev --tasks-root /home/quan/testdata/aspipe_v4/auto/tasks

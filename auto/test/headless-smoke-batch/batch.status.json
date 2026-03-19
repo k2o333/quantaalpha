@@ -1,0 +1,15 @@
+{
+  "batch_dir": "/home/quan/testdata/aspipe_v4/auto/test/headless-smoke-batch",
+  "tasks_root": "/home/quan/testdata/aspipe_v4/auto/tasks",
+  "status": "success",
+  "task_count": 6,
+  "max_parallel": 6,
+  "tasks": [
+    {"task_id":"task-20260319T090143Z-0-smoke-01-codebuddy","agent":"iflow","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-0-smoke-01-codebuddy","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-0-smoke-01-codebuddy/runs/run-20260319T090143Z/summary.md"},
+    {"task_id":"task-20260319T090143Z-1-smoke-02-iflow","agent":"opencode","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-1-smoke-02-iflow","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-1-smoke-02-iflow/runs/run-20260319T090143Z/summary.md"},
+    {"task_id":"task-20260319T090143Z-2-smoke-03-gemini","agent":"kilocode","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-2-smoke-03-gemini","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-2-smoke-03-gemini/runs/run-20260319T090143Z/summary.md"},
+    {"task_id":"task-20260319T090143Z-3-smoke-04-kilocode","agent":"gemini","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-3-smoke-04-kilocode","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-3-smoke-04-kilocode/runs/run-20260319T090143Z/summary.md"},
+    {"task_id":"task-20260319T090143Z-4-smoke-05-opencode","agent":"codebuddy","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-4-smoke-05-opencode","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-4-smoke-05-opencode/runs/run-20260319T090143Z/summary.md"},
+    {"task_id":"task-20260319T090143Z-5-smoke-06-qwen","agent":"qwen","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-5-smoke-06-qwen","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T090143Z-5-smoke-06-qwen/runs/run-20260319T090143Z/summary.md"}
+  ]
+}

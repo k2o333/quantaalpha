@@ -1,0 +1,6 @@
+{
+  "task_id": "task-20260319T090143Z-3-smoke-04-kilocode",
+  "run_id": "run-20260319T090143Z",
+  "agent": "gemini",
+  "status": "dry_run"
+}

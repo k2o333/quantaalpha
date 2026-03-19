@@ -1,0 +1,4 @@
+Do not read files. Do not edit files. Do not run commands.
+Reply with exactly one short line:
+OPENCODE_OK
+

@@ -1,0 +1,10 @@
+{
+  "task_id": "task-20260319T071440Z-2-smoke-03-gemini",
+  "run_id": "run-20260319T071440Z",
+  "agent": "gemini",
+  "status": "success",
+  "exit_code": "0",
+  "stdout": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T071440Z-2-smoke-03-gemini/runs/run-20260319T071440Z/gemini.stdout.log",
+  "stderr": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T071440Z-2-smoke-03-gemini/runs/run-20260319T071440Z/gemini.stderr.log",
+  "result_report": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T071440Z-2-smoke-03-gemini/runs/run-20260319T071440Z/gemini.result.md"
+}

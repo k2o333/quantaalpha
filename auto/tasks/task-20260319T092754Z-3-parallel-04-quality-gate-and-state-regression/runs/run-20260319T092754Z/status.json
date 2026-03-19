@@ -1,0 +1,10 @@
+{
+  "task_id": "task-20260319T092754Z-3-parallel-04-quality-gate-and-state-regression",
+  "run_id": "run-20260319T092754Z",
+  "agent": "gemini",
+  "status": "success",
+  "exit_code": "0",
+  "stdout": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T092754Z-3-parallel-04-quality-gate-and-state-regression/runs/run-20260319T092754Z/gemini.stdout.log",
+  "stderr": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T092754Z-3-parallel-04-quality-gate-and-state-regression/runs/run-20260319T092754Z/gemini.stderr.log",
+  "result_report": "/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T092754Z-3-parallel-04-quality-gate-and-state-regression/runs/run-20260319T092754Z/gemini.result.md"
+}

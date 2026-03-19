@@ -1,0 +1,1 @@
+做 code review，不做代码修改，不做测试执行。审查当前仓库里 parallel-03 对应实现，重点看失败因子定义、retry 集合过滤、backtest 结果跟踪、提前结束和 max_rounds 保护是否真的闭环，也要检查结果报告是否和实际改动一致。输出只保留 Findings、Open Questions、Files Checked、Residual Risks。Findings 按严重级别排序，并给文件路径。

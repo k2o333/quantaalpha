@@ -182,10 +182,18 @@ EOF
     esac
 
     echo "[START] task_id=${task_id} agent=${agent} run_id=${run_id}"
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "$TIMEOUT_SECONDS" "${cmd[@]}" >"$stdout_file" 2>"$stderr_file"
+    if command -v setsid >/dev/null 2>&1; then
+        if command -v timeout >/dev/null 2>&1; then
+            timeout "$TIMEOUT_SECONDS" setsid "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
+        else
+            setsid "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
+        fi
     else
-        "${cmd[@]}" >"$stdout_file" 2>"$stderr_file"
+        if command -v timeout >/dev/null 2>&1; then
+            timeout "$TIMEOUT_SECONDS" "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
+        else
+            "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
+        fi
     fi
     local exit_code=$?
     printf '%s\n' "$exit_code" >"$exit_file"
@@ -230,6 +238,7 @@ AGENTS_CONFIG="$AGENTS_CONFIG_DEFAULT"
 LAYOUT_CONFIG="$LAYOUT_CONFIG_DEFAULT"
 DRY_RUN=0
 TIMEOUT_SECONDS=1800
+START_DELAY_SECONDS=2
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -295,7 +304,15 @@ RESULT_TEMPLATE="$(json_string "$LAYOUT_CONFIG" '.report_files.agent_result_repo
 SUMMARY_TEMPLATE="$(json_string "$LAYOUT_CONFIG" '.report_files.summary_report')"
 STATUS_TEMPLATE="$(json_string "$LAYOUT_CONFIG" '.report_files.status_file')"
 
-mapfile -t ENABLED_AGENTS < <(jq -r '.agents | to_entries[] | select(.value.enabled == true) | .key' "$AGENTS_CONFIG")
+mapfile -t ENABLED_AGENTS < <(
+    jq -r '
+        .agents
+        | to_entries
+        | map(select(.value.enabled == true))
+        | sort_by(.value.priority // 999999, .key)
+        | .[].key
+    ' "$AGENTS_CONFIG"
+)
 [[ ${#ENABLED_AGENTS[@]} -gt 0 ]] || die "No enabled agents found in $AGENTS_CONFIG"
 
 mapfile -t TASK_FILES < <(find "$BATCH_DIR" -maxdepth 1 -type f -name "*${TASK_DOC_SUFFIX}" | sort)
@@ -390,6 +407,7 @@ for task_id in "${TASK_IDS[@]}"; do
         "${TASKID_TO_STATUS[$task_id]}" &
     TASKID_TO_PID["$task_id"]=$!
     TASKID_TO_STATE["$task_id"]="running"
+    sleep "$START_DELAY_SECONDS"
 done
 
 overall_status="success"

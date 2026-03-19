@@ -1,0 +1,13 @@
+{
+  "batch_dir": "/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/parrelell/review",
+  "tasks_root": "/home/quan/testdata/aspipe_v4/auto/tasks",
+  "status": "success",
+  "task_count": 4,
+  "max_parallel": 4,
+  "tasks": [
+    {"task_id":"task-20260319T095901Z-0-parallel-01-revalidate-cli-modes","agent":"codebuddy","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-0-parallel-01-revalidate-cli-modes","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-0-parallel-01-revalidate-cli-modes/runs/run-20260319T095901Z/summary.md"},
+    {"task_id":"task-20260319T095901Z-1-parallel-02-real-backtest-library-ops","agent":"qwen","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-1-parallel-02-real-backtest-library-ops","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-1-parallel-02-real-backtest-library-ops/runs/run-20260319T095901Z/summary.md"},
+    {"task_id":"task-20260319T095901Z-2-parallel-03-debug-failure-filter","agent":"iflow","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-2-parallel-03-debug-failure-filter","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-2-parallel-03-debug-failure-filter/runs/run-20260319T095901Z/summary.md"},
+    {"task_id":"task-20260319T095901Z-3-parallel-04-quality-gate-and-state-regression","agent":"kilocode","status":"success","exit_code":"0","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-3-parallel-04-quality-gate-and-state-regression","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T095901Z-3-parallel-04-quality-gate-and-state-regression/runs/run-20260319T095901Z/summary.md"}
+  ]
+}

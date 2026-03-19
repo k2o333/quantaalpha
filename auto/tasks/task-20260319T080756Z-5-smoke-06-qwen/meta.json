@@ -1,0 +1,6 @@
+{
+  "task_id": "task-20260319T080756Z-5-smoke-06-qwen",
+  "source_task_file": "/home/quan/testdata/aspipe_v4/auto/test/headless-smoke-batch/smoke-06-qwen.task.md",
+  "source_prompt_file": "/home/quan/testdata/aspipe_v4/auto/test/headless-smoke-batch/smoke-06-qwen.prompt.txt",
+  "pair_name": "smoke-06-qwen"
+}
