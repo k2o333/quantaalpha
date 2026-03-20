@@ -1,1 +1,0 @@
-做 code review，不做代码修改，不做测试执行。审查当前仓库里 parallel-02 对应实现，重点看 run_from_library / run_real_backtest / library._save / summary / audit / continuous_mine.sh 是否真的闭环，是否把批量回测结果错误映射成逐因子结果，是否把“带超时锁”写成了实际上没有超时的阻塞锁。输出只保留 Findings、Open Questions、Files Checked、Residual Risks。Findings 按严重级别排序，并给文件路径。

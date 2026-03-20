@@ -1,1 +1,0 @@
-做 code review，不做代码修改，不做测试执行。审查当前仓库里 parallel-04 对应实现，重点看坏样本集合、阈值常量、状态流转断言和 validation helper 是否真的提高回归保护，还是主要停留在注释和常量命名层面。输出只保留 Findings、Open Questions、Files Checked、Residual Risks。Findings 按严重级别排序，并给文件路径。

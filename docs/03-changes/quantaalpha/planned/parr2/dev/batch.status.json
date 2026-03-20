@@ -1,0 +1,15 @@
+{
+  "batch_dir": "/home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/parr2/dev",
+  "tasks_root": "/home/quan/testdata/aspipe_v4/auto/tasks",
+  "status": "success",
+  "policy_status": "clean",
+  "task_count": 4,
+  "max_parallel": 4,
+  "policy_violation_count": 0,
+  "tasks": [
+    {"task_id":"task-20260319T124628Z-0-parallel-01-revalidate-cli-modes","agent":"iflow","stage":"dev","status":"success","exit_code":"0","policy_violation":false,"policy_reason":"","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-0-parallel-01-revalidate-cli-modes","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-0-parallel-01-revalidate-cli-modes/runs/run-20260319T124628Z/summary.md"},
+    {"task_id":"task-20260319T124628Z-1-parallel-02-real-backtest-library-ops","agent":"opencode","stage":"dev","status":"success","exit_code":"0","policy_violation":false,"policy_reason":"","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-1-parallel-02-real-backtest-library-ops","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-1-parallel-02-real-backtest-library-ops/runs/run-20260319T124628Z/summary.md"},
+    {"task_id":"task-20260319T124628Z-2-parallel-03-debug-failure-filter","agent":"kilocode","stage":"dev","status":"success","exit_code":"0","policy_violation":false,"policy_reason":"","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-2-parallel-03-debug-failure-filter","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-2-parallel-03-debug-failure-filter/runs/run-20260319T124628Z/summary.md"},
+    {"task_id":"task-20260319T124628Z-3-parallel-04-quality-gate-and-state-regression","agent":"gemini","stage":"dev","status":"success","exit_code":"0","policy_violation":false,"policy_reason":"","task_dir":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-3-parallel-04-quality-gate-and-state-regression","summary":"/home/quan/testdata/aspipe_v4/auto/tasks/task-20260319T124628Z-3-parallel-04-quality-gate-and-state-regression/runs/run-20260319T124628Z/summary.md"}
+  ]
+}

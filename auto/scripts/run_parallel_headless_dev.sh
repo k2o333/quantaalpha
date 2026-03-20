@@ -92,18 +92,64 @@ build_command_preview() {
     ' "$AGENTS_CONFIG"
 }
 
+pick_next_agent() {
+    local failed_agent=$1
+    local total=${#ENABLED_AGENTS[@]}
+    local i
+    for (( i=0; i<total; i++ )); do
+        if [[ "${ENABLED_AGENTS[$i]}" == "$failed_agent" ]]; then
+            local next_idx=$(( (i + 1) % total ))
+            if [[ "${ENABLED_AGENTS[$next_idx]}" != "$failed_agent" ]]; then
+                printf '%s\n' "${ENABLED_AGENTS[$next_idx]}"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+detect_policy_violation() {
+    local stage=$1
+    local stdout_file=$2
+    local stderr_file=$3
+    local result_file=$4
+
+    POLICY_VIOLATION="false"
+    POLICY_REASON=""
+
+    if [[ "$stage" != "dev" ]]; then
+        return 0
+    fi
+
+    local scan_pattern='pytest|python -m pytest|coverage run -m pytest|test session starts|collected [0-9]+ items'
+    local hit_files=()
+    local scan_file=""
+    for scan_file in "$stdout_file" "$stderr_file" "$result_file"; do
+        [[ -f "$scan_file" ]] || continue
+        if grep -qiE "$scan_pattern" "$scan_file"; then
+            hit_files+=("$scan_file")
+        fi
+    done
+
+    if (( ${#hit_files[@]} > 0 )); then
+        POLICY_VIOLATION="true"
+        POLICY_REASON="dev stage test execution keywords detected: $(IFS=', '; printf '%s' "${hit_files[*]}")"
+    fi
+}
+
 run_one_task() {
     local task_id=$1
     local agent=$2
-    local task_dir=$3
-    local prompt_file=$4
-    local run_id=$5
-    local stdout_file=$6
-    local stderr_file=$7
-    local exit_file=$8
-    local result_file=$9
-    local summary_file=${10}
-    local status_file=${11}
+    local stage=$3
+    local task_dir=$4
+    local prompt_file=$5
+    local run_id=$6
+    local stdout_file=$7
+    local stderr_file=$8
+    local exit_file=$9
+    local result_file=${10}
+    local summary_file=${11}
+    local status_file=${12}
 
     local -a base=()
     local -a extra=()
@@ -129,6 +175,7 @@ run_one_task() {
 
 - Task ID: \`$task_id\`
 - Agent: \`$agent\`
+- Stage: \`$stage\`
 - Task Dir: \`$task_dir\`
 - Run ID: \`$run_id\`
 - Prompt File: \`$prompt_file\`
@@ -161,6 +208,7 @@ EOF
             printf '  "task_id": "%s",\n' "$task_id"
             printf '  "run_id": "%s",\n' "$run_id"
             printf '  "agent": "%s",\n' "$agent"
+            printf '  "stage": "%s",\n' "$stage"
             printf '  "status": "dry_run"\n'
             printf '}\n'
         } >"$status_file"
@@ -184,13 +232,13 @@ EOF
     echo "[START] task_id=${task_id} agent=${agent} run_id=${run_id}"
     if command -v setsid >/dev/null 2>&1; then
         if command -v timeout >/dev/null 2>&1; then
-            timeout "$TIMEOUT_SECONDS" setsid "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
+            timeout -k 30s "$TIMEOUT_SECONDS" setsid "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
         else
             setsid "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
         fi
     else
         if command -v timeout >/dev/null 2>&1; then
-            timeout "$TIMEOUT_SECONDS" "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
+            timeout -k 30s "$TIMEOUT_SECONDS" "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
         else
             "${cmd[@]}" </dev/null >"$stdout_file" 2>"$stderr_file"
         fi
@@ -198,6 +246,8 @@ EOF
     local exit_code=$?
     printf '%s\n' "$exit_code" >"$exit_file"
     echo "[DONE] task_id=${task_id} agent=${agent} exit_code=${exit_code}"
+
+    detect_policy_violation "$stage" "$stdout_file" "$stderr_file" "$result_file"
 
     {
         printf '```\n'
@@ -214,6 +264,10 @@ EOF
         printf -- '- Stdout: `%s`\n' "$stdout_file"
         printf -- '- Stderr: `%s`\n' "$stderr_file"
         printf -- '- Result Report: `%s`\n' "$result_file"
+        printf -- '- Policy Violation: `%s`\n' "$POLICY_VIOLATION"
+        if [[ -n "$POLICY_REASON" ]]; then
+            printf -- '- Policy Notes: `%s`\n' "$POLICY_REASON"
+        fi
     } >>"$summary_file"
 
     {
@@ -221,8 +275,11 @@ EOF
         printf '  "task_id": "%s",\n' "$task_id"
         printf '  "run_id": "%s",\n' "$run_id"
         printf '  "agent": "%s",\n' "$agent"
+        printf '  "stage": "%s",\n' "$stage"
         printf '  "status": "%s",\n' "$([[ "$exit_code" == "0" ]] && echo success || echo failed)"
         printf '  "exit_code": "%s",\n' "$exit_code"
+        printf '  "policy_violation": %s,\n' "$POLICY_VIOLATION"
+        printf '  "policy_reason": "%s",\n' "$POLICY_REASON"
         printf '  "stdout": "%s",\n' "$stdout_file"
         printf '  "stderr": "%s",\n' "$stderr_file"
         printf '  "result_report": "%s"\n' "$result_file"
@@ -238,6 +295,7 @@ AGENTS_CONFIG="$AGENTS_CONFIG_DEFAULT"
 LAYOUT_CONFIG="$LAYOUT_CONFIG_DEFAULT"
 DRY_RUN=0
 TIMEOUT_SECONDS=1800
+MAX_RETRIES=1
 START_DELAY_SECONDS=2
 
 while [[ $# -gt 0 ]]; do
@@ -256,6 +314,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --layout-config)
             LAYOUT_CONFIG=${2:-}
+            shift 2
+            ;;
+        --max-retries)
+            MAX_RETRIES=${2:-1}
             shift 2
             ;;
         --dry-run)
@@ -336,9 +398,12 @@ declare -A TASKID_TO_EXIT=()
 declare -A TASKID_TO_RESULT=()
 declare -A TASKID_TO_SUMMARY=()
 declare -A TASKID_TO_STATUS=()
+declare -A TASKID_TO_STAGE=()
 declare -A TASKID_TO_PID=()
 declare -A TASKID_TO_EXITCODE=()
 declare -A TASKID_TO_STATE=()
+declare -A TASKID_TO_POLICY_VIOLATION=()
+declare -A TASKID_TO_POLICY_REASON=()
 TASK_IDS=()
 
 task_index=0
@@ -347,6 +412,9 @@ for task_file in "${TASK_FILES[@]}"; do
     pair_name="${base_name%${TASK_DOC_SUFFIX}}"
     prompt_file="${BATCH_DIR}/${pair_name}${PROMPT_SUFFIX}"
     [[ -f "$prompt_file" ]] || die "Missing matching prompt file for ${base_name}: ${prompt_file}"
+
+    stage="$(awk -F': *' '/^stage:/{print $2; exit}' "$task_file")"
+    [[ -n "$stage" ]] || stage="unknown"
 
     slug="$(slugify "$pair_name")"
     [[ -n "$slug" ]] || slug="task"
@@ -388,6 +456,7 @@ for task_file in "${TASK_FILES[@]}"; do
     TASKID_TO_RESULT["$task_id"]="$result_file"
     TASKID_TO_SUMMARY["$task_id"]="$summary_file"
     TASKID_TO_STATUS["$task_id"]="$status_file"
+    TASKID_TO_STAGE["$task_id"]="$stage"
     TASKID_TO_STATE["$task_id"]="pending"
     task_index=$((task_index + 1))
 done
@@ -396,6 +465,7 @@ for task_id in "${TASK_IDS[@]}"; do
     run_one_task \
         "$task_id" \
         "${TASKID_TO_AGENT[$task_id]}" \
+        "${TASKID_TO_STAGE[$task_id]}" \
         "${TASKID_TO_DIR[$task_id]}" \
         "${TASKID_TO_PROMPT[$task_id]}" \
         "${TASKID_TO_RUNID[$task_id]}" \
@@ -411,6 +481,8 @@ for task_id in "${TASK_IDS[@]}"; do
 done
 
 overall_status="success"
+policy_status="clean"
+policy_violation_count=0
 for task_id in "${TASK_IDS[@]}"; do
     pid="${TASKID_TO_PID[$task_id]}"
     if wait "$pid"; then
@@ -422,6 +494,111 @@ for task_id in "${TASK_IDS[@]}"; do
         TASKID_TO_EXITCODE["$task_id"]="$exit_code"
         overall_status="partial_failed"
     fi
+    if [[ -f "${TASKID_TO_STATUS[$task_id]}" ]]; then
+        TASKID_TO_POLICY_VIOLATION["$task_id"]="$(jq -r '.policy_violation // false' "${TASKID_TO_STATUS[$task_id]}" 2>/dev/null || printf 'false\n')"
+        TASKID_TO_POLICY_REASON["$task_id"]="$(jq -r '.policy_reason // ""' "${TASKID_TO_STATUS[$task_id]}" 2>/dev/null || printf '\n')"
+        if [[ "${TASKID_TO_POLICY_VIOLATION[$task_id]}" == "true" ]]; then
+            policy_status="violations_detected"
+            policy_violation_count=$((policy_violation_count + 1))
+        fi
+    else
+        TASKID_TO_POLICY_VIOLATION["$task_id"]="false"
+        TASKID_TO_POLICY_REASON["$task_id"]=""
+    fi
+done
+
+# ── Failover Retry Phase ──────────────────────────────────────────────
+FAILED_TASK_IDS=()
+for task_id in "${TASK_IDS[@]}"; do
+    if [[ "${TASKID_TO_STATE[$task_id]}" == "failed" ]]; then
+        FAILED_TASK_IDS+=("$task_id")
+    fi
+done
+
+retry_round=0
+while (( ${#FAILED_TASK_IDS[@]} > 0 && retry_round < MAX_RETRIES )); do
+    retry_round=$((retry_round + 1))
+    echo "[RETRY] Round ${retry_round}/${MAX_RETRIES}: ${#FAILED_TASK_IDS[@]} failed task(s), attempting failover..."
+    STILL_FAILED=()
+    for task_id in "${FAILED_TASK_IDS[@]}"; do
+        original_agent="${TASKID_TO_AGENT[$task_id]}"
+        retry_agent="$(pick_next_agent "$original_agent" || true)"
+        if [[ -z "$retry_agent" ]]; then
+            echo "[RETRY] No alternate agent available for $task_id, skipping"
+            STILL_FAILED+=("$task_id")
+            continue
+        fi
+
+        echo "[RETRY] task_id=${task_id} switching ${original_agent} -> ${retry_agent}"
+
+        retry_run_id="run-$(date -u +%Y%m%dT%H%M%SZ)-retry${retry_round}"
+        retry_run_dir="${TASKID_TO_DIR[$task_id]}/${RUN_DIR_NAME}/${retry_run_id}"
+        mkdir -p "$retry_run_dir"
+
+        # Build enhanced prompt with failure context
+        original_prompt="$(cat "${TASKID_TO_PROMPT[$task_id]}")"
+        enhanced_prompt_file="${retry_run_dir}/prompt_enhanced.txt"
+        {
+            printf '%s\n\n' "$original_prompt"
+            printf '---\n'
+            printf "[SYSTEM NOTE] Previous agent '%s' failed (exit code: %s). " \
+                "$original_agent" "${TASKID_TO_EXITCODE[$task_id]}"
+            printf 'Please complete the original task described above.\n'
+        } > "$enhanced_prompt_file"
+
+        retry_stdout="$(replace_tokens "$STDOUT_TEMPLATE" "$TASKS_ROOT" "$task_id" "$retry_run_id" "$retry_agent")"
+        retry_stderr="$(replace_tokens "$STDERR_TEMPLATE" "$TASKS_ROOT" "$task_id" "$retry_run_id" "$retry_agent")"
+        retry_exit="$(replace_tokens "$EXIT_TEMPLATE" "$TASKS_ROOT" "$task_id" "$retry_run_id" "$retry_agent")"
+        retry_result="$(replace_tokens "$RESULT_TEMPLATE" "$TASKS_ROOT" "$task_id" "$retry_run_id" "$retry_agent")"
+        retry_summary="$(replace_tokens "$SUMMARY_TEMPLATE" "$TASKS_ROOT" "$task_id" "$retry_run_id" "$retry_agent")"
+        retry_status="$(replace_tokens "$STATUS_TEMPLATE" "$TASKS_ROOT" "$task_id" "$retry_run_id" "$retry_agent")"
+
+        if run_one_task \
+            "$task_id" \
+            "$retry_agent" \
+            "${TASKID_TO_STAGE[$task_id]}" \
+            "${TASKID_TO_DIR[$task_id]}" \
+            "$enhanced_prompt_file" \
+            "$retry_run_id" \
+            "$retry_stdout" \
+            "$retry_stderr" \
+            "$retry_exit" \
+            "$retry_result" \
+            "$retry_summary" \
+            "$retry_status"; then
+            echo "[RETRY] task_id=${task_id} agent=${retry_agent} succeeded"
+            TASKID_TO_STATE["$task_id"]="success"
+            TASKID_TO_EXITCODE["$task_id"]="0"
+            TASKID_TO_AGENT["$task_id"]="$retry_agent"
+            overall_status="success"
+        else
+            retry_exit_code=$?
+            echo "[RETRY] task_id=${task_id} agent=${retry_agent} also failed (exit_code=${retry_exit_code})"
+            TASKID_TO_EXITCODE["$task_id"]="$retry_exit_code"
+            TASKID_TO_AGENT["$task_id"]="$retry_agent"
+            STILL_FAILED+=("$task_id")
+        fi
+
+        # Re-check policy for retry
+        if [[ -f "$retry_status" ]]; then
+            TASKID_TO_POLICY_VIOLATION["$task_id"]="$(jq -r '.policy_violation // false' "$retry_status" 2>/dev/null || printf 'false\n')"
+            TASKID_TO_POLICY_REASON["$task_id"]="$(jq -r '.policy_reason // ""' "$retry_status" 2>/dev/null || printf '\n')"
+            if [[ "${TASKID_TO_POLICY_VIOLATION[$task_id]}" == "true" ]]; then
+                policy_status="violations_detected"
+                policy_violation_count=$((policy_violation_count + 1))
+            fi
+        fi
+    done
+    FAILED_TASK_IDS=("${STILL_FAILED[@]}")
+done
+
+# Re-calculate overall status after retries
+overall_status="success"
+for task_id in "${TASK_IDS[@]}"; do
+    if [[ "${TASKID_TO_STATE[$task_id]}" == "failed" ]]; then
+        overall_status="partial_failed"
+        break
+    fi
 done
 
 batch_status_file="${BATCH_DIR}/batch.status.json"
@@ -430,8 +607,10 @@ batch_status_file="${BATCH_DIR}/batch.status.json"
     printf '  "batch_dir": "%s",\n' "$BATCH_DIR"
     printf '  "tasks_root": "%s",\n' "$TASKS_ROOT"
     printf '  "status": "%s",\n' "$overall_status"
+    printf '  "policy_status": "%s",\n' "$policy_status"
     printf '  "task_count": %s,\n' "${#TASK_IDS[@]}"
     printf '  "max_parallel": %s,\n' "$MAX_PARALLEL"
+    printf '  "policy_violation_count": %s,\n' "$policy_violation_count"
     printf '  "tasks": [\n'
     first=1
     for task_id in "${TASK_IDS[@]}"; do
@@ -439,11 +618,14 @@ batch_status_file="${BATCH_DIR}/batch.status.json"
             printf ',\n'
         fi
         first=0
-        printf '    {"task_id":"%s","agent":"%s","status":"%s","exit_code":"%s","task_dir":"%s","summary":"%s"}' \
+        printf '    {"task_id":"%s","agent":"%s","stage":"%s","status":"%s","exit_code":"%s","policy_violation":%s,"policy_reason":"%s","task_dir":"%s","summary":"%s"}' \
             "$task_id" \
             "${TASKID_TO_AGENT[$task_id]}" \
+            "${TASKID_TO_STAGE[$task_id]}" \
             "${TASKID_TO_STATE[$task_id]}" \
             "${TASKID_TO_EXITCODE[$task_id]}" \
+            "${TASKID_TO_POLICY_VIOLATION[$task_id]}" \
+            "${TASKID_TO_POLICY_REASON[$task_id]}" \
             "${TASKID_TO_DIR[$task_id]}" \
             "${TASKID_TO_SUMMARY[$task_id]}"
     done

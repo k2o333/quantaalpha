@@ -1,1 +1,0 @@
-做 code review，不做代码修改，不做测试执行。审查当前仓库里 parallel-01 对应实现，重点检查 CLI 是否把本该在 pipeline/backtest 层的逻辑重复塞进了 cli.py，是否存在语义漂移、返回结构重复定义、失败可见性伪实现、越界改动。输出只保留 Findings、Open Questions、Files Checked、Residual Risks。Findings 按严重级别排序，并给文件路径。

@@ -17,3 +17,5 @@
 是一个串行简单运行6个coding agent无头模式的脚本，我要并行运行
 
 你先给我方案，放在/home/quan/testdata/aspipe_v4/docs/drafts/macro目录
+
+/home/quan/testdata/aspipe_v4/auto/scripts/run_parallel_headless_dev.sh --batch-dir /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/parr2/test --tasks-root /home/quan/testdata/aspipe_v4/auto/tasks
