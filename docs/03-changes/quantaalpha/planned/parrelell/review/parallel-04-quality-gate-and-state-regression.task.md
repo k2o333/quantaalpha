@@ -1,5 +1,7 @@
 ---
-source_dev_task_doc: docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-04-quality-gate-and-state-regression.task.md
+doc_type: operational_artifact
+classification: operational_artifact
+source_dev_task_doc: docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-04-quality-gate-and-state-regression.task.md  # historical artifact reference only
 task_kind: headless_code_review
 goal: 复核 quality gate / planning / 状态流转回归保护任务的实现质量
 review_only: true

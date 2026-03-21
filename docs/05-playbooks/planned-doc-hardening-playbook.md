@@ -22,7 +22,7 @@ This playbook is about raising the standard of `planned` documents so that ordin
 
 Use this playbook when:
 
-- a task will be executed from a `docs/03-changes/.../planned/` document
+- a task will be executed from a `docs/03-changes/<module>/YYYY-MM-DD-topic.md` document with `status: planned` in metadata
 - a normal agent is likely to implement the task
 - the task touches behavior, validation, state changes, scheduling, persistence, or test claims
 - previous executions looked plausible but failed real acceptance

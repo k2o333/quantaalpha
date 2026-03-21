@@ -1,5 +1,7 @@
 ---
-source_slice_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-04-quality-gate-and-state-regression.md
+doc_type: operational_artifact
+classification: operational_artifact
+source_slice_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-04-quality-gate-and-state-regression.md  # historical; flat path is the source of truth
 task_kind: headless_dev
 goal: 为 quality gate、planning 约束和状态流转补齐开发侧回归保护
 audit_required: true

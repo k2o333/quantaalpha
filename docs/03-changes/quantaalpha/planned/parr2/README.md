@@ -1,4 +1,14 @@
+---
+doc_type: operational_artifact
+classification: non_source_of_truth_index
+---
+
 # QuantaAlpha Parallel Round 2
+
+> **Classification: Non-source-of-truth index page.**
+> This file is an operational index for the parallel-round dev/test/debug pipeline.
+> It is NOT a change doc. Do not use it as task context.
+> All source-of-truth task docs have been migrated to flat files in `docs/03-changes/quantaalpha/`.
 
 本目录把 4 个任务拆成 `dev`、`test`、`debug` 三阶段。
 

@@ -1,10 +1,12 @@
 ---
+doc_type: operational_artifact
+classification: operational_artifact
 stage: test
 task_key: parallel-02-real-backtest-library-ops
 recommended_agent: codebuddy
 previous_stage: dev
 next_stage: debug
-source_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-02-real-backtest-library-ops.md
+source_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-02-real-backtest-library-ops.md  # historical; flat path is the source of truth
 handoff_docs:
   - ../dev/parallel-02-real-backtest-library-ops.task.md
 ---

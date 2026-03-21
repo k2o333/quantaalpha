@@ -1,5 +1,7 @@
 ---
-source_slice_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-03-debug-failure-filter.md
+doc_type: operational_artifact
+classification: operational_artifact
+source_slice_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-03-debug-failure-filter.md  # historical; flat path is the source of truth
 task_kind: headless_dev
 goal: 让 debug 后续轮次只重新处理失败因子
 audit_required: true

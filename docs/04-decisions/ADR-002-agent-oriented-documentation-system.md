@@ -80,6 +80,14 @@ Outcome: accepted
 我们决定采用以下目标结构：
 
 ```text
+docs/03-changes/<module>/YYYY-MM-DD-topic.md   # current standard (flat, module-flat)
+```
+
+> **Historical note:** Sections 3.4 and 3.5 below describe the status-dir structure that was the original design target. This structure has been **superseded** by the flat model described in `docs/05-playbooks/03-changes-flat-migration-playbook.md`. Active change docs should now live at the flat module path. Legacy status directories (`planned/`, `in_progress/`, etc.) are retained for historical materials only and should not receive new change docs.
+
+Legacy status-dir structure (superseded):
+
+```text
 docs/03-changes/<module>/draft/YYYY-MM-DD-topic.md
 docs/03-changes/<module>/planned/YYYY-MM-DD-topic.md
 docs/03-changes/<module>/in_progress/YYYY-MM-DD-topic.md
@@ -111,9 +119,9 @@ docs/03-changes/<module>/archived/YYYY-MM-DD-topic.md
 因此，按年份直接平铺在 `docs/03-changes/2026/` 之类目录中的组织方式不再作为目标规范继续扩展。
 
 对历史遗留内容的处理原则是：
-- 旧结构可暂时保留
-- 新增 change doc 应遵守模块化路径与 `draft/`、`planned/` 分层
-- 历史文档可按需要逐步迁移
+- 旧结构可暂时保留（已由 flat-migration-playbook 逐步清理）
+- 新增 change doc 应遵守模块化平铺路径，`status` 在 metadata 中表达
+- 历史文档可按需要逐步迁移，见 `03-changes-flat-migration-playbook.md`
 
 ### 3.5 显式区分当前真相与历史过程材料
 

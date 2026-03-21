@@ -1,5 +1,7 @@
 ---
-source_dev_task_doc: docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-03-debug-failure-filter.task.md
+doc_type: operational_artifact
+classification: operational_artifact
+source_dev_task_doc: docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-03-debug-failure-filter.task.md  # historical artifact reference only
 task_kind: headless_code_review
 goal: 复核 debug failure filter 任务的实现质量
 review_only: true

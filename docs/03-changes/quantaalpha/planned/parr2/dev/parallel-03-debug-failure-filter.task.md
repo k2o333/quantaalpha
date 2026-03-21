@@ -1,9 +1,11 @@
 ---
+doc_type: operational_artifact
+classification: operational_artifact
 stage: dev
 task_key: parallel-03-debug-failure-filter
 recommended_agent: opencode
 next_stage: test
-source_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-03-debug-failure-filter.md
+source_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-03-debug-failure-filter.md  # historical; flat path is the source of truth
 allowed_code_paths:
   - third_party/quantaalpha/quantaalpha/pipeline/loop.py
   - third_party/quantaalpha/tests/test_debug_failure_filter.py

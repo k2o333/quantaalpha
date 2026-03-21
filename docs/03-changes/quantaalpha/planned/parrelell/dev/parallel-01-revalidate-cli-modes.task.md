@@ -1,5 +1,7 @@
 ---
-source_slice_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-01-revalidate-cli-modes.md
+doc_type: operational_artifact
+classification: operational_artifact
+source_slice_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-01-revalidate-cli-modes.md  # historical; flat path is the source of truth
 task_kind: headless_dev
 goal: 固定 revalidate 的 CLI 模式边界
 audit_required: true

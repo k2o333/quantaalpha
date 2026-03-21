@@ -1,9 +1,11 @@
 ---
+doc_type: operational_artifact
+classification: operational_artifact
 stage: dev
 task_key: parallel-01-revalidate-cli-modes
 recommended_agent: iflow
 next_stage: test
-source_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-01-revalidate-cli-modes.md
+source_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-01-revalidate-cli-modes.md  # historical; flat path is the source of truth
 allowed_code_paths:
   - third_party/quantaalpha/quantaalpha/cli.py
   - third_party/quantaalpha/tests/test_revalidate_cli.py

@@ -1,4 +1,14 @@
+---
+doc_type: operational_artifact
+classification: non_source_of_truth_index
+---
+
 # QuantaAlpha 持续挖掘 Iterate 2 原子化迭代清单
+
+> **Classification: Non-source-of-truth index page.**
+> This file is an operational index for historical task grouping.
+> It is NOT a change doc. Do not use it as task context.
+> All task content has been migrated to flat files in `docs/03-changes/quantaalpha/`.
 
 Status: planned
 Owner: QuantaAlpha team

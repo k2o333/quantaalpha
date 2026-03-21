@@ -1,5 +1,7 @@
 ---
-source_slice_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-02-real-backtest-library-ops.md
+doc_type: operational_artifact
+classification: operational_artifact
+source_slice_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-02-real-backtest-library-ops.md  # historical; flat path is the source of truth
 task_kind: headless_dev
 goal: 落真实复验内部链路、summary/audit、最小写保护和调度脚本入口
 audit_required: true

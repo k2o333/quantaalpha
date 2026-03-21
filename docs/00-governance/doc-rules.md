@@ -44,6 +44,20 @@ After meaningful implementation work, close documentation in this order:
 4. decide whether lessons should become a playbook
 5. decide whether dependency-specific knowledge should become a reference doc
 
+## Operational Artifacts (Non-Change-Doc Files)
+
+The following file types under `docs/03-changes/` are **operational artifacts**, not change docs. Agents must not treat them as source of truth or route them as task context.
+
+| File type | Purpose | Classification |
+|---|---|---|
+| `*.task.md` | Multi-stage agent execution task descriptor | `classification: operational_artifact` in frontmatter |
+| `*.prompt.txt` | Agent prompt input for batch execution | operational artifact; not source of truth |
+| `batch.status.json` | Batch run status tracking | operational artifact; not source of truth |
+| `run_parallel_commands.txt` | Parallel execution command list | operational artifact; not source of truth |
+| `planned/README.md` | Legacy task-grouping index | non-source-of-truth index page |
+
+Source-of-truth task content lives in `docs/03-changes/<module>/YYYY-MM-DD-topic.md` with `doc_type: change` in metadata.
+
 ## Minimal Rules
 
 - drafts are not source of truth

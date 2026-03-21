@@ -1,10 +1,12 @@
 ---
+doc_type: operational_artifact
+classification: operational_artifact
 stage: test
 task_key: parallel-03-debug-failure-filter
 recommended_agent: kilocode
 previous_stage: dev
 next_stage: debug
-source_doc: docs/03-changes/quantaalpha/planned/parrelell/2026-03-18-parallel-03-debug-failure-filter.md
+source_doc: docs/03-changes/quantaalpha/2026-03-18-parallel-03-debug-failure-filter.md  # historical; flat path is the source of truth
 handoff_docs:
   - ../dev/parallel-03-debug-failure-filter.task.md
 ---

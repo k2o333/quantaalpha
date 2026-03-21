@@ -1,5 +1,7 @@
 ---
-source_dev_task_doc: docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-01-revalidate-cli-modes.task.md
+doc_type: operational_artifact
+classification: operational_artifact
+source_dev_task_doc: docs/03-changes/quantaalpha/planned/parrelell/dev/parallel-01-revalidate-cli-modes.task.md  # historical artifact reference only
 task_kind: headless_code_review
 goal: 复核 revalidate CLI 模式边界任务的实现质量
 review_only: true
