@@ -1,0 +1,33 @@
+==========================================
+Iterate 2 系列测试结果
+==========================================
+测试日期: 2026-03-20
+测试环境: Linux, Python 3.12.13, pytest 9.0.2
+==========================================
+
+1. Iterate 2.1: revalidate 语义澄清与真实复验链路
+------------------------------------------------
+test_revalidate_cli.py: 22 passed
+test_revalidate_real_backtest.py: 4 passed
+
+2. Iterate 2.2: 失败因子重试过滤
+------------------------------------------------
+test_debug_failure_filter.py: 43 passed
+
+3. Iterate 2.3: 质量门控与状态流转回归测试
+------------------------------------------------
+test_status_transition.py: 5 passed
+test_planning_constraints.py: 2 passed
+test_quality_gate.py: 4 passed
+
+4. Iterate 2.4: 外部调度脚本、运行摘要与状态审计
+------------------------------------------------
+test_scheduler_summary.py: 13 passed
+
+5. Iterate 2.5: 因子库写入保护
+------------------------------------------------
+test_factor_library_locking.py: 5 passed
+
+==========================================
+总计: 98 passed, 0 failed, 69 warnings
+==========================================
