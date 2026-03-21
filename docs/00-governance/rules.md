@@ -17,14 +17,17 @@ These rules apply to:
 
 ## Source Of Truth Priority
 
-Use this priority order when documents disagree:
+Use this order when documents disagree:
 1. `docs/00-governance/agent.md`
 2. `docs/00-governance/rules.md`
 3. `docs/02-modules/*.md`
-4. `docs/07-technical/*.md`
-5. accepted change docs under `docs/03-changes/`
-6. drafts and exploratory notes under `docs/drafts/`
-7. current code, when docs are stale and must be corrected
+4. `docs/04-decisions/*.md`
+5. `docs/05-playbooks/*.md`
+6. `docs/06-references/*.md`
+7. `docs/07-technical/*.md`
+8. `docs/03-changes/<module>/`
+9. `docs/drafts/`
+10. current code, when docs are stale and must be corrected
 
 ## Required Behavior
 
@@ -34,6 +37,9 @@ Use this priority order when documents disagree:
 - for high-risk integration work, identify the downstream consumer, write path, and failure surface before editing
 - keep changes atomic and scoped to the task
 - update docs when behavior or contract actually changes
+- use module-flat change docs under `docs/03-changes/<module>/`
+- store change-doc status in document metadata, not in directory names
+- use the documentation validation rules in `docs/00-governance/doc-validation.md`
 - stop for human review on high-risk changes
 
 ## Forbidden Behavior
@@ -46,10 +52,12 @@ Use this priority order when documents disagree:
 - do not treat an integration as complete after checking only the input side; output contracts must also be verified
 - do not merge uncertain or experimental work into `main` by default
 - do not leave disposable artifacts in source directories
+- do not create new status subdirectories under `docs/03-changes/`
+- do not move change docs between directories to express status updates
 
 ## Branch Policy
 
-### Can work on `main`
+### Can Work On `main`
 
 These are usually acceptable directly on `main` when the change is clear and low risk:
 - docs-only fixes
@@ -57,7 +65,7 @@ These are usually acceptable directly on `main` when the change is clear and low
 - logging-only adjustments
 - tiny low-risk bug fixes with obvious scope
 
-### Must use a branch
+### Must Use A Branch
 
 These require a dedicated branch:
 - new interface configs
@@ -69,7 +77,7 @@ These require a dedicated branch:
 - uncertain multi-step work
 - cross-module changes
 
-See `docs/00-governance/development-workflow.md` for the fuller workflow.
+See `docs/00-governance/development-workflow.md` for fuller workflow details.
 
 ## Validation Policy
 
@@ -121,6 +129,7 @@ Stop and wait for human review when a task changes:
 - cross-module behavior
 - core update semantics
 - large refactors with unclear rollback
+- repository-wide governance rules
 
 ## Documentation Update Rules
 
@@ -131,7 +140,7 @@ Update governance, module, or technical docs when one of these changes:
 - execution flow
 - operational expectations
 
-Record task-specific implementation context in change docs first, then update higher-level docs if the current truth changed.
+Record task-specific implementation context in a module-flat change doc first, then update higher-level docs if current truth changed.
 
 ## Temporary Files
 
@@ -148,3 +157,12 @@ Examples:
 Do not modify these unless the task explicitly requires it:
 - `third_party/vnpy/`
 - `third_party/glue/`
+
+## Completion Contract
+
+Do not report work as complete unless you can state:
+1. target module
+2. target files
+3. truth docs consulted
+4. validation command used
+5. whether human review is required

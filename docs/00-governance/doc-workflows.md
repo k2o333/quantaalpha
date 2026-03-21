@@ -2,11 +2,21 @@
 
 ## Purpose
 
-This file defines the working flows for documentation tasks so an agent can follow the correct promotion path without reading the entire documentation system.
+This file defines low-entropy documentation flows so an agent can follow the correct promotion path without reading the whole documentation system.
+
+## Core Lifecycle
+
+The default task lifecycle is:
+
+```text
+draft -> planned -> doing -> done -> archived
+```
+
+This lifecycle is represented by document metadata, not by moving files between status directories.
 
 ## Draft Workflows
 
-### When to create a draft
+### When To Create A Draft
 
 Create a draft when work is still exploratory:
 - comparing approaches
@@ -14,7 +24,7 @@ Create a draft when work is still exploratory:
 - collecting temporary analysis
 - recording uncertain implementation ideas
 
-### What belongs in a draft
+### What Belongs In A Draft
 
 - goals or questions
 - options and tradeoffs
@@ -22,15 +32,13 @@ Create a draft when work is still exploratory:
 - open risks
 - tentative recommendations
 
-For task-oriented drafts, also follow the minimum content expectations in `docs/00-governance/doc-standards.md#draft-docs`.
-
-### What does not belong in a draft
+### What Does Not Belong In A Draft
 
 - accepted implementation truth
 - final acceptance criteria after implementation is settled
-- module current-state description
+- current module-state description
 
-### Draft outcomes
+### Draft Outcomes
 
 A draft should end in one of these states:
 1. promoted into a change doc
@@ -41,39 +49,32 @@ A draft should end in one of these states:
 ## Lifecycle Signals
 
 Use these signals together to decide what a document currently is:
+- document family
 - document path
-- document type
-- status header
+- `doc_type`
+- `status`
 - whether the content has been promoted into a higher-truth doc
 
-### Typical interpretation
+### Typical Interpretation
 
-- `docs/drafts/` + `draft`:
-  broad exploration, options, or not-yet-module-scoped thinking
-- `docs/03-changes/<module>/draft/` + `draft`:
-  module-scoped task exploration that is not yet approved as a planned task
-- `docs/03-changes/<module>/planned/` + `planned`:
-  concrete implementation task, approved to do, but not yet started
-- `docs/03-changes/<module>/in_progress/` + `in_progress`:
-  a concrete implementation task, not yet fully closed
-- `docs/03-changes/<module>/blocked/` + `blocked`:
-  a concrete implementation task that cannot continue for now
-- `docs/03-changes/<module>/implemented/` + `implemented`:
-  implementation landed, but closure is not complete
-- `docs/03-changes/<module>/tested/` + `tested`:
-  validation is complete and task is near closure
-- `docs/03-changes/<module>/accepted/` + `accepted`:
-  implemented task record with closure evidence
-- `docs/03-changes/<module>/archived/` + `archived` or `superseded`:
-  historical task record, not current active work
-- `docs/02-modules/` + `active`:
+- `docs/drafts/` + `status: draft`:
+  broad exploration, options, or not-yet-approved thinking
+- `docs/03-changes/<module>/` + `status: planned`:
+  concrete implementation task, approved to do, not yet started
+- `docs/03-changes/<module>/` + `status: doing`:
+  concrete implementation task, currently active
+- `docs/03-changes/<module>/` + `status: done`:
+  completed task record with validation evidence
+- `docs/03-changes/<module>/` + `status: archived`:
+  historical task record, not active work
+- `docs/02-modules/` + `status: active`:
   current module truth
-- any formal doc + `archived` or `superseded`:
-  history only, not current truth
+- any formal doc + `status: superseded`:
+  replaced by a newer truth doc
 
-### Important rule
+### Important Rule
 
-A document is not treated as current truth just because it is detailed or complete.
+A document is not current truth just because it is detailed or complete.
 
 Current truth comes from:
 - module docs
@@ -87,30 +88,29 @@ Detailed drafts and completed change docs are still process material unless thei
 
 Use this path when exploratory work becomes a concrete implementation task.
 
-### Promote a draft to a change doc when
+### Promote A Draft To A Change Doc When
 
 - the task has a clear implementation target
-- a real code/config change is planned or completed
+- a real code, config, or formal-doc change is planned or completed
 - validation scope can be named
 - the work needs traceability
 
-### Important clarification
+### Promotion Rule
 
 If a document already describes:
 - a scoped implementation target
 - dependencies
 - validation expectations
-- concrete code-facing work
+- concrete code-facing or doc-facing work
 
-then it should usually be managed as a change doc even if implementation has not started yet.
+then it should usually be managed as a change doc even if implementation has not started.
 
-In that case:
-- if it is approved but not started, move it under `docs/03-changes/<module>/planned/`
-- if work has started, move it under the matching lifecycle directory
-- set status to match the lifecycle directory
-- keep unfinished design-only material in drafts if still useful
+Under the module-flat model:
+- create or move it to `docs/03-changes/<module>/YYYY-MM-DD-topic.md`
+- set `doc_type: change`
+- set `status` to `planned` or `doing`
 
-### When promoting, keep in the change doc
+### When Promoting, Keep In The Change Doc
 
 - background
 - goal
@@ -119,24 +119,35 @@ In that case:
 - validation plan
 - implementation notes
 
-### When promoting, leave behind in the draft only if still useful
+### When Promoting, Leave Behind In The Draft Only If Still Useful
 
 - rejected alternatives
 - broader exploration not needed for the implementation record
 - speculative options for future work
 
+## Change Execution
+
+Once a change doc becomes active, keep the path stable and update only metadata and content.
+
+During execution, the owner should maintain:
+- `updated`
+- `status`
+- target files or code paths
+- validation notes
+- remaining risks
+
 ## Change Closure
 
 This is the default closure order after meaningful implementation work:
 
-1. update the change doc with final result
+1. update the change doc with the actual result
 2. attach validation evidence
 3. decide whether current module truth changed
 4. decide whether a long-term decision changed
 5. decide whether lessons became reusable
-6. archive or leave supporting draft material as reference
+6. archive only if the doc should remain as history only
 
-### A change doc should answer
+### A Change Doc Should Answer
 
 - what changed
 - why it changed
@@ -144,7 +155,7 @@ This is the default closure order after meaningful implementation work:
 - what remains risky
 - whether higher-level docs also changed
 
-### If code and docs disagree at closure time
+### If Code And Docs Disagree At Closure Time
 
 Use this order:
 1. verify the real behavior from code and validation evidence
@@ -158,7 +169,7 @@ Do not force code to match an old draft if the validated implementation intentio
 
 Promote change-doc knowledge into a module doc only when current truth changed.
 
-### Update the module doc if one of these changed
+### Update The Module Doc If One Of These Changed
 
 - module responsibility
 - external interface
@@ -166,9 +177,9 @@ Promote change-doc knowledge into a module doc only when current truth changed.
 - dependency relationship
 - module boundary
 - operational risk model
-- test entry points
+- test entrypoints
 
-### Do not update the module doc for
+### Do Not Update The Module Doc For
 
 - one-off debugging notes
 - local implementation history
@@ -187,26 +198,26 @@ When a finished task produces knowledge beyond one change doc, route it like thi
 
 ## Documentation Decision Shortcuts
 
-### I have an unfinished idea
+### I Have An Unfinished Idea
 
 Use a draft.
 
-### I have a concrete implementation task
+### I Have A Concrete Implementation Task
 
-Use or update a change doc.
+Use or update a module-flat change doc.
 
-### I changed the current behavior of a module
+### I Changed The Current Behavior Of A Module
 
 Update the module doc.
 
-### I changed a durable project-level decision
+### I Changed A Durable Project-Level Decision
 
 Create or update an ADR.
 
-### I found a reusable engineering pattern
+### I Found A Reusable Engineering Pattern
 
 Create or update a playbook.
 
-### I learned a stable way this repo uses a dependency
+### I Learned A Stable Way This Repo Uses A Dependency
 
 Create or update a reference doc.

@@ -4,7 +4,7 @@
 
 This file is the entrypoint for documentation work.
 
-Do not read the full documentation system unless needed. Start from the workflow table below and only open the next targeted doc.
+Do not read the full documentation system unless needed. Start from the routing table below and only open the next targeted doc.
 
 ## Core Principle
 
@@ -14,19 +14,26 @@ Most documentation work in this repo follows a promotion path:
 
 Not every task passes through every stage, but this is the default model for organizing evolving work.
 
+Under the current standard:
+- change docs are module-flat
+- task status lives in metadata
+- manually maintained status tables are not source truth
+
 ## Documentation Workflows
 
 | If you are doing this | Read next |
 |---|---|
 | creating or cleaning a draft | `docs/00-governance/doc-workflows.md#draft-workflows` |
 | turning a draft into an implementation task | `docs/00-governance/doc-workflows.md#draft-to-change` |
+| executing or closing a change doc | `docs/00-governance/doc-workflows.md#change-execution` |
 | closing a finished task | `docs/00-governance/doc-workflows.md#change-closure` |
 | deciding whether current truth changed | `docs/00-governance/doc-workflows.md#change-to-module` |
 | promoting reusable lessons | `docs/00-governance/doc-workflows.md#promotion-targets` |
 | drafting a controlled governance-doc task | `docs/00-governance/doc-task-template.md` |
 | choosing a doc type or placement | `docs/00-governance/doc-standards.md#document-types` |
-| applying naming or status headers | `docs/00-governance/doc-standards.md#naming-and-status` |
+| applying naming or metadata headers | `docs/00-governance/doc-standards.md#required-metadata` |
 | deciding whether something is truth or history | `docs/00-governance/doc-standards.md#truth-vs-history` |
+| validating documentation consistency | `docs/00-governance/doc-validation.md` |
 
 ## Default Order For Documentation Closure
 
@@ -51,3 +58,4 @@ If the task is obvious, read only:
 - this file
 - one section in `doc-workflows.md`
 - one section in `doc-standards.md` if naming or placement is needed
+- `doc-validation.md` if metadata or consistency checks matter

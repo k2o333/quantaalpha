@@ -23,7 +23,7 @@ Use this template when:
 Do not use this template when:
 - the task is still broad exploration
 - you do not yet know the target files
-- the work is mainly code/config implementation
+- the work is mainly code or config implementation
 
 In those cases, start with a draft or a change doc first.
 
@@ -49,7 +49,7 @@ Include:
 State the intended result in one short paragraph.
 
 Prefer:
-- "align `agent.md` routing with ADR-002"
+- "align `agent.md` routing with the module-flat change-doc model"
 - "remove duplicated rule lists from `development-workflow.md`"
 
 Avoid:
@@ -82,7 +82,7 @@ For governance-doc tasks, always name exact files.
 If the task itself is being written as a draft before implementation, decide the placement explicitly.
 
 Use:
-- `docs/03-changes/<module>/draft/` when the task is already scoped to one module or one known bucket such as `common/`
+- `docs/03-changes/<module>/YYYY-MM-DD-topic.md` when the task is already scoped to one module or one known bucket such as `common/`
 - `docs/drafts/` when the work is still broad exploration, comparison, or not yet clearly attached to a module
 
 Do not leave placement implicit.
@@ -134,19 +134,19 @@ For each file, specify:
 Use shape constraints when needed.
 
 Examples:
-- "change only `## Task Routing` and `## Do Not Assume`"
+- "change only `## Fast Routing` and `## Do Not Assume`"
 - "section 4.2 may contain one reference sentence plus at most two project-specific bullets"
-- "do not add a new explanatory subsection under `## Task Routing`"
+- "do not add a new explanatory subsection under `## Fast Routing`"
 
 ### Acceptance Checks
 
 Use file-based checks, not vague quality statements.
 
 Good examples:
-- `agent.md` includes routing entries for ADRs, playbooks, and references
-- no new subsection was added under `## Task Routing`
+- `agent.md` routes change-doc lookup to `docs/03-changes/<module>/`
+- no governance file still defines status subdirectories as the target standard
+- metadata examples use the standard status vocabulary
 - section `4.2` has at most two bullets
-- sections `9`, `10`, and `11` no longer contain long repeated rule lists
 
 Avoid:
 - "docs are clearer"
@@ -164,7 +164,7 @@ Typical checks:
 
 ### Required Review Step
 
-Require a review pass or subagent review that checks final file contents directly.
+Require a review pass that checks final file contents directly.
 
 Reviewer instructions should verify:
 - only allowed files were edited
@@ -195,16 +195,15 @@ Recommended rule:
 - if implementation actually starts, do not leave the task only in `draft/` without explanation
 
 Preferred outcomes:
-- move the document to `docs/03-changes/<module>/planned/` if approved but not started
-- move it to `docs/03-changes/<module>/in_progress/` if active work has started
-- move it to `tested/`, `accepted/`, or `archived/` when the task is truly closed
+- create or move the document to `docs/03-changes/<module>/YYYY-MM-DD-topic.md` if it becomes a real tracked task
+- set `status: planned` if approved but not started
+- set `status: doing` if active work has started
+- set `status: done` or `status: archived` when the task is truly closed
 
-If you intentionally leave the document in `draft/`, require the report to say why.
-
-For path-managed change docs, path and status should agree.
+If you intentionally leave the document in `docs/drafts/`, require the report to say why.
 
 Useful hard rule:
-- if a task was actually executed, do not leave the file in a `draft/` path with `Status: draft` unless the report explicitly justifies that exception
+- if a task was actually executed, do not leave the file in `docs/drafts/` with `status: draft` unless the report explicitly justifies that exception
 
 ### Closure Standard
 
@@ -223,7 +222,7 @@ Use this pattern when the task specifically targets governance docs such as `age
 ### Recommended Defaults
 
 - keep entrypoint docs short
-- prefer table-row edits over adding prose
+- prefer routing-table edits over adding prose
 - remove repeated rule lists instead of restating them
 - push durable rules back to `rules.md`
 - keep workflow docs process-first
@@ -238,9 +237,3 @@ Normal agents often fail in these ways:
 - treating a review summary as proof instead of checking the actual file
 
 When these risks apply, write explicit "not allowed" lines and shape constraints.
-
-## Recommendation
-
-If the task is one-off and exploratory, keep it in a draft.
-
-If the task is a repeatable governance-doc maintenance pattern, use this template in a change doc or draft before assigning it to a normal agent.

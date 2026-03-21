@@ -3,165 +3,128 @@
 Status: active
 Owner: quan
 Created: 2026-03-15
+Updated: 2026-03-21
 Outcome: accepted
 Related-to: `./rules.md`
 Related-to: `./doc-rules.md`
 
-## 1. 目的
+## Purpose
 
-本文档定义了 `aspipe_v4` 项目的实际开发工作流。
+This document defines the practical development workflow for `aspipe_v4`.
 
-基于当前代码仓库的工作模式设计：
-* 单人开发维护
-* 目前无重度的发布流程
-* 边用边改的增量迭代开发
-* 做出有意义的修改后进行原子化提交
-* 具有不确定性或实验性的工作必须在分支上独立开发
-* 支持 AI (Coding CLI / Codex) 参与协作，但必须在明确规则下运行
+It is designed for:
+- single-maintainer development
+- incremental iteration
+- atomic commits
+- AI-assisted implementation under explicit constraints
 
-重点聚焦于：
-* 分支与提交工作流
-* 任务状态管理
-* AI 协作边界与人工审查边界
-* 测试期望
-* 文档更新与临时文件规则
+This file focuses on:
+- branch usage
+- implementation flow
+- validation expectations
+- handoff and review points
 
----
+Stable repository-wide rules live in `docs/00-governance/rules.md` and are not duplicated here.
 
-## 2. 工作模式
+## Working Model
 
-采用 **`main` 分支保持稳定，不确定变更在分支进行** 的模式。
+Use the model:
 
-原则：
-1. `main` 分支应始终保持可用状态。
-2. 具有不确定性的改动必须在分支上进行。
-3. 每次有意义的变更都应进行原子化提交。
-4. AI 工具绝不能在未阅读项目文档和上下文的情况下盲目假设代码库状态。
-5. AI 工具可以进行代码实现和迭代，但最终代码合并决定权必须归属于人类维护者。
-6. 文档必须能够辅助开发执行，而不是制造干扰或噪音。
+`main` stays usable, uncertain work uses a branch.
 
----
+Principles:
+1. `main` should remain in a usable state.
+2. uncertain or experimental changes should use a branch.
+3. every meaningful change should be packaged as an atomic commit.
+4. AI tools must not act before reading the relevant governance and module context.
+5. human maintainers retain final merge authority.
+6. documentation should reduce execution ambiguity, not create noise.
 
-## 3. 事实来源优先级（Source of Truth）
+## Branch Strategy
 
-事实来源优先级定义于 `docs/00-governance/rules.md`，本文档不再重复。
+### Working On `main`
 
-AI 工具 **严禁**：
-* 默认将草稿视为强制需求
-* 将已归档或陈旧的文档视为当前事实
-* 凭空猜测或虚构当前的工作流状态
+Use `main` only for low-risk, well-bounded changes such as:
+- docs-only fixes
+- typo fixes
+- tiny obvious bug fixes
+- logging-only adjustments
 
----
+### Using A Branch
 
-## 4. 分支策略
+Use a branch when:
+- implementation is uncertain
+- multiple iterations are expected
+- rollback risk is non-trivial
+- cross-module changes are involved
+- the task is explicitly marked high-risk in `rules.md`
 
-### 4.1 Main 分支
-`main` 作为当前工作可用分支。
-必须保持可运行状态，剔除尚未完成或不确定的工作。只有在变更极度可控、低风险且完全掌握的情况下（如拼写错误修复、微小日志改进、文档修正、确定的微小 Bug 修复）才允许直接在 `main` 上编辑。
+Suggested names:
+- `feature/<topic>`
+- `fix/<topic>`
+- `refactor/<topic>`
+- `experiment/<topic>`
 
-### 4.2 需要使用分支的场景
+## Task Execution Flow
 
-必须使用分支的情况定义于 `docs/00-governance/rules.md` 的分支策略。
+Recommended execution flow:
+1. read `agent.md`, `rules.md`, and the relevant module doc
+2. identify whether current truth or task context is needed
+3. if task context is needed, use a module-flat change doc under `docs/03-changes/<module>/`
+4. identify target files, validation, and review boundary
+5. implement the scoped change
+6. run the required validation
+7. update the change doc if the task is meaningful enough to track
+8. update higher-truth docs only if current truth changed
+9. stop for human review when required
 
-本项目补充以下场景：
-* 实现路径尚未确定，需要多次迭代或 AI 反复探索
-* 维护者希望随时能放弃当前的实验性修改
+## Task State Model
 
-分支命名建议：`feature/<topic>`, `fix/<topic>`, `refactor/<topic>`, `experiment/<topic>`等。
+The default task lifecycle is:
 
-### 4.3 分支生命周期结局
-1. 合并至 `main`。
-2. 暂时保留待验证。
-3. 价值较高但未合并时进行归档。
-4. 价值低的探索代码直接删除。
+`draft -> planned -> doing -> done -> archived`
 
----
+Task state should be expressed in document metadata, commit history, or branch context.
 
-## 5. 任务状态模型
+Do not express task state by creating or relying on status directories under `docs/03-changes/`.
 
-由于 AI 无法天然知道当前工作状态，因而每项任务都应有明确状态。
+## Validation Practice
 
-推荐状态：`draft`（起草中未实现）, `in_progress`（开发中）, `blocked`（被阻塞卡住待决策）, `tested`（本地测试通过）, `accepted`（被接受并准备保留在主干）, `archived`（已被归档/放弃）。
+Validation strategy by risk level is defined in `docs/00-governance/rules.md`.
 
-任务状态可以通过分支名、文档头部信息（Header）、或者是具体的 Commit 来表达。不确定工作推荐优先写带有状态头的草稿。
+This workflow adds these operating rules:
+- keep validation commands reproducible
+- include working directory and interpreter when that matters
+- do not claim success from partial or non-reproducible evidence
+- for seam-sensitive changes, verify both input and output contracts
+- for script, scheduler, or path-sensitive tasks, verify default paths against real write paths
 
----
+## AI And Human Boundary
 
-## 6. 人类与 AI 责任边界
+AI can:
+- read docs and code
+- propose and implement scoped changes
+- run local validation
+- update change docs and supporting docs within task scope
+- summarize risks and remaining gaps
 
-### 6.1 AI 可以自动执行的范围
-AI 可以：阅读治理文档和代码、提出实现计划、在非主干分支上改代码和 YAML 配置、跑本地验证/重构/补充测试、起草撰写变更/草稿文档、修复明显的测试失败情况、总结风险并打包原子化 Commit。
+AI must stop for human review when the task crosses the boundary defined in `rules.md`.
 
-### 6.2 必须由人工审查的大项（Mandatory）
+## Documentation Expectations
 
-必须人工审查的情况定义于 `docs/00-governance/rules.md` 的人机审查边界。
+After meaningful implementation work:
+1. keep or create a change doc trail
+2. update the module doc if current behavior changed
+3. update an ADR, playbook, or reference doc only if the knowledge became durable
 
-### 6.3 建议人类审查的可选项（Optional）
-小范围的不改变行为的重构、局部日志/测试扩充、无代码逻辑改变的清理。
+Use `docs/00-governance/doc-rules.md` for routing and `docs/00-governance/doc-workflows.md` for promotion logic.
 
-### 6.4 AI 不得越界的红线操作
-未经人类指派，AI 绝不应该：修改偏离当前特定任务目标之外的大块代码；因为跑通了测试就自动合入 Main；乱删依然有价值的文档分支；暗自修改或瞎编任务范围并强行转换成正式代码逻辑规范。
+## Temporary Files
 
----
+Place temporary files under `.tmp/`.
 
-## 7. 研发流程
+Move durable content into formal docs when it becomes useful.
 
-### 7.1 AI 工具推荐执行流程
-1. 开始任务 -> 阅读 `rules.md` 及 `doc-rules.md` -> 检查代码和配置状态。
-2. 明确当前状态，如果是新任务起头则新建或更新一版修改规划。
-3. 具有不确定性的探索必须开分支；如果是明确可信赖的微小补丁，走 Main。
-4. 写码并调用本地验证。若属于高风险集成任务，验证时必须同时检查输入契约和输出契约，而不是只验证一侧打通。若不通过则迭代或询问求助人类。
-5. 记录验证命令时，优先保留精确命令、工作目录、解释器路径；若测试结果不可直接复跑，则不得写成“已通过”。
-6. 成功后汇总各项决策点假设与风险，打包成一个具备单一职责意义的原子化 Commit。
-7. 对于影响度极小不需要审评改动的可以落库。凡须人工核定事项停在这里交接。人类验收通过后完成 Merge 动作。
+## Conflict Rule
 
----
-
-## 8. 原子化 Commit 规则
-
-每次有效提交都应代表一个具备单一动机的实体变动。
-* 支持：只为达到一个意图、拥有明确结果可独立被回滚掉撤回、与整体脱离也可读懂上下涵义。
-* 如 `wip: xxxx` 可用于分支内部的推进探索工作记录，但若能具备最终交付给主库请保持简洁意图明了的 commit message (例如：`feat:`, `fix:`, `refactor:`, `docs:`)。
-* 请不要在同一笔 commit 内搞多种功能模块修修补补混在一起。
-
----
-
-## 9. 测试规则
-
-验证策略按风险等级定义于 `docs/00-governance/rules.md` 的验证策略。
-
-开发修改时推荐在相关任务文档留存验证证据：执行的命令、产生的异常等。
-
-对于脚本、调度、写路径、状态流转、CLI 新模式等任务，补充要求：
-* 不能只因为新增了日志、摘要、audit 字段就宣称行为已落地，必须说明这些结果被哪一处真实控制流消费。
-* 不能只验证“下游能读我的输入”，还要验证“我能正确消费下游返回结构”。
-* 若报告声称 `N passed`，应能由审查者按同一命令在明显工作目录中复跑；collection/import error 视为验证失败。
-* 调度或脚本类任务必须核对默认路径与运行时真实写路径一致。
-
----
-
-## 10. 文档更新规则
-
-文档更新触发条件定义于 `docs/00-governance/rules.md`。
-
-执行结束时，优先整理变更过程收拢于对应的 Change Doc，然后再判定是否需要更新更高层级的治理或模块文档。
-
----
-
-## 11. 临时文件和实验规则
-
-临时文件应放入项目根目录的 `.tmp/`。有价值的内容应及时转移到正式位置，不应长期停留在该目录。
-
----
-
-## 12. 与其它治理文档的关系
-
-本文档定义实际研发流程，但不重复更稳定的仓库级规则。
-
-解释与适用边界如下：
-
-* 仓库级硬规则以 `docs/00-governance/rules.md` 为准。
-* 文档工作流以 `docs/00-governance/doc-rules.md` 及其路由文档为准。
-* 任务级写法强化、交付审计方法、以及可复用经验应进入 `docs/05-playbooks/`，而不是继续堆进本文件。
-
-如发生冲突，以 `rules.md` 为优先约束。
+If this document conflicts with `rules.md`, follow `rules.md`.
