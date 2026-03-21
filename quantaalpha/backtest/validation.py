@@ -84,17 +84,36 @@ def aggregate_period_metrics(period_results: list[dict[str, Any]]) -> dict[str, 
 
 
 def compute_stability_score(summary: dict[str, Any]) -> float | None:
-    if summary.get("success_count", 0) == 0:
-        return None
+    """
+    Compute factor stability score [0, 1] based on multi-period metrics.
+    Solidified:
+    - Higher penalty for failures (0.2 instead of 0.15)
+    - Stricter volatility penalty
+    - Better weighting for IR and Rank IC
+    """
+    success_count = int(summary.get("success_count", 0))
+    if success_count == 0:
+        return 0.0
+    
     ic_mean = max(float(summary.get("ic_mean") or 0.0), 0.0)
     rank_ic_mean = max(float(summary.get("rank_ic_mean") or 0.0), 0.0)
     info_ratio_mean = max(float(summary.get("information_ratio_mean") or 0.0), 0.0)
+    
     ic_std = float(summary.get("ic_std") or 0.0)
     rank_ic_std = float(summary.get("rank_ic_std") or 0.0)
-    failure_penalty = min(float(summary.get("failure_count", 0)) * 0.15, 0.6)
-    raw = 0.4 * ic_mean + 0.4 * rank_ic_mean + 0.2 * min(info_ratio_mean, 1.0)
-    volatility_penalty = min(ic_std + rank_ic_std, 0.5)
-    return round(max(min(raw - volatility_penalty - failure_penalty + 0.5, 1.0), 0.0), 4)
+    
+    # Solidified penalties
+    failure_penalty = min(float(summary.get("failure_count", 0)) * 0.20, 0.8)
+    volatility_penalty = min(ic_std * 1.5 + rank_ic_std * 1.5, 0.6)
+    
+    # Solidified weights
+    # Raw score: 35% IC + 35% Rank IC + 30% IR (capped at 1.5)
+    raw = 0.35 * ic_mean + 0.35 * rank_ic_mean + 0.3 * min(info_ratio_mean, 1.5) / 1.5
+    
+    # Baseline 0.5, adjusted by metrics, penalized by volatility and failure
+    final_score = raw - volatility_penalty - failure_penalty + 0.5
+    
+    return round(max(min(final_score, 1.0), 0.0), 4)
 
 
 def _normalize_period(period: dict[str, Any]) -> dict[str, Any]:

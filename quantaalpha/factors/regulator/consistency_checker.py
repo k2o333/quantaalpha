@@ -235,12 +235,20 @@ class FactorConsistencyChecker:
 class ComplexityChecker:
     """Factor complexity checker: validates expression complexity."""
     
+    # Known bad patterns that should be rejected regardless of other metrics
+    BAD_PATTERNS = [
+        "1/1",           # Trivial
+        "$close/$close", # Identity
+        "0*$",           # Zeroing out
+        "($high-$low)/0" # Division by zero (static)
+    ]
+
     def __init__(
         self,
         enabled: bool = True,
-        symbol_length_threshold: int = 250,
-        base_features_threshold: int = 6,
-        free_args_ratio_threshold: float = 0.5
+        symbol_length_threshold: int = 220,     # Tightened from 250
+        base_features_threshold: int = 5,       # Tightened from 6
+        free_args_ratio_threshold: float = 0.45 # Tightened from 0.5
     ):
         """Args: enabled, symbol_length_threshold, base_features_threshold, free_args_ratio_threshold."""
         self.enabled = enabled
@@ -253,6 +261,12 @@ class ComplexityChecker:
         if not self.enabled:
             return True, "Complexity check disabled"
         
+        # Check for known bad patterns
+        expr_clean = expression.replace(" ", "")
+        for pattern in self.BAD_PATTERNS:
+            if pattern in expr_clean:
+                return False, f"Expression contains prohibited trivial or invalid pattern: {pattern}"
+
         try:
             from quantaalpha.factors.coder.factor_ast import (
                 calculate_symbol_length, 
@@ -357,6 +371,61 @@ class RedundancyChecker:
             return True, f"Redundancy check skipped due to error: {e}", {}
 
 
+class DataQualityChecker:
+    """Reject bad sample profiles before entering expensive backtest stages."""
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        nan_ratio_threshold: float = 0.2,
+        valid_ratio_threshold: float = 0.6,
+    ):
+        self.enabled = enabled
+        self.nan_ratio_threshold = nan_ratio_threshold
+        self.valid_ratio_threshold = valid_ratio_threshold
+
+    def check(
+        self, data_profile: Optional[Dict[str, Any]]
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        if not self.enabled:
+            return True, "Data quality check disabled", {}
+        if not data_profile:
+            return True, "No data profile provided", {}
+
+        details: Dict[str, Any] = {}
+        failures = []
+
+        nan_ratio = data_profile.get("nan_ratio")
+        if nan_ratio is not None:
+            details["nan_ratio"] = nan_ratio
+            if float(nan_ratio) > self.nan_ratio_threshold:
+                failures.append(
+                    f"nan_ratio {float(nan_ratio):.2f} exceeds {self.nan_ratio_threshold:.2f}"
+                )
+
+        has_inf = bool(data_profile.get("has_inf", False))
+        details["has_inf"] = has_inf
+        if has_inf:
+            failures.append("contains inf values")
+
+        is_constant = bool(data_profile.get("is_constant", False))
+        details["is_constant"] = is_constant
+        if is_constant:
+            failures.append("factor values are constant")
+
+        valid_ratio = data_profile.get("valid_ratio")
+        if valid_ratio is not None:
+            details["valid_ratio"] = valid_ratio
+            if float(valid_ratio) < self.valid_ratio_threshold:
+                failures.append(
+                    f"valid_ratio {float(valid_ratio):.2f} below {self.valid_ratio_threshold:.2f}"
+                )
+
+        if failures:
+            return False, "; ".join(failures), details
+        return True, "Data quality check passed", details
+
+
 class FactorQualityGate:
     """Factor quality gate: integrates consistency/complexity/redundancy checks to decide if factor can proceed to backtest."""
     
@@ -365,18 +434,22 @@ class FactorQualityGate:
         consistency_checker: FactorConsistencyChecker = None,
         complexity_checker: ComplexityChecker = None,
         redundancy_checker: RedundancyChecker = None,
+        data_quality_checker: DataQualityChecker = None,
         consistency_enabled: bool = False,
         complexity_enabled: bool = True,
-        redundancy_enabled: bool = True
+        redundancy_enabled: bool = True,
+        data_quality_enabled: bool = True,
     ):
         """Args: consistency_checker, complexity_checker, redundancy_checker, *_enabled flags."""
         self.consistency_checker = consistency_checker or FactorConsistencyChecker(enabled=consistency_enabled)
         self.complexity_checker = complexity_checker or ComplexityChecker(enabled=complexity_enabled)
         self.redundancy_checker = redundancy_checker or RedundancyChecker(enabled=redundancy_enabled)
+        self.data_quality_checker = data_quality_checker or DataQualityChecker(enabled=data_quality_enabled)
         
         self.consistency_checker.enabled = consistency_enabled
         self.complexity_checker.enabled = complexity_enabled
         self.redundancy_checker.enabled = redundancy_enabled
+        self.data_quality_checker.enabled = data_quality_enabled
     
     def evaluate(
         self,
@@ -385,13 +458,15 @@ class FactorQualityGate:
         factor_description: str,
         factor_formulation: str,
         factor_expression: str,
-        variables: Dict[str, str] = None
+        variables: Dict[str, str] = None,
+        data_profile: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """Evaluate if factor passes quality gate. Returns (passed, overall_feedback, results)."""
         results = {
             "consistency": None,
             "complexity": None,
             "redundancy": None,
+            "data_quality": None,
             "corrected_expression": factor_expression,
             "corrected_description": factor_description
         }
@@ -439,6 +514,19 @@ class FactorQualityGate:
             if not redundancy_passed:
                 all_passed = False
                 feedbacks.append(f"[Redundancy] {redundancy_feedback}")
+
+        if self.data_quality_checker.enabled:
+            data_quality_passed, data_quality_feedback, data_quality_details = (
+                self.data_quality_checker.check(data_profile)
+            )
+            results["data_quality"] = {
+                "passed": data_quality_passed,
+                "feedback": data_quality_feedback,
+                "details": data_quality_details,
+            }
+            if not data_quality_passed:
+                all_passed = False
+                feedbacks.append(f"[DataQuality] {data_quality_feedback}")
         
         if all_passed:
             overall_feedback = f"Factor '{factor_name}' passed all quality gates."

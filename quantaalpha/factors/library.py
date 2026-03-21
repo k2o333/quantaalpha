@@ -7,6 +7,9 @@ import json
 import hashlib
 import logging
 import os
+import tempfile
+import fcntl
+import struct
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -22,16 +25,40 @@ DEFAULT_FACTOR_CACHE_DIR = os.environ.get(
     "FACTOR_CACHE_DIR",
     "data/results/factor_cache",
 )
+AUDIT_TRAIL_LIMIT = 200
 
 
 class FactorLibraryManager:
-    """Manage unified factor library (CRUD)."""
+    """Manage unified factor library (CRUD) with locking and audit support."""
+
+    _lock_dir = Path(tempfile.gettempdir()) / "quantaalpha_locks"
+    _initialized = False
+
+    @classmethod
+    def _ensure_lock_dir(cls):
+        if not cls._initialized:
+            cls._lock_dir.mkdir(parents=True, exist_ok=True)
+            cls._initialized = True
 
     def __init__(self, library_path: str):
         self.library_path = Path(library_path)
         self.data = self._load()
 
+    def _acquire_lock(self):
+        self._ensure_lock_dir()
+        lock_file = self._lock_dir / f"{self.library_path.name}.lock"
+        lock_fd = open(lock_file, "w")
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        return lock_fd
+
+    def _release_lock(self, lock_fd):
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        lock_fd.close()
+
     def _load(self) -> dict:
+        return self._load_from_disk()
+
+    def _load_from_disk(self) -> dict:
         if self.library_path.exists():
             try:
                 with open(self.library_path, "r", encoding="utf-8") as f:
@@ -39,23 +66,106 @@ class FactorLibraryManager:
                     return self._normalize_library_data(data)
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"Factor library file corrupted, recreating: {e}")
-        return self._normalize_library_data({
-            "metadata": {
-                "created_at": datetime.now().isoformat(),
-                "last_updated": datetime.now().isoformat(),
-                "total_factors": 0,
-                "version": "1.1",
-            },
-            "factors": {},
-        })
+        return self._normalize_library_data(
+            {
+                "metadata": {
+                    "created_at": datetime.now().isoformat(),
+                    "last_updated": datetime.now().isoformat(),
+                    "total_factors": 0,
+                    "version": "1.1",
+                },
+                "factors": {},
+            }
+        )
 
     def _save(self):
-        self.data["metadata"]["last_updated"] = datetime.now().isoformat()
-        self.data["metadata"]["total_factors"] = len(self.data["factors"])
-        self.data["metadata"]["version"] = "1.1"
         self.library_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.library_path, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2, default=str)
+        lock_fd = self._acquire_lock()
+        try:
+            merged_data = self._merge_library_data(
+                self._load_from_disk(), self.data, now=datetime.now()
+            )
+            fd, tmp_path_str = tempfile.mkstemp(
+                dir=str(self.library_path.parent),
+                prefix=f".{self.library_path.name}.",
+                suffix=".tmp",
+            )
+            tmp_path = Path(tmp_path_str)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(merged_data, f, ensure_ascii=False, indent=2, default=str)
+            os.replace(tmp_path, self.library_path)
+            self.data = merged_data
+        finally:
+            self._release_lock(lock_fd)
+
+    def _merge_library_data(
+        self, base_data: dict[str, Any], current_data: dict[str, Any], *, now: datetime
+    ) -> dict[str, Any]:
+        merged = self._normalize_library_data(base_data)
+        current = self._normalize_library_data(current_data)
+        merged["factors"].update(current.get("factors", {}))
+        merged_metadata = merged.setdefault("metadata", {})
+        current_metadata = current.get("metadata", {})
+        merged_metadata.update(
+            {
+                "created_at": merged_metadata.get("created_at")
+                or current_metadata.get("created_at")
+                or now.isoformat(),
+                "last_updated": now.isoformat(),
+                "total_factors": len(merged["factors"]),
+                "version": "1.1",
+            }
+        )
+        merged_metadata["audit_trail"] = self._merge_audit_entries(
+            merged_metadata.get("audit_trail", []),
+            current_metadata.get("audit_trail", []),
+        )
+        return merged
+
+    @staticmethod
+    def _merge_audit_entries(existing: list[dict], incoming: list[dict]) -> list[dict]:
+        deduped = {}
+        for entry in list(existing or []) + list(incoming or []):
+            if not isinstance(entry, dict):
+                continue
+            key = (
+                entry.get("timestamp"),
+                entry.get("factor_id"),
+                entry.get("old_status"),
+                entry.get("new_status"),
+                entry.get("trigger"),
+            )
+            deduped[key] = entry
+        merged_entries = list(deduped.values())
+        merged_entries.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+        return merged_entries[:AUDIT_TRAIL_LIMIT]
+
+    def _append_audit_entry(
+        self,
+        *,
+        factor_id: str,
+        factor_name: str,
+        old_status: str,
+        new_status: str,
+        reason: str,
+        trigger: str,
+        timestamp: str,
+    ) -> None:
+        metadata = self.data.setdefault("metadata", {})
+        audit_trail = list(metadata.get("audit_trail", []))
+        audit_trail.append(
+            {
+                "timestamp": timestamp,
+                "factor_id": factor_id,
+                "factor_name": factor_name,
+                "old_status": old_status,
+                "new_status": new_status,
+                "reason": reason,
+                "trigger": trigger,
+            }
+        )
+        audit_trail.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+        metadata["audit_trail"] = audit_trail[:AUDIT_TRAIL_LIMIT]
 
     def add_factors_from_experiment(
         self,
@@ -81,9 +191,13 @@ class FactorLibraryManager:
         sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
 
         for idx, task in enumerate(sub_tasks):
-            factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
+            factor_name = getattr(
+                task, "factor_name", getattr(task, "name", f"factor_{idx}")
+            )
             factor_expr = getattr(task, "factor_expression", "")
-            factor_desc = getattr(task, "factor_description", getattr(task, "description", ""))
+            factor_desc = getattr(
+                task, "factor_description", getattr(task, "description", "")
+            )
             factor_form = getattr(task, "factor_formulation", "")
 
             factor_id = hashlib.md5(
@@ -159,7 +273,9 @@ class FactorLibraryManager:
             self.data["factors"][factor_id] = factor_entry
 
             if factor_expr and cache_location.get("result_h5_path"):
-                self._sync_h5_to_md5_cache(factor_expr, cache_location["result_h5_path"])
+                self._sync_h5_to_md5_cache(
+                    factor_expr, cache_location["result_h5_path"]
+                )
 
         self._save()
         logger.info(
@@ -167,8 +283,9 @@ class FactorLibraryManager:
         )
 
     @staticmethod
-    def _sync_h5_to_md5_cache(factor_expression: str, h5_path: str,
-                                cache_dir: Optional[str] = None) -> bool:
+    def _sync_h5_to_md5_cache(
+        factor_expression: str, h5_path: str, cache_dir: Optional[str] = None
+    ) -> bool:
         """Sync factor values from result.h5 to MD5 cache dir (.pkl). Returns True on success."""
         cache_dir = Path(cache_dir or DEFAULT_FACTOR_CACHE_DIR)
         h5_file = Path(h5_path)
@@ -193,16 +310,15 @@ class FactorLibraryManager:
             return False
 
     @staticmethod
-    def check_cache_status(library_path: str,
-                           cache_dir: Optional[str] = None) -> dict:
+    def check_cache_status(library_path: str, cache_dir: Optional[str] = None) -> dict:
         """Check cache status for each factor in library. Returns:
-            {
-                "total": int,
-                "h5_cached": int,
-                "md5_cached": int,
-                "need_compute": int,
-                "factors": [ { "factor_id", "factor_name", "status" }, ... ]
-            }
+        {
+            "total": int,
+            "h5_cached": int,
+            "md5_cached": int,
+            "need_compute": int,
+            "factors": [ { "factor_id", "factor_name", "status" }, ... ]
+        }
         """
         cache_dir = Path(cache_dir or DEFAULT_FACTOR_CACHE_DIR)
 
@@ -236,11 +352,13 @@ class FactorLibraryManager:
             if status == "need_compute":
                 need_compute += 1
 
-            details.append({
-                "factor_id": fid,
-                "factor_name": finfo.get("factor_name", fid),
-                "status": status,
-            })
+            details.append(
+                {
+                    "factor_id": fid,
+                    "factor_name": finfo.get("factor_name", fid),
+                    "status": status,
+                }
+            )
 
         return {
             "total": total,
@@ -251,11 +369,12 @@ class FactorLibraryManager:
         }
 
     @staticmethod
-    def warm_cache_from_json(library_path: str,
-                             cache_dir: Optional[str] = None) -> dict:
+    def warm_cache_from_json(
+        library_path: str, cache_dir: Optional[str] = None
+    ) -> dict:
         """Walk factor library JSON and sync all available result.h5 to MD5 cache dir. Returns:
-            { "total": int, "synced": int, "skipped": int, "failed": int,
-              "already_cached": int, "no_source": int }
+        { "total": int, "synced": int, "skipped": int, "failed": int,
+          "already_cached": int, "no_source": int }
         """
         cache_dir_path = Path(cache_dir or DEFAULT_FACTOR_CACHE_DIR)
 
@@ -314,6 +433,7 @@ class FactorLibraryManager:
         metadata.setdefault("created_at", datetime.now().isoformat())
         metadata.setdefault("last_updated", datetime.now().isoformat())
         metadata["version"] = "1.1"
+        metadata.setdefault("audit_trail", [])
         data.setdefault("factors", {})
         normalized_factors = {}
         for factor_id, factor_entry in data["factors"].items():
@@ -350,7 +470,9 @@ class FactorLibraryManager:
         entry["evaluation"].setdefault("validation_summary", "")
         entry["evaluation"].setdefault("consecutive_failures", 0)
         entry.setdefault("data_requirements", {})
-        entry["data_requirements"].setdefault("dimensions", self._infer_dimensions(entry))
+        entry["data_requirements"].setdefault(
+            "dimensions", self._infer_dimensions(entry)
+        )
         entry["data_requirements"].setdefault("fields", self._infer_fields(entry))
         return entry
 
@@ -363,6 +485,8 @@ class FactorLibraryManager:
         config: dict[str, Any] | None = None,
         persist: bool = True,
     ) -> dict[str, Any]:
+        previous_entry = self.get_factor(factor_entry.get("factor_id", "")) or self._normalize_factor_entry(factor_entry)
+        previous_status = previous_entry.get("evaluation", {}).get("status")
         updated = update_factor_status(
             factor_entry=factor_entry,
             validation_result=validation_result,
@@ -373,6 +497,18 @@ class FactorLibraryManager:
             factor_id = updated.get("factor_id")
             if factor_id:
                 self.data["factors"][factor_id] = updated
+                new_status = updated.get("evaluation", {}).get("status")
+                if previous_status != new_status:
+                    summary = validation_result.get("summary", validation_result)
+                    self._append_audit_entry(
+                        factor_id=factor_id,
+                        factor_name=updated.get("factor_name", factor_id),
+                        old_status=previous_status or "pending_validation",
+                        new_status=new_status or "unknown",
+                        reason=summary.get("validation_summary", ""),
+                        trigger="apply_validation_result",
+                        timestamp=(now or datetime.now()).isoformat(),
+                    )
                 self._save()
         return updated
 
@@ -386,7 +522,9 @@ class FactorLibraryManager:
     ) -> list[dict[str, Any]]:
         selected = []
         now = now or datetime.now()
-        factor_id_set = {fid.strip() for fid in (factor_ids or []) if fid and fid.strip()}
+        factor_id_set = {
+            fid.strip() for fid in (factor_ids or []) if fid and fid.strip()
+        }
         for factor_id, factor_entry in self.data.get("factors", {}).items():
             entry = self._normalize_factor_entry(factor_entry)
             evaluation = entry["evaluation"]
@@ -418,7 +556,17 @@ class FactorLibraryManager:
     def _infer_fields(factor_entry: dict[str, Any]) -> list[str]:
         expr = str(factor_entry.get("factor_expression", ""))
         fields = []
-        for token in ("$close", "$open", "$high", "$low", "$volume", "$amount", "$roe", "$roa", "$net_profit_margin"):
+        for token in (
+            "$close",
+            "$open",
+            "$high",
+            "$low",
+            "$volume",
+            "$amount",
+            "$roe",
+            "$roa",
+            "$net_profit_margin",
+        ):
             if token.lower() in expr.lower():
                 fields.append(token)
         return fields
@@ -445,7 +593,9 @@ class FactorLibraryManager:
         if isinstance(result, pd.DataFrame):
             try:
                 return {
-                    str(k): round(float(v), 8) if isinstance(v, (float, np.floating)) and not np.isnan(v) else None
+                    str(k): round(float(v), 8)
+                    if isinstance(v, (float, np.floating)) and not np.isnan(v)
+                    else None
                     for k, v in result.iloc[:, 0].items()
                 }
             except Exception:
@@ -465,11 +615,129 @@ class FactorLibraryManager:
             return feedback
 
         out = {}
-        for attr in ["observations", "hypothesis_evaluation", "decision", "reason",
-                      "new_hypothesis", "feedback_str"]:
+        for attr in [
+            "observations",
+            "hypothesis_evaluation",
+            "decision",
+            "reason",
+            "new_hypothesis",
+            "feedback_str",
+        ]:
             val = getattr(feedback, attr, None)
             if val is not None:
                 out[attr] = str(val) if not isinstance(val, (bool, int, float)) else val
         if not out:
             out["raw"] = str(feedback)
         return out
+
+    def get_summary(self) -> dict:
+        """Return library-level summary statistics."""
+        factors = self.data.get("factors", {})
+        status_counts: dict[str, int] = {}
+        evolution_counts: dict[str, int] = {}
+        total_validated = 0
+        total_active = 0
+        stability_scores = []
+        latest_validated = None
+        for fid, entry in factors.items():
+            eval_data = entry.get("evaluation", {})
+            status = eval_data.get("status", "pending_validation")
+            status_counts[status] = status_counts.get(status, 0) + 1
+            evolution = entry.get("metadata", {}).get("evolution_phase", "original")
+            evolution_counts[evolution] = evolution_counts.get(evolution, 0) + 1
+            if eval_data.get("last_validated"):
+                total_validated += 1
+                validated_at = eval_data.get("last_validated")
+                if latest_validated is None or str(validated_at) > str(latest_validated):
+                    latest_validated = validated_at
+            if status == "active":
+                total_active += 1
+            score = eval_data.get("stability_score")
+            if score is not None:
+                stability_scores.append(float(score))
+
+        avg_stability = (
+            float(sum(stability_scores)) / len(stability_scores)
+            if stability_scores
+            else None
+        )
+        return {
+            "total_factors": len(factors),
+            "status_distribution": status_counts,
+            "status_counts": status_counts,
+            "evolution_counts": evolution_counts,
+            "total_validated": total_validated,
+            "total_active": total_active,
+            "active_count": status_counts.get("active", 0),
+            "degraded_count": status_counts.get("degraded", 0),
+            "stale_count": status_counts.get("stale", 0),
+            "last_validated": latest_validated,
+            "avg_stability_score": round(avg_stability, 6)
+            if avg_stability is not None
+            else None,
+            "last_updated": self.data.get("metadata", {}).get("last_updated"),
+            "version": self.data.get("metadata", {}).get("version"),
+        }
+
+    def get_audit_trail(
+        self,
+        factor_id: Optional[str] = None,
+        since: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Return persisted audit trail entries."""
+        since_dt = None
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since)
+            except ValueError:
+                pass
+
+        entries = []
+        for entry in self.data.get("metadata", {}).get("audit_trail", []):
+            if factor_id and entry.get("factor_id") != factor_id:
+                continue
+            timestamp = entry.get("timestamp")
+            if timestamp:
+                try:
+                    updated_dt = datetime.fromisoformat(str(timestamp))
+                    if since_dt and updated_dt < since_dt:
+                        continue
+                    entries.append(entry)
+                except ValueError:
+                    pass
+
+        entries.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
+        return entries[:limit]
+
+    def upsert_factor(
+        self,
+        factor_entry: dict[str, Any],
+        *,
+        now: Optional[datetime] = None,
+    ) -> dict[str, Any]:
+        """Atomically upsert a single factor entry with write lock."""
+        factor_id = factor_entry.get("factor_id")
+        if not factor_id:
+            return factor_entry
+        self.data["factors"][factor_id] = self._normalize_factor_entry(factor_entry)
+        self._save()
+        return self.data["factors"][factor_id]
+
+    def get_factor(self, factor_id: str) -> Optional[dict[str, Any]]:
+        """Get a single factor by ID."""
+        entry = self.data.get("factors", {}).get(factor_id)
+        if entry:
+            return self._normalize_factor_entry(entry)
+        return None
+
+    def list_factor_ids(self, status: Optional[str] = None) -> list[str]:
+        """List all factor IDs, optionally filtered by status."""
+        factors = self.data.get("factors", {})
+        if status is None:
+            return list(factors.keys())
+        return [
+            fid
+            for fid, entry in factors.items()
+            if entry.get("evaluation", {}).get("status") == status
+        ]

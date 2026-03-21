@@ -202,20 +202,31 @@ class ContinuousFactorFeatureTests(unittest.TestCase):
             "evaluation": {
                 "status": "active",
                 "last_validated": "2026-01-01T00:00:00",
-                "stability_score": 0.6,
+                "stability_score": 0.7,
                 "period_results": [],
                 "validation_summary": "",
                 "consecutive_failures": 0,
             },
         }
+        # Stale check: 30 days threshold
         stale = status_rules.update_factor_status(entry, None, now=datetime(2026, 3, 14))
         self.assertEqual(stale["evaluation"]["status"], "stale")
+        
+        # Degraded check: stability score 0.34 (below solidified 0.35 threshold)
         degraded = status_rules.update_factor_status(
             entry,
-            {"status": "success", "summary": {"stability_score": 0.2}, "period_results": []},
+            {"status": "success", "summary": {"stability_score": 0.34}, "period_results": []},
             now=datetime(2026, 3, 14),
         )
         self.assertEqual(degraded["evaluation"]["status"], "degraded")
+        
+        # Active check: stability score 0.56 (above solidified 0.55 threshold)
+        active = status_rules.update_factor_status(
+            entry,
+            {"status": "success", "summary": {"stability_score": 0.56}, "period_results": []},
+            now=datetime(2026, 3, 14),
+        )
+        self.assertEqual(active["evaluation"]["status"], "active")
 
     def test_data_capability_and_llm_routing_helpers(self):
         rendered = data_capability.render_data_capabilities()
