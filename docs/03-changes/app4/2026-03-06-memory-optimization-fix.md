@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: 内存占用过高问题修复报告
+---
+
 # 内存占用过高问题修复报告
 
 **日期**: 2026-03-08  

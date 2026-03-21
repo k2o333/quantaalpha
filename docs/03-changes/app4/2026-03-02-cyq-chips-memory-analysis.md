@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-02
+updated: 2026-03-02
+summary: cyq_chips 内存优化问题分析与现状报告
+---
+
 # cyq_chips 内存优化问题分析与现状报告
 
 **创建日期**: 2026-03-04  

@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-02-25
+updated: 2026-02-25
+summary: 移除 read_interface_data 中读取时去重功能分析
+---
+
 # 移除 `read_interface_data` 中读取时去重功能分析
 
 ## 问题背景

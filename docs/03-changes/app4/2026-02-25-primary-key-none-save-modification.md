@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-02-25
+updated: 2026-02-25
+summary: Primary Key 为 None 时保存逻辑修改方案
+---
+
 # Primary Key 为 None 时保存逻辑修改方案
 
 ## 1. 需求概述

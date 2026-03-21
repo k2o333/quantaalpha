@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-02
+updated: 2026-03-02
+summary: Results 列表内存泄漏解决方案
+---
+
 # Results 列表内存泄漏解决方案
 
 **创建日期**: 2026-03-04  

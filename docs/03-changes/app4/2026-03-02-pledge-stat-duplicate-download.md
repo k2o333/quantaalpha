@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-02
+updated: 2026-03-02
+summary: pledge_stat 接口重复下载问题分析
+---
+
 # pledge_stat 接口重复下载问题分析
 
 ## 问题概述

@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-02
+updated: 2026-03-02
+summary: 去重逻辑简化方案
+---
+
 # 去重逻辑简化方案
 
 ## 背景

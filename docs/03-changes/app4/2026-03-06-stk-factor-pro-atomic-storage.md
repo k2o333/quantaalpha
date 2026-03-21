@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: stk_factor_pro 原子化存储修复
+---
+
 # stk_factor_pro 原子化存储修复
 
 > 修复日期：2026-03-06

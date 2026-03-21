@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-02
+updated: 2026-03-02
+summary: 北交所股票过滤问题分析
+---
+
 # 北交所股票过滤问题分析
 
 ## 症状

@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: Storage Process Worker 退出问题修复完善方案
+---
+
 # Storage Process Worker 退出问题修复完善方案
 
 ## 之前方案的不足（只有 `while True` 的缺陷）

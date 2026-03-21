@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: API重试与多阶段保存需求方案
+---
+
 # API重试与多阶段保存需求方案
 
 ## 1. 背景与问题描述

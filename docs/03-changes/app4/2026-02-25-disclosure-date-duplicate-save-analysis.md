@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-02-25
+updated: 2026-02-25
+summary: disclosure_date 等接口数据重复保存问题分析
+---
+
 # disclosure_date 等接口数据重复保存问题分析
 
 ## 问题现象

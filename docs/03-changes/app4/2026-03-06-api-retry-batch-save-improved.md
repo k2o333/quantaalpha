@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: API重试与批次保存实现方案（改进版）
+---
+
 # API重试与批次保存实现方案（改进版）
 
 ## 背景

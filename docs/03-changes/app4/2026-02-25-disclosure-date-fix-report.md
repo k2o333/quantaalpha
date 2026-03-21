@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-02-25
+updated: 2026-02-25
+summary: disclosure_date 接口增量更新重复下载问题修复报告
+---
+
 # disclosure_date 接口增量更新重复下载问题修复报告
 
 ## 问题描述

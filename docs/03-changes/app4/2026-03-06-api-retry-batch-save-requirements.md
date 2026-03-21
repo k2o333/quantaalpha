@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: API错误重试与分页批次保存需求文档
+---
+
 # API错误重试与分页批次保存需求文档
 
 ## 一、背景分析

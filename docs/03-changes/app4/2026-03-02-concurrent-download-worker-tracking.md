@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-02
+updated: 2026-03-02
+summary: 并发接口下载与 Worker/Task ID 全链路追踪方案
+---
+
 # 并发接口下载 + Worker/Task ID 全链路追踪方案
 
 ## 1. 目标

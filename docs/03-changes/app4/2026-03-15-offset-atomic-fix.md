@@ -1,7 +1,15 @@
-Status: tested
-Owner: AI Assistant
-Created: 2026-03-15
-Outcome: accepted
+---
+doc_type: change
+module: app4
+status: done
+owner: quan
+created: 2026-03-15
+updated: 2026-03-15
+summary: Offset 原子提交修复
+validation:
+  - python3 app4/main.py --interface trade_cal --start_date 20240101 --end_date 20240131
+outcome: accepted
+---
 
 # Offset 原子提交修复
 

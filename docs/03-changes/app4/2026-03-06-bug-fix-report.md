@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: Bug Fix Report - stk_factor_pro 数据未保存问题
+---
+
 # Bug Fix Report: stk_factor_pro 数据未保存问题
 
 ## 问题现象

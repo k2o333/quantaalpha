@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: stk_factor_pro 内存增长问题最终修复方案
+---
+
 # stk_factor_pro 内存增长问题最终修复方案
 
 ## 1. 问题根因分析

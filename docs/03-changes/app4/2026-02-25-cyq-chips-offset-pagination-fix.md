@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-02-25
+updated: 2026-02-25
+summary: cyq_chips offset 分页在增量更新模式下失效问题
+---
+
 # cyq_chips offset 分页在增量更新模式下失效问题
 
 ## 问题描述

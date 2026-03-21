@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: 改进修复方案
+---
+
 # 改进修复方案
 
 ## 问题概述

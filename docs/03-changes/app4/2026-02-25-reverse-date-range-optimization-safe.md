@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-02-25
+updated: 2026-02-25
+summary: reverse_date_range 模式优化方案（安全版）
+---
+
 # reverse_date_range 模式优化方案（安全版）
 
 ## 核心原则

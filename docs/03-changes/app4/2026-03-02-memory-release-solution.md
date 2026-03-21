@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-02
+updated: 2026-03-02
+summary: 内存释放优化方案
+---
+
 # 内存释放优化方案
 
 ## 问题总结

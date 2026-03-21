@@ -1,3 +1,13 @@
+---
+doc_type: change
+module: app4
+status: archived
+owner: quan
+created: 2026-03-06
+updated: 2026-03-06
+summary: Processor 批次内去重逻辑冲突与修复方案
+---
+
 # Processor 批次内去重逻辑冲突与修复方案 (终极版)
 
 ## 1. 问题背景
