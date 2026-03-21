@@ -1,13 +1,17 @@
 ---
+doc_type: change
+module: quantaalpha
 status: planned
 owner: Codex
 created: 2026-03-18
+updated: 2026-03-18
+summary: Parallel Slice 4: Quality Gate And State Regression
 parallel_mode: true
 parallel_group: quantaalpha-iterate2-pilot
 slice_id: slice_4
 priority: P0
 parent_source_docs:
-  - docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-03-quality-gate-and-state-regression.md
+  - 2026-03-15-iterate2-03-quality-gate-and-state-regression.md
 goal: 为 quality gate、planning 约束和状态流转补齐稳定回归保护，不让 iterate2 的其它切片在没有测试护栏的情况下漂移
 allowed_code_paths:
   - third_party/quantaalpha/tests/test_continuous_factor_features.py

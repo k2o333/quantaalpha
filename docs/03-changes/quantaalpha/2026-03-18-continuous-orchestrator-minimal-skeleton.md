@@ -1,9 +1,15 @@
-# Continuous Orchestrator 最小持续编排骨架
-
-Status: planned
-Priority: P1
-Depends-on:
-- /home/quan/testdata/aspipe_v4/docs/04-decisions/ADR-003-external-continuous-factor-research-modules.md
+---
+doc_type: change
+module: quantaalpha
+status: planned
+owner: quan
+created: 2026-03-18
+updated: 2026-03-18
+summary: Continuous Orchestrator 最小持续编排骨架
+priority: P1
+depends_on:
+  - docs/04-decisions/ADR-003-external-continuous-factor-research-modules.md
+---
 
 ---
 

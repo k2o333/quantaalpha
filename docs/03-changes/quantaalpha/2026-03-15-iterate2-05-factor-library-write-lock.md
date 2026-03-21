@@ -1,8 +1,15 @@
-# Iterate 2.5: 因子库写入保护
-
-Status: planned
-Priority: P1
-Depends-on: 2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
+---
+doc_type: change
+module: quantaalpha
+status: planned
+owner: quan
+created: 2026-03-15
+updated: 2026-03-15
+summary: Iterate 2.5: 因子库写入保护
+priority: P1
+depends_on:
+  - 2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
+---
 
 ---
 

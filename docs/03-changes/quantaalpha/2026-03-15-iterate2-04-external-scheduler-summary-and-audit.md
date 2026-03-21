@@ -1,10 +1,16 @@
-# Iterate 2.4: 外部调度脚本、运行摘要与状态审计
-
-Status: planned
-Priority: P1
-Depends-on:
-- 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
-- 2026-03-15-iterate2-03-quality-gate-and-state-regression.md
+---
+doc_type: change
+module: quantaalpha
+status: planned
+owner: quan
+created: 2026-03-15
+updated: 2026-03-15
+summary: Iterate 2.4: 外部调度脚本、运行摘要与状态审计
+priority: P1
+depends_on:
+  - 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
+  - 2026-03-15-iterate2-03-quality-gate-and-state-regression.md
+---
 
 ---
 

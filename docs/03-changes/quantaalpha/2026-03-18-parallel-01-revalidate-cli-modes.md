@@ -1,13 +1,17 @@
 ---
+doc_type: change
+module: quantaalpha
 status: planned
 owner: Codex
 created: 2026-03-18
+updated: 2026-03-18
+summary: Parallel Slice 1: Revalidate CLI Modes
 parallel_mode: true
 parallel_group: quantaalpha-iterate2-pilot
 slice_id: slice_1
 priority: P0
 parent_source_docs:
-  - docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
+  - 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
 goal: 固定 revalidate 的 CLI 语义边界，让 dry-run、status-refresh、real-backtest 三种模式在命令入口和返回结构上可区分
 allowed_code_paths:
   - third_party/quantaalpha/quantaalpha/cli.py

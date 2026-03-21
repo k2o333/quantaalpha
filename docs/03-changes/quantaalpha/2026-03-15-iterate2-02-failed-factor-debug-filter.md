@@ -1,8 +1,15 @@
-# Iterate 2.2: 失败因子重试过滤
-
-Status: planned
-Priority: P0
-Depends-on: 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
+---
+doc_type: change
+module: quantaalpha
+status: planned
+owner: quan
+created: 2026-03-15
+updated: 2026-03-15
+summary: Iterate 2.2: 失败因子重试过滤
+priority: P0
+depends_on:
+  - 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
+---
 
 ---
 

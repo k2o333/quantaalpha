@@ -1,15 +1,19 @@
 ---
+doc_type: change
+module: quantaalpha
 status: planned
 owner: Codex
 created: 2026-03-18
+updated: 2026-03-18
+summary: Parallel Slice 2: Real Backtest And Library Operations
 parallel_mode: true
 parallel_group: quantaalpha-iterate2-pilot
 slice_id: slice_2
 priority: P0
 parent_source_docs:
-  - docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
-  - docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
-  - docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-05-factor-library-write-lock.md
+  - 2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
+  - 2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
+  - 2026-03-15-iterate2-05-factor-library-write-lock.md
 goal: 落真实复验内部链路、因子库 summary/audit 和最小写入保护，并给外部调度提供稳定脚本入口
 allowed_code_paths:
   - third_party/quantaalpha/quantaalpha/factors/library.py

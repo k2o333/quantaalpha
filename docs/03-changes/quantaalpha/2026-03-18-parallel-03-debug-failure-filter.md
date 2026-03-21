@@ -1,13 +1,17 @@
 ---
+doc_type: change
+module: quantaalpha
 status: planned
 owner: Codex
 created: 2026-03-18
+updated: 2026-03-18
+summary: Parallel Slice 3: Debug Failure Filter
 parallel_mode: true
 parallel_group: quantaalpha-iterate2-pilot
 slice_id: slice_3
 priority: P0
 parent_source_docs:
-  - docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-02-failed-factor-debug-filter.md
+  - 2026-03-15-iterate2-02-failed-factor-debug-filter.md
 goal: 让 debug 后续轮次只重新处理失败因子，而不是整批重复进入 coder/backtest
 allowed_code_paths:
   - third_party/quantaalpha/quantaalpha/pipeline/loop.py

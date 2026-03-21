@@ -1,8 +1,14 @@
-# Iterate 2.1: revalidate 语义澄清与真实复验链路
-
-Status: planned
-Priority: P0
-Depends-on: none
+---
+doc_type: change
+module: quantaalpha
+status: planned
+owner: quan
+created: 2026-03-15
+updated: 2026-03-15
+summary: Iterate 2.1: revalidate 语义澄清与真实复验链路
+priority: P0
+depends_on: []
+---
 
 ---
 

@@ -1,8 +1,15 @@
-# Iterate 2.3: 质量门控与状态流转回归测试
-
-Status: planned
-Priority: P0
-Depends-on: 2026-03-15-iterate2-02-failed-factor-debug-filter.md
+---
+doc_type: change
+module: quantaalpha
+status: planned
+owner: quan
+created: 2026-03-15
+updated: 2026-03-15
+summary: Iterate 2.3: 质量门控与状态流转回归测试
+priority: P0
+depends_on:
+  - 2026-03-15-iterate2-02-failed-factor-debug-filter.md
+---
 
 ---
 

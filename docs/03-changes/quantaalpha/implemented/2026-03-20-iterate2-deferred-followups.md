@@ -6,11 +6,11 @@ Created: 2026-03-20
 Outcome: deferred-followups-recorded
 Phase: 2
 Depends-on:
-- /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
-- /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-02-failed-factor-debug-filter.md
-- /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-03-quality-gate-and-state-regression.md
-- /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
-- /home/quan/testdata/aspipe_v4/docs/03-changes/quantaalpha/planned/2026-03-15-iterate2-05-factor-library-write-lock.md
+- docs/03-changes/quantaalpha/2026-03-15-iterate2-01-revalidate-semantics-and-real-backtest.md
+- docs/03-changes/quantaalpha/2026-03-15-iterate2-02-failed-factor-debug-filter.md
+- docs/03-changes/quantaalpha/2026-03-15-iterate2-03-quality-gate-and-state-regression.md
+- docs/03-changes/quantaalpha/2026-03-15-iterate2-04-external-scheduler-summary-and-audit.md
+- docs/03-changes/quantaalpha/2026-03-15-iterate2-05-factor-library-write-lock.md
 Related-to:
 - /home/quan/testdata/aspipe_v4/docs/drafts/report/2026-3-20/iterate2_test_report.md
 
