@@ -108,7 +108,7 @@ def _coerce_date(value: str | datetime | None) -> datetime | None:
     try:
         return datetime.fromisoformat(str(value))
     except ValueError:
-        logger.warning("Failed to parse as_of_date=%s for stock universe filtering", value)
+        logger.warning(f"Failed to parse as_of_date={value} for stock universe filtering")
         return None
 
 

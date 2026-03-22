@@ -38,7 +38,7 @@ def is_input_length_error(error_msg: str) -> bool:
     """Check if error is due to input length limit."""
     error_indicators = [
         "input length",
-        "context length", 
+        "context length",
         "maximum context",
         "token limit",
         "InvalidParameter",
@@ -76,7 +76,7 @@ class AlphaAgentHypothesis(Hypothesis):
             concise_knowledge,
         )
         self.concise_specification = concise_specification
-        
+
     def __str__(self) -> str:
         return f"""Hypothesis: {self.hypothesis}
                 Concise Observation: {self.concise_observation}
@@ -227,21 +227,21 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
         )
 
     def prepare_context(self, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict, bool]:
-        
+
         if len(trace.hist) > 0:
             hypothesis_and_feedback = render_hypothesis_and_feedback(
                 qa_prompt_dict, trace, history_limit
             )
-            
-        elif self.potential_direction is not None: 
+
+        elif self.potential_direction is not None:
             hypothesis_and_feedback = (
                 Environment(undefined=StrictUndefined)
                 .from_string(qa_prompt_dict["potential_direction_transformation"])
                 .render(potential_direction=self.potential_direction)
-            ) # 
+            ) #
         else:
             hypothesis_and_feedback = "No previous hypothesis and feedback available since it's the first round. You are encouraged to propose an innovative hypothesis that diverges significantly from existing perspectives."
-            
+
         context_dict = {
             "hypothesis_and_feedback": hypothesis_and_feedback,
             "RAG": None,
@@ -266,11 +266,11 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
             concise_specification=response_dict.get("concise_specification", ""),
         )
         return hypothesis
-    
+
     def gen(self, trace: Trace) -> AlphaAgentHypothesis:
         """Generate hypothesis; supports dynamic history limit for input length."""
         history_limit = DEFAULT_HISTORY_LIMIT
-        
+
         while history_limit >= MIN_HISTORY_LIMIT:
             try:
                 context_dict, json_flag = self.prepare_context(trace, history_limit)
@@ -309,7 +309,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                     logger.warning(f"Empty hypothesis response, retrying... attempt={attempt + 1}")
                 hypothesis = self.convert_response(resp)
                 return hypothesis
-            
+
             except Exception as e:
                 if is_input_length_error(str(e)) and history_limit > MIN_HISTORY_LIMIT:
                     history_limit -= 1
@@ -317,7 +317,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                 else:
                     logger.warning(f"Hypothesis generation failed, falling back to deterministic hypothesis: {e}")
                     return self._build_fallback_hypothesis()
-        
+
         # Last attempt with minimum history limit
         context_dict, json_flag = self.prepare_context(trace, MIN_HISTORY_LIMIT)
         system_prompt = (
@@ -352,16 +352,16 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
         except Exception as e:
             logger.warning(f"Final hypothesis generation attempt failed, using fallback hypothesis: {e}")
             return self._build_fallback_hypothesis()
-    
-    
+
+
 
 class EmptyHypothesisGen(FactorHypothesisGen):
     def __init__(self, scen: Scenario) -> Tuple[dict, bool]:
         super().__init__(scen)
-        
-    def convert_response(self, *args, **kwargs) -> AlphaAgentHypothesis: 
-        return super().convert_response(*args, **kwargs)  
-    
+
+    def convert_response(self, *args, **kwargs) -> AlphaAgentHypothesis:
+        return super().convert_response(*args, **kwargs)
+
     def prepare_context(self, *args, **kwargs) -> Tuple[dict | bool]:
         return super().prepare_context(*args, **kwargs)
 
@@ -389,11 +389,11 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             factor_zoo_path=FACTOR_COSTEER_SETTINGS.factor_zoo_path,
             duplication_threshold=FACTOR_COSTEER_SETTINGS.duplication_threshold
         )
-        
+
         # Initialize consistency checker if enabled
         self.consistency_enabled = consistency_enabled
         self._quality_gate = None
-        
+
     @property
     def quality_gate(self):
         """Lazy-load FactorQualityGate."""
@@ -409,7 +409,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 logger.warning(f"Could not load consistency checker: {e}")
                 self._quality_gate = None
         return self._quality_gate
-        
+
     def prepare_context(self, hypothesis: Hypothesis, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict | bool]:
         scenario = trace.scen.get_scenario_all_desc()
         experiment_output_format = qa_prompt_dict["factor_experiment_output_format"]
@@ -433,11 +433,11 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             "target_list": factor_list,
             "RAG": None,
         }, True
-        
+
     def convert(self, hypothesis: Hypothesis, trace: Trace) -> Experiment:
         """Convert hypothesis to factor expressions; supports dynamic history limit."""
         history_limit = DEFAULT_HISTORY_LIMIT
-        
+
         while history_limit >= MIN_HISTORY_LIMIT:
             try:
                 return self._convert_with_history_limit(hypothesis, trace, history_limit)
@@ -447,10 +447,10 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                     logger.warning(f"Input length exceeded, retrying with history_limit={history_limit}...")
                 else:
                     raise
-        
+
         # Last attempt with minimum history limit
         return self._convert_with_history_limit(hypothesis, trace, MIN_HISTORY_LIMIT)
-    
+
     def _convert_with_history_limit(self, hypothesis: Hypothesis, trace: Trace, history_limit: int) -> Experiment:
         """Convert with given history limit."""
         context, json_flag = self.prepare_context(hypothesis, trace, history_limit)
@@ -472,27 +472,34 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 hypothesis_and_feedback=context["hypothesis_and_feedback"],
                 function_lib_description=context["function_lib_description"],
                 target_list=context["target_list"],
-                RAG=context["RAG"], 
+                RAG=context["RAG"],
                 expression_duplication=None
             )
         )
-        
+
         # Detect duplicated sub-expressions
         flag = False
         expression_duplication_prompt = None
-        while True:
+        MAX_RETRIES = 10
+        for attempt in range(MAX_RETRIES):
             if flag:
                 break
-                
+            
             resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag)
+            
+            # Check for empty response before JSON parsing
+            if not resp or not resp.strip():
+                logger.warning(f"Empty LLM response at attempt {attempt+1}/{MAX_RETRIES}, retrying...")
+                continue
+            
             try:
                 response_dict = robust_json_parse(resp)
             except json.JSONDecodeError as e:
-                logger.warning(f"JSON parse failed: {e}, retrying...")
+                logger.warning(f"JSON parse failed at attempt {attempt+1}/{MAX_RETRIES}: {e}, retrying...")
                 continue
             proposed_names = []
             proposed_exprs = []
-            
+
             for i, factor_name in enumerate(response_dict):
                 factor_data = response_dict.get(factor_name, {})
                 if not isinstance(factor_data, dict):
@@ -501,16 +508,16 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 description = factor_data.get("description", "")
                 formulation = factor_data.get("formulation", "")
                 variables = factor_data.get("variables", {})
-                
+
                 # Check if expression is parsable
                 if not self.factor_regulator.is_parsable(expr):
                     logger.info(f"Failed to parse expr: {expr}, retrying...")
                     break
-                
+
                 success, eval_dict = self.factor_regulator.evaluate(expr)
                 if not success:
                     break
-                
+
                 # Consistency check (if enabled)
                 if self.consistency_enabled and self.quality_gate is not None:
                     try:
@@ -522,14 +529,14 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                             factor_expression=expr,
                             variables=variables
                         )
-                        
+
                         # Use corrected expression from consistency check if provided
                         if results.get("corrected_expression") and results["corrected_expression"] != expr:
                             logger.info(f"Consistency check corrected expression: {expr} -> {results['corrected_expression']}")
                             expr = results["corrected_expression"]
                             factor_data["expression"] = expr
                             response_dict[factor_name] = factor_data
-                            
+
                             # Re-check corrected expression
                             if not self.factor_regulator.is_parsable(expr):
                                 logger.warning(f"Corrected expression could not be parsed: {expr}")
@@ -537,25 +544,25 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                             success, eval_dict = self.factor_regulator.evaluate(expr)
                             if not success:
                                 break
-                        
+
                         if not passed:
                             logger.warning(f"Consistency check failed: {factor_name}, feedback: {feedback}")
                     except Exception as e:
                         logger.warning(f"Consistency check error: {e}")
-                
+
                 # If expression has problems, regenerate with feedback
                 if not self.factor_regulator.is_expression_acceptable(eval_dict):
                     # Calculate ratios for feedback
                     num_all_nodes = eval_dict['num_all_nodes']
                     free_args_ratio = float(eval_dict['num_free_args']) / float(num_all_nodes) if num_all_nodes > 0 else 0.0
                     unique_vars_ratio = float(eval_dict['num_unique_vars']) / float(num_all_nodes) if num_all_nodes > 0 else 0.0
-                    
+
                     # Get symbol length and base features count for complexity feedback
                     symbol_length = eval_dict.get('symbol_length', 0)
                     num_base_features = eval_dict.get('num_base_features', 0)
                     symbol_length_threshold = self.factor_regulator.symbol_length_threshold
                     base_features_threshold = self.factor_regulator.base_features_threshold
-                    
+
                     feedback_item = (
                             Environment(undefined=StrictUndefined)
                             .from_string(qa_prompt_dict["expression_duplication"])
@@ -576,12 +583,12 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                             base_features_threshold=base_features_threshold
                             )
                         )
-                    
+
                     if expression_duplication_prompt is not None:
                         expression_duplication_prompt = '\n\n'.join([expression_duplication_prompt, feedback_item])
                     else:
                         expression_duplication_prompt = feedback_item
-                    
+
                     user_prompt = (
                         Environment(undefined=StrictUndefined)
                         .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
@@ -591,7 +598,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                             hypothesis_and_feedback=context["hypothesis_and_feedback"],
                             function_lib_description=context["function_lib_description"],
                             target_list=context["target_list"],
-                            RAG=context["RAG"], 
+                            RAG=context["RAG"],
                             expression_duplication=expression_duplication_prompt
                         )
                     )
@@ -603,14 +610,16 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         flag = True
                     else:
                         continue
-        
+        else:
+            # Loop completed without break (all retries exhausted)
+            raise RuntimeError(f"Factor proposal failed after {MAX_RETRIES} retries: persistent empty or invalid LLM response")
 
         # Add valid factors to the factor regulator
         self.factor_regulator.add_factor(proposed_names, proposed_exprs)
-                
-                
+
+
         return self.convert_response(resp, trace)
-    
+
 
     def convert_response(self, response: str, trace: Trace) -> FactorExperiment:
         response_dict = robust_json_parse(response)
@@ -633,7 +642,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                     variables=variables,
                 )
             )
-            
+
         exp = QlibFactorExperiment(tasks)
         exp.based_experiments = [QlibFactorExperiment(sub_tasks=[])] + [t[1] for t in trace.hist if t[2]]
 
@@ -660,13 +669,13 @@ class BacktestHypothesis2FactorExpression(FactorHypothesis2Experiment):
     def __init__(self, factor_path, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.factor_path = factor_path
-        
+
     def convert_response(self, *args, **kwargs) -> FactorExperiment:
         return super().convert_response(*args, **kwargs)
-        
+
     def prepare_context(self, *args, **kwargs) -> Tuple[dict | bool]:
         return super().prepare_context(*args, **kwargs)
-        
+
     def convert(self, hypothesis: Hypothesis, trace: Trace) -> FactorExperiment:
         if os.path.exists(self.factor_path):
             tasks = []
@@ -681,7 +690,7 @@ class BacktestHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         variables="",
                     )
                 )
-            
+
             exp = QlibFactorExperiment(tasks)
             exp.based_experiments = [QlibFactorExperiment(sub_tasks=[])] + [t[1] for t in trace.hist if t[2]]
 
@@ -701,8 +710,8 @@ class BacktestHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
             exp.tasks = unique_tasks
             return exp
-            
+
         else:
             raise ValueError(f"File {self.factor_csv_path} does not exist. ")
-        
-    
+
+

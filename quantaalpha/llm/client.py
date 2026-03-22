@@ -67,10 +67,7 @@ def log_tokenizer_fallback_once(model: str | None, reason: str) -> None:
         return
     _TOKENIZER_FALLBACK_WARNED_MODELS.add(normalized)
     logger.warning(
-        "Tokenizer lookup failed for model %s; falling back to %s. reason=%s",
-        model,
-        DEFAULT_FALLBACK_TOKENIZER,
-        reason,
+        f"Tokenizer lookup failed for model {model}; falling back to {DEFAULT_FALLBACK_TOKENIZER}. reason={reason}"
     )
 
 
@@ -664,7 +661,7 @@ class APIBackend:
     def get_model_for_task(self, task_type: str | None = None, tag: str | None = None) -> str:
         if task_type:
             if task_type not in KNOWN_TASK_TYPES:
-                logger.warning("Unknown llm task_type=%s; falling back to default routing", task_type)
+                logger.warning(f"Unknown llm task_type={task_type}; falling back to default routing")
             model = self.task_model_map.get(task_type)
             if model:
                 return model
@@ -1022,6 +1019,11 @@ class APIBackend:
                     if len(chunk.choices) > 0 and chunk.choices[0].finish_reason is not None:
                         finish_reason = chunk.choices[0].finish_reason
 
+                # Check for empty response after streaming
+                if not resp or not resp.strip():
+                    logger.warning(f"Empty LLM response for model {model} after streaming, returning empty string")
+                    resp = ""
+
                 if LLM_SETTINGS.log_llm_chat_content:
                     display_resp = resp[:200] + f"... [{len(resp)} chars]" if len(resp) > 200 else resp
                     logger.info(f"{LogColors.CYAN}Response:{display_resp}{LogColors.END}", tag="llm_messages")
@@ -1029,6 +1031,12 @@ class APIBackend:
             else:
                 resp = response.choices[0].message.content
                 finish_reason = response.choices[0].finish_reason
+                
+                # Check for None response
+                if resp is None:
+                    logger.warning(f"Empty LLM response for model {model} (non-streaming), returning empty string")
+                    resp = ""
+                
                 if LLM_SETTINGS.log_llm_chat_content:
                     display_resp = resp[:200] + f"... [{len(resp)} chars]" if len(resp) > 200 else resp
                     logger.info(f"{LogColors.CYAN}Response:{display_resp}{LogColors.END}", tag="llm_messages")
@@ -1066,6 +1074,37 @@ class APIBackend:
                     
                     # Fix other invalid escapes: \_ \{ \} etc.
                     fixed_resp = re.sub(r'(?<!\\)\\([_\{\}\[\]])', r'\\\\\1', fixed_resp)
+                    
+                    # Fix control characters inside JSON string values
+                    # We need to escape actual control chars (U+0000-U+001F) that appear inside JSON strings
+                    # but NOT touch the JSON structural whitespace outside strings
+                    def _escape_control_chars_in_json(text):
+                        result = []
+                        in_string = False
+                        escape_next = False
+                        for char in text:
+                            if escape_next:
+                                result.append(char)
+                                escape_next = False
+                                continue
+                            if char == '\\':
+                                result.append(char)
+                                escape_next = True
+                                continue
+                            if char == '"' and not escape_next:
+                                in_string = not in_string
+                                result.append(char)
+                                continue
+                            if in_string and ord(char) < 32:  # Control character inside string
+                                escape_map = {'\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f'}
+                                if char in escape_map:
+                                    result.append(escape_map[char])
+                                else:
+                                    result.append(f'\\u{ord(char):04x}')
+                                continue
+                            result.append(char)
+                        return ''.join(result)
+                    fixed_resp = _escape_control_chars_in_json(fixed_resp)
                     
                     try:
                         json.loads(fixed_resp)
