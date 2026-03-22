@@ -221,6 +221,13 @@ Thumbs.db
 !/.gitignore
 !/.git/
 
+# GSD specific - keep generated markdown, ignore database
+!.gsd/
+.gsd/gsd.db
+.gsd/gsd.db-journal
+.gsd/*.db
+.gsd/cache/
+
 # Project specific
 output/
 temp/
