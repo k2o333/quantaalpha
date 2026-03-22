@@ -5,20 +5,22 @@
 ## Success Criteria
 
 - 日志调用不再抛出 `TypeError: takes 2 positional arguments but X were given`
-- LLM 空响应被正确检测并抛出明确异常，不再进入 JSON 解析
-- 因子 proposal 阶段设置最大重试次数（如 10 次），不会无限循环
+- LLM 空响应被正确检测并触发重试逻辑（而非直接崩溃）
+- **factor_construct** 阶段设置最大重试次数（如 10 次），不会无限循环
 - 包含换行符、制表符等控制字符的 JSON 响应能被正确解析
+- **本里程碑未完成**: `'dict' object has no attribute 'replace'` 错误（M002 处理）
 
 ## Key Risks / Unknowns
 
 - **子模块依赖风险** — quantaalpha 是第三方子模块，修复需确认是否影响其他项目使用
 - **测试覆盖不足** — 不确定现有测试能否覆盖这些边界情况
+- **Bug 触发条件不稳定** — 取决于 LLM 返回内容（第二次运行因返回非空响应而部分成功）
 
 ## Proof Strategy
 
-- 日志修复 → 通过代码审查确认所有 `logger.warning()` 调用使用 f-string 格式
-- 空响应检查 → 在 `_create_chat_completion_inner_function` 中添加空响应检测逻辑
-- 无限重试 → 将 proposal.py 中的 `while True` 改为 `for attempt in range(MAX_RETRIES)`
+- 日志修复 → 通过代码审查确认主要 `logger.warning()` 调用使用 f-string 格式
+- 空响应检查 → 在 `_create_chat_completion_inner_function` 中添加空响应检测逻辑（返回空字符串而非抛异常，让重试逻辑处理）
+- 无限重试 → 将 proposal.py 中的 `while True` 改为 `for attempt in range(MAX_RETRIES)`，并在循环内处理空响应
 - 控制字符 → 在 JSON fix 逻辑中添加控制字符转义
 
 ## Verification Classes
@@ -34,21 +36,24 @@
 - [ ] 修复后的代码能通过 Python 语法检查
 - [ ] 至少运行一次因子挖掘验证无卡死现象
 - [ ] 修复文档已记录到 KNOWLEDGE.md
+- [ ] **明确未完成**: `'dict' object has no attribute 'replace'` 错误（留待 M002）
 
 ## Requirement Coverage
 
-- Covers: 因子挖掘工作流稳定性
+- Covers: 因子挖掘工作流稳定性（factor_construct 阶段无限重试问题）
 - Partially covers: 日志系统兼容性
-- Leaves for later: 上游 LLM 代理问题排查
+- Leaves for later: 
+  - 上游 LLM 代理问题排查
+  - **M002**: `'dict' object has no attribute 'replace'` 错误（consistency check 数据类型问题）
 - Orphan risks: 上游 LiteLLM 代理对大 prompt 返回空的问题未解决
 
 ## Slices
 
-- [ ] **S01: 修复 Logger 参数签名不匹配和空响应检查** `risk:medium` `depends:[]`
-  > After this: 日志能正常输出，空响应能被检测到，不会导致后续 JSON 解析崩溃
+- [ ] **S01: 修复 Logger 参数签名不匹配** `risk:medium` `depends:[]`
+  > After this: 日志能正常输出，不再掩盖底层异常
 
-- [ ] **S02: 修复无限重试死循环** `risk:high` `depends:[S01]`
-  > After this: 因子 proposal 有最大重试限制，不会无限卡死
+- [ ] **S02: 修复无限重试死循环和空响应检查** `risk:high` `depends:[S01]`
+  > After this: factor_construct 有最大重试限制，空响应被检测并触发重试而非崩溃
 
 - [ ] **S03: 修复 JSON 控制字符未转义** `risk:medium` `depends:[S01]`
   > After this: 包含多行文本的 JSON 响应能被正确解析
@@ -56,15 +61,21 @@
 ## Boundary Map
 
 ### S01 → S02 Produces:
-- `logger.warning()` 调用统一使用 f-string 格式
-- `_create_chat_completion_inner_function` 有空响应检查逻辑
+- `logger.warning()` 调用统一使用 f-string 格式（主要位置 `client.py:69-74`）
 
 Consumes:
 - nothing (first slice)
 
 ### S01 → S03 Produces:
 - `logger.warning()` 调用统一使用 f-string 格式
-- `_create_chat_completion_inner_function` 有空响应检查逻辑
 
 Consumes:
 - nothing (first slice)
+
+### S02 内部依赖
+
+S02 包含两个相互依赖的修复：
+1. 空响应检查逻辑（在循环内检测空响应并 `continue`）
+2. 有限重试循环（`while True` → `for attempt in range(MAX_RETRIES)`）
+
+这两个修复必须在同一个切片中完成，因为空响应检查需要放在有限重试循环内部才能生效。
