@@ -127,12 +127,12 @@ class FactorConsistencyChecker:
         except Exception as e:
             logger.error(f"Consistency check error: {e}")
             return ConsistencyCheckResult(
-                is_consistent=True,
+                is_consistent=False,
                 hypothesis_to_description=f"Error during check: {str(e)}",
                 description_to_formulation="",
                 formulation_to_expression="",
-                overall_feedback=f"Consistency check failed with error: {str(e)}. Skipping check.",
-                severity="none"
+                overall_feedback=f"Consistency check failed with error: {str(e)}",
+                severity="critical"
             )
     
     def check_and_correct(

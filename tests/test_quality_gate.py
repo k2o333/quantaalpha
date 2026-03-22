@@ -154,5 +154,30 @@ class TestQualityGate(unittest.TestCase):
         self.assertEqual(runner_calls, [])
         self.assertIn("[DataQuality]", feedback)
 
+    def test_consistency_check_exception_fails_closed(self):
+        checker = FactorConsistencyChecker(enabled=True)
+
+        class RaisingAPIBackend:
+            def build_messages_and_create_chat_completion_json(self, **kwargs):
+                raise RuntimeError("synthetic llm failure")
+
+        original_backend = consistency_checker.APIBackend
+        consistency_checker.APIBackend = RaisingAPIBackend
+        try:
+            result = checker.check_consistency(
+                hypothesis="hyp",
+                factor_name="factor",
+                factor_description="desc",
+                factor_formulation="form",
+                factor_expression="($close - $open) / $open",
+            )
+        finally:
+            consistency_checker.APIBackend = original_backend
+
+        self.assertFalse(result.is_consistent)
+        self.assertEqual(result.severity, "critical")
+        self.assertIn("synthetic llm failure", result.overall_feedback)
+        self.assertNotIn("Skipping check", result.overall_feedback)
+
 if __name__ == "__main__":
     unittest.main()

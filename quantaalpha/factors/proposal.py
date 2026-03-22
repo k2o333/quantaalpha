@@ -20,6 +20,13 @@ DEFAULT_HISTORY_LIMIT = 6
 MIN_HISTORY_LIMIT = 1
 
 
+def normalize_corrected_expression(expression) -> str:
+    """Normalize quality-gate corrected expressions to a parser-safe string."""
+    if isinstance(expression, dict):
+        return expression.get("expression") or str(expression)
+    return expression
+
+
 def render_hypothesis_and_feedback(prompt_dict, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> str:
     """Render hypothesis_and_feedback with configurable history limit."""
     if len(trace.hist) > 0:
@@ -106,6 +113,7 @@ class QlibFactorHypothesisGen(FactorHypothesisGen):
             "RAG": None,
             "hypothesis_output_format": base_prompt_dict["hypothesis_output_format"],
             "hypothesis_specification": base_prompt_dict["factor_hypothesis_specification"],
+            "function_lib_description": base_prompt_dict["function_lib_description"],
         }
         return context_dict, True
 
@@ -237,7 +245,10 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
             hypothesis_and_feedback = (
                 Environment(undefined=StrictUndefined)
                 .from_string(qa_prompt_dict["potential_direction_transformation"])
-                .render(potential_direction=self.potential_direction)
+                .render(
+                    potential_direction=self.potential_direction,
+                    function_lib_description=qa_prompt_dict["function_lib_description"],
+                )
             ) #
         else:
             hypothesis_and_feedback = "No previous hypothesis and feedback available since it's the first round. You are encouraged to propose an innovative hypothesis that diverges significantly from existing perspectives."
@@ -247,6 +258,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
             "RAG": None,
             "hypothesis_output_format": qa_prompt_dict["hypothesis_output_format"],
             "hypothesis_specification": qa_prompt_dict["factor_hypothesis_specification"],
+            "function_lib_description": qa_prompt_dict["function_lib_description"],
         }
         return context_dict, True
 
@@ -282,6 +294,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                         scenario=self.scen.get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
                         hypothesis_output_format=context_dict["hypothesis_output_format"],
                         hypothesis_specification=context_dict["hypothesis_specification"],
+                        function_lib_description=context_dict["function_lib_description"],
                     )
                 )
                 user_prompt = (
@@ -328,6 +341,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                 scenario=self.scen.get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
                 hypothesis_output_format=context_dict["hypothesis_output_format"],
                 hypothesis_specification=context_dict["hypothesis_specification"],
+                function_lib_description=context_dict["function_lib_description"],
             )
         )
         user_prompt = (
@@ -533,7 +547,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         # Use corrected expression from consistency check if provided
                         if results.get("corrected_expression") and results["corrected_expression"] != expr:
                             logger.info(f"Consistency check corrected expression: {expr} -> {results['corrected_expression']}")
-                            expr = results["corrected_expression"]
+                            expr = normalize_corrected_expression(results["corrected_expression"])
                             factor_data["expression"] = expr
                             response_dict[factor_name] = factor_data
 
@@ -713,5 +727,3 @@ class BacktestHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
         else:
             raise ValueError(f"File {self.factor_csv_path} does not exist. ")
-
-

@@ -3,6 +3,10 @@ potential_direction_transformation: |-
   1. **Clarity**: Ensure the hypothesis is specific and unambiguous.
   2. **Actionability**: The hypothesis should suggest a clear path for experimentation or investigation.
   3. **Relevance**: Ensure the hypothesis is directly related to the potential direction provided by the user.
+  4. **Implementability**: Only use concepts implementable with the available function library below. Do not propose techniques that require unsupported models, hidden states, external data, or operators outside the current DSL.
+
+  Allowed operators and functions:
+  {{ function_lib_description }}
 
 
 hypothesis_and_feedback: |-
@@ -303,6 +307,11 @@ hypothesis_gen:
     {{hypothesis_specification}}.
     **Important:** If the hypothesis_specification outlines the next steps you need to follow, ensure you adhere to those instructions.
     {% endif %}
+    Only use concepts implementable with the available function library below. Do not propose hypotheses that require unsupported models, hidden states, external data, or operators outside the current DSL.
+
+    Allowed operators and functions:
+    {{ function_lib_description }}
+
     Please generate the output using the following format and specifications. Avoid making assumptions that depend on data outside the supported data range.
     {{ hypothesis_output_format }}
 
@@ -478,4 +487,3 @@ expression_duplication: |-
     - **Action Required**: Reduce the number of distinct base features used. Focus on 2-4 core features instead of using all available features.
     - Target: Use at most {{ base_features_threshold }} distinct base features. Reusing the same feature multiple times is acceptable.
   {% endif %}
-
