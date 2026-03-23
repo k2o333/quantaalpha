@@ -256,10 +256,14 @@ class ComplexityChecker:
         self.base_features_threshold = base_features_threshold
         self.free_args_ratio_threshold = free_args_ratio_threshold
     
-    def check(self, expression: str) -> Tuple[bool, str]:
+    def check(self, expression) -> Tuple[bool, str]:
         """Check expression complexity. Returns (passed, feedback)."""
         if not self.enabled:
             return True, "Complexity check disabled"
+        
+        # Defensive: Handle dict input (e.g., from LLM corrected_expression)
+        if isinstance(expression, dict):
+            expression = expression.get("code") or expression.get("expression") or str(expression)
         
         # Check for known bad patterns
         expr_clean = expression.replace(" ", "")
@@ -341,10 +345,14 @@ class RedundancyChecker:
             )
         return self._factor_regulator
     
-    def check(self, expression: str) -> Tuple[bool, str, Dict[str, Any]]:
+    def check(self, expression) -> Tuple[bool, str, Dict[str, Any]]:
         """Check expression redundancy. Returns (passed, feedback, details)."""
         if not self.enabled:
             return True, "Redundancy check disabled", {}
+        
+        # Defensive: Handle dict input (e.g., from LLM corrected_expression)
+        if isinstance(expression, dict):
+            expression = expression.get("code") or expression.get("expression") or str(expression)
         
         try:
             if not self.factor_regulator.is_parsable(expression):
