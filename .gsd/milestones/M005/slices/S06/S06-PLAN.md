@@ -19,7 +19,7 @@
 
 ## Tasks
 
-- [ ] **T01: 完善 _escape_common_json_sequences 并统一调用处** `est:15m`
+- [x] **T01: 完善 _escape_common_json_sequences 并统一调用处** `est:15m`
   - Why: 在 `quantaalpha/llm/client.py` 中添加 generic backslash escape fallback，将 `ChatCache._build_response()` 的内联 LaTeX 循环替换为 `_escape_common_json_sequences()` 调用，消除重复代码。
   - Files: `quantaalpha/llm/client.py`
   - Do: 在 `_escape_common_json_sequences()` 末尾 `return fixed_text` 之前插入 generic regex；在 `ChatCache._build_response()` 中将 lines 1076-1079 的内联 LaTeX 修复替换为单行调用 `_escape_common_json_sequences(fixed_resp)`；`_escape_control_chars_in_json()` 保持不变（处理不同 concern）。
