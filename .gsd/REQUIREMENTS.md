@@ -37,10 +37,6 @@ Guidelines:
   - Owner: M005-S06
   - Priority: P2 — 部分 JSON 仍解析失败
 
-- **R020: 移除 proposal.yaml prompt 配置歧义** — 移除 `proposal.py` 中被后续赋值遮蔽的 `qa_prompt_dict` 赋值；删除或归档无效的 `quantaalpha/factors/prompts/proposal.yaml`
-  - Owner: M005-S05
-  - Priority: P2 — 维护混淆
-
 ## Validated
 
 - **R001: 日志系统兼容性** — 修复 RDAgentLog 参数签名不匹配问题
@@ -119,17 +115,17 @@ Guidelines:
 | R014 | orchestration | validated | M004-S08 | M004-S02, M004-S05, M004-S06 | MiningOrchestrator + scheduler.py 接口 + implementations.py + DESIGN.md + 28单元测试 |
 
 | R015 | log-compat | validated | M005-S01 | - | FallbackLoggerWrapper + FallbackFileStorage，try-except ImportError 包装 rdagent.log，12 UAT 通过，两份 log/__init__.py MD5 一致 |
-| R016 | expression-parsing | validated | M005-S02 | - | normalize_corrected_expression() dict-first 处理、fenced block 剥离、// / # 注释剥离、赋值 RHS 提取、非 DSL 前缀剥离，16 单元测试通过，两份 proposal.py byte-identical |
+| R016 | expression-parsing | validated | M005-S02 | - | normalize_corrected_expression() dict-first 处理、fenced block 剥离、// / # 注释剥离，赋值 RHS 提取，16 单元测试通过 |
 | R017 | prompt-constraint | validated | M005-S03 | - | consistency_prompts.yaml 系统 prompt 含 "single-line DSL expression only"，用户 prompt 含 IMPORTANT 约束块列举禁止模式，3 项 grep 检查通过 |
 | R018 | api-error-handling | active | M005-S04 | - | P1: BadRequest 不区分可恢复性 |
 | R019 | json-repair | active | M005-S06 | - | P2: JSON 转义修复不完整且有重复 |
-| R020 | prompt-config | active | M005-S05 | - | P2: proposal.yaml 被遮蔽造成配置歧义 |
+| R020 | prompt-config | validated | M005-S05 | - | 删除 proposal.py 第 159 行死赋值，proposal.yaml 归档为 .archived，仅剩 1 行指向 prompts.yaml，4 项验证全部通过 |
 
 ## Coverage Summary
 
-- Active requirements: 3
-- Validated requirements: 18
-- Mapped to slices: 18
+- Active requirements: 2
+- Validated requirements: 19
+- Mapped to slices: 19
 - Unmapped active requirements: 0
 
 ---

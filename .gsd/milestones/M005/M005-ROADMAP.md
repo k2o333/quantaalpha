@@ -28,8 +28,8 @@
 - [x] **S04: 停止对不可恢复 BadRequest 重试** `risk:low` `depends:[S01]` ✅ 2026-03-24
   > After this: 无效模型名等 400 BadRequest 错误立即重抛，不产生无效重试；配置错误在第一次失败时可见。
 
-- [ ] **S05: 移除 proposal.yaml prompt 配置歧义** `risk:low` `depends:[S01]`
-  > After this: `proposal.py` 中无 `qa_prompt_dict` 遮蔽；所有 prompt 查找均指向单一有效配置文件。
+- [x] **S05: 移除 proposal.yaml prompt 配置歧义** `risk:low` `depends:[S01]` ✅ 2026-03-24
+  > After this: `proposal.py` 中无 `qa_prompt_dict` 遮蔽；所有 prompt 查找均指向单一有效配置文件 `prompts.yaml`；死赋值已删除，`proposal.yaml` 已归档为 `.archived`。
 
 - [ ] **S06: 集中 JSON 转义修复** `risk:low` `depends:[S01]`
   > After this: `_escape_common_json_sequences()` 包含通用反斜杠转义 regex，所有 JSON 修复路径共用同一实现。

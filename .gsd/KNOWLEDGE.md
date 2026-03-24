@@ -1007,3 +1007,46 @@ grep -q "IMPORTANT:" quantaalpha/factors/regulator/consistency_prompts.yaml
 - 约束仅指导 LLM 输出格式，无法强制执行（LLM 可能仍不遵守）
 - S02 的 `normalize_corrected_expression()` 作为代码层第二道防线兜底
 - 禁止模式枚举可能随 LLM 能力演进而需要更新
+
+---
+
+## M005 S05: proposal.yaml 死赋值移除与归档 (2026-03-24)
+
+### 完成摘要
+移除 `proposal.py` 中的配置歧义，删除指向废弃 `proposal.yaml` 的死赋值，并归档该 YAML 文件。
+
+### 关键决策
+
+**1. 归档而非删除策略**
+废弃配置文件应归档为 `.archived` 而非直接删除：
+- 保留历史参考价值
+- 可供未来审计查阅
+- 不影响运行时行为
+
+**2. 死赋值检测方法**
+使用 `rg -c "qa_prompt_dict = Prompts" proposal.py` 计数：
+- 正常：返回 1（仅有效赋值）
+- 异常：返回 > 1（存在死赋值）
+
+**3. 行号变化意识**
+删除行后，剩余代码行号会调整。原第 159 行删除后，原第 305 行变为第 304 行。
+
+### 验证命令
+```bash
+# 确认仅剩 1 个有效赋值
+rg -c "qa_prompt_dict = Prompts" quantaalpha/factors/proposal.py
+# 预期: 1
+
+# 确认配置文件状态
+ls quantaalpha/factors/prompts/proposal.yaml  # 应失败
+ls quantaalpha/factors/prompts/proposal.yaml.archived  # 应存在
+
+# 语法检查
+python -m py_compile quantaalpha/factors/proposal.py
+# 预期: 退出码 0
+```
+
+### 关键教训
+- 配置文件有多个副本时，确认哪个是"真实"的有效配置
+- 死赋值不产生运行时错误，但会造成维护混淆
+- 归档文件不应被 `__init__.py` 或任何 Python 代码主动加载
