@@ -27,6 +27,7 @@ Guidelines:
 - **R017: 收紧 consistency prompt 输出约束** — `consistency_check_system` 和 `consistency_check_user` 需明确要求单行表达式、禁止注释/赋值/伪代码/多候选输出
   - Owner: M005-S03
   - Priority: P0 — 畸形 `corrected_expression` 的根因
+  - Status: ✅ **Validated** — `consistency_prompts.yaml` system prompt 包含 "single-line DSL expression only" 约束；user prompt 包含 `**IMPORTANT:**` 块列举所有禁止模式（markdown fences、// # 注释、variable assignments、pseudo-code、multi-candidate output）；YAML 语法验证通过，3 项 grep 检查全部通过
 
 - **R018: 停止对不可恢复 BadRequest 错误重试** — `_try_create_chat_completion_or_embedding()` 需检测无效模型名等不可恢复 400 错误并立即重抛，不消耗重试次数
   - Owner: M005-S04
@@ -119,15 +120,15 @@ Guidelines:
 
 | R015 | log-compat | validated | M005-S01 | - | FallbackLoggerWrapper + FallbackFileStorage，try-except ImportError 包装 rdagent.log，12 UAT 通过，两份 log/__init__.py MD5 一致 |
 | R016 | expression-parsing | validated | M005-S02 | - | normalize_corrected_expression() dict-first 处理、fenced block 剥离、// / # 注释剥离、赋值 RHS 提取、非 DSL 前缀剥离，16 单元测试通过，两份 proposal.py byte-identical |
-| R017 | prompt-constraint | active | M005-S03 | - | P0: corrected_expression 畸形输出根因 |
+| R017 | prompt-constraint | validated | M005-S03 | - | consistency_prompts.yaml 系统 prompt 含 "single-line DSL expression only"，用户 prompt 含 IMPORTANT 约束块列举禁止模式，3 项 grep 检查通过 |
 | R018 | api-error-handling | active | M005-S04 | - | P1: BadRequest 不区分可恢复性 |
 | R019 | json-repair | active | M005-S06 | - | P2: JSON 转义修复不完整且有重复 |
 | R020 | prompt-config | active | M005-S05 | - | P2: proposal.yaml 被遮蔽造成配置歧义 |
 
 ## Coverage Summary
 
-- Active requirements: 4
-- Validated requirements: 17
+- Active requirements: 3
+- Validated requirements: 18
 - Mapped to slices: 18
 - Unmapped active requirements: 0
 

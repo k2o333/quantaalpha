@@ -947,3 +947,63 @@ python -m pytest tests/test_normalize_corrected_expression.py -v
 ### 已知限制
 - DSL fallback 提取第一个 `FUNC(...)` 模式，如果没有有效行则返回原始输入
 - 赋值语句中 `=` 的处理：只提取第一个 `=` 后的内容（`x = a = b` → `a = b`）
+
+---
+
+## M005 S03: consistency prompt 输出约束收紧 (2026-03-24)
+
+### 完成摘要
+收紧 `consistency_prompts.yaml` 的 `corrected_expression` 输出约束，明确禁止 markdown、注释、赋值、伪代码和多候选输出。
+
+### 关键模式
+
+**1. 双重约束策略（字段描述 + IMPORTANT 块）**
+- **系统 prompt**：在 JSON 输出格式的 `corrected_expression` 字段描述中嵌入约束
+  ```
+  "corrected_expression": "A single-line DSL expression only — no markdown, 
+  no comments, no assignments, no explanation. E.g. \"RANK(CLOSE)/RANK(OPEN)\". 
+  Use null if the expression is already correct."
+  ```
+- **用户 prompt**：末尾添加 `**IMPORTANT:**` 粗体块
+  ```
+  **IMPORTANT: `corrected_expression` must be a single-line DSL expression only. 
+  No markdown fences, no comments (// or #), no variable assignments (expr = ...), 
+  no pseudo-code, no multi-candidate output (Option A/B/C). Use null if no 
+  correction is needed.**
+  ```
+
+**2. 枚举所有禁止模式的策略**
+LLM 容易输出常见格式问题时，需要**穷举**禁止模式而非简单说"只输出表达式"：
+- `markdown fences` — 防止 ```json ... ```
+- `comments (// or #)` — 防止 `// comment` 或 `# comment`
+- `variable assignments` — 防止 `alpha = ...`
+- `pseudo-code` — 防止 `Option A:` 等伪代码
+- `multi-candidate output` — 防止 `Option A/B/C`
+
+**3. 静态文件验证模式**
+Prompt 是静态 YAML 文件，无需运行时测试：
+```bash
+# YAML 语法验证
+python -c "import yaml; yaml.safe_load(open('...'))"
+
+# 约束存在性验证
+grep -q "single-line DSL expression only" ...
+grep -q "IMPORTANT:" ...
+```
+
+### 验证命令
+```bash
+# YAML 语法
+python -c "import yaml; yaml.safe_load(open('quantaalpha/factors/regulator/consistency_prompts.yaml'))"
+
+# 系统 prompt 约束
+grep -q "single-line DSL expression only" quantaalpha/factors/regulator/consistency_prompts.yaml
+
+# 用户 prompt IMPORTANT 块
+grep -q "IMPORTANT:" quantaalpha/factors/regulator/consistency_prompts.yaml
+```
+
+### 已知限制
+- 约束仅指导 LLM 输出格式，无法强制执行（LLM 可能仍不遵守）
+- S02 的 `normalize_corrected_expression()` 作为代码层第二道防线兜底
+- 禁止模式枚举可能随 LLM 能力演进而需要更新
