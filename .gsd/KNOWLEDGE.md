@@ -1112,3 +1112,70 @@ for t in [r'{\"x\": \"\_ 10\"}', r'{\"expr\": \"PE \_ 10\"}', '{\"name\": \"John
     json.loads(_escape_common_json_sequences(t)); print(f'OK: {t[:30]}')
 "
 ```
+
+---
+
+## M005: 跨切片综合教训 (2026-03-24)
+
+### 1. Vendored Submodule Byte-Identical 必须严格执行
+
+**问题**: S02 创建 vendored `proposal.py` 为 byte-identical 副本，但 S05 修改 main 文件后遗漏同步 vendored 副本。结果：main 和 vendored 的 proposal.py 不一致（vendored 仍含死赋值）。
+
+**原则**: 所有 submodule 文件（`third_party/quantaalpha/quantaalpha/`）在被修改后，都必须同步到 submodule 的 vendored 目录。每次同步后必须验证：
+```bash
+diff -q "$MAIN" "$VENDORED" && md5sum "$MAIN" "$VENDORED"
+# 无 diff 输出 + MD5 一致 = 同步成功
+```
+
+**Pattern**: S01 的 log/__init__.py 和 S06 的 client.py 都严格执行了 byte-identical 同步。S02/S05 的 proposal.py 未执行。应将此验证纳入 UAT checklist。
+
+### 2. Submodule + Worktree 组合增加了验证复杂度
+
+**问题**: 在 worktree 环境中，parent repo 的 `git diff` 只显示 submodule pointer 变更，不显示 submodule 内文件变更（因为 submodule 的 git objects 不在 parent 的 object database）。
+
+**验证策略**: 直接检查文件系统内容，不依赖 git diff：
+```bash
+grep -n "FallbackLoggerWrapper" quantaalpha/log/__init__.py
+grep -n "Invalid model" quantaalpha/llm/client.py
+diff -q quantaalpha/llm/client.py third_party/quantaalpha/quantaalpha/llm/client.py
+```
+
+**原则**: 在 submodule 架构中，git commit 记录变更历史，但 git diff 不完整。文件系统的当前状态才是 ground truth。
+
+### 3. Proof 应描述最终状态，而非某个切片完成时的状态
+
+**问题**: R016 在 S02 完成时证明 "主文件和 vendored 文件 byte-identical"，但 S05 修改了 main 文件，未同步 vendored。R016 的 proof 因此不准确。
+
+**教训**: 如果后续切片修改了相关文件，需要更新该 proof。M005 关闭时已更新 R016 proof 以反映实际状态。
+
+### 4. R018 Trace Table "active" vs "Validated" 不一致
+
+**问题**: `.gsd/REQUIREMENTS.md` 中 R018 的 Active section entry 有 `Status: ✅ Validated` 标记，但 Trace Table 中 R018 行仍显示 `active`。Coverage Summary 统计 "Active requirements: 1"（应为 0）。
+
+**修复**: 关闭 milestone 时必须检查 Trace Table 和 Coverage Summary 是否与 Active section 一致。M005 关闭时已修正此问题。
+
+### 5. JSON Escape 的 Replacement String Math 必须精确
+
+S06 发现原 generic fallback 的 replacement string `r"\\\\\1"` (4 bs = 2 pairs = 2 literal bs + captured group) 在与 specific escape `r"\\\\\\1"` (6 bs = 3 pairs = 3 bs + captured) 联合使用时产生 4-bs 输出（无效 JSON）。
+
+**公式**: `(2n) backslashes in raw string → n pairs in regex → n literal backslashes in output`
+
+| Python raw string | regex replacement 中的反斜杠对数 | 输出字符 |
+|---|---|---|
+| `r"\\\\"` | 2 对 | `\\` (2 bs) |
+| `r"\\\\\\1"` | 3 对 + `\1` | `\\\1` (3 bs + captured group) |
+
+当 specific + generic 联合使用时，最终 backslash 数 = specific_count + 2 × generic_count。必须验证最终输出 JSON-valid。
+
+### 6. Dict-first 处理是 LLM 输出标准模式
+
+从 M002 (dict → string) 到 M005 (normalize_corrected_expression) 的所有修复都证明：LLM 返回 dict（而非 string）是标准模式，不是异常。防御性代码应将 dict 处理作为**第一项检查**。
+
+```python
+def normalize(expression) -> str:
+    if isinstance(expression, dict):   # ← 必须第一
+        expression = expression.get("code") or str(expression)
+    if not isinstance(expression, str):
+        return str(expression)
+    # ... string 处理逻辑
+```
