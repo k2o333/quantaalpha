@@ -17,6 +17,7 @@ Guidelines:
 - **R015: 移除 rdagent.log 硬依赖** — `quantaalpha.log` 和 `third_party/quantaalpha/quantaalpha/log` 需在 rdagent 不可用时 fallback 到本地 logger，保持 `logger.info/warning/error/exception/log_trace_path/set_trace_path` 接口兼容
   - Owner: M005-S01
   - Priority: P0 — 阻塞模块导入
+  - Status: ✅ **Validated** — 实现 `FallbackLoggerWrapper` + `FallbackFileStorage`，try-except ImportError 包装 rdagent.log 导入；12 项 UAT 测试全部通过；两份 log/__init__.py MD5 一致（`25bee61c6ed7c542112dee577c87f41a`）
 
 - **R016: 增强 normalize_corrected_expression** — 函数需处理 dict payload、fenced code blocks、`//` 和 `#` 注释、多行输出、变量赋值伪代码，提取最终有效单行 DSL 表达式；不可简单删除赋值行
   - Owner: M005-S02
@@ -115,7 +116,7 @@ Guidelines:
 | R013 | llm-routing | validated | M004-S07 | M003-S04 | ensemble.py EnsembleAggregator 4策略 + provider_pool.py least_latency路由 + 54单元测试 |
 | R014 | orchestration | validated | M004-S08 | M004-S02, M004-S05, M004-S06 | MiningOrchestrator + scheduler.py 接口 + implementations.py + DESIGN.md + 28单元测试 |
 
-| R015 | log-compat | active | M005-S01 | - | P0: rdagent.log 缺失导致导入失败 |
+| R015 | log-compat | validated | M005-S01 | - | FallbackLoggerWrapper + FallbackFileStorage，try-except ImportError 包装 rdagent.log，12 UAT 通过，两份 log/__init__.py MD5 一致 |
 | R016 | expression-parsing | active | M005-S02 | - | P0: 脏字符串放行导致解析器失败 |
 | R017 | prompt-constraint | active | M005-S03 | - | P0: corrected_expression 畸形输出根因 |
 | R018 | api-error-handling | active | M005-S04 | - | P1: BadRequest 不区分可恢复性 |
@@ -124,8 +125,8 @@ Guidelines:
 
 ## Coverage Summary
 
-- Active requirements: 6
-- Validated requirements: 15
+- Active requirements: 5
+- Validated requirements: 16
 - Mapped to slices: 18
 - Unmapped active requirements: 0
 

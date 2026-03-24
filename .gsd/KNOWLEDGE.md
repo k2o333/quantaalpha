@@ -805,3 +805,57 @@ rg "proposal.yaml|qa_prompt_dict =" quantaalpha/factors/proposal.py
 3. **赋值提取 vs 行过滤**: 清理含赋值伪代码时，提取右侧值比跳过行更安全，后者会静默丢弃有效表达式
 4. **BadRequest 不等于可重试**: HTTP 400 可能是配置错误（不可恢复）也可能是请求格式错误（可重试），必须区分
 
+
+---
+
+## M005 S01: rdagent.log Fallback Logger（2026-03-24）
+
+### 关键模式
+
+**1. Optional 依赖用 try-except ImportError 守卫**
+```python
+try:
+    from rdagent.log import rdagent_logger as _rdagent_logger
+    from rdagent.log.utils import LogColors as _LogColors
+    logger = _rdagent_logger
+    if _LogColors is not None:
+        LogColors = _LogColors
+except ImportError:
+    _fallback_logger = logging.getLogger("quantaalpha")
+    logger = FallbackLoggerWrapper(_fallback_logger)
+```
+
+**2. Wrapped Logger 用 object.__setattr__ 避免属性冲突**
+```python
+def __setattr__(self, name: str, value) -> None:
+    if name in ("_inner", "_storage"):
+        object.__setattr__(self, name, value)  # 写私有属性
+    else:
+        setattr(self._inner, name, value)      # 代理到内层 logger
+```
+直接 `self._inner = inner` 会触发 `__setattr__` 无限递归，`object.__setattr__` 绕过代理。
+
+**3. 两份 submodule 文件必须同步**
+`third_party/quantaalpha` 是 git submodule，其中文件改动需要：
+1. 在 submodule 内提交
+2. 在父项目更新 submodule commit 引用
+每次修改后用 `diff -q` 或 MD5 核对一致性。
+
+**4. rdagent 可导入但 rdagent.log 不存在的情况**
+`import rdagent` 成功但 `from rdagent.log import ...` 失败是独立问题。必须用 `from rdagent.log import ...` 的 try-except 捕获，不能只检查 `import rdagent`。
+
+### 验证命令
+```bash
+# 导入测试
+python -c "from quantaalpha.log import logger, LogColors; print(type(logger).__name__)"
+
+# 文件一致性
+diff -q quantaalpha/log/__init__.py third_party/quantaalpha/quantaalpha/log/__init__.py
+
+# rdagent-free 验证
+python -c "import sys; mods=[m for m in sys.modules if 'rdagent' in m.lower()]; assert not mods, mods; from quantaalpha.log import logger; print('OK')"
+```
+
+### 已知限制
+- Fallback 模式只有控制台输出，无文件日志（truncate 为 no-op）
+- 当 rdagent.log 可用时，仍使用原始 rdagent logger（fallback 仅在 ImportError 时触发）

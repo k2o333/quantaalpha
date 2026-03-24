@@ -16,7 +16,7 @@
 
 ## Slices
 
-- [ ] **S01: 移除 rdagent.log 硬依赖** `risk:medium` `depends:[]`
+- [x] **S01: 移除 rdagent.log 硬依赖** `risk:medium` `depends:[]` ✅ 2026-03-24
   > After this: `from quantaalpha.log import logger, LogColors` 在不安装 rdagent 的环境中成功导入；两份 log/__init__.py 行为一致。
 
 - [ ] **S02: 强化 normalize_corrected_expression** `risk:medium` `depends:[S01]`
