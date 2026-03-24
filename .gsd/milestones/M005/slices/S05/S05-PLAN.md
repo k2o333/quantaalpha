@@ -19,7 +19,7 @@
 
 ## Tasks
 
-- [ ] **T01: 删除死赋值并归档 proposal.yaml** `est:5m`
+- [x] **T01: 删除死赋值并归档 proposal.yaml** `est:5m`
   - Why: 移除配置歧义的唯一实现步骤 — 删除 line 159 的遮蔽赋值并归档无效 YAML
   - Files: `quantaalpha/factors/proposal.py`, `quantaalpha/factors/prompts/proposal.yaml`
   - Do: 用 `sed -i` 删除 line 159（含前导空行）；用 `mv` 将 `proposal.yaml` 归档为 `.archived`；验证语法
