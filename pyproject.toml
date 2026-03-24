@@ -7,7 +7,7 @@ requires = [
 
 [project]
 authors = [
-  {email = "tangzy27@mail2.sysu.edu.cn", name = "Ziyi Tang"},
+  {email = "tangzy27@mail2.sysu.edu.cn", name = "chong"},
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -36,8 +36,8 @@ requires-python = ">=3.10"
 quantaalpha = "quantaalpha.cli:app"
 
 [project.urls]
-homepage = "https://github.com/QuantaAlpha/quantaalpha"
-issue = "https://github.com/QuantaAlpha/quantaalpha/issues"
+homepage = "https://github.com/k2o333/quantaalpha"
+issue = "https://github.com/k2o333/quantaalpha/issues"
 
 [tool.setuptools]
 packages = {find = {where = ["."]}}
