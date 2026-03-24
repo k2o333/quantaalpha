@@ -802,11 +802,17 @@ class APIBackend:
                 if chat_completion:
                     return self._create_chat_completion_auto_continue(**kwargs)
             except openai.BadRequestError as e:  # noqa: PERF203
+                error_str = str(e)
                 logger.warning(e)
+                # Unrecoverable: invalid model name — fail fast, no retry
+                if "Invalid model" in error_str:
+                    failing_model = self.embedding_model if embedding else self.chat_model
+                    logger.error(f"Unrecoverable BadRequest: invalid model '{failing_model}'. Check model configuration.")
+                    raise
                 logger.warning(f"Retrying {i+1}th time...")
-                if "'messages' must contain the word 'json' in some form" in e.message:
+                if "'messages' must contain the word 'json' in some form" in error_str:
                     kwargs["add_json_in_prompt"] = True
-                elif embedding and "maximum context length" in e.message:
+                elif embedding and "maximum context length" in error_str:
                     kwargs["input_content_list"] = [
                         content[: len(content) // 2] for content in kwargs.get("input_content_list", [])
                     ]
