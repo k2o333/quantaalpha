@@ -25,7 +25,7 @@
 - [x] **S03: 收紧 consistency prompt 输出约束** `risk:low` `depends:[S01]` ✅ 2026-03-24
   > After this: `consistency_check_system` 和 `consistency_check_user` 明确要求单行表达式，禁止注释、赋值、伪代码和多候选输出。
 
-- [x] **S04: 停止对不可恢复 BadRequest 重试** `risk:low` `depends:[S01]` ✅ 2026-03-24
+- [ ] **S04: 停止对不可恢复 BadRequest 重试** `risk:low` `depends:[S01]` ✅ 2026-03-24
   > After this: 无效模型名等 400 BadRequest 错误立即重抛，不产生无效重试；配置错误在第一次失败时可见。
 
 - [ ] **S05: 移除 proposal.yaml prompt 配置歧义** `risk:low` `depends:[S01]`

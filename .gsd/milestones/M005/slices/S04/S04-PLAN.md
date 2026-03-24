@@ -8,7 +8,7 @@
 
 ## Tasks
 
-- [x] **T01: 重构 _try_create_chat_completion_or_embedding** ✅ 2026-03-24
+- [ ] **T01: 重构 _try_create_chat_completion_or_embedding** ✅ 2026-03-24
   增加 BadRequestError 的 catch 和判断逻辑。
 
   **变更内容：**
