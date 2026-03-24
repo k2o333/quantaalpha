@@ -487,3 +487,59 @@ expression_duplication: |-
     - **Action Required**: Reduce the number of distinct base features used. Focus on 2-4 core features instead of using all available features.
     - Target: Use at most {{ base_features_threshold }} distinct base features. Reusing the same feature multiple times is acceptable.
   {% endif %}
+
+
+# =============================================================================
+# RAG-based Few-shot Templates
+# Used for vector similarity retrieval and factor pattern synthesis
+# =============================================================================
+
+common_patterns_summary: |-
+  {% if factor_context %}
+  ## Similar Factors Analysis
+  
+  Based on {{ num_similar_factors }} similar factors from the library:
+  
+  {% if common_tags %}
+  **Common Characteristics:**
+  {% for tag_line in common_tags %}
+  - {{ tag_line }}
+  {% endfor %}
+  {% endif %}
+  
+  {% if avg_ic %}**Average IC:** {{ avg_ic }}{% endif %}
+  
+  **Similar Factor Examples:**
+  {% for factor in example_factors %}
+  - `{{ factor.expression }}` (IC: {{ factor.ic | default('N/A') }}, Tags: {{ factor.tags | join(', ') | default('none') }})
+  {% endfor %}
+  
+  **Synthesis Guidance:**
+  Based on the common patterns above, consider:
+  1. Using similar operators/transformations that appear frequently
+  2. Applying the same data dimensions ({{ common_dimensions | join(', ') | default('price_volume') }})
+  3. Targeting similar market environments ({{ common_environments | join(', ') | default('all') }})
+  {% endif %}
+
+
+factor_context_template: |-
+  ## Similar Factors from Library
+  
+  {% if factors %}
+  {% for factor in factors %}
+  **Factor {{ loop.index }}** (similarity: {{ factor.score | round(2) }})
+  {% if factor.factor_name %}- Name: {{ factor.factor_name }}{% endif %}
+  - Expression: `{{ factor.factor_expression }}`
+  {% if factor.tags %}
+  - Tags: 
+    {% for key, values in factor.tags.items() %}
+      - {{ key }}: {{ values | join(', ') }}
+    {% endfor %}
+  {% endif %}
+  {% if factor.metadata.ic is defined %}- IC: {{ factor.metadata.ic | round(4) }}{% endif %}
+  {% if factor.metadata.rank_ic is defined %}- Rank IC: {{ factor.metadata.rank_ic | round(4) }}{% endif %}
+  
+  {% endfor %}
+  {% else %}
+  No similar factors found in the library. This is an opportunity to explore novel patterns.
+  {% endif %}

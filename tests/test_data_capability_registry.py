@@ -189,6 +189,7 @@ def test_normalize_capability_spec_applies_conservative_defaults():
         "lag_days": 0,
         "join_mode": "same_day",
         "factor_hints": [],
+        "available_from": None,
     }
 
 
@@ -214,6 +215,7 @@ def test_normalize_capability_spec_treats_null_like_missing():
         "lag_days": 0,
         "join_mode": "same_day",
         "factor_hints": [],
+        "available_from": None,
     }
 
 

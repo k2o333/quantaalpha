@@ -190,3 +190,91 @@ prompts:
 # ============================================================
 data_capability_registry:
   enabled: true
+
+
+# ============================================================
+# PROVIDER POOL CONFIGURATION (S07)
+# Multi-provider LLM routing with key rotation and latency tracking
+# ============================================================
+provider_pool:
+  # Routing strategy: round_robin | random | least_latency
+  routing: round_robin
+
+  # Minimum latency samples before least_latency selects a key
+  # Prevents premature selection when a key has only 1-2 samples
+  min_latency_samples: 3
+
+  # Provider definitions
+  # Each provider can have multiple API keys (round-robin across keys)
+  providers:
+    # Primary OpenAI provider
+    - name: openai
+      api_keys:
+        - "${OPENAI_API_KEY}"  # Populated from environment
+      base_url: "https://api.openai.com/v1"
+      model: "gpt-4-turbo"
+      timeout: 60
+      metadata:
+        region: us-east
+        tier: standard
+
+    # Azure OpenAI (optional)
+    # - name: azure_openai
+    #   api_keys:
+    #     - "${AZURE_OPENAI_KEY}"
+    #   base_url: "${AZURE_OPENAI_ENDPOINT}"
+    #   model: "gpt-4-turbo"
+    #   timeout: 90
+    #   metadata:
+    #     api_version: "2024-02-01"
+
+    # Anthropic Claude (optional)
+    # - name: anthropic
+    #   api_keys:
+    #     - "${ANTHROPIC_API_KEY}"
+    #   base_url: "https://api.anthropic.com"
+    #   model: "claude-3-opus-20240229"
+    #   timeout: 60
+    #   metadata:
+    #     tier: standard
+
+
+# ============================================================
+# ENSEMBLE AGGREGATION CONFIGURATION (S07)
+# Multi-model factor aggregation strategies
+# ============================================================
+ensemble:
+  # Default aggregation strategy when none specified
+  # Options:
+  #   intersection  - Conservative: factors appearing in ALL models
+  #   union_dedup   - Permissive: all unique factors across models
+  #   voting        - Democratic: factors with >= threshold votes
+  #   fusion_score  - Weighted: factors scored by model quality weights
+  default_strategy: union_dedup
+
+  # Voting strategy configuration
+  voting:
+    # Minimum votes required for a factor to be included
+    # Default: majority (ceil(num_models / 2))
+    threshold: null
+
+  # Fusion scoring configuration
+  fusion_score:
+    # Default quality score for models without explicit scores
+    default_quality: 0.5
+    # Model quality weights (optional override)
+    # Format: {model_name: weight_0_to_1}
+    # weights:
+    #   gpt-4-turbo: 0.9
+    #   claude-3-opus: 0.95
+    #   gpt-3.5-turbo: 0.6
+
+  # Strategy-specific options
+  strategies:
+    # For intersection: require all models to respond
+    intersection:
+      require_all: true
+
+    # For union_dedup: deduplication method
+    union_dedup:
+      dedup_method: string  # string | semantic

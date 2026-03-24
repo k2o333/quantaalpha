@@ -93,6 +93,21 @@ multi_period_validation:
   enabled: false
   fail_fast: true
   periods: []
+  # Require all periods to pass the criteria (true) or allow partial pass (false)
+  require_all_pass: true
+  # Pass criteria for multi-period validation
+  # These pass_criteria fields are used by evaluate_multi_period_results() to judge factor validity
+  pass_criteria:
+    # pass_criteria: Minimum IC threshold (IC > min_ic to pass)
+    min_ic: 0.02
+    # pass_criteria: Minimum Rank IC threshold (Rank IC > min_rank_ic to pass)
+    min_rank_ic: 0.02
+    # pass_criteria: Minimum number of periods that must pass the criteria
+    min_periods_pass: 2
+  # Pass criteria - validation thresholds used by evaluate_multi_period_results()
+  # Judgment logic: each period passes if IC > min_ic AND Rank IC > min_rank_ic
+  # Overall pass: all periods pass (require_all_pass=true) OR
+  #               at least min_periods_pass periods pass (require_all_pass=false)
 
 ######################################################################
 # 4. Model (model)

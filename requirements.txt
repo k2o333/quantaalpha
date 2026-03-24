@@ -42,6 +42,12 @@ azure-ai-formrecognizer    # Azure Document Intelligence
 tables                     # HDF5 table storage (PyTables)
 
 # -----------------------------------------------------------------------------
+# Vector store / RAG
+# -----------------------------------------------------------------------------
+chromadb                   # Vector database for semantic similarity search
+sentence-transformers      # Embedding model for ChromaDB
+
+# -----------------------------------------------------------------------------
 # Infrastructure
 # -----------------------------------------------------------------------------
 docker                     # Docker container management (remote backtest)

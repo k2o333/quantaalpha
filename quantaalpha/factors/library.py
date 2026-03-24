@@ -21,6 +21,37 @@ from quantaalpha.factors.status_rules import update_factor_status
 
 logger = logging.getLogger(__name__)
 
+# ----------------------------------------------------------------------
+# Tag enumeration constants for factor classification
+# ----------------------------------------------------------------------
+# category: investment style / factor category
+CATEGORY_TAGS = ["momentum", "reversal", "value", "quality", "liquidity"]
+
+# data_dependency: what data the factor primarily uses
+DATA_DEPENDENCY_TAGS = ["price_volume", "financial", "alternative"]
+
+# market_environment: market regime suitability
+MARKET_ENVIRONMENT_TAGS = ["bull", "bear", "sideways", "high_vol"]
+
+# time_horizon: investment holding period
+TIME_HORIZON_TAGS = ["short_term", "intraday", "medium_term"]
+
+# All valid tag keys and their allowed values (for validation)
+TAG_DEFINITIONS = {
+    "category": CATEGORY_TAGS,
+    "data_dependency": DATA_DEPENDENCY_TAGS,
+    "market_environment": MARKET_ENVIRONMENT_TAGS,
+    "time_horizon": TIME_HORIZON_TAGS,
+}
+
+# Default empty tags structure for new factor entries
+DEFAULT_TAGS = {
+    "category": [],
+    "data_dependency": [],
+    "market_environment": [],
+    "time_horizon": [],
+}
+
 DEFAULT_FACTOR_CACHE_DIR = os.environ.get(
     "FACTOR_CACHE_DIR",
     "data/results/factor_cache",
@@ -451,12 +482,22 @@ class FactorLibraryManager:
         entry.setdefault("metadata", {})
         entry.setdefault("backtest_results", {})
         entry.setdefault("feedback", {})
+        # Tags field: 4-dimension classification labels
+        entry.setdefault("tags", dict(DEFAULT_TAGS))
+        # Ensure tags has all required keys with list values (migration-safe)
+        if "tags" in entry and entry["tags"] is not None:
+            for tag_key, default_value in DEFAULT_TAGS.items():
+                entry["tags"].setdefault(tag_key, list(default_value))
+                if not isinstance(entry["tags"][tag_key], list):
+                    entry["tags"][tag_key] = list(entry["tags"][tag_key])
+        else:
+            entry["tags"] = dict(DEFAULT_TAGS)
         entry["metadata"].setdefault("version", "1.1")
         entry.setdefault(
             "evaluation",
             {
                 "status": "pending_validation",
-                "last_validated": None,
+                "last_validated": datetime.now().isoformat(),
                 "stability_score": None,
                 "period_results": [],
                 "validation_summary": "",
@@ -464,7 +505,7 @@ class FactorLibraryManager:
             },
         )
         entry["evaluation"].setdefault("status", "pending_validation")
-        entry["evaluation"].setdefault("last_validated", None)
+        entry["evaluation"].setdefault("last_validated", datetime.now().isoformat())
         entry["evaluation"].setdefault("stability_score", None)
         entry["evaluation"].setdefault("period_results", [])
         entry["evaluation"].setdefault("validation_summary", "")

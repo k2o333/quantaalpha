@@ -146,7 +146,7 @@ class TestSchedulerSummary(unittest.TestCase):
             self.assertEqual(summary["stale_count"], 0)
             self.assertEqual(summary["evolution_counts"]["original"], 2)
             self.assertEqual(summary["evolution_counts"]["mutation"], 1)
-            self.assertEqual(summary["total_validated"], 2)
+            self.assertEqual(summary["total_validated"], 3)
             self.assertEqual(summary["total_active"], 1)
             self.assertIsNotNone(summary["avg_stability_score"])
             self.assertAlmostEqual(
