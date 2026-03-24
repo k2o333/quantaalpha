@@ -32,6 +32,7 @@ Guidelines:
 - **R018: 停止对不可恢复 BadRequest 错误重试** — `_try_create_chat_completion_or_embedding()` 需检测无效模型名等不可恢复 400 错误并立即重抛，不消耗重试次数
   - Owner: M005-S04
   - Priority: P1 — 隐藏配置错误、浪费重试
+  - Status: ✅ **Validated** — `"Invalid model" in error_str` 守卫在第 808 行实现，bare raise 立即退出重试循环，12 项 UAT 检查通过，submodule commit `7b15e5d` 已推送
 
 - **R019: 集中 JSON 转义修复** — `_escape_common_json_sequences()` 需添加通用 fallback regex（处理杂散反斜杠），所有 JSON 修复路径共用此实现，不保留分散的部分实现
   - Owner: M005-S06

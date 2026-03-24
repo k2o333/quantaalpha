@@ -1,3 +1,10 @@
+---
+sliceId: S06
+uatType: artifact-driven
+verdict: PASS
+date: 2026-03-24
+---
+
 # S06: 集中 JSON 转义修复 — UAT
 
 **Milestone:** M005
