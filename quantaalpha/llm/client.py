@@ -124,7 +124,9 @@ def _escape_common_json_sequences(text: str) -> str:
     ]
     for cmd in latex_commands:
         fixed_text = re.sub(r"(?<!\\)\\(" + cmd + r")", r"\\\\\1", fixed_text)
-    fixed_text = re.sub(r"(?<!\\)\\([_\{\}\[\]])", r"\\\\\1", fixed_text)
+    fixed_text = re.sub(r"(?<!\\)\\([_\{\}\[\]])", r"\\\\\\1", fixed_text)
+    # Fix all unrecognized backslash escapes (generic fallback)
+    fixed_text = re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)
     return fixed_text
 
 
@@ -1072,14 +1074,8 @@ class APIBackend:
                     # Fix common JSON format issues
                     fixed_resp = resp
                     
-                    # Fix LaTeX backslash: \text, \frac etc. misinterpreted as escapes
-                    latex_commands = ['text', 'frac', 'left', 'right', 'times', 'cdot', 'sqrt', 'sum', 'prod', 'int']
-                    for cmd in latex_commands:
-                        # Replace single backslash only
-                        fixed_resp = re.sub(r'(?<!\\)\\(' + cmd + r')', r'\\\\\1', fixed_resp)
-                    
-                    # Fix other invalid escapes: \_ \{ \} etc.
-                    fixed_resp = re.sub(r'(?<!\\)\\([_\{\}\[\]])', r'\\\\\1', fixed_resp)
+                    # Fix LaTeX backslash + generic backslash escapes via shared function
+                    fixed_resp = _escape_common_json_sequences(fixed_resp)
                     
                     # Fix control characters inside JSON string values
                     # We need to escape actual control chars (U+0000-U+001F) that appear inside JSON strings

@@ -37,7 +37,7 @@ consistency_check_system: |-
     "description_to_formulation": "Analysis of consistency between description and formulation",
     "formulation_to_expression": "Analysis of consistency between formulation and expression",
     "overall_feedback": "Overall assessment and suggestions",
-    "corrected_expression": "Corrected expression if needed (null if no correction)",
+    "corrected_expression": "A single-line DSL expression only — no markdown, no comments, no assignments, no explanation. E.g. \"RANK(CLOSE)/RANK(OPEN)\". Use null if the expression is already correct.",
     "corrected_description": "Corrected description if needed (null if no correction)"
   }
 
@@ -74,6 +74,8 @@ consistency_check_user: |-
   If you find inconsistencies, please suggest corrections.
   
   Output your analysis in JSON format.
+
+  **IMPORTANT: `corrected_expression` must be a single-line DSL expression only. No markdown fences, no comments (// or #), no variable assignments (expr = ...), no pseudo-code, no multi-candidate output (Option A/B/C). Use null if no correction is needed.**
 
 
 # ============================================================

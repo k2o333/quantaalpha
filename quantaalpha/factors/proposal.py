@@ -21,10 +21,108 @@ MIN_HISTORY_LIMIT = 1
 
 
 def normalize_corrected_expression(expression) -> str:
-    """Normalize quality-gate corrected expressions to a parser-safe string."""
+    """Normalize quality-gate corrected expressions to a parser-safe string.
+
+    Handles: dict payloads (code/expression key extraction),
+    fenced code blocks, // and # comments, variable assignments
+    (extracts RHS), multi-line input (picks first DSL line),
+    and DSL pattern fallback.
+    """
+    import re
+
+    # Handle non-string inputs — dict payloads handled first
     if isinstance(expression, dict):
-        return expression.get("expression") or str(expression)
-    return expression
+        for key in ("code", "expression", "factor", "formula"):
+            if key in expression:
+                expression = str(expression[key])
+                break
+        else:
+            expression = str(expression)
+
+    if not isinstance(expression, str):
+        return str(expression)
+
+    # Handle string dict payloads — if the entire string looks like a JSON dict
+    stripped = expression.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                for key in ("code", "expression", "factor", "formula"):
+                    if key in parsed:
+                        expression = str(parsed[key])
+                        break
+                else:
+                    expression = str(parsed)
+        except (json.JSONDecodeError, ValueError):
+            pass  # Fall through to string processing
+
+    # Step 1: Strip fenced code blocks (any fence variant)
+    text = re.sub(r"```[\w]*\n?.*?```", "", expression, flags=re.DOTALL)
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)  # inline code
+
+    # Step 2: Process each line
+    lines = text.split("\n")
+    valid_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Skip pure comment lines
+        if line.startswith("//") or line.startswith("#"):
+            continue
+
+        # Strip // comments (must be on the same line)
+        if "//" in line:
+            line = line[:line.index("//")]
+            line = line.strip()
+            if not line:
+                continue
+
+        # Strip # comments
+        if "#" in line:
+            line = line[:line.index("#")]
+            line = line.strip()
+            if not line:
+                continue
+
+        # Handle variable assignment: extract RHS
+        # Match: identifier = expression
+        # Valid LHS: starts with letter/underscore, contains only word chars and spaces before =
+        assign_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_\s]*?)\s*=\s*(.+)$", line)
+        if assign_match:
+            lhs = assign_match.group(1).strip()
+            rhs = assign_match.group(2).strip()
+            # Only extract if LHS looks like a simple variable name (no operators)
+            if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", lhs):
+                line = rhs
+
+        if line:
+            valid_lines.append(line)
+
+    # Step 3: Return single-line result
+    if not valid_lines:
+        # Fallback: extract first DSL pattern FUNC(...) from original text
+        dsl_match = re.search(r"\b([A-Z][A-Z_]*)\s*\([^)]+\)", expression)
+        if dsl_match:
+            return dsl_match.group(0)
+        return expression.strip()
+
+    # Prefer lines that look like DSL expressions (uppercase func)
+    for candidate in valid_lines:
+        if re.match(r"^[A-Z][A-Z_]*\s*\(", candidate):
+            return candidate
+
+    # Strip non-DSL prefixes from lines (e.g. "Option A: STD(...)" -> "STD(...)")
+    for candidate in valid_lines:
+        dsl_match = re.search(r"([A-Z][A-Z_]*\s*\([^)]+\))", candidate)
+        if dsl_match:
+            return dsl_match.group(1)
+
+    # Fall back to first valid line
+    return valid_lines[0]
 
 
 def render_hypothesis_and_feedback(prompt_dict, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> str:
@@ -58,7 +156,6 @@ def is_input_length_error(error_msg: str) -> bool:
 
 
 QlibFactorHypothesis = Hypothesis
-qa_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "proposal.yaml")
 
 class AlphaAgentHypothesis(Hypothesis):
     """
