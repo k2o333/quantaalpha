@@ -44,16 +44,16 @@ Reliable, incremental financial data ingestion → factor mining → strategy va
 - **文档**: `.gsd/milestones/M004/M004-SUMMARY.md`, `.gsd/milestones/M004/M004-ROADMAP.md`
 
 ### M005 进行中（2026-03-24 启动）
-- **状态**: 🔄 进行中
+- **状态**: 🔄 进行中（2/6 切片完成）
 - **交付目标**: 修复 6 个已验证 Bug，稳定因子挖掘 pipeline
 - **已验证 Bug**:
-  - Bug-6 (P0): `quantaalpha.log` 硬依赖缺失的 `rdagent.log`，阻塞模块导入
-  - Bug-1 (P0): `normalize_corrected_expression` 对脏字符串放行
+  - Bug-6 (P0): `quantaalpha.log` 硬依赖缺失的 `rdagent.log`，阻塞模块导入 ✅ S01 完成
+  - Bug-1 (P0): `normalize_corrected_expression` 对脏字符串放行 ✅ S02 完成
   - Bug-2 (P0): `consistency_check_system` 缺乏严格输出约束（畸形 corrected_expression 的根因）
   - Bug-3 (P1): BadRequest 重试不区分无效模型名等不可恢复错误
   - Bug-4 (P2): JSON 转义修复不完整且存在重复实现
   - Bug-5 (P2): `proposal.yaml` 被后续赋值遮蔽造成维护混淆
-- **切片规划**: S01(rdagent.log) → S02(expression norm) → S03(prompt) → S04(BadRequest) → S05(yaml) → S06(JSON)
+- **切片规划**: S01 ✅ S02 ✅ → S03(prompt) → S04(BadRequest) → S05(yaml) → S06(JSON)
 - **文档**: `.gsd/milestones/M005/M005-ROADMAP.md`, `.gsd/milestones/M005/M005-CONTEXT.md`
 
 ### app4 (Data Pipeline)

@@ -22,6 +22,7 @@ Guidelines:
 - **R016: 增强 normalize_corrected_expression** — 函数需处理 dict payload、fenced code blocks、`//` 和 `#` 注释、多行输出、变量赋值伪代码，提取最终有效单行 DSL 表达式；不可简单删除赋值行
   - Owner: M005-S02
   - Priority: P0 — 纠正表达式可能仍不可解析
+  - Status: ✅ **Validated** — `normalize_corrected_expression()` 实现 dict-first 处理、fenced block 剥离、`//`/`#` 注释剥离、赋值 RHS 提取、非 DSL 前缀剥离、多行 DSL 模式提取；16 项单元测试全部通过；主文件和 vendored 文件 byte-identical
 
 - **R017: 收紧 consistency prompt 输出约束** — `consistency_check_system` 和 `consistency_check_user` 需明确要求单行表达式、禁止注释/赋值/伪代码/多候选输出
   - Owner: M005-S03
@@ -117,7 +118,7 @@ Guidelines:
 | R014 | orchestration | validated | M004-S08 | M004-S02, M004-S05, M004-S06 | MiningOrchestrator + scheduler.py 接口 + implementations.py + DESIGN.md + 28单元测试 |
 
 | R015 | log-compat | validated | M005-S01 | - | FallbackLoggerWrapper + FallbackFileStorage，try-except ImportError 包装 rdagent.log，12 UAT 通过，两份 log/__init__.py MD5 一致 |
-| R016 | expression-parsing | active | M005-S02 | - | P0: 脏字符串放行导致解析器失败 |
+| R016 | expression-parsing | validated | M005-S02 | - | normalize_corrected_expression() dict-first 处理、fenced block 剥离、// / # 注释剥离、赋值 RHS 提取、非 DSL 前缀剥离，16 单元测试通过，两份 proposal.py byte-identical |
 | R017 | prompt-constraint | active | M005-S03 | - | P0: corrected_expression 畸形输出根因 |
 | R018 | api-error-handling | active | M005-S04 | - | P1: BadRequest 不区分可恢复性 |
 | R019 | json-repair | active | M005-S06 | - | P2: JSON 转义修复不完整且有重复 |
@@ -125,8 +126,8 @@ Guidelines:
 
 ## Coverage Summary
 
-- Active requirements: 5
-- Validated requirements: 16
+- Active requirements: 4
+- Validated requirements: 17
 - Mapped to slices: 18
 - Unmapped active requirements: 0
 

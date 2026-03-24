@@ -859,3 +859,91 @@ python -c "import sys; mods=[m for m in sys.modules if 'rdagent' in m.lower()]; 
 ### 已知限制
 - Fallback 模式只有控制台输出，无文件日志（truncate 为 no-op）
 - 当 rdagent.log 可用时，仍使用原始 rdagent logger（fallback 仅在 ImportError 时触发）
+
+---
+
+## M005 S02: normalize_corrected_expression 强化 (2026-03-24)
+
+### 完成摘要
+用硬化版本替换 `normalize_corrected_expression`，处理 LLM 返回的各类脏字符串模式。
+
+### 关键模式
+
+**1. Dict-first 处理（dict 必须在 isinstance(str) 之前）**
+```python
+def normalize_corrected_expression(expression) -> str:
+    # ✅ 正确：dict 处理在最前面
+    if isinstance(expression, dict):
+        for key in ("code", "expression", "factor", "formula"):
+            if key in expression:
+                expression = str(expression[key])
+                break
+        else:
+            expression = str(expression)
+
+    if not isinstance(expression, str):  # ← isinstance(str) 守卫在 dict 处理之后
+        return str(expression)
+```
+`str(dict)` 会转换为 repr 形式（如 `"{'code': '...'}"`），使后续 JSON 解析无法提取嵌套 key。
+
+**2. Embedded DSL Regex（非 DSL 前缀剥离）**
+```python
+# 用于从 "Option A: STD(...)" 提取 DSL
+dsl_match = re.search(r"\b([A-Z][A-Z_]*)\s*\([^)]+\)", expression)
+```
+此 regex 在每行验证后作为 fallback 执行，捕获嵌入的 DSL 表达式。
+
+**3. JSON String Dict 解析（字符串形式的 dict）**
+```python
+stripped = expression.strip()
+if stripped.startswith("{") and stripped.endswith("}"):
+    try:
+        parsed = json.loads(stripped)
+        # ... extract nested key
+    except (json.JSONDecodeError, ValueError):
+        pass  # 降级到字符串处理
+```
+输入可能是字符串形式的 JSON dict，而非实际 dict 对象。
+
+**4. exec()-based Source Extraction（隔离测试）**
+```python
+import ast
+with open(PROPOSAL_PATH) as f:
+    content = f.read()
+tree = ast.parse(content)
+for node in ast.walk(tree):
+    if isinstance(node, ast.FunctionDef) and node.name == "normalize_corrected_expression":
+        exec_globals = {}
+        exec(ast.get_source_segment(content, node), exec_globals)
+        fn = exec_globals["normalize_corrected_expression"]
+```
+绕过 jinja2 导入链，使用 AST + exec() 隔离加载函数。
+
+**5. Byte-identical Vendored Sync（vendored 文件同步）**
+```bash
+# 同步
+cp quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py
+
+# 验证
+diff -q quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py
+# 无输出 = 一致
+```
+Vendored 副本是主文件的字节级镜像，任何差异都意味着同步失效。
+
+### 验证命令
+```bash
+# 语法检查
+python -m py_compile quantaalpha/factors/proposal.py
+python -m py_compile third_party/quantaalpha/quantaalpha/factors/proposal.py
+
+# 文件一致性
+diff -q quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py
+
+# 单元测试
+python -m pytest tests/test_normalize_corrected_expression.py -v
+# 预期：16 passed
+```
+
+### 已知限制
+- DSL fallback 提取第一个 `FUNC(...)` 模式，如果没有有效行则返回原始输入
+- 赋值语句中 `=` 的处理：只提取第一个 `=` 后的内容（`x = a = b` → `a = b`）

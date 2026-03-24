@@ -19,7 +19,7 @@
 - [x] **S01: 移除 rdagent.log 硬依赖** `risk:medium` `depends:[]` ✅ 2026-03-24
   > After this: `from quantaalpha.log import logger, LogColors` 在不安装 rdagent 的环境中成功导入；两份 log/__init__.py 行为一致。
 
-- [ ] **S02: 强化 normalize_corrected_expression** `risk:medium` `depends:[S01]`
+- [x] **S02: 强化 normalize_corrected_expression** `risk:medium` `depends:[S01]` ✅ 2026-03-24
   > After this: 函数能正确处理 dict payload、fenced blocks、// 和 # 注释、多行输出、变量赋值伪代码，并提取有效单行 DSL 表达式。
 
 - [ ] **S03: 收紧 consistency prompt 输出约束** `risk:low` `depends:[S01]`
