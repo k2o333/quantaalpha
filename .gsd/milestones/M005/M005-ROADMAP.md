@@ -31,7 +31,7 @@
 - [x] **S05: 移除 proposal.yaml prompt 配置歧义** `risk:low` `depends:[S01]` ✅ 2026-03-24
   > After this: `proposal.py` 中无 `qa_prompt_dict` 遮蔽；所有 prompt 查找均指向单一有效配置文件 `prompts.yaml`；死赋值已删除，`proposal.yaml` 已归档为 `.archived`。
 
-- [ ] **S06: 集中 JSON 转义修复** `risk:low` `depends:[S01]`
+- [x] **S06: 集中 JSON 转义修复** `risk:low` `depends:[S01]` ✅ 2026-03-24
   > After this: `_escape_common_json_sequences()` 包含通用反斜杠转义 regex，所有 JSON 修复路径共用同一实现。
 
 ---

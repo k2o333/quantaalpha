@@ -36,6 +36,7 @@ Guidelines:
 - **R019: 集中 JSON 转义修复** — `_escape_common_json_sequences()` 需添加通用 fallback regex（处理杂散反斜杠），所有 JSON 修复路径共用此实现，不保留分散的部分实现
   - Owner: M005-S06
   - Priority: P2 — 部分 JSON 仍解析失败
+  - Status: ✅ **Validated** — 通用 fallback regex (`re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)`) 添加到 `_escape_common_json_sequences()` 末尾；`ChatCache._build_response()` 的内联 LaTeX 循环（1076-1079）替换为单行 `_escape_common_json_sequences(fixed_resp)` 调用；两份 client.py MD5 一致（`6b3bac77364473bde6b0e90e801332fa`）；`\_`、`John\_Doe` 等杂散转义 JSON 解析成功；`_escape_control_chars_in_json()` 保留为独立功能（控制字符与 LaTeX 转义属不同concern）
 
 ## Validated
 
@@ -118,14 +119,14 @@ Guidelines:
 | R016 | expression-parsing | validated | M005-S02 | - | normalize_corrected_expression() dict-first 处理、fenced block 剥离、// / # 注释剥离，赋值 RHS 提取，16 单元测试通过 |
 | R017 | prompt-constraint | validated | M005-S03 | - | consistency_prompts.yaml 系统 prompt 含 "single-line DSL expression only"，用户 prompt 含 IMPORTANT 约束块列举禁止模式，3 项 grep 检查通过 |
 | R018 | api-error-handling | active | M005-S04 | - | P1: BadRequest 不区分可恢复性 |
-| R019 | json-repair | active | M005-S06 | - | P2: JSON 转义修复不完整且有重复 |
+| R019 | json-repair | validated | M005-S06 | - | 通用 fallback regex 添加到 _escape_common_json_sequences()，内联 LaTeX 循环移除，两份 client.py MD5 一致，JSON 解析测试全部通过 |
 | R020 | prompt-config | validated | M005-S05 | - | 删除 proposal.py 第 159 行死赋值，proposal.yaml 归档为 .archived，仅剩 1 行指向 prompts.yaml，4 项验证全部通过 |
 
 ## Coverage Summary
 
-- Active requirements: 2
-- Validated requirements: 19
-- Mapped to slices: 19
+- Active requirements: 1
+- Validated requirements: 20
+- Mapped to slices: 20
 - Unmapped active requirements: 0
 
 ---

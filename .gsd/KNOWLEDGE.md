@@ -1050,3 +1050,65 @@ python -m py_compile quantaalpha/factors/proposal.py
 - 配置文件有多个副本时，确认哪个是"真实"的有效配置
 - 死赋值不产生运行时错误，但会造成维护混淆
 - 归档文件不应被 `__init__.py` 或任何 Python 代码主动加载
+
+## S06: 集中 JSON 转义修复 (2026-03-24)
+
+### 两层 JSON 修复 concerns 必须区分
+`quantaalpha/llm/client.py` 中存在两个独立的 JSON 修复层：
+1. **`_escape_common_json_sequences()`** — 处理 LLM 输出中的 LaTeX/symbol 反斜杠转义（`\_`、`\alpha`、杂散 `\`）
+2. **`_escape_control_chars_in_json()`** — 处理 JSON 字符串值内的原始控制字符（U+0000-U+001F）
+
+两层必须同时存在，不可合并。控制字符（如 `\x00`）在 JSON 解析前必须被转义，但 LaTeX 转义不涉及控制字符。
+
+### Generic Fallback Regex 的 Negative Lookahead 设计
+通用 fallback: `re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)`
+
+关键点：
+- `(?!...)` 是 negative lookahead，不消费字符
+- 排除 `nrtfb/"'/\` 和 `u`（JSON 有效转义）
+- 对每个未识别反斜杠后跟的字符，在其前再加一个反斜杠（变成双反斜杠）
+- `\n`、`\t`、`\r` 等有效 JSON 转义不受影响
+
+### re.sub Replacement String 的 Backslash Math
+在 raw string 中写 `r"\\\\"` = 4 个反slash字符 = 2 对 = regex replacement 输出 2 个反斜杠。
+
+| Python raw string | regex replacement 中的反斜杠对数 | 输出字符 |
+|---|---|---|
+| `r"\\\\"` | 2 对 | `\\` (2 个反斜杠) |
+| `r"\\\\\\1"` | 3 对 + `\1` | `\\\1` (3 个反斜杠 + 捕获组) |
+
+当 specific escape（3 pairs = 3 bs + captured）与 generic fallback（对 matched backslash +2 bs）联合作用时，需要精确计算避免 over-escaping。
+
+### Vendored 同步 checklist
+每次修改 `quantaalpha/llm/client.py` 后：
+1. `mkdir -p third_party/quantaalpha/quantaalpha/llm/` — vendored 目录可能不存在
+2. `cp quantaalpha/llm/client.py third_party/quantaalpha/quantaalpha/llm/client.py`
+3. `diff -q ... && md5sum ...` — 验证 byte-identical
+
+### 诊断命令
+```bash
+# 验证 generic fallback 存在
+sed -n '129p' quantaalpha/llm/client.py
+# 预期: fixed_text = re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)
+
+# 验证内联循环已移除
+grep -c "latex_commands" quantaalpha/llm/client.py  # 应为 2（仅在 _escape_common_json_sequences 内）
+
+# 验证 unified call 存在
+grep -n "_escape_common_json_sequences(fixed_resp)" quantaalpha/llm/client.py
+# 预期: 1078
+
+# 端到端 JSON 解析测试
+python3 -c "
+import re, json
+def _escape_common_json_sequences(text: str) -> str:
+    fixed_text = text
+    for cmd in ['text','frac','left','right','times','cdot','sqrt','sum','prod','int','alpha','beta','gamma','delta']:
+        fixed_text = re.sub(r'(?<!\\\\)\\\\(' + cmd + r')', r'\\\\\\\\\1', fixed_text)
+    fixed_text = re.sub(r'(?<!\\\\)\\\\([_\\{\\}\\[\\]])', r'\\\\\\\\\\\\1', fixed_text)
+    fixed_text = re.sub(r'\\\\(?![\"\\\\\\\/bfnrtu])', r'\\\\\\\\', fixed_text)
+    return fixed_text
+for t in [r'{\"x\": \"\_ 10\"}', r'{\"expr\": \"PE \_ 10\"}', '{\"name\": \"John\_Doe\"}', '{\"valid\": \"\\\\n is newline\"}']:
+    json.loads(_escape_common_json_sequences(t)); print(f'OK: {t[:30]}')
+"
+```
