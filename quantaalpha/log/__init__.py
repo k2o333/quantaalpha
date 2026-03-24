@@ -78,6 +78,10 @@ class FallbackLoggerWrapper:
         """Set new log trace path."""
         object.__setattr__(self, "_storage", FallbackFileStorage(Path(path)))
 
+    def set_storages_path(self, path: str | Path) -> None:
+        """Alias for rdagent's set_storages_path."""
+        self.set_trace_path(path)
+
     @property
     def storage(self) -> FallbackFileStorage:
         """Return the storage object."""

@@ -74,7 +74,7 @@ def _run_branch(
         branch_name = f"{log_prefix}_{idx:02d}"
         branch_log = Path(log_root) / branch_name
         branch_log.mkdir(parents=True, exist_ok=True)
-        logger.set_trace_path(branch_log)
+        logger.set_storages_path(branch_log)
     model_loop = AlphaAgentLoop(
         ALPHA_AGENT_FACTOR_PROP_SETTING,
         potential_direction=direction,
@@ -133,7 +133,7 @@ def _run_evolution_task(
         branch_name = f"{phase.value}_{round_idx:02d}_{direction_id:02d}"
         branch_log = Path(log_root) / branch_name
         branch_log.mkdir(parents=True, exist_ok=True)
-        logger.set_trace_path(branch_log)
+        logger.set_storages_path(branch_log)
 
     logger.info(f"Starting evolution task: phase={phase.value}, round={round_idx}, direction={direction_id}")
 
@@ -361,7 +361,7 @@ def run_evolution_loop(
     crossover_enabled = bool(evolution_cfg.get("crossover_enabled", True))
     parent_selection_strategy = str(evolution_cfg.get("parent_selection_strategy", "best"))
     top_percent_threshold = float(evolution_cfg.get("top_percent_threshold", 0.3))
-    log_root = str(logger.log_trace_path)
+    log_root = str(logger.storage.path)
     parallel_enabled = bool(evolution_cfg.get("parallel_enabled", False))
     fresh_start = bool(evolution_cfg.get("fresh_start", True))
     cleanup_on_finish = bool(evolution_cfg.get("cleanup_on_finish", False))
@@ -680,7 +680,7 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
                         branch_name = f"{log_prefix}_{idx:02d}"
                         branch_log = Path(log_root) / branch_name
                         branch_log.mkdir(parents=True, exist_ok=True)
-                        logger.set_trace_path(branch_log)
+                        logger.set_storages_path(branch_log)
                     model_loop = AlphaAgentLoop(
                         ALPHA_AGENT_FACTOR_PROP_SETTING,
                         potential_direction=dir_text,
