@@ -1,140 +1,119 @@
 # S02: 因子库 Few-shot 导出与智能采样
 
-**触发决策**: D014 (ADR-001 因子知识库)
+**Triggered by:** D014 (ADR-001 因子知识库)
 
-**问题**: library.py 已有基础能力，但缺少将 Active 因子导出为 LLM few-shot 示例的接口，无法让历史优良因子指导新因子生成。
+**Problem:** `library.py` has the base capability, but lacks an interface to export Active factors as LLM few-shot examples. Without this, historical good factors cannot guide new factor generation.
 
-**参考文档**:
-- `docs/drafts/factormining/structure/2026-03-22-continuous-mining-plan-supplement.md` 第 3.4 节
-- `quantaalpha/factors/library.py`
+**After this:** Active factors can be exported by relatedness as LLM few-shot examples.
 
 ---
 
-## 目标
+## Goal
 
-实现因子库 Few-shot 导出功能，支持：
-1. 按相关度智能采样 Active 因子
-2. 控制 token 预算（默认 2000 tokens）
-3. 导出为 LLM prompt 可读格式
+Implement a new module `quantaalpha/factors/fewshot.py` that:
+1. Queries `FactorLibraryManager` for Active factors filtered by stability score
+2. Ranks factors by text-similarity relatedness to the current hypothesis/direction
+3. Renders selected factors as `factor_experiment_output_format` JSON examples
+4. Injects `fewshot_examples` into LLM prompts via `proposal.py` `prepare_context()`
 
----
-
-## 成功标准
-
-- [ ] `export_few_shot_examples()` 方法实现
-- [ ] 支持按方向关键词匹配相关度
-- [ ] 稳定性分数过滤（默认 min_stability=0.5）
-- [ ] Token 预算控制（默认 max_token_budget=2000）
-- [ ] 排除指定 factor_id（避免重复）
-- [ ] proposal.py 成功注入 few_shot_examples
-- [ ] prompt 模板包含 few_shot_examples 占位符
+**Demo:** Running `python -c "from quantaalpha.factors.fewshot import query_active_factors, render_fewshot_examples; ..."` produces formatted few-shot text that can be injected into prompts.
 
 ---
 
-## 任务拆分
+## Must-Haves
 
-### T01: 实现 export_few_shot_examples()
-**文件**: `quantaalpha/factors/library.py`
-**估算**: 3h
-
-```python
-def export_few_shot_examples(
-    self,
-    direction: str | None = None,
-    max_examples: int = 3,
-    min_stability: float = 0.5,
-    max_token_budget: int = 2000,
-    exclude_factor_ids: set[str] | None = None,
-) -> str:
-    """导出 Active 因子作为 LLM 的 few-shot 示例"""
-    # 1. 筛选 Active 状态且 stability >= min_stability 的因子
-    # 2. 如有 direction，计算相关度（关键词重叠）
-    # 3. 按 (相关度, 稳定性) 排序
-    # 4. 在 token_budget 范围内选取 top-N
-    # 5. 格式化输出为 Markdown 格式
-```
-
-**验收**:
-- [ ] 只返回 Active 状态的因子
-- [ ] stability 过滤正确
-- [ ] direction 关键词匹配实现
-- [ ] token 预算控制生效
-
-### T02: 实现 _format_factor_example()
-**文件**: `quantaalpha/factors/library.py`
-**估算**: 1h
-
-```python
-def _format_factor_example(entry: dict) -> str:
-    """格式化单个因子为 few-shot 示例"""
-    # 格式：
-    # **FactorName**
-    # - Expression: `$roe + $pe_ratio`
-    # - Description: 盈利能力与估值综合因子
-    # - Metrics: IC=0.05, Rank IC=0.08, Stability=0.75
-```
-
-**验收**:
-- [ ] 输出格式规范
-- [ ] 包含关键字段：name, expression, description, metrics
-
-### T03: 修改 proposal.py 注入 few-shot
-**文件**: `quantaalpha/factors/proposal.py`
-**估算**: 2h
-
-修改 `prepare_context()`:
-```python
-try:
-    from quantaalpha.factors.library import FactorLibraryManager
-    manager = FactorLibraryManager(str(library_path))
-    few_shot_text = manager.export_few_shot_examples(
-        direction=self.potential_direction,
-        max_examples=3,
-        min_stability=0.5,
-    )
-except Exception:
-    few_shot_text = ""
-
-context_dict["few_shot_examples"] = few_shot_text
-```
-
-**验收**:
-- [ ] prepare_context 返回值包含 few_shot_examples
-- [ ] 因子库不存在时优雅降级
-
-### T04: 修改 prompts.yaml 增加占位符
-**文件**: `quantaalpha/prompts/prompts.yaml`
-**估算**: 1h
-
-```yaml
-hypothesis_gen:
-  system_prompt: |
-    ...
-    {% if few_shot_examples %}
-    ## Reference: Active High-Quality Factors
-    These factors have proven stable across multiple market periods.
-    {{ few_shot_examples }}
-    {% endif %}
-```
-
-**验收**:
-- [ ] 模板语法正确
-- [ ] few_shot_examples 成功注入 prompt
+- `quantaalpha/factors/fewshot.py` module with `query_active_factors()` and `render_fewshot_examples()`
+- Token budget control (default 2000 tokens, ~3-5 examples)
+- Stability score filtering (default min_stability=0.5)
+- Text-similarity relatedness scoring (hypothesis/description overlap + shared data fields)
+- `{% raw %}` block in `prompts.yaml` for few-shot placeholder injection
+- `prepare_context()` in `proposal.py` injects `fewshot_examples` with graceful fallback
+- 24h JSON cache under `~/.cache/quantaalpha/`
 
 ---
 
-## 验证
+## Proof Level
 
-```python
-# 单元测试
-from quantaalpha.factors.library import FactorLibraryManager
+- **Contract verification:** Python syntax check, unit tests
+- **Runtime required:** No — pure Python module, no external services
+- **Human/UAT required:** No — automated verification sufficient
 
-manager = FactorLibraryManager("/path/to/library")
-text = manager.export_few_shot_examples(
-    direction="fundamental value",
-    max_examples=3,
-    min_stability=0.6,
-)
-print(text)
-# 应输出格式化的 few-shot 示例
+---
+
+## Verification
+
+```bash
+# Syntax check
+python -m py_compile third_party/quantaalpha/quantaalpha/factors/fewshot.py
+
+# Unit test (mock FactorLibraryManager with sample factors)
+python -m pytest tests/test_fewshot.py -v
+
+# Manual verification — check prepare_context returns fewshot_examples key
+python -c "
+from quantaalpha.factors.proposal import QlibFactorHypothesis2Experiment
+from quantaalpha.core.proposal import Hypothesis, Trace, Scenario
+scen = Scenario()
+exp = QlibFactorHypothesis2Experiment(scen)
+h = Hypothesis('test', '', '', 'obs', 'just', 'know', 'spec')
+t = Trace(scen)
+ctx, ok = exp.prepare_context(h, t)
+assert 'fewshot_examples' in ctx, f'fewshot_examples missing, got: {list(ctx.keys())}'
+print('OK: fewshot_examples injected into context')
+"
+
+# Verify prompt template contains few-shot placeholder
+grep -q "{% if fewshot_examples %}" third_party/quantaalpha/quantaalpha/factors/prompts/prompts.yaml && echo "OK: prompt template has fewshot placeholder"
 ```
+
+---
+
+## Observability / Diagnostics
+
+- **Runtime signals:** None — synchronous pure-Python module, no async/stateful flows
+- **Inspection surfaces:** `~/.cache/quantaalpha/fewshot_cache.json` — JSON cache of query results with timestamp and example count; `library.get_summary()` shows Active factor count
+- **Failure visibility:** If `FactorLibraryManager` is unavailable or returns no factors, `render_fewshot_examples()` returns empty string — inspectable via cache file existence check
+- **Redaction constraints:** Factor expressions and descriptions are written to cache; no PII expected in factor library entries
+
+---
+
+## Integration Closure
+
+- **Upstream surfaces consumed:** `quantaalpha/factors/library.py` (FactorLibraryManager), `quantaalpha/factors/prompts/prompts.yaml`
+- **New wiring introduced:** `proposal.py` `prepare_context()` imports `fewshot.render_fewshot_examples()` via try/except guard (S01 pattern)
+- **What remains before end-to-end:** Prompt injection end-to-end requires actual factor library with Active entries; unit tests mock this entirely
+
+---
+
+## Tasks
+
+- [x] **T01: Create `fewshot.py` module with core functions** `est:2h`
+  - Why: The core module needs to exist before wiring into proposal.py and prompts.yaml
+  - Files: `third_party/quantaalpha/quantaalpha/factors/fewshot.py`, `third_party/quantaalpha/quantaalpha/factors/library.py`
+  - Do: Implement `query_active_factors()` (filter by status, score by relatedness) and `render_fewshot_examples()` (format as `factor_experiment_output_format` JSON). Add 24h TTL JSON cache under `~/.cache/quantaalpha/`. Follow S01's `data_capability.py` patterns.
+  - Verify: `python -m py_compile third_party/quantaalpha/quantaalpha/factors/fewshot.py && python -m pytest tests/test_fewshot.py -v`
+  - Done when: Module imports without error, unit tests pass with mock FactorLibraryManager
+
+- [x] **T02: Wire fewshot into `prepare_context()` and `prompts.yaml`** `est:1h`
+  - Why: The few-shot examples must be injected into LLM prompts to be useful
+  - Files: `third_party/quantaalpha/quantaalpha/factors/proposal.py`, `third_party/quantaalpha/quantaalpha/factors/prompts/prompts.yaml`
+  - Do: Add `{% raw %}`/`{% endraw %}` block for `{% if fewshot_examples %}` in prompts.yaml. Add `fewshot_examples` key to `prepare_context()` return dict via try/except guard (S01 pattern). Use `potential_direction` as the relatedness anchor.
+  - Verify: `grep -q "{% if fewshot_examples %}" third_party/quantaalpha/quantaalpha/factors/prompts/prompts.yaml && python -c "from quantaalpha.factors.proposal import QlibFactorHypothesis2Experiment; ..."` (see full verification above)
+  - Done when: `prepare_context()` returns `fewshot_examples` key, prompts.yaml has Jinja2 placeholder
+
+---
+
+## Files Likely Touched
+
+- `third_party/quantaalpha/quantaalpha/factors/fewshot.py` — NEW
+- `third_party/quantaalpha/quantaalpha/factors/library.py` — READ for FactorLibraryManager API
+- `third_party/quantaalpha/quantaalpha/factors/proposal.py` — MODIFY prepare_context()
+- `third_party/quantaalpha/quantaalpha/factors/prompts/prompts.yaml` — ADD few-shot placeholder template
+- `tests/test_fewshot.py` — NEW (unit tests)
+
+---
+estimated_steps: 6
+estimated_files: 5
+skills_used:
+  - test
+  - best-practices

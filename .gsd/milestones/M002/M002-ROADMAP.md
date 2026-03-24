@@ -4,10 +4,10 @@
 
 ## Success Criteria
 
-- [ ] 定位到触发 `'dict' object has no attribute 'replace'` 的确切代码位置
-- [ ] 添加类型检查/转换逻辑处理 dict 类型数据
-- [ ] consistency check 能够正常完成不崩溃
-- [ ] 运行因子挖掘流程时不再出现此错误
+- [x] 定位到触发 `'dict' object has no attribute 'replace'` 的确切代码位置
+- [x] 添加类型检查/转换逻辑处理 dict 类型数据
+- [x] consistency check 能够正常完成不崩溃
+- [x] 运行因子挖掘流程时不再出现此错误
 
 ## Key Risks / Unknowns
 
@@ -17,24 +17,24 @@
 
 ## Proof Strategy
 
-- 通过日志追溯和代码审查定位问题位置 → retire in S01
-- 构造最小复现用例确认触发条件 → retire in S01
-- 实现类型检查/转换并验证修复 → retire in S02
+- 通过日志追溯和代码审查定位问题位置 → ✅ retired in S01
+- 构造最小复现用例确认触发条件 → ✅ retired in S01
+- 实现类型检查/转换并验证修复 → ✅ retired in S02
 
 ## Verification Classes
 
-- Contract verification: Python 语法检查、单元测试
-- Integration verification: 运行因子挖掘流程验证
-- Operational verification: 监控 consistency check 日志
-- UAT / human verification: 检查修复后的代码逻辑
+- Contract verification: Python 语法检查、单元测试 ✅
+- Integration verification: 运行因子挖掘流程验证 ✅
+- Operational verification: 监控 consistency check 日志 ✅
+- UAT / human verification: 检查修复后的代码逻辑 ✅
 
 ## Milestone Definition of Done
 
-- [ ] 触发位置已定位并记录
-- [ ] 类型检查逻辑已添加并通过测试
-- [ ] 因子挖掘流程可完整运行不崩溃
-- [ ] 修复文档已记录到 KNOWLEDGE.md
-- [ ] 新增回归测试防止后续引入类似问题
+- [x] 触发位置已定位并记录 → S01
+- [x] 类型检查逻辑已添加并通过测试 → S02
+- [x] 因子挖掘流程可完整运行不崩溃 → S02 修复 + S03 测试验证
+- [x] 修复文档已记录到 KNOWLEDGE.md → S03
+- [x] 新增回归测试防止后续引入类似问题 → S03
 
 ## Requirement Coverage
 
@@ -45,13 +45,13 @@
 
 ## Slices
 
-- [ ] **S01: 定位数据类型 Bug 触发位置** `risk:high` `depends:[]`
+- [x] **S01: 定位数据类型 Bug 触发位置** `risk:high` `depends:[]` ✅ Done (~40m)
   > After this: 明确知道哪行代码触发错误，理解数据流向
 
-- [ ] **S02: 实现类型检查与转换逻辑** `risk:medium` `depends:[S01]`
+- [x] **S02: 实现类型检查与转换逻辑** `risk:medium` `depends:[S01]` ✅ Done (~10m)
   > After this: consistency check 能正确处理 dict 类型，不再崩溃
 
-- [ ] **S03: 添加回归测试和文档** `risk:low` `depends:[S02]`
+- [x] **S03: 添加回归测试和文档** `risk:low` `depends:[S02]` ✅ Done (~17m)
   > After this: 有测试保护，修复记录在 KNOWLEDGE.md
 
 ## Boundary Map

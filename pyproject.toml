@@ -1,0 +1,12 @@
+# aspipe_v4 - Multi-component data pipeline project
+# This file enables GSD worktree health checks
+# Actual project components are in subdirectories: app4/, third_party/, backtest/
+
+[project]
+name = "aspipe"
+version = "0.1.0"
+description = "Multi-component data pipeline project"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

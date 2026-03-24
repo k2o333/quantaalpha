@@ -1,130 +1,97 @@
 # S01: 定位数据类型 Bug 触发位置
 
-**Goal:** 找到触发 `'dict' object has no attribute 'replace'` 的确切代码位置和数据流向
-
-**Demo:** 能够指出具体文件和行号，并解释 dict 是从哪个函数/表达式传入的
+**Goal:** 定位 `'dict' object has no attribute 'replace'` 错误的确切触发位置和原因
+**Demo:** 完成 S01 后，明确知道哪行代码触发错误，理解数据流向，并完成复现脚本
 
 ## Must-Haves
 
-- [ ] 定位到触发 `.replace()` 调用的准确位置
-- [ ] 追溯 dict 类型数据的来源（哪个变量、哪个函数返回）
-- [ ] 记录触发此错误的条件和上下文
-- [ ] 编写最小复现步骤
+- [ ] 定位到 `consistency_checker.py` 中 `ComplexityChecker.check()` 方法里 `expression.replace()` 调用
+- [ ] 分析数据流向：LLM 返回 → `result_dict` → `ConsistencyCheckResult` → `check_and_correct()` → `FactorQualityGate.evaluate()` → `complexity_checker.check()`
+- [ ] 创建最小复现脚本，验证触发条件
+
+## Proof Level
+
+- This slice proves: **contract** — 代码审查和静态分析确认 bug 位置
+- Real runtime required: **no** — 通过日志分析和代码审查可定位
+- Human/UAT required: **no**
 
 ## Verification
 
-- [ ] 代码搜索确认 `.replace()` 在因子相关文件中的调用位置
-- [ ] 日志分析对齐错误堆栈与实际代码
-- [ ] 输出：触发位置 + dict 来源分析文档
+- `python -m py_compile third_party/quantaalpha/quantaalpha/factors/regulator/consistency_checker.py` — 语法检查通过
+- `rg -n "expression.replace" third_party/quantaalpha/quantaalpha/factors/regulator/consistency_checker.py` — 确认 replace 调用位置
+- `python test/test_dict_replace_bug.py` — 运行复现测试脚本
+- `cat /home/quan/testdata/aspipe_v4/third_party/facotors/terminal/*.txt | grep "dict.*has no attribute"` — 诊断：确认生产日志中存在该错误（验证真实触发场景）
 
 ## Observability / Diagnostics
 
-- Runtime signals: 错误堆栈包含文件名和行号
-- Inspection surfaces: 代码搜索结果、变量类型追踪
-- Failure visibility: 如果能复现，确认是 dict 而非预期 DataFrame/Series
+- Runtime signals: **none** — S01 是静态分析任务
+- Inspection surfaces: 终端日志 `/home/quan/testdata/aspipe_v4/third_party/facotors/terminal/` 中的错误记录
+- Failure visibility: 错误日志 `Consistency check error: 'dict' object has no attribute 'replace'`
+- Redaction constraints: **none**
 
 ## Integration Closure
 
-- Upstream surfaces consumed: M001 修复经验、现有日志文件
-- New wiring introduced: 无（纯分析任务）
-- What remains: S02 的类型检查和转换实现
+- Upstream surfaces consumed: 终端日志、consistency_checker.py 源码
+- New wiring introduced in this slice: **none**
+- What remains before the milestone is truly usable end-to-end: S02 实现类型检查修复
+
+## Prerequisites
+
+**重要**: 本工作树中的 `third_party/quantaalpha` 是 git submodule，在 worktree 模式下需要手动初始化：
+
+```bash
+# 如果目录为空，克隆并 checkout 到正确 commit
+rm -rf third_party/quantaalpha
+git clone git@github.com:k2o333/quantaalpha.git third_party/quantaalpha
+cd third_party/quantaalpha
+git checkout $(cd ../.. && git ls-tree HEAD third_party/quantaalpha | awk '{print $3}')
+```
+
+参考 `KNOWLEDGE.md` 中的 "Submodule + Worktree 使用指南" 获取详细说明。
 
 ## Tasks
 
-### T01: 搜索 .replace() 的调用位置
+- [x] **T01: 定位并确认 Bug 触发位置** `est:30m`
+  - Why: 需要精确确认哪行代码触发 `'dict' object has no attribute 'replace'` 错误
+  - Files: `third_party/quantaalpha/quantaalpha/factors/regulator/consistency_checker.py`
+  - Do: 
+    1. 读取 `consistency_checker.py` 定位 `ComplexityChecker.check()` 方法
+    2. 确认第 265 行 `expr_clean = expression.replace(" ", "")` 是触发点
+    3. 验证 `expression` 参数来自 `FactorQualityGate.evaluate()` 的 `factor_expression` 参数
+  - Verify: `rg -n "\.replace\(" consistency_checker.py` 找到所有 replace 调用
+  - Done when: 确认 `complexity_checker.check()` 第 265 行是直接触发点
 
-**Est:** 15m
+- [x] **T02: 分析数据流向和根因** `est:30m`
+  - Why: 需要理解 dict 类型数据从哪里来，为什么会传入
+  - Files: `third_party/quantaalpha/quantaalpha/factors/regulator/consistency_checker.py`, `third_party/quantaalpha/quantaalpha/factors/proposal.py`
+  - Do:
+    1. 追踪 `factor_expression` 来源：从 `FactorQualityGate.evaluate()` 的参数
+    2. 分析 `check_and_correct()` 返回的 `corrected_expr` 如何赋值给 `factor_expression`
+    3. 确认 LLM 返回的 JSON 可能包含嵌套 dict 结构的 `corrected_expression`
+    4. 阅读终端日志 `20260321_214610.txt` 确认错误上下文
+  - Verify: 文档化数据流图和根因分析
+  - Done when: 完成 `S01-RESEARCH.md` 中的数据流分析和根因说明
 
-**Why:** 需要找到代码中所有调用 `.replace()` 的位置，缩小排查范围
-
-**Files:** 主要搜索 `third_party/quantaalpha/` 下的 factors 模块
-
-**Do:**
-```bash
-# 搜索所有 .replace() 调用
-grep -rn "\.replace(" third_party/quantaalpha/quantaalpha/factors/ --include="*.py"
-
-# 重点关注返回类型可能是 dict 的地方
-```
-
-**Verify:** 输出调用位置列表
-
-**Done when:** 列出所有相关 .replace() 调用的文件和行号
-
----
-
-### T02: 分析一致性检查代码流程
-
-**Est:** 20m
-
-**Why:** consistency check 阶段会处理因子表达式结果，需要理解数据流向
-
-**Files:** 
-- `third_party/quantaalpha/quantaalpha/factors/consistency.py`
-- `third_party/quantaalpha/quantaalpha/factors/validator.py`
-
-**Do:**
-1. 阅读 consistency.py 的主流程
-2. 标记所有涉及数据转换/验证的函数
-3. 关注从因子表达式到 validation 的数据流转
-
-**Verify:** 输出数据流转图，标记可能的类型转换点
-
-**Done when:** 理解 dict 类型如何进入 validation 流程
-
----
-
-### T03: 对齐日志与代码定位
-
-**Est:** 15m
-
-**Why:** 终端日志 `20260321_214610.txt` 中的错误堆栈能精确定位问题
-
-**Files:** `third_party/facotors/terminal/20260321_214610.txt`
-
-**Do:**
-1. 读取日志中的错误堆栈
-2. 找到最靠近 `.replace()` 调用的代码位置
-3. 标记触发函数和调用链
-
-**Verify:** 能从日志中精确定位文件和行号
-
-**Done when:** 记录触发位置和调用链
-
----
-
-### T04: 分析 LLM 因子表达式返回类型
-
-**Est:** 15m
-
-**Why:** 需要确认 dict 是否来自 LLM 生成的因子表达式执行结果
-
-**Files:**
-- `third_party/quantaalpha/quantaalpha/factors/proposal.py`
-- M001 中提到的 consistency check 相关代码
-
-**Do:**
-1. 检查因子表达式执行后的返回值类型
-2. 确认是否某些条件下会返回 dict 而非 Series
-3. 对比正常情况和异常情况的数据差异
-
-**Verify:** 确认 dict 的可能来源
-
-**Done when:** 记录 dict 来源的假设和验证方法
-
----
+- [x] **T03: 创建最小复现测试脚本** `est:30m`
+  - Why: 需要一个可执行的测试用例来验证触发条件
+  - Files: `test/test_dict_replace_bug.py` (新文件)
+  - Do:
+    1. 创建测试脚本，模拟 LLM 返回 dict 类型的 `corrected_expression`
+    2. 调用 `ComplexityChecker.check()` 验证错误触发
+    3. 验证 `normalize_corrected_expression()` 函数的存在和逻辑
+    4. 运行测试确保复现成功
+  - Verify: `python test/test_dict_replace_bug.py` 输出 "Bug reproduced: 'dict' object has no attribute 'replace'"
+  - Done when: 测试脚本可运行并成功复现错误
 
 ## Files Likely Touched
 
-无（本切片为纯分析任务，不修改代码）
+- `third_party/quantaalpha/quantaalpha/factors/regulator/consistency_checker.py` — Bug 位置
+- `test/test_dict_replace_bug.py` — 新增复现测试
 
-分析目标文件：
-- `third_party/quantaalpha/quantaalpha/factors/consistency.py`
-- `third_party/quantaalpha/quantaalpha/factors/validator.py`
-- `third_party/quantaalpha/quantaalpha/factors/proposal.py`
+---
 
-## Notes
-
-- 保持与 M001 相同的代码风格
-- 如果定位困难，可以尝试在本地复现一遍错误流程
-- 任务 T03 依赖于日志文件内容，如果无法获取堆栈，需要调整策略
+estimated_steps: 8
+estimated_files: 3
+skills_used:
+  - systematic-debugging
+  - test

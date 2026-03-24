@@ -221,12 +221,22 @@ Thumbs.db
 !/.gitignore
 !/.git/
 
-# GSD specific - keep generated markdown, ignore database
+# GSD specific - keep generated markdown, ignore runtime files
 !.gsd/
 .gsd/gsd.db
 .gsd/gsd.db-journal
+.gsd/gsd.db-shm
+.gsd/gsd.db-wal
 .gsd/*.db
+.gsd/STATE.md
+.gsd/runtime/
 .gsd/cache/
+.gsd/reports/
+.gsd/journal/
+.gsd/worktrees/
+.gsd/auto.lock
+.gsd/completed-units.json
+.gsd/doctor-history.jsonl
 
 # Project specific
 output/
@@ -241,3 +251,15 @@ debug/
 # Third party factors
 third_party/facotors/terminal/
 
+
+# ── GSD baseline (auto-generated) ──
+*.code-workspace
+.env.*
+!.env.example
+node_modules/
+.next/
+*.pyc
+.venv/
+vendor/
+coverage/
+.cache/

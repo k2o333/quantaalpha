@@ -1,143 +1,128 @@
-# S08: ResourceManager 资源管理
+# S08: ResourceManager 资源管理 (S7/D018) — Slice Plan
 
-**触发决策**: D018
+**Triggering Decision:** D018 — ResourceManager 实现 Token/磁盘/内存资源边界约束
 
-**问题**: 持续运行会导致 API 成本、磁盘空间、内存使用不可控。
+**Goal:** Implement ResourceManager for 24H autonomous operation with D018 constraints:
+1. Daily Token Budget hard cap (default 5M tokens) with circuit-breaking
+2. Disk Space Monitoring with WARNING/CRITICAL thresholds (<5GB warning, <2GB stop)
+3. result.h5 Auto-cleanup (30-day retention)
+4. Factor Library Entry Count Limits
 
-**参考文档**:
-- `docs/drafts/factormining/structure/2026-03-22-continuous-mining-plan-supplement.md` 第 3.7 节
-- D018: 24H 资源管理约束
+**Demo:** A Python script can import `ResourceManager`, call `check_and_enforce()`, and observe:
+- Token budget tracking with daily reset
+- Disk space status (ok/warning/critical)
+- Cleanup of result.h5 files older than 30 days
+- Factor library entry count
 
----
+## Must-Haves
 
-## 目标
+- `resource_manager.py:ResourceManager` class with `ResourceConfig`, `ResourceStatus` dataclasses
+- Daily token budget enforcement with automatic reset at midnight UTC
+- Disk space monitoring using `shutil.disk_usage()` with configurable thresholds
+- result.h5 cleanup function with age-based filtering
+- Factor library entry count enforcement in `library.py`
+- Integration with `loop.py` run() for pre-iteration resource checks
+- `experiment.yaml` configuration section for all D018 parameters
+- 20+ unit tests covering all enforcement mechanisms
+- **Runtime inspection surfaces:** `get_status()` returns structured `ResourceStatus` snapshot
+- **Failure visibility:** When budget exceeded or disk critical, `check_and_enforce()` returns `(False, reason)` with logged WARNING
 
-实现 ResourceManager，强制约束：
-1. 每日 Token 预算硬上限（默认 5M tokens）
-2. 磁盘空间监控与告警（<5GB 触发）
-3. result.h5 自动清理（默认保留 30 天）
-4. 因子库条目上限与 SQLite 迁移阈值
+## Proof Level
 
----
+- **Contract verification:** Python syntax validation, YAML parse validation
+- **Unit verification:** 20+ pytest tests covering all ResourceManager methods
+- **Integration verification:** ResourceManager integrates with loop.py run() and library.py
+- **Real runtime required:** No (component-level verification sufficient for slice)
+- **Human/UAT required:** No (code review via PR optional)
 
-## 成功标准
+## Verification
 
-- [ ] `resource_manager.py:ResourceManager` 实现
-- [ ] 每日 Token 预算硬上限
-- [ ] 磁盘空间监控与告警
-- [ ] result.h5 自动清理
-- [ ] 因子库条目上限
-- [ ] 资源超限拦截并告警
+- `python -m py_compile third_party/quantaalpha/quantaalpha/pipeline/resource_manager.py`
+- `python -m pytest third_party/quantaalpha/tests/test_resource_manager.py -v`
+- `python -c "import yaml; yaml.safe_load(open('third_party/quantaalpha/configs/experiment.yaml'))"`
+- `python -m py_compile third_party/quantaalpha/quantaalpha/pipeline/loop.py`
+- `python -m py_compile third_party/quantaalpha/quantaalpha/factors/library.py`
+- **Failure-path verification:** Run `ResourceManager().get_status()` and verify `ResourceStatus` dataclass fields:
+  ```bash
+  python -c "
+  from quantaalpha.pipeline.resource_manager import ResourceManager
+  mgr = ResourceManager()
+  status = mgr.get_status()
+  print(f'tokens_today={status.total_tokens_today}, disk_gb={status.disk_space_gb}, disk_status={status.disk_space_status}, entries={status.factor_library_entries}, within_budget={status.within_budget}')
+  "
+  ```
 
----
+## Observability / Diagnostics
 
-## 任务拆分
+- **Runtime signals:**
+  - `ResourceManager.get_status()` returns structured `ResourceStatus` dataclass
+  - `ResourceManager.check_and_enforce()` returns `(allowed: bool, reason: str)` for budget enforcement
+  - `ResourceManager.get_token_usage_report()` surfaces ProviderPool token data
+  - `ResourceManager.get_disk_space_report()` surfaces disk space per path
+- **Inspection surfaces:**
+  - `python -c "from quantaalpha.pipeline.resource_manager import ResourceManager; print(ResourceManager().get_status())"`
+  - `~/.cache/quantaalpha/daily_tokens.json` for daily token persistence
+- **Failure visibility:**
+  - Budget exceeded: WARNING log + `check_and_enforce()` returns `(False, "Daily token budget exceeded: {X} / {Y}")`
+  - Disk critical: WARNING log + `disk_space_status="critical"` in status
+  - ProviderPool unavailable: graceful fallback, status shows `within_budget=None`
+- **Redaction constraints:** No secrets in status output; API keys stay in environment
 
-### T01: 实现 ResourceManager 类
-**文件**: `quantaalpha/continuous/resource_manager.py` (新建)
-**估算**: 4h
+## Integration Closure
 
-```python
-import os
-import shutil
-from pathlib import Path
-from datetime import datetime, timedelta
-import logging
+- **Upstream surfaces consumed:**
+  - `quantaalpha.llm.provider_pool:provider_pool` singleton for token tracking
+  - `quantaalpha.factors.library:FactorLibraryManager` for entry count
+  - `configs/experiment.yaml` for configuration
+- **New wiring introduced:**
+  - `loop.py:AlphaAgentLoop.run()` calls `resource_manager.check_and_enforce()` at iteration start
+  - `library.py:add_factors_from_experiment()` checks `factor_library_max_entries`
+- **What remains before milestone usable end-to-end:**
+  - S09 (M001 lessons) and S10 (ADR-003 orchestration) build on ResourceManager
+  - 72-hour UAT in M003 final verification
 
-logger = logging.getLogger(__name__)
+## Tasks
 
-class ResourceManager:
-    """24 小时运行的资源管理"""
+- [x] **T01: Create ResourceManager core class** `est:2h`
+  - Why: Core implementation is the slice foundation; all other tasks depend on it
+  - Files: `third_party/quantaalpha/quantaalpha/pipeline/resource_manager.py`
+  - Do: Implement ResourceConfig, ResourceStatus dataclasses, ResourceManager class with all D018 constraints
+  - Verify: `python -m py_compile third_party/quantaalpha/quantaalpha/pipeline/resource_manager.py`
+  - Done when: ResourceManager class exists with check_and_enforce(), get_status(), cleanup_old_results() methods
 
-    def __init__(self, config: dict):
-        self.max_disk_gb = config.get("max_disk_gb", 50)
-        self.daily_token_budget = config.get("daily_token_budget", 5_000_000)
-        self.max_trace_history = config.get("max_trace_history", 50)
-        self.max_library_factors = config.get("max_library_factors", 10000)
-        self.h5_retention_days = config.get("h5_retention_days", 30)
+- [x] **T02: Add experiment.yaml config and factor library integration** `est:1h`
+  - Why: Configuration must be in place before ResourceManager can be fully tested
+  - Files: `third_party/quantaalpha/configs/experiment.yaml`, `third_party/quantaalpha/quantaalpha/factors/library.py`
+  - Do: Add resource_management section to experiment.yaml; add entry count check to library.py
+  - Verify: YAML parse + py_compile validation
+  - Done when: experiment.yaml has resource_management section; library.py checks entry limits
 
-        self._daily_tokens_used = 0
-        self._daily_reset_date = datetime.now().date()
+- [x] **T03: Integrate ResourceManager with loop.py** `est:1h`
+  - Why: loop.py run() is the entry point for 24H autonomous operation; resource checks must gate iterations
+  - Files: `third_party/quantaalpha/quantaalpha/pipeline/loop.py`
+  - Do: Add resource_mgr initialization and check_and_enforce() call in run()
+  - Verify: `python -m py_compile third_party/quantaalpha/quantaalpha/pipeline/loop.py`
+  - Done when: loop.py imports and calls ResourceManager.check_and_enforce() before each iteration
 
-    def check_disk_space(self, data_dir: str) -> bool:
-        """检查磁盘空间是否充足"""
-        total, used, free = shutil.disk_usage(data_dir)
-        free_gb = free / (1024**3)
-        if free_gb < 5:
-            logger.warning(f"Low disk space: {free_gb:.1f} GB free")
-            return False
-        return True
+- [x] **T04: Create unit tests and final verification** `est:2h`
+  - Why: 20+ tests ensure all enforcement mechanisms work correctly
+  - Files: `third_party/quantaalpha/tests/test_resource_manager.py`
+  - Do: Implement test_resource_manager.py with all test classes following S04 patterns
+  - Verify: `python -m pytest third_party/quantaalpha/tests/test_resource_manager.py -v`
+  - Done when: All 20+ tests pass
 
-    def cleanup_old_h5_files(self, workspace_root: str):
-        """清理过期的 result.h5 文件"""
-        cutoff = datetime.now() - timedelta(days=self.h5_retention_days)
-        cleaned = 0
-        for h5 in Path(workspace_root).rglob("result.h5"):
-            mtime = datetime.fromtimestamp(h5.stat().st_mtime)
-            if mtime < cutoff:
-                h5.unlink()
-                cleaned += 1
-        if cleaned > 0:
-            logger.info(f"Cleaned {cleaned} expired result.h5 files")
+## Files Likely Touched
 
-    def check_token_budget(self, tokens_to_use: int) -> bool:
-        """检查日 token 预算"""
-        today = datetime.now().date()
-        if today != self._daily_reset_date:
-            self._daily_tokens_used = 0
-            self._daily_reset_date = today
-
-        if self._daily_tokens_used + tokens_to_use > self.daily_token_budget:
-            logger.warning(f"Token budget exceeded: {self._daily_tokens_used}/{self.daily_token_budget}")
-            return False
-        return True
-
-    def record_tokens(self, tokens_used: int):
-        self._daily_tokens_used += tokens_used
-
-    def should_archive_trace(self, trace_len: int) -> bool:
-        return trace_len > self.max_trace_history
-```
-
-**验收**:
-- [ ] 磁盘空间检查正确
-- [ ] result.h5 清理正确
-- [ ] Token 预算检查正确
-- [ ] 每日自动重置
-
-### T02: 设计 experiment.yaml 配置
-**文件**: `configs/experiment.yaml` (新增 resource_management 段)
-**估算**: 1h
-
-```yaml
-resource_management:
-  max_disk_gb: 50
-  daily_token_budget: 5000000
-  max_trace_history: 50
-  max_library_factors: 10000
-  h5_retention_days: 30
-  cleanup_interval_hours: 6
-  sqlite_migration_threshold: 5000
-```
-
-**验收**:
-- [ ] 配置格式正确
-- [ ] 默认值合理
-
-### T03: 集成到 pipeline/loop.py
-**文件**: `quantaalpha/pipeline/loop.py`
-**估算**: 2h
-
-在 `AlphaAgentLoop` 中调用 ResourceManager。
-
-**验收**:
-- [ ] Token 预算超限拦截
-- [ ] 磁盘空间告警
-- [ ] 定期清理 result.h5
+- `third_party/quantaalpha/quantaalpha/pipeline/resource_manager.py` — Create
+- `third_party/quantaalpha/tests/test_resource_manager.py` — Create
+- `third_party/quantaalpha/configs/experiment.yaml` — Modify (add section)
+- `third_party/quantaalpha/quantaalpha/pipeline/loop.py` — Modify (add integration)
+- `third_party/quantaalpha/quantaalpha/factors/library.py` — Modify (add entry limit)
 
 ---
-
-## 依赖
-
-- **D018**: 资源管理约束决策
-- **S04**: ProviderPool Token 追踪
+estimated_steps: 18
+estimated_files: 5
+skills_used:
+  - test
+  - lint
+  - systematic-debugging

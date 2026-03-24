@@ -58,6 +58,9 @@
 - [x] **S03: 修复 JSON 控制字符未转义** `risk:medium` `depends:[S01]`
   > After this: 包含多行文本的 JSON 响应能被正确解析
 
+- [ ] **S04: 运行因子挖掘验证修复效果** `risk:medium` `depends:[S01,S02,S03]`
+  > After this: 确认因子挖掘工作流不再卡死，修复生效
+
 ## Boundary Map
 
 ### S01 → S02 Produces:

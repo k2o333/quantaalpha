@@ -1,0 +1,4 @@
+[submodule "third_party/quantaalpha"]
+	path = third_party/quantaalpha
+	url = git@github.com:k2o333/quantaalpha.git
+	branch = main

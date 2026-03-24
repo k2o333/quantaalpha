@@ -14,7 +14,7 @@
 
 ### Bug 5: consistency check 数据类型问题
 
-**位置**: `quantaalpha/factors/validator.py` 或 `consistency.py`（待确认）
+**位置**: `quantaalpha/factors/regulator/consistency_checker.py`
 
 **问题**: 
 - 代码期望的数据类型（DataFrame/Series）接收到字典类型
@@ -64,7 +64,6 @@
 
 - **M001 修复位置**: `third_party/quantaalpha/quantaalpha/factors/`
 - **相关模块**: 
-  - `validator.py` - 一致性检查验证器
-  - `consistency.py` - consistency check 实现
+  - `consistency_checker.py` - consistency check 实现
   - `proposal.py` - 因子提案（可能与数据转换相关）
 - **日志位置**: `third_party/facotors/terminal/`

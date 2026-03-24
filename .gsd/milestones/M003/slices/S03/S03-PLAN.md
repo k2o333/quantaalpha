@@ -1,107 +1,65 @@
 # S03: P0 配置解锁优化
 
-**触发决策**: D014 (ADR-001 Phase 1)
+**Goal:** Exclude Beijing Stock Exchange (北交所) from backtesting and activate multi-period validation with 4 market-cycle periods
+**Demo:** `configs/backtest.yaml` updated with stock_filter.enabled=true, exclude_markets=["bj"], and multi_period_validation.enabled=true with 4 periods covering 2017-2025 market cycles
 
-**问题**: P0 配置修改可以立即产生战略价值，但当前 backtest.yaml 未激活这些功能。
+## Must-Haves
 
-**参考文档**:
-- `docs/drafts/factormining/structure/2026-03-22-continuous-mining-plan-supplement.md` 第 1.1 节
+- `data.stock_filter.enabled` set to `true`
+- `data.stock_filter.exclude_markets` includes `"bj"`
+- `multi_period_validation.enabled` set to `true`
+- `multi_period_validation.periods` contains 4 periods (2017_2018, 2019_2020, 2021_2022, 2023_2025)
+- YAML syntax validated via `yaml.safe_load()`
 
----
+## Verification
 
-## 目标
+- `python -c "import yaml; yaml.safe_load(open('third_party/quantaalpha/configs/backtest.yaml'))"`
+- `grep -A 2 "stock_filter:" third_party/quantaalpha/configs/backtest.yaml` shows `enabled: true` and `exclude_markets:`
+- `grep -A 6 "multi_period_validation:" third_party/quantaalpha/configs/backtest.yaml` shows `enabled: true` and 4 periods
 
-完成 P0 配置的修改，包括：
-1. 排除北交所股票
-2. 激活多周期回测
-3. 配置跨牛熊的回测时间段
+## Observability / Diagnostics
 
----
+- **Runtime inspection**: After enabling, backtest logs will indicate stock count before/after filtering
+- **Failure visibility**: Invalid YAML will fail at `yaml.safe_load()` with clear parse error
+- **Misconfiguration detection**: Missing `bj` in `exclude_markets` can be verified via grep or Python assertion
+- **Period boundary checks**: Each period's date range can be validated against market event timeline
 
-## 成功标准
+## Diagnostics / Failure-Path Checks
 
-- [ ] backtest.yaml stock_filter.enabled 改为 true
-- [ ] exclude_markets 包含 "bj"
-- [ ] multi_period_validation.enabled 改为 true
-- [ ] 配置 4 个跨牛熊的回测时间段
-- [ ] universe.py 的 filter_by_market 正确调用
-- [ ] 回测时排除北交所股票
-- [ ] 多周期验证计算稳定性分数
+- **YAML parse failure**: Run `python -c "import yaml; yaml.safe_load(...)"` — any syntax error will surface immediately
+- **Empty exclude_markets**: Verify list is not `[]` — use `grep -A 2 "exclude_markets:" backtest.yaml`
+- **Wrong market code**: Confirm "bj" is correct code (vs "BJ", "beijing", etc.) — grep output confirms exact match
+- **Period overlap/missing**: Validate 4 periods cover full range without gaps using Python date range comparison
 
----
+## Tasks
 
-## 任务拆分
+- [x] **T01: 配置股票过滤排除北交所** `est:5m`
+  - Why: 排除北交所低流动性股票，避免影响因子有效性评估
+  - Files: `third_party/quantaalpha/configs/backtest.yaml`
+  - Do: 将 `data.stock_filter.enabled` 改为 `true`，将 `data.stock_filter.exclude_markets` 改为 `["bj"]`
+  - Verify: `grep -A 3 "stock_filter:" third_party/quantaalpha/configs/backtest.yaml`
+  - Done when: `enabled: true` 和 `exclude_markets: ["bj"]` 存在于配置中
 
-### T01: 修改 backtest.yaml 股票过滤
-**文件**: `configs/backtest.yaml`
-**估算**: 0.5h
+- [x] **T02: 配置多周期回测验证** `est:5m`
+  - Why: 覆盖不同市场周期，验证因子鲁棒性
+  - Files: `third_party/quantaalpha/configs/backtest.yaml`
+  - Do: 将 `multi_period_validation.enabled` 改为 `true`，添加 4 个 periods (2017_2018_去杠杆, 2019_2020_结构牛, 2021_2022_震荡熊, 2023_2025_复苏)
+  - Verify: `grep -c "name:" third_party/quantaalpha/configs/backtest.yaml` 返回 >= 5 (1个全局name + 4个period name)
+  - Done when: 4 个 period 配置存在且日期范围正确
 
-```yaml
-data:
-  stock_filter:
-    enabled: true
-    exclude_markets: ["bj"]
-    exclude_st: true
-    min_list_days: 60
-```
+- [x] **T03: 验证 YAML 语法和配置完整性** `est:5m`
+  - Why: 确保配置无语法错误，可被系统正确加载
+  - Files: `third_party/quantaalpha/configs/backtest.yaml`
+  - Do: 运行 Python yaml.safe_load() 验证语法，检查 stock_filter 和 multi_period_validation 配置
+  - Verify: `python -c "import yaml; cfg=yaml.safe_load(open('third_party/quantaalpha/configs/backtest.yaml')); assert cfg['data']['stock_filter']['enabled']==True; assert 'bj' in cfg['data']['stock_filter']['exclude_markets']; assert cfg['multi_period_validation']['enabled']==True; assert len(cfg['multi_period_validation']['periods'])==4; print('All assertions passed')"`
+  - Done when: 所有断言通过，输出 "All assertions passed"
 
-**验收**:
-- [ ] enabled: true
-- [ ] exclude_markets 包含 "bj"
-- [ ] 其他选项合理配置
+## Files Likely Touched
 
-### T02: 修改 backtest.yaml 多周期回测
-**文件**: `configs/backtest.yaml`
-**估算**: 0.5h
-
-```yaml
-multi_period_validation:
-  enabled: true
-  fail_fast: false
-  periods:
-    - name: "2017_2018_去杠杆"
-      train: ["2015-01-01", "2016-12-31"]
-      valid: ["2017-01-01", "2017-06-30"]
-      test: ["2017-07-01", "2018-12-31"]
-    - name: "2019_2020_结构牛"
-      train: ["2017-01-01", "2018-12-31"]
-      valid: ["2019-01-01", "2019-06-30"]
-      test: ["2019-07-01", "2020-12-31"]
-    - name: "2021_2022_震荡熊"
-      train: ["2019-01-01", "2020-12-31"]
-      valid: ["2021-01-01", "2021-06-30"]
-      test: ["2021-07-01", "2022-12-31"]
-    - name: "2023_2025_复苏"
-      train: ["2021-01-01", "2022-12-31"]
-      valid: ["2023-01-01", "2023-06-30"]
-      test: ["2023-07-01", "2025-12-26"]
-```
-
-**验收**:
-- [ ] enabled: true
-- [ ] fail_fast: false
-- [ ] 4 个时间段覆盖不同市场环境
-
-### T03: 验证配置生效
-**估算**: 1h
-
-```bash
-# 检查北交所排除
-grep -A 5 "stock_filter" configs/backtest.yaml
-
-# 运行回测，检查日志
-./run.sh "挖掘日频横截面因子" 2>&1 | grep -i "multi_period\|filter\|bj"
-
-# 检查稳定性分数计算
-```
-
-**验收**:
-- [ ] 回测日志显示多周期验证
-- [ ] 北交所股票被排除
-- [ ] 稳定性分数正常计算
+- `third_party/quantaalpha/configs/backtest.yaml`
 
 ---
-
-## 依赖
-
-无前置依赖，可与其他切片并行。
+estimated_steps: 6
+estimated_files: 1
+skills_used:
+  - lint

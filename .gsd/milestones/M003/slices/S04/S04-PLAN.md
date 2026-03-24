@@ -1,295 +1,72 @@
-# S04: ProviderPool 多模型管理架构
+# S04: ProviderPool 核心实现 (S2/D016)
 
-**触发决策**: D016、D019 (M001 教训转化为设计约束)
+**Goal:** 实现 ProviderPool 封装层，支持多 Provider 并存、健康监控、自动降级，兼容现有 APIBackend 调用模式，并严格落实 D019 设计约束（空响应立即切换）。
+**Demo:** `python -c "from quantaalpha.llm.provider_pool import ProviderPool, provider_pool; print('ProviderPool loaded:', provider_pool is not None)"` 通过；单元测试全部通过。
 
-**问题**: 当前 `client.py` 单线条执行，没有多 Provider 实例支持、负载分担、健康状态追踪和自动降级。M001 Bug 2（空响应无限重试）暴露了单 Provider 模式的脆弱性。
+## Must-Haves
 
-**参考文档**:
-- `docs/drafts/factormining/structure/2026-03-22-continuous-mining-plan-supplement.md` 第 3.2 节
-- `quantaalpha/llm/client.py`
-- DECISIONS.md D016, D019
+- ProviderPool 类支持 single、round_robin、fanout_best 三种路由策略
+- ProviderHealth 状态机：healthy → degraded → unhealthy，自动冷却和恢复
+- D019 约束：空响应（response.strip() == ""）立即切换 Provider，不增加 failure_count
+- 网络错误：failure_count += 1，连续失败 >= 3 进入 cooldown
+- experiment.yaml 支持 `llm.provider_pool.providers` 和 `llm.provider_pool.routing` 配置
+- 向后兼容：无 `llm.provider_pool` 配置时，现有 `APIBackend()` 调用不受影响
+- Token 使用追踪：每次调用记录 tokens_used，汇总到 `get_token_usage_report()`
+- 单元测试覆盖所有路由策略和健康状态转换
 
----
+## Proof Level
 
-## 目标
+- This slice proves: **contract** — ProviderPool 类的 API 合约和健康状态机行为通过单元测试验证
+- Real runtime required: **no** — 单元测试验证行为，无需实际 LLM API 调用
+- Human/UAT required: **no**
 
-实现 ProviderPool 封装层，支持：
-1. 多 Provider 并存（不同模型/厂商）
-2. 按任务类型路由（hypothesis/coding/screening）
-3. Fanout 并发取最优
-4. 健康状态监控与自动降级
-5. Token 使用追踪
+## Verification
 
----
+- `python -m py_compile third_party/quantaalpha/quantaalpha/llm/provider_pool.py` — 无语法错误
+- `python -m pytest tests/test_provider_pool.py -v` — 所有测试通过
+- `python -c "from quantaalpha.llm.provider_pool import ProviderPool, provider_pool; print('OK')"` — 导入成功
 
-## 成功标准
+## Observability / Diagnostics
 
-- [ ] ProviderPool 类实现完整 API
-- [ ] 支持 round_robin、single、fanout_best 三种路由策略
-- [ ] Provider 健康状态追踪（连续失败、冷却期）
-- [ ] 空响应立即切换 Provider（M001 教训 D019）
-- [ ] JSON 修复任务路由到 coding 模型
-- [ ] experiment.yaml 支持 providers/routing 配置
-- [ ] 兼容现有 APIBackend 调用模式
+- **Runtime signals**: ProviderPool 内部 logger 输出健康状态转换（healthy→degraded→unhealthy）、cooldown 触发、空响应切换事件
+- **Inspection surfaces**: `provider_pool.get_token_usage_report()` 返回各 Provider 的请求数、成功数、tokens 统计；`provider_pool.get_health_summary()` 返回健康状态快照
+- **Failure visibility**: 日志记录 `Provider X returned empty, switching immediately`（空响应）；`Provider X failed (attempt N/M), cooldown until T`（网络错误）
+- **Redaction constraints**: 日志不输出 API key，仅记录 provider name 和 error type
 
----
+## Integration Closure
 
-## 设计约束（来自 D019）
+- **Upstream surfaces consumed**: `quantaalpha/llm/client.py`（APIBackend 类）、`quantaalpha/llm/config.py`（LLMSettings）
+- **New wiring introduced in this slice**: 新建 `provider_pool.py`，导出 `ProviderPool`、`provider_pool` 单例；无运行时自动 hookup（proposal.py 集成由 S05 完成）
+- **What remains before the milestone is truly usable end-to-end**: S05 将 proposal.py 的 `APIBackend()` 调用替换为 `provider_pool.call_*()`；S08 将 `get_token_usage_report()` 接入 ResourceManager
 
-**必须遵守的 M001 教训**：
+## Tasks
 
-1. **重试必须有上限**: ProviderPool 内部重试次数 ≤ 3 次
-2. **空响应立即切换**: 空响应不进入冷却期，立即路由到下一个 Provider
-3. **冷却期机制**: 连续 3 次失败后进入 5 分钟冷却
-4. **Token 追踪**: 每次调用记录 token 使用量
-5. **类型安全检查**: 处理 schema 字段时验证数据类型
+- [x] **T01: ProviderPool 核心类实现** `est:45m`
+  - Why: ProviderPool 是 S04 的核心交付物，必须包含完整的健康状态机、三种路由策略、Token 追踪和 D019 空响应约束
+  - Files: `third_party/quantaalpha/quantaalpha/llm/provider_pool.py`
+  - Do: 实现 Provider、ProviderHealth dataclass；实现 ProviderPool 类，包含 get_backend()、fanout()、call_with_fallback()、fanout_best()、report_success()、report_failure()；实现健康状态机（degraded≥3 failures, unhealthy≥5 failures, cooldown=300s）；严格区分空响应和网络错误的处理逻辑（D019）；实现 get_token_usage_report() 和 get_health_summary()
+  - Verify: `python -m py_compile provider_pool.py` 通过；单元测试验证所有路由策略和状态转换
+  - Done when: ProviderPool 可独立实例化，所有方法签名正确，空响应立即切换逻辑可测试
 
----
-
-## 任务拆分
-
-### T01: 实现 ProviderPool 核心类
-**文件**: `quantaalpha/llm/provider_pool.py` (新建)
-**估算**: 6h
-
-类结构：
-```python
-@dataclass
-class ProviderConfig:
-    name: str
-    role: str
-    api_key_env: str
-    base_url: str
-    model: str
-    weight: int = 1
-    max_rpm: int = 60
-
-@dataclass
-class ProviderHealth:
-    name: str
-    consecutive_failures: int = 0
-    last_failure_time: float = 0
-    total_requests: int = 0
-    total_tokens: int = 0
-    is_healthy: bool = True
-    cooldown_until: float = 0
-
-class ProviderPool:
-    def __init__(self, config: dict):
-        # 初始化 providers、backends、health 状态
-
-    def get_backend(self, task_type: str) -> APIBackend:
-        # 按策略返回单个 backend
-
-    def fanout(self, task_type: str) -> list[APIBackend]:
-        # 返回所有符合条件的 backends
-
-    def report_success(self, provider_name: str, tokens_used: int = 0):
-        # 更新健康状态
-
-    def report_failure(self, provider_name: str, error_type: str = "network"):
-        # 更新健康状态，区分空响应和网络错误
-
-    def _get_healthy_candidates(self, task_type: str) -> list[str]:
-        # 根据冷却期和空响应规则筛选候选
-
-    def _round_robin(self, task_type: str, candidates: list[str]) -> APIBackend:
-        # 加权轮询实现
-
-    def get_token_usage_report(self) -> dict:
-        # 返回 token 使用情况
-```
-
-**验收**:
-- [ ] ProviderPool 初始化成功
-- [ ] get_backend 按 task_type 路由正确
-- [ ] fanout 返回多个 backends
-- [ ] report_success/report_failure 更新健康状态
-- [ ] 连续失败进入冷却期
-- [ ] 空响应不进入冷却期，立即切换
-
-### T02: 设计 experiment.yaml 配置格式
-**文件**: `configs/experiment.yaml` (新增 llm.providers 段)
-**估算**: 2h
-
-配置结构：
-```yaml
-llm:
-  providers:
-    - name: "deepseek-r1"
-      role: "hypothesis"
-      api_key_env: "DEEPSEEK_API_KEY"
-      base_url: "https://api.deepseek.com/v1"
-      model: "deepseek-reasoner"
-      weight: 3
-      max_rpm: 10
-    - name: "gpt4o"
-      role: "hypothesis"
-      api_key_env: "OPENAI_API_KEY"
-      base_url: "https://api.openai.com/v1"
-      model: "gpt-4o"
-      weight: 2
-    - name: "qwen-coder"
-      role: "json_repair"
-      api_key_env: "QWEN_API_KEY"
-      model: "qwen-coder-plus"
-    - name: "glm4-flash"
-      role: "screening"
-      api_key_env: "GLM_API_KEY"
-      model: "glm-4-flash"
-      weight: 5
-
-  routing:
-    hypothesis_generation: ["deepseek-r1", "gpt4o"]
-    factor_construction: ["deepseek-r1"]
-    json_repair: ["qwen-coder"]
-    evaluation_screening: ["glm4-flash"]
-    feedback_summarization: ["gpt4o", "deepseek-r1"]
-
-  strategy:
-    hypothesis_generation: "fanout_best"  # 多路并发取最优
-    factor_construction: "single"
-    json_repair: "single"
-    evaluation_screening: "single"
-    feedback_summarization: "round_robin"  # 轮询分担压力
-```
-
-**验收**:
-- [ ] YAML 语法正确
-- [ ] 包含必需字段：name, role, api_key_env, base_url, model
-- [ ] routing 映射已知 task_type
-- [ ] strategy 支持 single/round_robin/fanout_best
-
-### T03: 集成到 pipeline/loop.py
-**文件**: `quantaalpha/pipeline/loop.py`
-**估算**: 3h
-
-修改 `AlphaAgentLoop.__init__()`:
-```python
-from quantaalpha.llm.provider_pool import ProviderPool
-
-pool_config = experiment_config.get("llm", {})
-if pool_config.get("providers"):
-    self.provider_pool = ProviderPool(pool_config)
-else:
-    self.provider_pool = None  # 降级到单一 APIBackend
-```
-
-**验收**:
-- [ ] 有 providers 配置时启用 ProviderPool
-- [ ] 无 providers 配置时降级到 APIBackend
-- [ ] 现有代码不破坏
-
-### T04: 实现 fanout_best 策略
-**文件**: `quantaalpha/llm/provider_pool.py`
-**估算**: 4h
-
-```python
-def fanout_best(
-    self,
-    task_type: str,
-    prompt: str,
-    system_prompt: str = None,
-    timeout: int = 60,
-) -> dict:
-    """并发调用多个 Provider，返回最优结果"""
-    import concurrent.futures
-
-    backends = self.fanout(task_type)
-    results = []
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(backends)) as executor:
-        futures = {
-            executor.submit(
-                self._call_with_timeout,
-                backend,
-                prompt,
-                system_prompt,
-                timeout,
-            ): name
-            for name, backend in backends.items()
-        }
-
-        for future in concurrent.futures.as_completed(futures):
-            name = futures[future]
-            try:
-                result = future.result()
-                results.append((name, result, self._score_result(result)))
-                self.report_success(name, result.get("tokens", 0))
-            except Exception:
-                self.report_failure(name, error_type="network")
-
-    if not results:
-        raise RuntimeError(f"All providers failed for task_type={task_type}")
-
-    best = max(results, key=lambda x: x[2])
-    return best[1]
-```
-
-**验收**:
-- [ ] 并发调用多个 Provider
-- [ ] 任一成功即返回最优结果
-- [ ] 所有失败才抛出异常
-
-### T05: 添加单元测试
-**文件**: `tests/llm/test_provider_pool.py` (新建)
-**估算**: 3h
-
-测试用例：
-1. ProviderPool 初始化
-2. get_backend 路由正确
-3. round_robin 轮询均衡
-4. 健康状态冷却机制
-5. 空响应立即切换（D019 约束）
-6. 连续失败进入冷却
-7. Token 追踪正确
-
-**验收**:
-- [ ] 所有测试用例通过
-- [ ] 包含 D019 约束验证
-
-### T06: 手动验证 ProviderPool
-**估算**: 3h
-
-验证：
-1. ProviderPool 正确加载两个 Provider
-2. 第一个 Provider 返回空响应时立即切换到第二个
-3. 第二个 Provider 连续失败 3 次后进入冷却
-4. Token 追踪正确
-
-**验收**:
-- [ ] 空响应切换日志可见
-- [ ] 冷却期触发日志可见
-- [ ] 正常运行后可从第一个 Provider 恢复
+- [x] **T02: 配置格式 + 单元测试** `est:30m`
+  - Why: 需要通过配置驱动 ProviderPool 行为，并建立可重复的验收测试
+  - Files: `third_party/quantaalpha/configs/experiment.yaml`、`third_party/quantaalpha/tests/test_provider_pool.py`
+  - Do: 在 experiment.yaml 添加 `llm.provider_pool` 配置段（providers、routing、health、strategy）；编写 10+ 单元测试覆盖：初始化、空响应立即切换、网络错误增加 failure_count、冷却期机制、round_robin 均衡、fanout_best 并发取最优、Token 追踪
+  - Verify: `python -m pytest tests/test_provider_pool.py -v` 全部通过；YAML 语法验证通过
+  - Done when: 所有测试用例通过，配置可被正常解析
 
 ---
 
-## 关键实现细节
+## Files Likely Touched
 
-### 空响应 vs 网络错误的区分
-```python
-def report_failure(self, provider_name: str, error_type: str = "network"):
-    h = self.health[provider_name]
-
-    if error_type == "empty_response":
-        # M001 教训：空响应立即切换，不进入冷却
-        h.total_requests += 1
-        return  # 不增加 consecutive_failures
-
-    h.consecutive_failures += 1
-    if h.consecutive_failures >= 3:
-        h.is_healthy = False
-        h.cooldown_until = time.time() + 300  # 冷却 5 分钟
-```
+- `third_party/quantaalpha/quantaalpha/llm/provider_pool.py` — **新建**，ProviderPool 核心实现
+- `third_party/quantaalpha/configs/experiment.yaml` — **修改**，添加 provider_pool 配置段
+- `third_party/quantaalpha/tests/test_provider_pool.py` — **新建**，单元测试
 
 ---
-
-## 依赖关系
-
-**输入**:
-- S01 数据能力注册表（用于配置验证）
-- experiment.yaml 配置格式
-
-**输出到 S05**:
-- ProviderPool 实例
-- get_backend("json_repair") 路由能力
+estimated_steps: 6
+estimated_files: 3
+skills_used:
+  - review
+  - test
+  - best-practices
