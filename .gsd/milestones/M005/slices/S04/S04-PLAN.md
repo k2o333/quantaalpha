@@ -17,7 +17,7 @@
 
 ## Tasks
 
-- [x] **T01: 添加 BadRequestError 快速失败守卫** `est:5m`
+- [ ] **T01: 添加 BadRequestError 快速失败守卫** `est:5m`
   - Why: 消除无效重试浪费、暴露配置错误
   - Files: `quantaalpha/llm/client.py`
   - Do: 在 `except openai.BadRequestError` 中添加 `"Invalid model" in error_str` 守卫，立即 raise
