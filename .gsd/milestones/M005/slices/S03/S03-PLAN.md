@@ -17,7 +17,7 @@
 
 ## Tasks
 
-- [ ] **T01: 收紧 consistency_prompts.yaml 输出约束** `est:15m`
+- [x] **T01: 收紧 consistency_prompts.yaml 输出约束** `est:15m`
   - Why: Directly hardens the prompts that produce `corrected_expression`, closing the root cause of malformed output.
   - Files: `quantaalpha/factors/regulator/consistency_prompts.yaml`
   - Do: Edit the YAML file to make two targeted changes:
