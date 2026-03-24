@@ -1,9 +1,10 @@
 # GSD 相关文件清单
-
+/root/.gsd/agent/GSD-WORKFLOW.md 规定了所有的workflow
 ## 一、项目级 GSD 核心文件
 
 | 文件 | 说明 |
 |------|------|
+   
 | `.gsd/STATE.md` | 运行时状态（派生缓存，下次会话优先读取） |
 | `.gsd/DECISIONS.md` | 架构决策登记（append-only） |
 | `.gsd/KNOWLEDGE.md` | 项目级知识积累（规则、模式、教训） |
