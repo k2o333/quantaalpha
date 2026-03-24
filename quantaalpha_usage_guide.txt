@@ -1,0 +1,186 @@
+================================================================================
+QuantaAlpha 使用指南
+================================================================================
+生成时间: 2026-03-24
+
+================================================================================
+一、从数据下载到因子持续挖掘的闭环体系
+================================================================================
+
+闭环 1: 数据下载与能力注入
+  Parquet数据 → data_capability.py (schema注册) → PIT对齐(ann_date) → LLM prompt注入
+  - data_capability.py: 自动发现数据schema、lag_days、join_mode
+  - auto_discover_capabilities(): 扫描Parquet文件推断 available_from
+  - PIT对齐消除未来函数
+
+闭环 2: 因子挖掘核心循环
+  假设生成 → 因子构造 → 编码计算 → 回测验证 → 反馈学习 → 下一轮假设
+  - loop.py: AlphaAgentLoop 的 factor_propose → factor_construct → factor_calculate → factor_backtest → feedback 五步循环
+  - 支持 evolution mode: Original → Mutation → Crossover
+
+闭环 3: 因子库生命周期
+  因子入库 → 状态判定 → 重验选择 → 回测更新 → 状态迁移
+  - library.py: FactorLibraryManager 统一管理
+  - status_rules.py: 5种状态 pending_validation → active → stale/degraded → deprecated
+  - select_revalidation_candidates(days=21): 定期重验
+
+闭环 4: RAG增强挖掘
+  历史因子库 → 向量索引 → 相似因子检索 → Few-shot注入 → 新因子生成
+  - vector_store.py: ChromaDB向量检索 (Jaccard fallback)
+  - fewshot.py: query_active_factors_RAG() → build_fewshot_context()
+  - 活跃因子自动同步到向量库
+
+闭环 5: 24H调度自治
+  数据监控 → 触发挖掘 → 因子入库 → 定期重验 → 循环调度
+  - orchestrator.py: MiningOrchestrator 三合一调度
+  - DefaultDataMonitor: 检测Parquet文件更新
+  - DefaultRevalidationScheduler: "温故" - 因子定期重验
+  - DefaultMiningScheduler: "知新" - 新因子挖掘
+
+闭环 6: 质量管控
+  LLM输出 → 一致性检查 → 复杂度检查 → 冗余检查 → 修正/过滤 → 回测
+  - consistency_checker.py: FactorQualityGate 三重检查
+  - proposal.py: 表达式可解析性验证 + 重复检测
+  - validation_judge.py: 多周期验证自动判定 (IC/Rank IC阈值)
+
+闭环 7: 容错与恢复
+  异常检测 → 有限重试 → JSON修复 → Provider降级 → Checkpoint恢复
+  - llm/provider_pool.py: 多Provider健康监控、自动降级
+  - llm/client.py: 空响应检测 + JSON控制字符转义
+  - loop.py: 最多10次debug round + FactorFailureTracker
+
+闭环 8: 进化探索
+  初始方向 → Original → Mutation → Crossover → 轨迹评估 → 优秀策略保留
+  - pipeline/evolution.py: EvolutionController 进化策略
+  - factor_mining.py: run_evolution_loop() 多方向并行探索
+  - 轨迹池持久化与最优轨迹筛选
+
+里程碑进度: M001(关键Bug修复) → M002(数据类型修复) → M003(核心架构) → M004(自治增强)
+
+
+================================================================================
+二、环境准备
+================================================================================
+
+cd /home/quan/testdata/aspipe_v4/third_party/quantaalpha
+conda activate mining
+
+# 验证环境
+quantaalpha health_check
+
+
+================================================================================
+三、因子挖掘 (核心功能)
+================================================================================
+
+# 基础用法：指定研究方向
+quantaalpha mine --direction "动量反转因子挖掘"
+
+# 或使用 run.sh
+./run.sh "价格量价关系因子"
+
+# 查看帮助
+quantaalpha mine --help
+
+配置文件 configs/experiment.yaml 已预设：
+- evolution.enabled: true — 启用进化模式 (Original → Mutation → Crossover)
+- max_rounds: 3 — 3轮进化
+- quality_gate.consistency_enabled: true — 开启质量检查
+
+
+================================================================================
+四、因子重验
+================================================================================
+
+# 干跑：查看哪些因子需要重验
+quantaalpha revalidate data/factorlib/all_factors_library.json --dry_run
+
+# 重验超过21天未验证的因子
+quantaalpha revalidate data/factorlib/all_factors_library.json --days 21
+
+# 重验特定因子
+quantaalpha revalidate data/factorlib/all_factors_library.json --factor_ids f1,f2
+
+# 仅查看，不写入
+quantaalpha revalidate data/factorlib/all_factors_library.json --status active --no_write
+
+
+================================================================================
+五、独立回测
+================================================================================
+
+# 回测自定义因子
+python -m quantaalpha.backtest.run_backtest \
+  -c configs/backtest.yaml \
+  --factor-source custom \
+  --factor-json data/factorlib/all_factors_library.json
+
+# 结合 Alpha158 基线
+python -m quantaalpha.backtest.run_backtest \
+  -c configs/backtest.yaml \
+  --factor-source combined \
+  --factor-json data/factorlib/all_factors_library.json
+
+# 预览模式（不实际回测）
+python -m quantaalpha.backtest.run_backtest \
+  -c configs/backtest.yaml \
+  --factor-source custom \
+  --factor-json data/factorlib/all_factors_library.json \
+  --dry-run -v
+
+
+================================================================================
+六、Web 界面 (可选)
+================================================================================
+
+cd frontend-v2
+bash start.sh
+# 访问 http://localhost:3000
+
+
+================================================================================
+七、输出文件位置
+================================================================================
+
+因子库         data/factorlib/all_factors_library*.json
+回测指标       data/results/backtest_v2_results/*_backtest_metrics.json
+回测汇总       data/results/backtest_v2_results/batch_summary.json
+日志           log/
+
+
+================================================================================
+八、Python API 调用
+================================================================================
+
+from quantaalpha.factors.library import FactorLibraryManager
+from quantaalpha.backtest.runner import BacktestRunner
+
+# 加载因子库
+manager = FactorLibraryManager("data/factorlib/all_factors_library.json")
+summary = manager.get_summary()
+print(f"总因子数: {summary['total_factors']}")
+print(f"活跃因子: {summary['active_count']}")
+
+# 选择需要重验的因子
+candidates = manager.select_revalidation_candidates(days=21)
+
+
+================================================================================
+九、配置文件说明
+================================================================================
+
+configs/experiment.yaml — 主实验参数
+  - planning: 多方向探索配置
+  - execution: 执行参数 (max_loops, steps_per_loop)
+  - evolution: 进化策略配置
+  - quality_gate: 质量门控开关
+  - provider_pool: 多LLM Provider路由
+
+configs/backtest.yaml — 回测配置
+  - data.stock_filter: 股票池过滤 (排除北交所、ST等)
+  - multi_period_validation: 多周期验证
+
+.env — 环境变量
+  - OPENAI_API_KEY / OPENAI_BASE_URL: LLM API配置
+  - QLIB_DATA_DIR: Qlib数据目录
+  - DATA_RESULTS_DIR: 结果输出目录
