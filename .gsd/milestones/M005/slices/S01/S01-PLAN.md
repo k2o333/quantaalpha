@@ -10,7 +10,7 @@
 
 ## Tasks
 
-- [ ] **T01: 实现 fallback logger**
+- [x] **T01: 实现 fallback logger**
   在抛出 ImportError 时使用标准库 logging 构造一个具有相同接口的后备 logger。
 
 ## Files Likely Touched

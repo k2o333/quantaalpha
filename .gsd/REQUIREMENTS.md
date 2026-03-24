@@ -14,29 +14,7 @@ Guidelines:
 
 ## Active
 
-- **R015: 移除 rdagent.log 硬依赖** — `quantaalpha.log` 和 `third_party/quantaalpha/quantaalpha/log` 需在 rdagent 不可用时 fallback 到本地 logger，保持 `logger.info/warning/error/exception/log_trace_path/set_trace_path` 接口兼容
-  - Owner: M005-S01
-  - Priority: P0 — 阻塞模块导入
-
-- **R016: 增强 normalize_corrected_expression** — 函数需处理 dict payload、fenced code blocks、`//` 和 `#` 注释、多行输出、变量赋值伪代码，提取最终有效单行 DSL 表达式；不可简单删除赋值行
-  - Owner: M005-S02
-  - Priority: P0 — 纠正表达式可能仍不可解析
-
-- **R017: 收紧 consistency prompt 输出约束** — `consistency_check_system` 和 `consistency_check_user` 需明确要求单行表达式、禁止注释/赋值/伪代码/多候选输出
-  - Owner: M005-S03
-  - Priority: P0 — 畸形 `corrected_expression` 的根因
-
-- **R018: 停止对不可恢复 BadRequest 错误重试** — `_try_create_chat_completion_or_embedding()` 需检测无效模型名等不可恢复 400 错误并立即重抛，不消耗重试次数
-  - Owner: M005-S04
-  - Priority: P1 — 隐藏配置错误、浪费重试
-
-- **R019: 集中 JSON 转义修复** — `_escape_common_json_sequences()` 需添加通用 fallback regex（处理杂散反斜杠），所有 JSON 修复路径共用此实现，不保留分散的部分实现
-  - Owner: M005-S06
-  - Priority: P2 — 部分 JSON 仍解析失败
-
-- **R020: 移除 proposal.yaml prompt 配置歧义** — 移除 `proposal.py` 中被后续赋值遮蔽的 `qa_prompt_dict` 赋值；删除或归档无效的 `quantaalpha/factors/prompts/proposal.yaml`
-  - Owner: M005-S05
-  - Priority: P2 — 维护混淆
+*(No active requirements — all requirements have been validated.)*
 
 ## Validated
 
@@ -97,6 +75,33 @@ Guidelines:
   - Supporting: M004-S02, M004-S05, M004-S06
   - Proof: MiningOrchestrator 主类 + scheduler.py 接口定义 + implementations.py 默认实现 + DESIGN.md 技术选型文档 + 28 项单元测试全部通过
 
+- **R015: 移除 rdagent.log 硬依赖** — `quantaalpha.log` 需在 rdagent 不可用时 fallback 到本地 logger，保持 `logger.info/warning/error/exception/log_trace_path/set_trace_path` 接口兼容
+  - Owner: M005-S01
+  - Supporting: M005-S02, S03, S04, S05, S06
+  - Proof: `FallbackLoggerWrapper` + `FallbackFileStorage`，try-except ImportError 包装 rdagent.log；12 项 UAT 测试全部通过；两份 log/__init__.py MD5 一致（`25bee61c6ed7c542112dee577c87f41a`）；`from quantaalpha.log import logger` 不依赖 rdagent
+
+- **R016: 增强 normalize_corrected_expression** — 函数需处理 dict payload、fenced code blocks、`//` 和 `#` 注释、多行输出、变量赋值伪代码，提取最终有效单行 DSL 表达式
+  - Owner: M005-S02
+  - Supporting: M005-S03
+  - Proof: `normalize_corrected_expression()` 实现 dict-first 处理、fenced block 剥离、`//`/`#` 注释剥离、赋值 RHS 提取、非 DSL 前缀剥离；16 项单元测试全部通过。注意：main 和 vendored 的 `proposal.py` 在 S05 后出现不一致（vendored 仍含已删除死赋值），不影响运行时但需同步，详见 M005-SUMMARY.md。
+
+- **R017: 收紧 consistency prompt 输出约束** — `consistency_check_system` 和 `consistency_check_user` 需明确要求单行表达式、禁止注释/赋值/伪代码/多候选输出
+  - Owner: M005-S03
+  - Proof: `consistency_prompts.yaml` system prompt 包含 "single-line DSL expression only"；user prompt 包含 `**IMPORTANT:**` 块列举 5 类禁止模式；YAML 语法验证通过，3 项 grep 检查全部通过
+
+- **R018: 停止对不可恢复 BadRequest 错误重试** — `_try_create_chat_completion_or_embedding()` 需检测无效模型名等不可恢复 400 错误并立即重抛
+  - Owner: M005-S04
+  - Proof: `"Invalid model" in error_str` 守卫在第 810 行实现，bare raise 立即退出重试循环；可恢复错误处理逻辑（`'json'`/`'maximum context length'`）不变；12 项 UAT 检查通过
+
+- **R019: 集中 JSON 转义修复** — `_escape_common_json_sequences()` 需添加通用 fallback regex 处理杂散反斜杠，所有 JSON 修复路径共用此实现
+  - Owner: M005-S06
+  - Supporting: M005-S02
+  - Proof: 通用 fallback regex (`re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)`) 添加到 `_escape_common_json_sequences()` 末尾；`_build_response()` 的内联 LaTeX 循环替换为统一函数调用；两份 client.py MD5 一致（`6b3bac77364473bde6b0e90e801332fa`）；`\_`、`John\_Doe` 等 JSON 解析测试全部 PASS
+
+- **R020: 移除 proposal.yaml prompt 配置歧义** — `proposal.py` 中不应有指向 `proposal.yaml` 的死赋值，消除 prompt 配置歧义
+  - Owner: M005-S05
+  - Proof: `proposal.py` 第 159 行死赋值 `qa_prompt_dict = Prompts(..., "proposal.yaml")` 已删除；`proposal.yaml` 归档为 `.archived`；仅剩第 304 行引用 `prompts.yaml`；4 项验证全部通过
+
 ## Traceability
 
 | ID | Class | Status | Primary owner | Supporting | Proof |
@@ -115,18 +120,18 @@ Guidelines:
 | R013 | llm-routing | validated | M004-S07 | M003-S04 | ensemble.py EnsembleAggregator 4策略 + provider_pool.py least_latency路由 + 54单元测试 |
 | R014 | orchestration | validated | M004-S08 | M004-S02, M004-S05, M004-S06 | MiningOrchestrator + scheduler.py 接口 + implementations.py + DESIGN.md + 28单元测试 |
 
-| R015 | log-compat | validated | M005-S01 | - | FallbackLoggerWrapper + FallbackFileStorage，try-except ImportError 包装 rdagent.log，12 UAT 通过，两份 log/__init__.py MD5 一致 |
-| R016 | expression-parsing | validated | M005-S02 | - | normalize_corrected_expression() dict-first 处理、fenced block 剥离、// / # 注释剥离、赋值 RHS 提取，16 单元测试通过，两份 proposal.py byte-identical |
-| R017 | prompt-constraint | validated | M005-S03 | - | consistency_prompts.yaml 系统 prompt 含 "single-line DSL expression only"，用户 prompt 含 IMPORTANT 约束块列举禁止模式，3 项 grep 检查通过 |
-| R018 | api-error-handling | validated | M005-S04 | - | `"Invalid model" in str(e)` guard 在 BadRequestError handler 入口，立即 raise 不消耗重试；语法检查通过 |
-| R019 | json-repair | active | M005-S06 | - | P2: JSON 转义修复不完整且有重复 |
-| R020 | prompt-config | active | M005-S05 | - | P2: proposal.yaml 被遮蔽造成配置歧义 |
+| R015 | log-compat | validated | M005-S01 | M005-S02, S03, S04, S05, S06 | FallbackLoggerWrapper + FallbackFileStorage，try-except ImportError，12 UAT 通过，两份 log/__init__.py MD5 一致 |
+| R016 | expression-parsing | validated | M005-S02 | M005-S03 | normalize_corrected_expression() dict-first 处理、fenced/comment/assignment 剥离，16 单元测试通过 |
+| R017 | prompt-constraint | validated | M005-S03 | - | consistency_prompts.yaml 系统 prompt 含 "single-line DSL"，用户 prompt 含 IMPORTANT 约束块，3 项 grep 检查通过 |
+| R018 | api-error-handling | validated | M005-S04 | - | "Invalid model" in error_str 守卫 line 810；bare raise 立即退出；12/12 UAT 通过 |
+| R019 | json-repair | validated | M005-S06 | - | 通用 fallback regex 添加到 _escape_common_json_sequences()，内联 LaTeX 循环移除，两份 client.py MD5 一致，JSON 解析测试全部通过 |
+| R020 | prompt-config | validated | M005-S05 | - | proposal.py 第 159 行死赋值删除，proposal.yaml 归档为 .archived，仅剩 1 条 prompts.yaml 引用，4 项验证通过 |
 
 ## Coverage Summary
 
-- Active requirements: 4
-- Validated requirements: 18
-- Mapped to slices: 18
+- Active requirements: 0
+- Validated requirements: 26
+- Mapped to slices: 26
 - Unmapped active requirements: 0
 
 ---

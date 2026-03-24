@@ -805,3 +805,377 @@ rg "proposal.yaml|qa_prompt_dict =" quantaalpha/factors/proposal.py
 3. **赋值提取 vs 行过滤**: 清理含赋值伪代码时，提取右侧值比跳过行更安全，后者会静默丢弃有效表达式
 4. **BadRequest 不等于可重试**: HTTP 400 可能是配置错误（不可恢复）也可能是请求格式错误（可重试），必须区分
 
+
+---
+
+## M005 S01: rdagent.log Fallback Logger（2026-03-24）
+
+### 关键模式
+
+**1. Optional 依赖用 try-except ImportError 守卫**
+```python
+try:
+    from rdagent.log import rdagent_logger as _rdagent_logger
+    from rdagent.log.utils import LogColors as _LogColors
+    logger = _rdagent_logger
+    if _LogColors is not None:
+        LogColors = _LogColors
+except ImportError:
+    _fallback_logger = logging.getLogger("quantaalpha")
+    logger = FallbackLoggerWrapper(_fallback_logger)
+```
+
+**2. Wrapped Logger 用 object.__setattr__ 避免属性冲突**
+```python
+def __setattr__(self, name: str, value) -> None:
+    if name in ("_inner", "_storage"):
+        object.__setattr__(self, name, value)  # 写私有属性
+    else:
+        setattr(self._inner, name, value)      # 代理到内层 logger
+```
+直接 `self._inner = inner` 会触发 `__setattr__` 无限递归，`object.__setattr__` 绕过代理。
+
+**3. 两份 submodule 文件必须同步**
+`third_party/quantaalpha` 是 git submodule，其中文件改动需要：
+1. 在 submodule 内提交
+2. 在父项目更新 submodule commit 引用
+每次修改后用 `diff -q` 或 MD5 核对一致性。
+
+**4. rdagent 可导入但 rdagent.log 不存在的情况**
+`import rdagent` 成功但 `from rdagent.log import ...` 失败是独立问题。必须用 `from rdagent.log import ...` 的 try-except 捕获，不能只检查 `import rdagent`。
+
+### 验证命令
+```bash
+# 导入测试
+python -c "from quantaalpha.log import logger, LogColors; print(type(logger).__name__)"
+
+# 文件一致性
+diff -q quantaalpha/log/__init__.py third_party/quantaalpha/quantaalpha/log/__init__.py
+
+# rdagent-free 验证
+python -c "import sys; mods=[m for m in sys.modules if 'rdagent' in m.lower()]; assert not mods, mods; from quantaalpha.log import logger; print('OK')"
+```
+
+### 已知限制
+- Fallback 模式只有控制台输出，无文件日志（truncate 为 no-op）
+- 当 rdagent.log 可用时，仍使用原始 rdagent logger（fallback 仅在 ImportError 时触发）
+
+---
+
+## M005 S02: normalize_corrected_expression 强化 (2026-03-24)
+
+### 完成摘要
+用硬化版本替换 `normalize_corrected_expression`，处理 LLM 返回的各类脏字符串模式。
+
+### 关键模式
+
+**1. Dict-first 处理（dict 必须在 isinstance(str) 之前）**
+```python
+def normalize_corrected_expression(expression) -> str:
+    # ✅ 正确：dict 处理在最前面
+    if isinstance(expression, dict):
+        for key in ("code", "expression", "factor", "formula"):
+            if key in expression:
+                expression = str(expression[key])
+                break
+        else:
+            expression = str(expression)
+
+    if not isinstance(expression, str):  # ← isinstance(str) 守卫在 dict 处理之后
+        return str(expression)
+```
+`str(dict)` 会转换为 repr 形式（如 `"{'code': '...'}"`），使后续 JSON 解析无法提取嵌套 key。
+
+**2. Embedded DSL Regex（非 DSL 前缀剥离）**
+```python
+# 用于从 "Option A: STD(...)" 提取 DSL
+dsl_match = re.search(r"\b([A-Z][A-Z_]*)\s*\([^)]+\)", expression)
+```
+此 regex 在每行验证后作为 fallback 执行，捕获嵌入的 DSL 表达式。
+
+**3. JSON String Dict 解析（字符串形式的 dict）**
+```python
+stripped = expression.strip()
+if stripped.startswith("{") and stripped.endswith("}"):
+    try:
+        parsed = json.loads(stripped)
+        # ... extract nested key
+    except (json.JSONDecodeError, ValueError):
+        pass  # 降级到字符串处理
+```
+输入可能是字符串形式的 JSON dict，而非实际 dict 对象。
+
+**4. exec()-based Source Extraction（隔离测试）**
+```python
+import ast
+with open(PROPOSAL_PATH) as f:
+    content = f.read()
+tree = ast.parse(content)
+for node in ast.walk(tree):
+    if isinstance(node, ast.FunctionDef) and node.name == "normalize_corrected_expression":
+        exec_globals = {}
+        exec(ast.get_source_segment(content, node), exec_globals)
+        fn = exec_globals["normalize_corrected_expression"]
+```
+绕过 jinja2 导入链，使用 AST + exec() 隔离加载函数。
+
+**5. Byte-identical Vendored Sync（vendored 文件同步）**
+```bash
+# 同步
+cp quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py
+
+# 验证
+diff -q quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py
+# 无输出 = 一致
+```
+Vendored 副本是主文件的字节级镜像，任何差异都意味着同步失效。
+
+### 验证命令
+```bash
+# 语法检查
+python -m py_compile quantaalpha/factors/proposal.py
+python -m py_compile third_party/quantaalpha/quantaalpha/factors/proposal.py
+
+# 文件一致性
+diff -q quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py
+
+# 单元测试
+python -m pytest tests/test_normalize_corrected_expression.py -v
+# 预期：16 passed
+```
+
+### 已知限制
+- DSL fallback 提取第一个 `FUNC(...)` 模式，如果没有有效行则返回原始输入
+- 赋值语句中 `=` 的处理：只提取第一个 `=` 后的内容（`x = a = b` → `a = b`）
+
+---
+
+## M005 S03: consistency prompt 输出约束收紧 (2026-03-24)
+
+### 完成摘要
+收紧 `consistency_prompts.yaml` 的 `corrected_expression` 输出约束，明确禁止 markdown、注释、赋值、伪代码和多候选输出。
+
+### 关键模式
+
+**1. 双重约束策略（字段描述 + IMPORTANT 块）**
+- **系统 prompt**：在 JSON 输出格式的 `corrected_expression` 字段描述中嵌入约束
+  ```
+  "corrected_expression": "A single-line DSL expression only — no markdown, 
+  no comments, no assignments, no explanation. E.g. \"RANK(CLOSE)/RANK(OPEN)\". 
+  Use null if the expression is already correct."
+  ```
+- **用户 prompt**：末尾添加 `**IMPORTANT:**` 粗体块
+  ```
+  **IMPORTANT: `corrected_expression` must be a single-line DSL expression only. 
+  No markdown fences, no comments (// or #), no variable assignments (expr = ...), 
+  no pseudo-code, no multi-candidate output (Option A/B/C). Use null if no 
+  correction is needed.**
+  ```
+
+**2. 枚举所有禁止模式的策略**
+LLM 容易输出常见格式问题时，需要**穷举**禁止模式而非简单说"只输出表达式"：
+- `markdown fences` — 防止 ```json ... ```
+- `comments (// or #)` — 防止 `// comment` 或 `# comment`
+- `variable assignments` — 防止 `alpha = ...`
+- `pseudo-code` — 防止 `Option A:` 等伪代码
+- `multi-candidate output` — 防止 `Option A/B/C`
+
+**3. 静态文件验证模式**
+Prompt 是静态 YAML 文件，无需运行时测试：
+```bash
+# YAML 语法验证
+python -c "import yaml; yaml.safe_load(open('...'))"
+
+# 约束存在性验证
+grep -q "single-line DSL expression only" ...
+grep -q "IMPORTANT:" ...
+```
+
+### 验证命令
+```bash
+# YAML 语法
+python -c "import yaml; yaml.safe_load(open('quantaalpha/factors/regulator/consistency_prompts.yaml'))"
+
+# 系统 prompt 约束
+grep -q "single-line DSL expression only" quantaalpha/factors/regulator/consistency_prompts.yaml
+
+# 用户 prompt IMPORTANT 块
+grep -q "IMPORTANT:" quantaalpha/factors/regulator/consistency_prompts.yaml
+```
+
+### 已知限制
+- 约束仅指导 LLM 输出格式，无法强制执行（LLM 可能仍不遵守）
+- S02 的 `normalize_corrected_expression()` 作为代码层第二道防线兜底
+- 禁止模式枚举可能随 LLM 能力演进而需要更新
+
+---
+
+## M005 S05: proposal.yaml 死赋值移除与归档 (2026-03-24)
+
+### 完成摘要
+移除 `proposal.py` 中的配置歧义，删除指向废弃 `proposal.yaml` 的死赋值，并归档该 YAML 文件。
+
+### 关键决策
+
+**1. 归档而非删除策略**
+废弃配置文件应归档为 `.archived` 而非直接删除：
+- 保留历史参考价值
+- 可供未来审计查阅
+- 不影响运行时行为
+
+**2. 死赋值检测方法**
+使用 `rg -c "qa_prompt_dict = Prompts" proposal.py` 计数：
+- 正常：返回 1（仅有效赋值）
+- 异常：返回 > 1（存在死赋值）
+
+**3. 行号变化意识**
+删除行后，剩余代码行号会调整。原第 159 行删除后，原第 305 行变为第 304 行。
+
+### 验证命令
+```bash
+# 确认仅剩 1 个有效赋值
+rg -c "qa_prompt_dict = Prompts" quantaalpha/factors/proposal.py
+# 预期: 1
+
+# 确认配置文件状态
+ls quantaalpha/factors/prompts/proposal.yaml  # 应失败
+ls quantaalpha/factors/prompts/proposal.yaml.archived  # 应存在
+
+# 语法检查
+python -m py_compile quantaalpha/factors/proposal.py
+# 预期: 退出码 0
+```
+
+### 关键教训
+- 配置文件有多个副本时，确认哪个是"真实"的有效配置
+- 死赋值不产生运行时错误，但会造成维护混淆
+- 归档文件不应被 `__init__.py` 或任何 Python 代码主动加载
+
+## S06: 集中 JSON 转义修复 (2026-03-24)
+
+### 两层 JSON 修复 concerns 必须区分
+`quantaalpha/llm/client.py` 中存在两个独立的 JSON 修复层：
+1. **`_escape_common_json_sequences()`** — 处理 LLM 输出中的 LaTeX/symbol 反斜杠转义（`\_`、`\alpha`、杂散 `\`）
+2. **`_escape_control_chars_in_json()`** — 处理 JSON 字符串值内的原始控制字符（U+0000-U+001F）
+
+两层必须同时存在，不可合并。控制字符（如 `\x00`）在 JSON 解析前必须被转义，但 LaTeX 转义不涉及控制字符。
+
+### Generic Fallback Regex 的 Negative Lookahead 设计
+通用 fallback: `re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)`
+
+关键点：
+- `(?!...)` 是 negative lookahead，不消费字符
+- 排除 `nrtfb/"'/\` 和 `u`（JSON 有效转义）
+- 对每个未识别反斜杠后跟的字符，在其前再加一个反斜杠（变成双反斜杠）
+- `\n`、`\t`、`\r` 等有效 JSON 转义不受影响
+
+### re.sub Replacement String 的 Backslash Math
+在 raw string 中写 `r"\\\\"` = 4 个反slash字符 = 2 对 = regex replacement 输出 2 个反斜杠。
+
+| Python raw string | regex replacement 中的反斜杠对数 | 输出字符 |
+|---|---|---|
+| `r"\\\\"` | 2 对 | `\\` (2 个反斜杠) |
+| `r"\\\\\\1"` | 3 对 + `\1` | `\\\1` (3 个反斜杠 + 捕获组) |
+
+当 specific escape（3 pairs = 3 bs + captured）与 generic fallback（对 matched backslash +2 bs）联合作用时，需要精确计算避免 over-escaping。
+
+### Vendored 同步 checklist
+每次修改 `quantaalpha/llm/client.py` 后：
+1. `mkdir -p third_party/quantaalpha/quantaalpha/llm/` — vendored 目录可能不存在
+2. `cp quantaalpha/llm/client.py third_party/quantaalpha/quantaalpha/llm/client.py`
+3. `diff -q ... && md5sum ...` — 验证 byte-identical
+
+### 诊断命令
+```bash
+# 验证 generic fallback 存在
+sed -n '129p' quantaalpha/llm/client.py
+# 预期: fixed_text = re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)
+
+# 验证内联循环已移除
+grep -c "latex_commands" quantaalpha/llm/client.py  # 应为 2（仅在 _escape_common_json_sequences 内）
+
+# 验证 unified call 存在
+grep -n "_escape_common_json_sequences(fixed_resp)" quantaalpha/llm/client.py
+# 预期: 1078
+
+# 端到端 JSON 解析测试
+python3 -c "
+import re, json
+def _escape_common_json_sequences(text: str) -> str:
+    fixed_text = text
+    for cmd in ['text','frac','left','right','times','cdot','sqrt','sum','prod','int','alpha','beta','gamma','delta']:
+        fixed_text = re.sub(r'(?<!\\\\)\\\\(' + cmd + r')', r'\\\\\\\\\1', fixed_text)
+    fixed_text = re.sub(r'(?<!\\\\)\\\\([_\\{\\}\\[\\]])', r'\\\\\\\\\\\\1', fixed_text)
+    fixed_text = re.sub(r'\\\\(?![\"\\\\\\\/bfnrtu])', r'\\\\\\\\', fixed_text)
+    return fixed_text
+for t in [r'{\"x\": \"\_ 10\"}', r'{\"expr\": \"PE \_ 10\"}', '{\"name\": \"John\_Doe\"}', '{\"valid\": \"\\\\n is newline\"}']:
+    json.loads(_escape_common_json_sequences(t)); print(f'OK: {t[:30]}')
+"
+```
+
+---
+
+## M005: 跨切片综合教训 (2026-03-24)
+
+### 1. Vendored Submodule Byte-Identical 必须严格执行
+
+**问题**: S02 创建 vendored `proposal.py` 为 byte-identical 副本，但 S05 修改 main 文件后遗漏同步 vendored 副本。结果：main 和 vendored 的 proposal.py 不一致（vendored 仍含死赋值）。
+
+**原则**: 所有 submodule 文件（`third_party/quantaalpha/quantaalpha/`）在被修改后，都必须同步到 submodule 的 vendored 目录。每次同步后必须验证：
+```bash
+diff -q "$MAIN" "$VENDORED" && md5sum "$MAIN" "$VENDORED"
+# 无 diff 输出 + MD5 一致 = 同步成功
+```
+
+**Pattern**: S01 的 log/__init__.py 和 S06 的 client.py 都严格执行了 byte-identical 同步。S02/S05 的 proposal.py 未执行。应将此验证纳入 UAT checklist。
+
+### 2. Submodule + Worktree 组合增加了验证复杂度
+
+**问题**: 在 worktree 环境中，parent repo 的 `git diff` 只显示 submodule pointer 变更，不显示 submodule 内文件变更（因为 submodule 的 git objects 不在 parent 的 object database）。
+
+**验证策略**: 直接检查文件系统内容，不依赖 git diff：
+```bash
+grep -n "FallbackLoggerWrapper" quantaalpha/log/__init__.py
+grep -n "Invalid model" quantaalpha/llm/client.py
+diff -q quantaalpha/llm/client.py third_party/quantaalpha/quantaalpha/llm/client.py
+```
+
+**原则**: 在 submodule 架构中，git commit 记录变更历史，但 git diff 不完整。文件系统的当前状态才是 ground truth。
+
+### 3. Proof 应描述最终状态，而非某个切片完成时的状态
+
+**问题**: R016 在 S02 完成时证明 "主文件和 vendored 文件 byte-identical"，但 S05 修改了 main 文件，未同步 vendored。R016 的 proof 因此不准确。
+
+**教训**: 如果后续切片修改了相关文件，需要更新该 proof。M005 关闭时已更新 R016 proof 以反映实际状态。
+
+### 4. R018 Trace Table "active" vs "Validated" 不一致
+
+**问题**: `.gsd/REQUIREMENTS.md` 中 R018 的 Active section entry 有 `Status: ✅ Validated` 标记，但 Trace Table 中 R018 行仍显示 `active`。Coverage Summary 统计 "Active requirements: 1"（应为 0）。
+
+**修复**: 关闭 milestone 时必须检查 Trace Table 和 Coverage Summary 是否与 Active section 一致。M005 关闭时已修正此问题。
+
+### 5. JSON Escape 的 Replacement String Math 必须精确
+
+S06 发现原 generic fallback 的 replacement string `r"\\\\\1"` (4 bs = 2 pairs = 2 literal bs + captured group) 在与 specific escape `r"\\\\\\1"` (6 bs = 3 pairs = 3 bs + captured) 联合使用时产生 4-bs 输出（无效 JSON）。
+
+**公式**: `(2n) backslashes in raw string → n pairs in regex → n literal backslashes in output`
+
+| Python raw string | regex replacement 中的反斜杠对数 | 输出字符 |
+|---|---|---|
+| `r"\\\\"` | 2 对 | `\\` (2 bs) |
+| `r"\\\\\\1"` | 3 对 + `\1` | `\\\1` (3 bs + captured group) |
+
+当 specific + generic 联合使用时，最终 backslash 数 = specific_count + 2 × generic_count。必须验证最终输出 JSON-valid。
+
+### 6. Dict-first 处理是 LLM 输出标准模式
+
+从 M002 (dict → string) 到 M005 (normalize_corrected_expression) 的所有修复都证明：LLM 返回 dict（而非 string）是标准模式，不是异常。防御性代码应将 dict 处理作为**第一项检查**。
+
+```python
+def normalize(expression) -> str:
+    if isinstance(expression, dict):   # ← 必须第一
+        expression = expression.get("code") or str(expression)
+    if not isinstance(expression, str):
+        return str(expression)
+    # ... string 处理逻辑
+```

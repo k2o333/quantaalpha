@@ -43,18 +43,18 @@ Reliable, incremental financial data ingestion → factor mining → strategy va
 - **关闭时修复**: test_scheduler_summary.py (total_validated 2→3), test_data_capability_registry.py (available_from 字段)
 - **文档**: `.gsd/milestones/M004/M004-SUMMARY.md`, `.gsd/milestones/M004/M004-ROADMAP.md`
 
-### M005 进行中（2026-03-24 启动）
-- **状态**: 🔄 进行中
-- **交付目标**: 修复 6 个已验证 Bug，稳定因子挖掘 pipeline
-- **已验证 Bug**:
-  - Bug-6 (P0): `quantaalpha.log` 硬依赖缺失的 `rdagent.log`，阻塞模块导入
-  - Bug-1 (P0): `normalize_corrected_expression` 对脏字符串放行
-  - Bug-2 (P0): `consistency_check_system` 缺乏严格输出约束（畸形 corrected_expression 的根因）
-  - Bug-3 (P1): BadRequest 重试不区分无效模型名等不可恢复错误
-  - Bug-4 (P2): JSON 转义修复不完整且存在重复实现
-  - Bug-5 (P2): `proposal.yaml` 被后续赋值遮蔽造成维护混淆
-- **切片规划**: S01(rdagent.log) → S02(expression norm) → S03(prompt) → S04(BadRequest) → S05(yaml) → S06(JSON)
-- **文档**: `.gsd/milestones/M005/M005-ROADMAP.md`, `.gsd/milestones/M005/M005-CONTEXT.md`
+### M005 完成（2026-03-24）
+- **状态**: ✅ 已完成
+- **交付**: 修复 6 个已验证 Bug，稳定因子挖掘 pipeline
+- **已完成切片**:
+  - S01: `rdagent.log` 硬依赖 fallback ✅
+  - S02: `normalize_corrected_expression` 强化处理脏字符串 ✅
+  - S03: consistency prompt 输出约束收紧 ✅
+  - S04: BadRequest 快速失败重抛 ✅
+  - S05: proposal.yaml 配置歧义清除 ✅
+  - S06: JSON 转义修复集中化 ✅
+- **验证**: 16/16 单元测试通过；6/6 成功标准满足；⚠️ proposal.py vendored 副本与 main 不一致（vendored 仍含 S05 已删除的死赋值），详见 M005-SUMMARY.md
+- **文档**: `.gsd/milestones/M005/M005-SUMMARY.md`, `.gsd/milestones/M005/M005-ROADMAP.md`
 
 ### app4 (Data Pipeline)
 - **Working**: 43 TuShare interfaces configured with YAML; 7 pagination modes; incremental update with checkpoint recovery; Polars-based data processing
@@ -94,8 +94,7 @@ This project uses **dual documentation system**:
 ## Active Work
 
 - **77 change documents** in `docs/03-changes/`
-- **4 completed** tasks
-- **12 active** (doing/planned)
+- **0 active requirements** (all requirements validated)
 - **3 ADRs** recorded
 
 ## Capability Contract
@@ -108,4 +107,12 @@ See `.gsd/REQUIREMENTS.md` for explicit capability tracking.
 - [x] M002: `'dict' object has no attribute 'replace'` 错误修复 — S01: Bug 定位 ✅, S02: 类型检查/转换 ✅, S03: 回归测试和文档 ✅（2026-03-23 完成）
 - [x] M003: QuantaAlpha 持续因子挖掘体系架构实施 — ProviderPool ✅、Checkpoint ✅、PIT 对齐 ✅、ResourceManager ✅、M001 教训约束 ✅、ADR-003 设计 ✅（2026-03-23 完成）
 - [x] M004: 因子库深化与自治能力增强 — S01-S08 全部完成（2026-03-24 完成）
-- [ ] M005: Mining Pipeline 关键 Bug 修复 — Bug-6/1/2(P0) + Bug-3(P1) + Bug-4/5(P2)（2026-03-24 启动）
+- [x] M005: Mining Pipeline 关键 Bug 修复 — S01-S06 全部完成（2026-03-24 完成）
+  - S01: `rdagent.log` 硬依赖 fallback ✅
+  - S02: `normalize_corrected_expression` 强化处理脏字符串 ✅
+  - S03: consistency prompt 输出约束收紧 ✅
+  - S04: BadRequest 快速失败重抛 ✅
+  - S05: proposal.yaml 配置歧义清除 ✅
+  - S06: JSON 转义修复集中化 ✅
+  - 验证: 16/16 tests pass; 6/6 success criteria met; ⚠️ proposal.py vendored 副本与 main 不一致（详见 M005-SUMMARY.md）
+  - 文档: `.gsd/milestones/M005/M005-SUMMARY.md`
