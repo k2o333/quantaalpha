@@ -33,7 +33,7 @@
   - Verify: `python -m pytest tests/test_normalize_corrected_expression.py -v`
   - Done when: 12/12 测试通过；py_compile 无错误
 
-- [ ] **T02: 建立 vendored proposal.py 并同步文件** `est:15m`
+- [x] **T02: 建立 vendored proposal.py 并同步文件** `est:15m`
   - Why: S01 建立了 `log/__init__.py` 的双文件同步；`proposal.py` 同理需要 vendored 副本保持同步
   - Files: `quantaalpha/factors/proposal.py`, `third_party/quantaalpha/quantaalpha/factors/proposal.py`
   - Do: 创建 vendored 目录结构（`factors/`）；复制主 `proposal.py` 到 vendored 路径；确认两份文件 byte-identical
