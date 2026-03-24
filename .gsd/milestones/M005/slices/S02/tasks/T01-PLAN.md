@@ -244,3 +244,10 @@ python -m pytest tests/test_normalize_corrected_expression.py -v
 
 - `quantaalpha/factors/proposal.py` — `normalize_corrected_expression` 已替换为硬化版本
 - `tests/test_normalize_corrected_expression.py` — 16 个测试用例
+
+## Observability Impact
+
+- **Before:** LLM-corrected expressions with fenced blocks, comments, or assignments would pass through unchanged, causing `is_parsable` or `is_expression_acceptable` failures downstream
+- **After:** All known dirty-string patterns are normalized; downstream calls in `AlphaAgentHypothesis2FactorExpression._convert_with_history_limit` receive clean DSL strings
+- **Failure mode visible:** If the function regresses, `pytest tests/test_normalize_corrected_expression.py` will catch it — the calling code has no structured error output for normalization failures
+- **Inspection:** Run `pytest tests/test_normalize_corrected_expression.py -v` to confirm all 16 cases still pass; no other runtime signals are emitted by this pure transform

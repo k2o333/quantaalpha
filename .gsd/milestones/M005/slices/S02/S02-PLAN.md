@@ -26,7 +26,7 @@
 
 ## Tasks
 
-- [ ] **T01: 替换 normalize_corrected_expression 并创建测试文件** `est:30m`
+- [x] **T01: 替换 normalize_corrected_expression 并创建测试文件** `est:30m`
   - Why: 生产函数需要硬化以处理 LLM 返回的各类脏字符串；测试文件验证所有边界情况
   - Files: `quantaalpha/factors/proposal.py`, `tests/test_normalize_corrected_expression.py`
   - Do: 替换 lines 23-27 的函数体为强化版本（fenced blocks → regex、`//` / `#` 注释剥离、赋值行 RHS 提取、多行取首个 DSL 模式）；创建测试文件通过 exec() 直接加载函数源码
@@ -39,6 +39,14 @@
   - Do: 创建 vendored 目录结构（`factors/`）；复制主 `proposal.py` 到 vendored 路径；确认两份文件 byte-identical
   - Verify: `diff -q quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py` 无输出
   - Done when: vendored 文件存在且与主文件完全一致
+
+## Observability / Diagnostics
+
+- **Status surface:** `python -m pytest tests/test_normalize_corrected_expression.py -v` — all 16 tests pass → function contract is green
+- **Failure state:** Any pytest failure reveals which normalization pattern (dict key extraction, fenced block stripping, comment removal, assignment RHS extraction, DSL prefix stripping) is broken
+- **Syntax check:** `python -m py_compile quantaalpha/factors/proposal.py` — no errors → function is parseable
+- **Vendored sync:** `diff -q quantaalpha/factors/proposal.py third_party/quantaalpha/quantaalpha/factors/proposal.py` — no output → vendored copy in sync
+- **No structured log output** — this function is a pure transform with no side effects; failure is visible only through the calling code (consistency checker in `AlphaAgentHypothesis2FactorExpression._convert_with_history_limit`)
 
 ## Files Likely Touched
 
