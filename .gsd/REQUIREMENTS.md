@@ -14,7 +14,29 @@ Guidelines:
 
 ## Active
 
-(none)
+- **R015: 移除 rdagent.log 硬依赖** — `quantaalpha.log` 和 `third_party/quantaalpha/quantaalpha/log` 需在 rdagent 不可用时 fallback 到本地 logger，保持 `logger.info/warning/error/exception/log_trace_path/set_trace_path` 接口兼容
+  - Owner: M005-S01
+  - Priority: P0 — 阻塞模块导入
+
+- **R016: 增强 normalize_corrected_expression** — 函数需处理 dict payload、fenced code blocks、`//` 和 `#` 注释、多行输出、变量赋值伪代码，提取最终有效单行 DSL 表达式；不可简单删除赋值行
+  - Owner: M005-S02
+  - Priority: P0 — 纠正表达式可能仍不可解析
+
+- **R017: 收紧 consistency prompt 输出约束** — `consistency_check_system` 和 `consistency_check_user` 需明确要求单行表达式、禁止注释/赋值/伪代码/多候选输出
+  - Owner: M005-S03
+  - Priority: P0 — 畸形 `corrected_expression` 的根因
+
+- **R018: 停止对不可恢复 BadRequest 错误重试** — `_try_create_chat_completion_or_embedding()` 需检测无效模型名等不可恢复 400 错误并立即重抛，不消耗重试次数
+  - Owner: M005-S04
+  - Priority: P1 — 隐藏配置错误、浪费重试
+
+- **R019: 集中 JSON 转义修复** — `_escape_common_json_sequences()` 需添加通用 fallback regex（处理杂散反斜杠），所有 JSON 修复路径共用此实现，不保留分散的部分实现
+  - Owner: M005-S06
+  - Priority: P2 — 部分 JSON 仍解析失败
+
+- **R020: 移除 proposal.yaml prompt 配置歧义** — 移除 `proposal.py` 中被后续赋值遮蔽的 `qa_prompt_dict` 赋值；删除或归档无效的 `quantaalpha/factors/prompts/proposal.yaml`
+  - Owner: M005-S05
+  - Priority: P2 — 维护混淆
 
 ## Validated
 
@@ -93,11 +115,18 @@ Guidelines:
 | R013 | llm-routing | validated | M004-S07 | M003-S04 | ensemble.py EnsembleAggregator 4策略 + provider_pool.py least_latency路由 + 54单元测试 |
 | R014 | orchestration | validated | M004-S08 | M004-S02, M004-S05, M004-S06 | MiningOrchestrator + scheduler.py 接口 + implementations.py + DESIGN.md + 28单元测试 |
 
+| R015 | log-compat | active | M005-S01 | - | P0: rdagent.log 缺失导致导入失败 |
+| R016 | expression-parsing | active | M005-S02 | - | P0: 脏字符串放行导致解析器失败 |
+| R017 | prompt-constraint | active | M005-S03 | - | P0: corrected_expression 畸形输出根因 |
+| R018 | api-error-handling | active | M005-S04 | - | P1: BadRequest 不区分可恢复性 |
+| R019 | json-repair | active | M005-S06 | - | P2: JSON 转义修复不完整且有重复 |
+| R020 | prompt-config | active | M005-S05 | - | P2: proposal.yaml 被遮蔽造成配置歧义 |
+
 ## Coverage Summary
 
-- Active requirements: 0
+- Active requirements: 6
 - Validated requirements: 15
-- Mapped to slices: 12
+- Mapped to slices: 18
 - Unmapped active requirements: 0
 
 ---

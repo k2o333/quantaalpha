@@ -671,3 +671,137 @@ S03 T02（fewshot.py tag 增强评分）未实现，但 S06 的 RAG 功能（向
 
 ### EnsembleAggregator 是纯内存实现
 S07 的 `EnsembleAggregator` 不持久化任何状态，每次调用 `aggregate()` 都是独立的。这意味着多个并发请求各自独立聚合，无法共享聚合结果。如需共享需引入外部存储。教训：接口设计时明确标注"stateless" vs "stateful"。
+
+---
+
+## M005: Mining Pipeline Bug 验证与修复计划 (2026-03-24)
+
+**来源文档**: `docs/drafts/mining/problems/20260324_bug_fix_plan.md`
+**验证文档**: `docs/drafts/mining/problems/20260324_verified_bugs_and_fixes.md`
+
+### 活跃修复路径
+```
+check_consistency() → corrected_expression → proposal.py normalize_corrected_expression() → parser re-check
+```
+`expression_correction_system` 存在于 prompt 配置但**未**接入当前运行时。仅修改该 prompt 不会影响实际行为。
+
+### Bug-6 (P0): rdagent.log 硬依赖
+
+**根因**: `quantaalpha/log/__init__.py` 和 `third_party/quantaalpha/quantaalpha/log/__init__.py` 均无条件 `from rdagent.log ...`，但当前环境未安装该模块，导致任何 `from quantaalpha.log import ...` 失败。
+
+**修复文件**:
+- `quantaalpha/log/__init__.py`
+- `third_party/quantaalpha/quantaalpha/log/__init__.py`
+- （如需）`quantaalpha/log/_fallback.py`
+
+**修复形状** (try/except 守卫):
+```python
+try:
+    from rdagent.log import ...
+except ImportError:
+    # 本地 fallback logger，保持接口兼容
+    ...
+```
+
+**必须兼容的接口**: `logger.info()`, `logger.warning()`, `logger.error()`,
+`logger.exception()`, `logger.log_trace_path`, `logger.set_trace_path(path)`
+
+**验证命令**:
+```bash
+python -c "from quantaalpha.log import logger, LogColors; print(type(logger).__name__)"
+python -c "from quantaalpha.factors.proposal import normalize_corrected_expression; print('ok')"
+```
+
+---
+
+### Bug-1 (P0): normalize_corrected_expression 放行脏字符串
+
+**根因**: 现有 `normalize_corrected_expression()` 函数逻辑过于简单，不处理：
+dict payload、fenced code blocks、`//` 和 `#` 注释、多行输出、变量赋值伪代码（`x = ...`）、stringified JSON/dict 字符串。
+
+**关键约束 — 不可简单跳过赋值行**:
+> 若 LLM 返回 `alpha = TS_STD($close, 10)\nfactor = RANK(alpha)`，跳过含 `=` 的行会删掉唯一有效表达式。
+> 正确做法：提取**最后一个有意义赋值**的右侧值。
+
+**验证用例**:
+| 输入 | 期望输出 |
+|------|---------|
+| `TS_STD($close, 10) // comment` | `TS_STD($close, 10)` |
+| `alpha = TS_STD($close, 10)\nfactor = RANK(alpha)` | `RANK(alpha)` |
+| `` ```json {"expression": "TS_CORR($high-$low, $volume, 20)"}``` `` | `TS_CORR($high-$low, $volume, 20)` |
+
+**修复文件**: `quantaalpha/factors/proposal.py`
+
+---
+
+### Bug-2 (P0): consistency prompt 缺乏严格输出约束
+
+**根因**: `consistency_check_system` prompt 未硬性要求输出格式，允许 LLM 返回含注释、变量赋值、多候选的伪代码，是 Bug-1 的上游根因。
+
+**必须加入的措辞**:
+- "Return ONLY a SINGLE-LINE factor expression."
+- "Do NOT include comments, markdown fences, variable assignments, prose, or multiple candidate expressions."
+- "Use only the listed variables/functions."
+
+**修复文件**: `quantaalpha/factors/regulator/consistency_prompts.yaml`
+- 更新 `consistency_check_system` 输出契约
+- 更新 `consistency_check_user` 重复相同约束
+
+---
+
+### Bug-3 (P1): BadRequest 重试策略不区分可恢复性
+
+**根因**: `_try_create_chat_completion_or_embedding()` 对 `openai.BadRequestError` 统一触发重试，
+无效模型名（400 + "invalid model"）等**不可恢复**错误会被无谓重试，且错误信息被隐藏。
+
+**修复要点**:
+- 使用 `str(e)` 检测 "invalid model" / "invalid model name" 等关键词
+- 立即 `raise` 而非进入重试循环
+- 日志中包含实际失败的模型名（chat: chat model, embedding: embedding model）
+- 保留现有对 JSON-mode 缺失 "json" 关键词的特殊处理
+
+**修复文件**: `quantaalpha/llm/client.py`
+
+---
+
+### Bug-4 (P2): JSON 转义修复不完整且有重复
+
+**根因**: `_escape_common_json_sequences()` 包含针对 LaTeX 的特定替换（`\alpha` 等），
+但缺少通用杂散反斜杠处理（`\` 后跟不被 JSON 允许的字符）。且 JSON 修复路径存在两个部分不同的实现。
+
+**需要添加的通用 regex**:
+```python
+re.sub(r'\\(?!["\\\\/bfnrtu])', r'\\\\', text)
+```
+
+**修复文件**: `quantaalpha/llm/client.py`
+- 在 `_escape_common_json_sequences()` 中添加通用 fallback
+- 所有 JSON 修复路径使用同一函数
+
+---
+
+### Bug-5 (P2): proposal.yaml 配置歧义
+
+**根因**: `proposal.py` 中先赋值 `qa_prompt_dict = Prompts(...proposal.yaml)`，
+后又重新赋值覆盖，导致前者死代码。实际运行时 prompt 来源只有后一个赋值，
+但 `proposal.yaml` 文件仍存在，造成维护混淆。
+
+**修复要点**:
+1. 移除死代码 `qa_prompt_dict = Prompts(...proposal.yaml)`
+2. 删除或归档 `quantaalpha/factors/prompts/proposal.yaml`
+3. 确认所有运行时 prompt 查找指向有效配置文件
+
+**验证命令**:
+```bash
+rg "proposal.yaml|qa_prompt_dict =" quantaalpha/factors/proposal.py
+```
+
+---
+
+### M005 教训（预登记）
+
+1. **Hard import = 全局阻塞**: 任何 optional 依赖都应 try/except 守卫，尤其是大型外部框架（rdagent）
+2. **Prompt 约束是第一道防线**: LLM 输出格式问题首先是 prompt 问题，代码健壮性是第二道防线，两者都不可省
+3. **赋值提取 vs 行过滤**: 清理含赋值伪代码时，提取右侧值比跳过行更安全，后者会静默丢弃有效表达式
+4. **BadRequest 不等于可重试**: HTTP 400 可能是配置错误（不可恢复）也可能是请求格式错误（可重试），必须区分
+

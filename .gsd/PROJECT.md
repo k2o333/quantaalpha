@@ -43,6 +43,19 @@ Reliable, incremental financial data ingestion → factor mining → strategy va
 - **关闭时修复**: test_scheduler_summary.py (total_validated 2→3), test_data_capability_registry.py (available_from 字段)
 - **文档**: `.gsd/milestones/M004/M004-SUMMARY.md`, `.gsd/milestones/M004/M004-ROADMAP.md`
 
+### M005 进行中（2026-03-24 启动）
+- **状态**: 🔄 进行中
+- **交付目标**: 修复 6 个已验证 Bug，稳定因子挖掘 pipeline
+- **已验证 Bug**:
+  - Bug-6 (P0): `quantaalpha.log` 硬依赖缺失的 `rdagent.log`，阻塞模块导入
+  - Bug-1 (P0): `normalize_corrected_expression` 对脏字符串放行
+  - Bug-2 (P0): `consistency_check_system` 缺乏严格输出约束（畸形 corrected_expression 的根因）
+  - Bug-3 (P1): BadRequest 重试不区分无效模型名等不可恢复错误
+  - Bug-4 (P2): JSON 转义修复不完整且存在重复实现
+  - Bug-5 (P2): `proposal.yaml` 被后续赋值遮蔽造成维护混淆
+- **切片规划**: S01(rdagent.log) → S02(expression norm) → S03(prompt) → S04(BadRequest) → S05(yaml) → S06(JSON)
+- **文档**: `.gsd/milestones/M005/M005-ROADMAP.md`, `.gsd/milestones/M005/M005-CONTEXT.md`
+
 ### app4 (Data Pipeline)
 - **Working**: 43 TuShare interfaces configured with YAML; 7 pagination modes; incremental update with checkpoint recovery; Polars-based data processing
 - **Architecture**: CLI → config loader → scheduler → downloader → processor → storage
@@ -95,3 +108,4 @@ See `.gsd/REQUIREMENTS.md` for explicit capability tracking.
 - [x] M002: `'dict' object has no attribute 'replace'` 错误修复 — S01: Bug 定位 ✅, S02: 类型检查/转换 ✅, S03: 回归测试和文档 ✅（2026-03-23 完成）
 - [x] M003: QuantaAlpha 持续因子挖掘体系架构实施 — ProviderPool ✅、Checkpoint ✅、PIT 对齐 ✅、ResourceManager ✅、M001 教训约束 ✅、ADR-003 设计 ✅（2026-03-23 完成）
 - [x] M004: 因子库深化与自治能力增强 — S01-S08 全部完成（2026-03-24 完成）
+- [ ] M005: Mining Pipeline 关键 Bug 修复 — Bug-6/1/2(P0) + Bug-3(P1) + Bug-4/5(P2)（2026-03-24 启动）
