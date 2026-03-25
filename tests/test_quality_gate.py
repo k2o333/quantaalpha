@@ -179,5 +179,38 @@ class TestQualityGate(unittest.TestCase):
         self.assertIn("synthetic llm failure", result.overall_feedback)
         self.assertNotIn("Skipping check", result.overall_feedback)
 
+    def test_should_proceed_to_backtest_allows_major_when_configured(self):
+        checker = FactorConsistencyChecker(
+            enabled=True,
+            allowed_inconsistent_severities=("none", "minor", "major"),
+        )
+        result = consistency_checker.ConsistencyCheckResult(
+            is_consistent=False,
+            hypothesis_to_description="",
+            description_to_formulation="",
+            formulation_to_expression="",
+            overall_feedback="major but allowed",
+            severity="major",
+        )
+
+        self.assertTrue(checker.should_proceed_to_backtest(result))
+
+    def test_strict_mode_still_blocks_major_even_when_allowed(self):
+        checker = FactorConsistencyChecker(
+            enabled=True,
+            strict_mode=True,
+            allowed_inconsistent_severities=("none", "minor", "major"),
+        )
+        result = consistency_checker.ConsistencyCheckResult(
+            is_consistent=False,
+            hypothesis_to_description="",
+            description_to_formulation="",
+            formulation_to_expression="",
+            overall_feedback="major and strict",
+            severity="major",
+        )
+
+        self.assertFalse(checker.should_proceed_to_backtest(result))
+
 if __name__ == "__main__":
     unittest.main()

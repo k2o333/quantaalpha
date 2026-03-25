@@ -1,6 +1,87 @@
 from __future__ import annotations
 
+import sys
+import types
 import unittest
+
+if "rdagent.scenarios.qlib.experiment.factor_experiment" not in sys.modules:
+    rdagent_pkg = types.ModuleType("rdagent")
+    scenarios_pkg = types.ModuleType("rdagent.scenarios")
+    qlib_pkg = types.ModuleType("rdagent.scenarios.qlib")
+    experiment_pkg = types.ModuleType("rdagent.scenarios.qlib.experiment")
+    factor_experiment_pkg = types.ModuleType("rdagent.scenarios.qlib.experiment.factor_experiment")
+    workspace_pkg = types.ModuleType("rdagent.scenarios.qlib.experiment.workspace")
+    utils_pkg = types.ModuleType("rdagent.utils")
+    agent_pkg = types.ModuleType("rdagent.utils.agent")
+    tpl_pkg = types.ModuleType("rdagent.utils.agent.tpl")
+    log_pkg = types.ModuleType("rdagent.log")
+
+    class _StubFactorExperiment:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _StubFactorTask:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _StubFactorFBWorkspace:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _StubQlibFactorScenario:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _StubQlibFactorExperiment:
+        def __init__(self, *args, **kwargs):
+            self.sub_tasks = kwargs.get("sub_tasks")
+            if self.sub_tasks is None and args:
+                self.sub_tasks = args[0]
+            if self.sub_tasks is None:
+                self.sub_tasks = []
+            self.experiment_workspace = None
+
+    class _StubWorkspace:
+        def __init__(self, *args, **kwargs):
+            self.workspace_path = None
+
+        def inject_code_from_folder(self, *args, **kwargs):
+            return None
+
+        def before_execute(self):
+            return None
+
+    class _StubLogger:
+        def info(self, *args, **kwargs):
+            return None
+
+    class _StubTemplate:
+        def __call__(self, *args, **kwargs):
+            return self
+
+        def r(self, *args, **kwargs):
+            return ""
+
+    factor_experiment_pkg.QlibFactorScenario = _StubQlibFactorScenario
+    factor_experiment_pkg.FactorExperiment = _StubFactorExperiment
+    factor_experiment_pkg.FactorTask = _StubFactorTask
+    factor_experiment_pkg.FactorFBWorkspace = _StubFactorFBWorkspace
+    factor_experiment_pkg.QlibFactorExperiment = _StubQlibFactorExperiment
+    factor_experiment_pkg.__file__ = __file__
+    workspace_pkg.QlibFBWorkspace = _StubWorkspace
+    tpl_pkg.T = _StubTemplate()
+    log_pkg.rdagent_logger = _StubLogger()
+
+    sys.modules["rdagent"] = rdagent_pkg
+    sys.modules["rdagent.scenarios"] = scenarios_pkg
+    sys.modules["rdagent.scenarios.qlib"] = qlib_pkg
+    sys.modules["rdagent.scenarios.qlib.experiment"] = experiment_pkg
+    sys.modules["rdagent.scenarios.qlib.experiment.factor_experiment"] = factor_experiment_pkg
+    sys.modules["rdagent.scenarios.qlib.experiment.workspace"] = workspace_pkg
+    sys.modules["rdagent.utils"] = utils_pkg
+    sys.modules["rdagent.utils.agent"] = agent_pkg
+    sys.modules["rdagent.utils.agent.tpl"] = tpl_pkg
+    sys.modules["rdagent.log"] = log_pkg
 
 from quantaalpha.core.proposal import Hypothesis, Trace
 from quantaalpha.factors import proposal as factor_proposal
@@ -38,6 +119,8 @@ class _FakeRegulator:
 
     def is_parsable(self, expression):
         self.is_parsable_calls.append(expression)
+        if "WEIGHTED_SUM" in expression:
+            return False
         return isinstance(expression, str)
 
     def evaluate(self, expression):
@@ -125,6 +208,56 @@ class TestFactorProposalGuardrails(unittest.TestCase):
 
         self.assertGreaterEqual(len(fake_regulator.is_parsable_calls), 2)
         self.assertTrue(all(isinstance(expr, str) for expr in fake_regulator.is_parsable_calls))
+
+    def test_invalid_corrected_expression_falls_back_to_original_expression(self):
+        converter = factor_proposal.AlphaAgentHypothesis2FactorExpression(consistency_enabled=True)
+        fake_regulator = _FakeRegulator()
+        converter.factor_regulator = fake_regulator
+
+        class FallbackQualityGate:
+            def evaluate(self, **kwargs):
+                return True, "ok", {
+                    "corrected_expression": "WEIGHTED_SUM(TS_STD($return, 21), TS_STD($return, 42))",
+                    "corrected_description": kwargs["factor_description"],
+                }
+
+        converter._quality_gate = FallbackQualityGate()
+
+        trace = Trace(scen=_FakeScenario())
+        hypothesis = Hypothesis(
+            hypothesis="Use supported rolling volatility ratios only.",
+            reason="",
+            concise_reason="",
+            concise_observation="",
+            concise_justification="",
+            concise_knowledge="",
+        )
+
+        class ProposalAPIBackend:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_messages_and_create_chat_completion(self, user_prompt, system_prompt, json_mode=False, task_type=None):
+                return """
+                {
+                    "Fallback_Factor": {
+                        "description": "desc",
+                        "formulation": "f",
+                        "expression": "TS_STD($return, 21)",
+                        "variables": {"$return": "daily return"}
+                    }
+                }
+                """
+
+        original_backend = factor_proposal.APIBackend
+        factor_proposal.APIBackend = ProposalAPIBackend
+        try:
+            experiment = converter.convert(hypothesis, trace)
+        finally:
+            factor_proposal.APIBackend = original_backend
+
+        self.assertEqual(len(experiment.sub_tasks), 1)
+        self.assertEqual(experiment.sub_tasks[0].factor_expression, "TS_STD($return, 21)")
 
 
 if __name__ == "__main__":

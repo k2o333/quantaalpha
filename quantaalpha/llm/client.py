@@ -124,7 +124,11 @@ def _escape_common_json_sequences(text: str) -> str:
     ]
     for cmd in latex_commands:
         fixed_text = re.sub(r"(?<!\\)\\(" + cmd + r")", r"\\\\\1", fixed_text)
-    fixed_text = re.sub(r"(?<!\\)\\([_\{\}\[\]])", r"\\\\\\1", fixed_text)
+    fixed_text = re.sub(
+        r"(?<!\\)\\([_\{\}\[\]])",
+        lambda match: "\\" + match.group(1),
+        fixed_text,
+    )
     # Fix all unrecognized backslash escapes (generic fallback)
     fixed_text = re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)
     return fixed_text

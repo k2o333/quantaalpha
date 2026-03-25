@@ -644,17 +644,27 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         # Use corrected expression from consistency check if provided
                         if results.get("corrected_expression") and results["corrected_expression"] != expr:
                             logger.info(f"Consistency check corrected expression: {expr} -> {results['corrected_expression']}")
-                            expr = normalize_corrected_expression(results["corrected_expression"])
-                            factor_data["expression"] = expr
-                            response_dict[factor_name] = factor_data
+                            original_expr = expr
+                            corrected_expr = normalize_corrected_expression(results["corrected_expression"])
 
                             # Re-check corrected expression
-                            if not self.factor_regulator.is_parsable(expr):
-                                logger.warning(f"Corrected expression could not be parsed: {expr}")
-                                break
-                            success, eval_dict = self.factor_regulator.evaluate(expr)
-                            if not success:
-                                break
+                            if not self.factor_regulator.is_parsable(corrected_expr):
+                                logger.warning(
+                                    f"Corrected expression could not be parsed, keeping original: {corrected_expr}"
+                                )
+                                expr = original_expr
+                            else:
+                                success, corrected_eval_dict = self.factor_regulator.evaluate(corrected_expr)
+                                if success:
+                                    expr = corrected_expr
+                                    eval_dict = corrected_eval_dict
+                                    factor_data["expression"] = expr
+                                    response_dict[factor_name] = factor_data
+                                else:
+                                    logger.warning(
+                                        f"Corrected expression evaluation failed, keeping original: {corrected_expr}"
+                                    )
+                                    expr = original_expr
 
                         if not passed:
                             logger.warning(f"Consistency check failed: {factor_name}, feedback: {feedback}")

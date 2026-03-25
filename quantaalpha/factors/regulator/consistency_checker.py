@@ -3,6 +3,7 @@ Factor Consistency Checker: semantic consistency between hypothesis, description
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Tuple, List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -13,6 +14,12 @@ from quantaalpha.llm.client import APIBackend
 from quantaalpha.log import logger
 
 consistency_prompts = Prompts(file_path=Path(__file__).parent / "consistency_prompts.yaml")
+
+UNSUPPORTED_CORRECTION_FUNCTIONS = {
+    "WEIGHTED_SUM",
+    "ARRAY",
+    "TERCILE_WEIGHTS",
+}
 
 
 @dataclass
@@ -48,13 +55,86 @@ class FactorConsistencyChecker:
         scen=None,
         max_correction_attempts: int = 3,
         enabled: bool = True,
-        strict_mode: bool = False
+        strict_mode: bool = False,
+        allowed_inconsistent_severities: Tuple[str, ...] = ("none", "minor"),
     ):
         """scen: scenario; max_correction_attempts: max correction tries; enabled; strict_mode (reject on any inconsistency)."""
         self.scen = scen
         self.max_correction_attempts = max_correction_attempts
         self.enabled = enabled
         self.strict_mode = strict_mode
+        self.allowed_inconsistent_severities = allowed_inconsistent_severities
+
+    @staticmethod
+    def _expression_complexity_score(expression: Optional[str]) -> int:
+        if not expression:
+            return 0
+        text = str(expression)
+        return (
+            len(text)
+            + 8 * text.count("?")
+            + 4 * text.count(":")
+            + 3 * text.count("(")
+            + 2 * sum(text.count(token) for token in ("+", "-", "*", "/", "&&", "||"))
+        )
+
+    @staticmethod
+    def _requires_supported_proxy(
+        hypothesis: str,
+        correction_history: Optional[List[Dict[str, Any]]],
+    ) -> bool:
+        signal_text = " ".join(
+            [
+                hypothesis or "",
+                *[
+                    " ".join(
+                        str(item.get(key, ""))
+                        for key in ("feedback", "corrected_expression", "expression")
+                    )
+                    for item in (correction_history or [])
+                ],
+            ]
+        ).lower()
+        proxy_markers = (
+            "regime",
+            "branch",
+            "conditional",
+            "too expressive",
+            "unsupported",
+            "?",
+        )
+        return any(marker in signal_text for marker in proxy_markers)
+
+    def _last_resort_guidance(
+        self,
+        hypothesis: str,
+        current_expression: str,
+        correction_history: Optional[List[Dict[str, Any]]],
+    ) -> str:
+        guidance_lines = [
+            "This is the final correction attempt. Simplify aggressively and prefer a supported "
+            "single-expression approximation over a more complex but brittle formula.",
+        ]
+
+        if self._requires_supported_proxy(hypothesis, correction_history):
+            guidance_lines.append(
+                "Use a supported proxy with a single-window, single-branch expression. "
+                "Avoid regime switches, conditional trees, or multi-path logic."
+            )
+
+        current_score = self._expression_complexity_score(current_expression)
+        rejected_scores = [
+            self._expression_complexity_score(item.get("corrected_expression") or item.get("expression"))
+            for item in (correction_history or [])
+        ]
+        if rejected_scores and max(rejected_scores) >= current_score:
+            guidance_lines.append(
+                "Reduce complexity relative to the rejected candidates. Choose an expression "
+                "simpler than the rejected candidates and avoid adding branches, extra windows, "
+                "or nested operators."
+            )
+
+        return "\n".join(guidance_lines)
     
     def check_consistency(
         self,
@@ -63,7 +143,9 @@ class FactorConsistencyChecker:
         factor_description: str,
         factor_formulation: str,
         factor_expression: str,
-        variables: Dict[str, str] = None
+        variables: Dict[str, str] = None,
+        correction_history: Optional[List[Dict[str, Any]]] = None,
+        last_resort: bool = False,
     ) -> ConsistencyCheckResult:
         """Check consistency between hypothesis, description, formulation, expression; return result or corrected fields."""
         if not self.enabled:
@@ -97,6 +179,34 @@ class FactorConsistencyChecker:
                     variables=variables or {}
                 )
             )
+
+            if correction_history:
+                history_lines = [
+                    "",
+                    "**Previous Correction Attempts:**",
+                ]
+                for item in correction_history:
+                    history_lines.extend(
+                        [
+                            f"- Attempt {item.get('attempt')}: severity={item.get('severity', 'unknown')}",
+                            f"  Feedback: {item.get('feedback', '')}",
+                            f"  Rejected expression: {item.get('corrected_expression') or item.get('expression') or ''}",
+                        ]
+                    )
+                history_lines.append(
+                    "Do not repeat previously rejected expressions. Address the recorded feedback directly."
+                )
+                user_prompt += "\n" + "\n".join(history_lines)
+
+            if last_resort:
+                user_prompt += (
+                    "\n\n**Last Resort Instruction:**\n"
+                    + self._last_resort_guidance(
+                        hypothesis=hypothesis,
+                        current_expression=factor_expression,
+                        correction_history=correction_history,
+                    )
+                )
             
             result_dict = APIBackend().build_messages_and_create_chat_completion_json(
                 user_prompt=user_prompt,
@@ -134,6 +244,20 @@ class FactorConsistencyChecker:
                 overall_feedback=f"Consistency check failed with error: {str(e)}",
                 severity="critical"
             )
+
+    def _validate_corrected_expression(self, expression: Optional[str]) -> Tuple[bool, str]:
+        if not expression:
+            return False, "Empty corrected expression"
+
+        upper_expression = expression.upper()
+        for func_name in UNSUPPORTED_CORRECTION_FUNCTIONS:
+            if re.search(rf"\b{re.escape(func_name)}\s*\(", upper_expression):
+                return False, f"unsupported function in corrected expression: {func_name}"
+
+        if "OPTION A" in upper_expression or "OPTION B" in upper_expression:
+            return False, "multi-candidate corrected expression is not allowed"
+
+        return True, ""
     
     def check_and_correct(
         self,
@@ -147,6 +271,7 @@ class FactorConsistencyChecker:
         """Check consistency and attempt correction. Returns (result, final_expr, final_desc)."""
         current_expression = factor_expression
         current_description = factor_description
+        correction_history: List[Dict[str, Any]] = []
         
         for attempt in range(self.max_correction_attempts):
             result = self.check_consistency(
@@ -155,7 +280,9 @@ class FactorConsistencyChecker:
                 factor_description=current_description,
                 factor_formulation=factor_formulation,
                 factor_expression=current_expression,
-                variables=variables
+                variables=variables,
+                correction_history=correction_history,
+                last_resort=attempt == self.max_correction_attempts - 1,
             )
             
             if result.is_consistent:
@@ -164,8 +291,27 @@ class FactorConsistencyChecker:
             if self.strict_mode:
                 logger.warning(f"Strict mode: factor {factor_name} failed, no correction")
                 return result, current_expression, current_description
+
+            correction_history.append(
+                {
+                    "attempt": attempt + 1,
+                    "expression": current_expression,
+                    "description": current_description,
+                    "feedback": result.overall_feedback,
+                    "severity": result.severity,
+                    "corrected_expression": result.corrected_expression,
+                    "corrected_description": result.corrected_description,
+                }
+            )
             
             if result.corrected_expression and result.corrected_expression != current_expression:
+                is_valid_correction, rejection_reason = self._validate_corrected_expression(result.corrected_expression)
+                if not is_valid_correction:
+                    logger.warning(f"Rejected corrected expression for {factor_name}: {rejection_reason}")
+                    result.overall_feedback = (
+                        f"{result.overall_feedback}\nRejected corrected expression: {rejection_reason}"
+                    ).strip()
+                    break
                 logger.info(f"Attempting expression correction ({attempt + 1}/{self.max_correction_attempts})")
                 logger.info(f"Original: {current_expression}")
                 logger.info(f"Corrected: {result.corrected_expression}")
@@ -177,13 +323,18 @@ class FactorConsistencyChecker:
                 logger.warning(f"Cannot correct factor {factor_name}, giving up")
                 break
         
+        if correction_history and current_expression == factor_expression and not result.is_consistent:
+            return result, current_expression, current_description
+
         final_result = self.check_consistency(
             hypothesis=hypothesis,
             factor_name=factor_name,
             factor_description=current_description,
             factor_formulation=factor_formulation,
             factor_expression=current_expression,
-            variables=variables
+            variables=variables,
+            correction_history=correction_history,
+            last_resort=True,
         )
         
         return final_result, current_expression, current_description
@@ -226,7 +377,7 @@ class FactorConsistencyChecker:
         if self.strict_mode:
             return False
         
-        if result.severity in ["none", "minor"]:
+        if result.severity in self.allowed_inconsistent_severities:
             return True
         
         return False
