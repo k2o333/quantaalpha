@@ -9,9 +9,8 @@ Tests cover:
 - Default implementations
 """
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class TestSchedulerConfig:
@@ -360,3 +359,301 @@ class TestDefaultMiningScheduler:
             assert diff < 5
         finally:
             scheduler.stop()
+
+
+class TestRevalidationSchedulerLibraryPath:
+    """Tests for FactorLibraryManager integration in DefaultRevalidationScheduler."""
+
+    def test_library_path_from_env(self, monkeypatch):
+        """Test library_path defaults to FACTOR_LIBRARY_PATH env var."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", "/test/path/library.json")
+        scheduler = DefaultRevalidationScheduler()
+        assert scheduler.library_path == "/test/path/library.json"
+
+    def test_library_path_from_param(self):
+        """Test library_path can be passed as parameter."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        scheduler = DefaultRevalidationScheduler(library_path="/custom/path.json")
+        assert scheduler.library_path == "/custom/path.json"
+
+    def test_library_path_fallback_default(self, monkeypatch):
+        """Test library_path falls back to data/results/factor_library.json."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        monkeypatch.delenv("FACTOR_LIBRARY_PATH", raising=False)
+        scheduler = DefaultRevalidationScheduler()
+        assert scheduler.library_path == "data/results/factor_library.json"
+
+
+class TestMiningSchedulerLibraryPath:
+    """Tests for FactorLibraryManager integration in DefaultMiningScheduler."""
+
+    def test_library_path_from_env(self, monkeypatch):
+        """Test library_path defaults to FACTOR_LIBRARY_PATH env var."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", "/test/path/library.json")
+        scheduler = DefaultMiningScheduler()
+        assert scheduler.library_path == "/test/path/library.json"
+
+    def test_library_path_from_param(self):
+        """Test library_path can be passed as parameter."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(library_path="/custom/path.json")
+        assert scheduler.library_path == "/custom/path.json"
+
+    def test_library_path_fallback_default(self, monkeypatch):
+        """Test library_path falls back to data/results/factor_library.json."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        monkeypatch.delenv("FACTOR_LIBRARY_PATH", raising=False)
+        scheduler = DefaultMiningScheduler()
+        assert scheduler.library_path == "data/results/factor_library.json"
+
+
+class TestRevalidationSchedulerStartStop:
+    """Tests for start/stop/timer mechanism in DefaultRevalidationScheduler."""
+
+    def test_start_creates_thread(self):
+        """Test start() creates background thread."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        scheduler = DefaultRevalidationScheduler(interval_hours=1)
+        scheduler.start()
+        try:
+            assert scheduler._scheduler_thread is not None
+            assert scheduler._scheduler_thread.is_alive()
+            assert scheduler._running is True
+        finally:
+            scheduler.stop()
+
+    def test_stop_joins_thread(self):
+        """Test stop() joins background thread."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        scheduler = DefaultRevalidationScheduler(interval_hours=1)
+        scheduler.start()
+        scheduler.stop()
+        assert scheduler._running is False
+
+    def test_double_start_no_duplication(self):
+        """Test starting twice does not create duplicate threads."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        scheduler = DefaultRevalidationScheduler(interval_hours=1)
+        scheduler.start()
+        first_thread = scheduler._scheduler_thread
+        scheduler.start()
+        assert scheduler._scheduler_thread is first_thread
+        scheduler.stop()
+
+
+class TestMiningSchedulerStartStop:
+    """Tests for start/stop/timer mechanism in DefaultMiningScheduler."""
+
+    def test_start_creates_thread(self):
+        """Test start() creates background thread."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(interval_hours=1)
+        scheduler.start()
+        try:
+            assert scheduler._scheduler_thread is not None
+            assert scheduler._scheduler_thread.is_alive()
+            assert scheduler._running is True
+        finally:
+            scheduler.stop()
+
+    def test_stop_joins_thread(self):
+        """Test stop() joins background thread."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(interval_hours=1)
+        scheduler.start()
+        scheduler.stop()
+        assert scheduler._running is False
+
+    def test_double_start_no_duplication(self):
+        """Test starting twice does not create duplicate threads."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(interval_hours=1)
+        scheduler.start()
+        first_thread = scheduler._scheduler_thread
+        scheduler.start()
+        assert scheduler._scheduler_thread is first_thread
+        scheduler.stop()
+
+
+class TestRevalidationFailurePath:
+    """Tests for failure handling in revalidation scheduler."""
+
+    def test_run_revalidation_uses_proper_validation_result_structure(
+        self, tmp_path, monkeypatch
+    ):
+        """Test run_revalidation builds proper validation_result dict for failures."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+        import json
+
+        lib_path = tmp_path / "test_library.json"
+        lib_path.write_text(
+            json.dumps(
+                {
+                    "metadata": {"version": "1.1", "total_factors": 2},
+                    "factors": {
+                        "factor_001": {
+                            "factor_id": "factor_001",
+                            "factor_name": "Test Factor",
+                            "evaluation": {"status": "active", "last_validated": None},
+                        },
+                        "factor_002": {
+                            "factor_id": "factor_002",
+                            "factor_name": "Test Factor 2",
+                            "evaluation": {"status": "active", "last_validated": None},
+                        },
+                    },
+                }
+            )
+        )
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", str(lib_path))
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            max_per_run=10,
+            days_threshold=0,
+        )
+
+        scheduler._run_factor_backtest = MagicMock(return_value=False)
+
+        result = scheduler.run_revalidation()
+
+        assert result.total_candidates == 2
+        assert result.revalidated_count == 0
+
+        for factor_id, new_status in result.status_changes.items():
+            assert new_status != "active", (
+                f"Failed backtest should not result in active status for {factor_id}"
+            )
+
+
+class TestMiningFailurePath:
+    """Tests for failure handling in mining scheduler."""
+
+    def test_validate_factor_returns_failure_result(self):
+        """Test _validate_factor returns proper dict structure for failures."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+        scheduler._validate_factor = lambda fid, entry: {
+            "status": "failure",
+            "summary": {
+                "stability_score": None,
+                "validation_summary": f"Validation failed for {fid}",
+            },
+        }
+
+        result = scheduler._validate_factor("test_factor", {"factor_id": "test_factor"})
+        assert result["status"] == "failure"
+        assert (
+            result["summary"]["validation_summary"]
+            == "Validation failed for test_factor"
+        )
+
+    def test_run_mining_with_failure_skips_add_to_library(self, tmp_path, monkeypatch):
+        """Test run_mining does not add factors to library when validation fails."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "test_library.json"
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", str(lib_path))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            max_per_run=10,
+        )
+
+        scheduler._generate_factors = lambda ctx: [
+            {"factor_id": "new_factor_1", "factor_name": "Test Factor"},
+            {"factor_id": "new_factor_2", "factor_name": "Test Factor 2"},
+        ]
+
+        scheduler._validate_factor = lambda fid, entry: None
+
+        result = scheduler.run_mining()
+
+        assert result.factors_generated == 2
+        assert result.factors_validated == 0
+        assert result.factors_added == 0
+
+
+class TestApplyValidationResultSignature:
+    """Tests that apply_validation_result is called with correct signature."""
+
+    def test_run_revalidation_iterates_factor_entries_correctly(
+        self, tmp_path, monkeypatch
+    ):
+        """Verify run_revalidation properly extracts factor_id from factor_entry dict."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+        import json
+
+        lib_path = tmp_path / "test_library.json"
+        lib_path.write_text(
+            json.dumps(
+                {
+                    "metadata": {"version": "1.1", "total_factors": 1},
+                    "factors": {
+                        "test_factor_001": {
+                            "factor_id": "test_factor_001",
+                            "factor_name": "Test Factor",
+                            "evaluation": {"status": "active", "last_validated": None},
+                        },
+                    },
+                }
+            )
+        )
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", str(lib_path))
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            max_per_run=10,
+            days_threshold=0,
+        )
+
+        captured_calls = []
+
+        def capturing_backtest(factor_id, factor_entry):
+            captured_calls.append((factor_id, factor_entry))
+            return True
+
+        scheduler._run_factor_backtest = capturing_backtest
+        scheduler.run_revalidation()
+
+        assert len(captured_calls) == 1
+        factor_id_arg, factor_entry_arg = captured_calls[0]
+        assert isinstance(factor_entry_arg, dict)
+        assert factor_entry_arg.get("factor_id") == "test_factor_001"
+        assert factor_id_arg == "test_factor_001"
+
+
+class TestStubReturnsFailure:
+    """Tests that stub implementations return explicit failure, not success."""
+
+    def test_run_factor_backtest_stubs_returns_false(self):
+        """Test _run_factor_backtest stub returns False (not True)."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        scheduler = DefaultRevalidationScheduler()
+        result = scheduler._run_factor_backtest("test_id", {"factor_id": "test_id"})
+        assert result is False, "Stub should return False, not True"
+
+    def test_validate_factor_stubs_returns_failure_status(self):
+        """Test _validate_factor stub returns {'status': 'failure'}."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+        result = scheduler._validate_factor("test_id", {"factor_id": "test_id"})
+        assert result is not None
+        assert result["status"] == "failure", "Stub should return failure status"

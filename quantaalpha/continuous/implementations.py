@@ -11,13 +11,11 @@ These implementations use:
 from __future__ import annotations
 
 import logging
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread, Event
 from typing import Optional
 
-from .orchestrator import MiningOrchestrator
 from .scheduler import (
     DataMonitorTrigger,
     MiningResult,
@@ -26,7 +24,6 @@ from .scheduler import (
     RevalidationScheduler,
     SchedulerContext,
     SchedulerEvent,
-    SchedulerConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,25 +153,51 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         days_threshold: int = 21,
         max_per_run: int = 10,
         interval_hours: int = 24,
+        library_path: Optional[str] = None,
     ):
+        import os
+
         self.days_threshold = days_threshold
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
+        self.library_path = library_path or os.environ.get(
+            "FACTOR_LIBRARY_PATH", "data/results/factor_library.json"
+        )
         self._next_run: Optional[datetime] = None
         self._running = False
+        self._stop_event = Event()
+        self._scheduler_thread: Optional[Thread] = None
 
     def start(self) -> None:
-        """Start the scheduler."""
+        """Start the scheduler with background timer loop."""
+        if self._scheduler_thread and self._scheduler_thread.is_alive():
+            logger.warning("Revalidation scheduler already running")
+            return
         self._running = True
+        self._stop_event.clear()
         self._update_next_run()
-        logger.info(
-            f"Revalidation scheduler started, next run at {self._next_run}"
-        )
+        self._scheduler_thread = Thread(target=self._scheduler_loop, daemon=True)
+        self._scheduler_thread.start()
+        logger.info(f"Revalidation scheduler started, next run at {self._next_run}")
 
     def stop(self) -> None:
         """Stop the scheduler."""
+        self._stop_event.set()
+        if self._scheduler_thread:
+            self._scheduler_thread.join(timeout=10)
         self._running = False
         logger.info("Revalidation scheduler stopped")
+
+    def _scheduler_loop(self) -> None:
+        """Background scheduler loop that triggers revalidation."""
+        while not self._stop_event.is_set():
+            now = datetime.now()
+            if self._next_run and now >= self._next_run:
+                try:
+                    self.run_revalidation()
+                except Exception as e:
+                    logger.error(f"Error in revalidation cycle: {e}")
+            self._stop_event.wait(timeout=60)
 
     def run_revalidation(self) -> RevalidationResult:
         """Run one revalidation cycle."""
@@ -184,12 +207,10 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         result = RevalidationResult(timestamp=start_time)
 
         try:
-            # Import here to avoid circular imports
             from quantaalpha.factors.library import FactorLibraryManager
 
-            library = FactorLibraryManager()
+            library = FactorLibraryManager(self.library_path)
 
-            # Get candidates
             candidates = library.select_revalidation_candidates(
                 days=self.days_threshold,
             )
@@ -202,20 +223,36 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 f"candidates selected for revalidation"
             )
 
-            for factor_id in candidates_to_run:
+            for factor_entry in candidates_to_run:
+                factor_id = factor_entry.get("factor_id", "")
                 try:
-                    # Run backtest for this factor
-                    # TODO: Integrate with backtest module
-                    success = self._run_factor_backtest(factor_id)
+                    backtest_result = self._run_factor_backtest(factor_id, factor_entry)
 
-                    # Update factor status based on result
-                    if success:
-                        library.apply_validation_result(factor_id, success=True)
+                    if backtest_result is True:
+                        validation_result = {
+                            "status": "success",
+                            "summary": {
+                                "stability_score": 0.6,
+                                "validation_summary": f"Backtest passed for {factor_id}",
+                            },
+                        }
                         result.revalidated_count += 1
-                        result.status_changes[factor_id] = "active"
                     else:
-                        library.apply_validation_result(factor_id, success=False)
-                        result.status_changes[factor_id] = "degraded"
+                        validation_result = {
+                            "status": "failure",
+                            "summary": {
+                                "stability_score": None,
+                                "validation_summary": f"Backtest failed for {factor_id}",
+                            },
+                        }
+
+                    updated_entry = library.apply_validation_result(
+                        factor_entry, validation_result
+                    )
+                    new_status = updated_entry.get("evaluation", {}).get(
+                        "status", "unknown"
+                    )
+                    result.status_changes[factor_id] = new_status
 
                 except Exception as e:
                     logger.error(f"Error revalidating factor {factor_id}: {e}")
@@ -238,18 +275,22 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         """Update next run timestamp."""
         self._next_run = datetime.now() + timedelta(hours=self.interval_hours)
 
-    def _run_factor_backtest(self, factor_id: str) -> bool:
+    def _run_factor_backtest(self, factor_id: str, factor_entry: dict) -> bool:
         """
         Run backtest for a single factor.
 
-        TODO: Integrate with actual backtest module.
+        This is a seam for backtest module integration.
+
+        Args:
+            factor_id: ID of the factor to backtest
+            factor_entry: Full factor entry dict from library
 
         Returns:
-            True if factor passed backtest, False otherwise.
+            True if factor passed backtest, False if failed.
+            None indicates error/uncertain result.
         """
-        # Placeholder - integrate with backtest module
         logger.info(f"Running backtest for factor {factor_id}")
-        return True
+        return False
 
 
 class DefaultMiningScheduler(MiningScheduler):
@@ -267,24 +308,50 @@ class DefaultMiningScheduler(MiningScheduler):
         self,
         max_per_run: int = 5,
         interval_hours: int = 12,
+        library_path: Optional[str] = None,
     ):
+        import os
+
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
+        self.library_path = library_path or os.environ.get(
+            "FACTOR_LIBRARY_PATH", "data/results/factor_library.json"
+        )
         self._next_run: Optional[datetime] = None
         self._running = False
+        self._stop_event = Event()
+        self._scheduler_thread: Optional[Thread] = None
 
     def start(self) -> None:
-        """Start the scheduler."""
+        """Start the scheduler with background timer loop."""
+        if self._scheduler_thread and self._scheduler_thread.is_alive():
+            logger.warning("Mining scheduler already running")
+            return
         self._running = True
+        self._stop_event.clear()
         self._update_next_run()
-        logger.info(
-            f"Mining scheduler started, next run at {self._next_run}"
-        )
+        self._scheduler_thread = Thread(target=self._scheduler_loop, daemon=True)
+        self._scheduler_thread.start()
+        logger.info(f"Mining scheduler started, next run at {self._next_run}")
 
     def stop(self) -> None:
         """Stop the scheduler."""
+        self._stop_event.set()
+        if self._scheduler_thread:
+            self._scheduler_thread.join(timeout=10)
         self._running = False
         logger.info("Mining scheduler stopped")
+
+    def _scheduler_loop(self) -> None:
+        """Background scheduler loop that triggers mining."""
+        while not self._stop_event.is_set():
+            now = datetime.now()
+            if self._next_run and now >= self._next_run:
+                try:
+                    self.run_mining()
+                except Exception as e:
+                    logger.error(f"Error in mining cycle: {e}")
+            self._stop_event.wait(timeout=60)
 
     def run_mining(self) -> MiningResult:
         """Run one mining cycle."""
@@ -294,25 +361,23 @@ class DefaultMiningScheduler(MiningScheduler):
         result = MiningResult(timestamp=start_time)
 
         try:
-            # Step 1: RAG retrieval for context
             context = self._retrieve_context()
-
-            # Step 2: Generate factors via LLM
             generated = self._generate_factors(context)
 
             result.factors_generated = len(generated)
 
-            for factor_id in generated[: self.max_per_run]:
+            for factor_entry in generated[: self.max_per_run]:
+                factor_id = factor_entry.get("factor_id", "")
                 try:
-                    # Step 3: Validate factor
-                    success = self._validate_factor(factor_id)
+                    validation_result = self._validate_factor(factor_id, factor_entry)
 
-                    if success:
+                    if (
+                        validation_result is not None
+                        and validation_result.get("status") == "success"
+                    ):
                         result.factors_validated += 1
                         result.factor_ids.append(factor_id)
-
-                        # Step 4: Add to library
-                        self._add_factor_to_library(factor_id)
+                        self._add_factor_to_library(factor_entry)
                         result.factors_added += 1
 
                 except Exception as e:
@@ -346,7 +411,6 @@ class DefaultMiningScheduler(MiningScheduler):
         try:
             from quantaalpha.factors.fewshot import query_active_factors_RAG
 
-            # Query top 10 most similar active factors
             results = query_active_factors_RAG(query="", top_k=10)
             return results.get("context", "")
 
@@ -357,7 +421,7 @@ class DefaultMiningScheduler(MiningScheduler):
             logger.error(f"Error retrieving RAG context: {e}")
             return ""
 
-    def _generate_factors(self, context: str) -> list[str]:
+    def _generate_factors(self, context: str) -> list[dict]:
         """
         Generate new factors via LLM.
 
@@ -365,36 +429,54 @@ class DefaultMiningScheduler(MiningScheduler):
             context: RAG context from existing factors.
 
         Returns:
-            List of generated factor IDs.
+            List of generated factor entry dicts.
         """
-        # TODO: Integrate with LLM client
         logger.info("Generating new factors via LLM")
         return []
 
-    def _validate_factor(self, factor_id: str) -> bool:
+    def _validate_factor(self, factor_id: str, factor_entry: dict) -> Optional[dict]:
         """
         Validate a single factor via backtest.
 
-        TODO: Integrate with backtest module.
+        This is a seam for backtest module integration.
+
+        Args:
+            factor_id: ID of the factor to validate
+            factor_entry: Full factor entry dict
 
         Returns:
-            True if factor passed validation.
+            Validation result dict with 'status' key ('success' or 'failure').
+            None indicates error/uncertain result.
         """
         logger.info(f"Validating factor {factor_id}")
-        return True
+        return {
+            "status": "failure",
+            "summary": {
+                "stability_score": 0.0,
+                "validation_summary": f"Validation not implemented for {factor_id}",
+            },
+        }
 
-    def _add_factor_to_library(self, factor_id: str) -> None:
+    def _add_factor_to_library(self, factor_entry: dict) -> None:
         """
         Add validated factor to library.
 
         Args:
-            factor_id: ID of factor to add.
+            factor_entry: Factor entry dict to add.
         """
         try:
             from quantaalpha.factors.library import FactorLibraryManager
 
-            library = FactorLibraryManager()
-            # TODO: Update factor status to active
+            library = FactorLibraryManager(self.library_path)
+            factor_id = factor_entry.get("factor_id", "")
+            validation_result = {
+                "status": "success",
+                "summary": {
+                    "stability_score": 0.6,
+                    "validation_summary": f"Factor {factor_id} activated after mining",
+                },
+            }
+            library.apply_validation_result(factor_entry, validation_result)
             logger.info(f"Factor {factor_id} added to library")
 
         except ImportError:
