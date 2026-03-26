@@ -37,6 +37,10 @@ DEFAULT_FALLBACK_TOKENIZER = "cl100k_base"
 _TOKENIZER_FALLBACK_WARNED_MODELS: set[str] = set()
 
 
+class EmptyLLMResponseError(RuntimeError):
+    """Raised when the provider returns an empty chat completion payload."""
+
+
 def md5_hash(input_string: str) -> str:
     hash_md5 = hashlib.md5(usedforsecurity=False)
     input_bytes = input_string.encode("utf-8")
@@ -1033,8 +1037,12 @@ class APIBackend:
 
                 # Check for empty response after streaming
                 if not resp or not resp.strip():
-                    logger.warning(f"Empty LLM response for model {model} after streaming, returning empty string")
-                    resp = ""
+                    logger.warning(
+                        f"Empty LLM response for model {model} after streaming; raising retryable error"
+                    )
+                    raise EmptyLLMResponseError(
+                        f"Model {model} returned empty content after streaming completion"
+                    )
 
                 if LLM_SETTINGS.log_llm_chat_content:
                     display_resp = resp[:200] + f"... [{len(resp)} chars]" if len(resp) > 200 else resp

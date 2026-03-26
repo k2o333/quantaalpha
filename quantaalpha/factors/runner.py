@@ -173,16 +173,25 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
 
         # Run backtest (local or Docker). Config name must match factor_template files (e.g. conf_baseline.yaml).
         config_name = "conf_baseline.yaml" if len(exp.based_experiments) == 0 else "conf_combined_factors.yaml"
-        logger.info(f"Execute factor backtest (Use {'Local' if use_local else 'Docker container'}): {config_name}")
+        factor_count = 0
+        if hasattr(exp, "sub_workspace_list") and exp.sub_workspace_list is not None:
+            factor_count = sum(1 for workspace in exp.sub_workspace_list if workspace is not None)
+        workspace_path = getattr(exp.experiment_workspace, "workspace_path", "<unknown>")
+        logger.info(
+            f"Execute factor backtest (Use {'Local' if use_local else 'Docker container'}): "
+            f"{config_name}; workspace={workspace_path}; factor_count={factor_count}"
+        )
         
         # Ensure workspace and config are ready (execute() does not call before_execute()).
         exp.experiment_workspace.before_execute()
+        logger.info(f"Backtest workspace ready: workspace={workspace_path}; config={config_name}")
         
         # execute() returns (result_df, execute_qlib_log) or (None, execute_qlib_log)
         result_tuple = exp.experiment_workspace.execute(
             qlib_config_name=config_name,
             run_env={}
         )
+        logger.info(f"Backtest execution finished: workspace={workspace_path}; config={config_name}")
         
         # Unpack tuple; take first element (DataFrame)
         result = result_tuple[0] if isinstance(result_tuple, tuple) else result_tuple
