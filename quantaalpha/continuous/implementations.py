@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread, Event
-from typing import Optional
+from typing import Callable, Optional
 
 from .scheduler import (
     DataMonitorTrigger,
@@ -154,6 +154,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         max_per_run: int = 10,
         interval_hours: int = 24,
         library_path: Optional[str] = None,
+        backtest_runner: Optional[Callable[[str, dict], bool]] = None,
     ):
         import os
 
@@ -163,6 +164,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self.library_path = library_path or os.environ.get(
             "FACTOR_LIBRARY_PATH", "data/results/factor_library.json"
         )
+        self._backtest_runner = backtest_runner
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -290,6 +292,8 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             None indicates error/uncertain result.
         """
         logger.info(f"Running backtest for factor {factor_id}")
+        if self._backtest_runner is not None:
+            return self._backtest_runner(factor_id, factor_entry)
         return False
 
 
@@ -309,6 +313,7 @@ class DefaultMiningScheduler(MiningScheduler):
         max_per_run: int = 5,
         interval_hours: int = 12,
         library_path: Optional[str] = None,
+        factor_validator: Optional[Callable[[str, dict], Optional[dict]]] = None,
     ):
         import os
 
@@ -317,6 +322,7 @@ class DefaultMiningScheduler(MiningScheduler):
         self.library_path = library_path or os.environ.get(
             "FACTOR_LIBRARY_PATH", "data/results/factor_library.json"
         )
+        self._factor_validator = factor_validator
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -449,6 +455,8 @@ class DefaultMiningScheduler(MiningScheduler):
             None indicates error/uncertain result.
         """
         logger.info(f"Validating factor {factor_id}")
+        if self._factor_validator is not None:
+            return self._factor_validator(factor_id, factor_entry)
         return {
             "status": "failure",
             "summary": {

@@ -657,3 +657,84 @@ class TestStubReturnsFailure:
         result = scheduler._validate_factor("test_id", {"factor_id": "test_id"})
         assert result is not None
         assert result["status"] == "failure", "Stub should return failure status"
+
+
+class TestInjectedExecutionHooks:
+    """Tests for injectable execution hooks on schedulers."""
+
+    def test_revalidation_scheduler_uses_injected_backtest_runner(
+        self, tmp_path, monkeypatch
+    ):
+        """Injected backtest runner should be called instead of the default seam."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+        import json
+
+        lib_path = tmp_path / "test_library.json"
+        lib_path.write_text(
+            json.dumps(
+                {
+                    "metadata": {"version": "1.1", "total_factors": 1},
+                    "factors": {
+                        "test_factor_001": {
+                            "factor_id": "test_factor_001",
+                            "factor_name": "Test Factor",
+                            "evaluation": {"status": "active", "last_validated": None},
+                        },
+                    },
+                }
+            )
+        )
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", str(lib_path))
+
+        captured = []
+
+        def injected_backtest_runner(factor_id, factor_entry):
+            captured.append((factor_id, factor_entry["factor_name"]))
+            return True
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            max_per_run=10,
+            days_threshold=0,
+            backtest_runner=injected_backtest_runner,
+        )
+
+        result = scheduler.run_revalidation()
+
+        assert result.revalidated_count == 1
+        assert captured == [("test_factor_001", "Test Factor")]
+
+    def test_mining_scheduler_uses_injected_factor_validator(self, tmp_path, monkeypatch):
+        """Injected validator should drive mining success path."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "test_library.json"
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", str(lib_path))
+
+        captured = []
+
+        def injected_validator(factor_id, factor_entry):
+            captured.append((factor_id, factor_entry["factor_name"]))
+            return {
+                "status": "success",
+                "summary": {
+                    "stability_score": 0.9,
+                    "validation_summary": f"Validated {factor_id}",
+                },
+            }
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            max_per_run=10,
+            factor_validator=injected_validator,
+        )
+        scheduler._generate_factors = lambda ctx: [
+            {"factor_id": "new_factor_1", "factor_name": "Test Factor"}
+        ]
+
+        result = scheduler.run_mining()
+
+        assert result.factors_generated == 1
+        assert result.factors_validated == 1
+        assert result.factors_added == 1
+        assert captured == [("new_factor_1", "Test Factor")]
