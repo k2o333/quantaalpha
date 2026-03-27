@@ -35,6 +35,7 @@ class App4BridgeConfig:
     freshness_threshold_hours: int = 24
     update_timeout_seconds: int = 120
     max_update_interfaces_per_cycle: int = 5
+    python_executable: str = ""
 
 
 @dataclass
@@ -135,6 +136,7 @@ class PipelineConfig:
             freshness_threshold_hours=app4_data.get("freshness_threshold_hours", 24),
             update_timeout_seconds=app4_data.get("update_timeout_seconds", 120),
             max_update_interfaces_per_cycle=app4_data.get("max_update_interfaces_per_cycle", 5),
+            python_executable=app4_data.get("python_executable", ""),
         )
 
         # Parse factor section
@@ -204,6 +206,7 @@ class PipelineConfig:
                 "freshness_threshold_hours": self.app4_bridge.freshness_threshold_hours,
                 "update_timeout_seconds": self.app4_bridge.update_timeout_seconds,
                 "max_update_interfaces_per_cycle": self.app4_bridge.max_update_interfaces_per_cycle,
+                "python_executable": self.app4_bridge.python_executable,
             },
             "factor": {
                 "library_path": self.factor.library_path,

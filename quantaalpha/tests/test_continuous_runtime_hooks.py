@@ -12,9 +12,11 @@ These tests verify that stubs are replaced with real integration behavior.
 
 import json
 import tempfile
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import polars as pl
 import pytest
 
 
@@ -136,6 +138,94 @@ class TestRunFactorBacktest:
 
             assert result is True
 
+    def test_backtest_translates_quantaalpha_expression_before_execution(self, tmp_path):
+        """Verify raw QuantaAlpha expressions are translated before FactorExecutor execution."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        data_bridge = MagicMock()
+        data_bridge.load_price_data.return_value = pl.DataFrame({
+            "datetime": pl.date_range(
+                start=date(2024, 1, 1),
+                end=date(2024, 1, 3),
+                interval="1d",
+                eager=True,
+            ),
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.1, 10.2],
+            "high": [10.2, 10.3, 10.4],
+            "low": [9.9, 10.0, 10.1],
+            "close": [10.1, 10.2, 10.3],
+            "volume": [1000.0, 1100.0, 1200.0],
+        })
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            data_bridge=data_bridge,
+        )
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock(success=True, ic_value=0.05, error_message=None)
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            scheduler._run_factor_backtest(
+                "test_factor",
+                {"factor_id": "test_factor", "factor_expression": "TS_MEAN($close, 5)"},
+            )
+
+        call = mock_instance.execute_single.call_args
+        assert call.kwargs["original_expression"] == "TS_MEAN($close, 5)"
+        assert call.kwargs["expression"] == "ts_mean(close, 5)"
+
+    def test_backtest_rewrites_return_alias_before_execution(self, tmp_path):
+        """Verify $return is rewritten to a valid vnpy-compatible return expression."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        data_bridge = MagicMock()
+        data_bridge.load_price_data.return_value = pl.DataFrame({
+            "datetime": pl.date_range(
+                start=date(2024, 1, 1),
+                end=date(2024, 1, 3),
+                interval="1d",
+                eager=True,
+            ),
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.1, 10.2],
+            "high": [10.2, 10.3, 10.4],
+            "low": [9.9, 10.0, 10.1],
+            "close": [10.1, 10.2, 10.3],
+            "volume": [1000.0, 1100.0, 1200.0],
+        })
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            data_bridge=data_bridge,
+        )
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock(success=True, ic_value=0.05, error_message=None)
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            scheduler._run_factor_backtest(
+                "return_factor",
+                {
+                    "factor_id": "return_factor",
+                    "factor_expression": "TS_CORR($return, DELTA($volume, 1), 10)",
+                },
+            )
+
+        call = mock_instance.execute_single.call_args
+        assert call.kwargs["expression"] == "ts_corr((close / ts_delay(close, 1) - 1), ts_delta(volume, 1), 10)"
+
 
 class TestValidateFactor:
     """Tests for _validate_factor seam."""
@@ -238,6 +328,98 @@ class TestValidateFactor:
 
         assert result["status"] == "failure"
         assert "No expression" in result["summary"]["validation_summary"]
+
+    def test_validate_factor_translates_quantaalpha_expression_before_execution(self, tmp_path):
+        """Verify validation translates raw QuantaAlpha expressions before execution."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        data_bridge = MagicMock()
+        data_bridge.load_price_data.return_value = pl.DataFrame({
+            "datetime": pl.date_range(
+                start=date(2024, 1, 1),
+                end=date(2024, 1, 3),
+                interval="1d",
+                eager=True,
+            ),
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.1, 10.2],
+            "high": [10.2, 10.3, 10.4],
+            "low": [9.9, 10.0, 10.1],
+            "close": [10.1, 10.2, 10.3],
+            "volume": [1000.0, 1100.0, 1200.0],
+        })
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path), data_bridge=data_bridge)
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.6
+            mock_result.ic_result.icir = 1.0
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            scheduler._validate_factor(
+                "test_factor",
+                {"factor_id": "test_factor", "factor_expression": "TS_MEAN($close, 5)"},
+            )
+
+        call = mock_instance.execute_single.call_args
+        assert call.kwargs["original_expression"] == "TS_MEAN($close, 5)"
+        assert call.kwargs["expression"] == "ts_mean(close, 5)"
+
+    def test_validate_factor_rewrites_return_alias_before_execution(self, tmp_path):
+        """Verify validation rewrites $return into a valid expression before execution."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        data_bridge = MagicMock()
+        data_bridge.load_price_data.return_value = pl.DataFrame({
+            "datetime": pl.date_range(
+                start=date(2024, 1, 1),
+                end=date(2024, 1, 3),
+                interval="1d",
+                eager=True,
+            ),
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.1, 10.2],
+            "high": [10.2, 10.3, 10.4],
+            "low": [9.9, 10.0, 10.1],
+            "close": [10.1, 10.2, 10.3],
+            "volume": [1000.0, 1100.0, 1200.0],
+        })
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path), data_bridge=data_bridge)
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.6
+            mock_result.ic_result.icir = 1.0
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            scheduler._validate_factor(
+                "return_factor",
+                {
+                    "factor_id": "return_factor",
+                    "factor_expression": "TS_CORR($return, DELTA($volume, 1), 10)",
+                },
+            )
+
+        call = mock_instance.execute_single.call_args
+        assert call.kwargs["expression"] == "ts_corr((close / ts_delay(close, 1) - 1), ts_delta(volume, 1), 10)"
 
 
 class TestGenerateFactors:
@@ -408,6 +590,7 @@ class TestRetrieveContext:
 
                 mock_rag.assert_called_once()
                 mock_build.assert_called_once()
+                assert mock_rag.call_args.kwargs["library_path"] == str(lib_path)
 
     def test_fallback_to_jaccard_when_rag_fails(self, tmp_path):
         """Verify Jaccard fallback when RAG fails."""
@@ -428,6 +611,7 @@ class TestRetrieveContext:
                     result = scheduler._retrieve_context()
 
                     mock_jaccard.assert_called_once()
+                    assert mock_jaccard.call_args.kwargs["library_path"] == str(lib_path)
 
     def test_builds_context_from_library_when_rag_unavailable(self, tmp_path):
         """Verify fallback context building from library."""

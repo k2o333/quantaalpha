@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Default paths
 DEFAULT_LIBRARY_PATH = os.environ.get(
     "FACTOR_LIBRARY_PATH",
-    "data/results/factor_library.json"
+    "third_party/quantaalpha/data/factorlib/all_factors_library.json"
 )
 
 # Singleton vector store instance

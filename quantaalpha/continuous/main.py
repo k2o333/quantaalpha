@@ -15,6 +15,7 @@ Both commands:
 from __future__ import annotations
 
 import logging
+import math
 import signal
 import sys
 import threading
@@ -436,7 +437,10 @@ class ContinuousOrchestrator:
         return ContinuousUpdateBridge(
             storage_dir=storage_dir,
             monitored_interfaces=config.app4_bridge.interfaces,
-            stale_threshold_days=2,
+            stale_threshold_days=max(1, math.ceil(config.app4_bridge.freshness_threshold_hours / 24)),
+            update_timeout_seconds=config.app4_bridge.update_timeout_seconds,
+            max_update_interfaces_per_cycle=config.app4_bridge.max_update_interfaces_per_cycle,
+            python_executable=config.app4_bridge.python_executable,
         )
 
     def start(self) -> None:

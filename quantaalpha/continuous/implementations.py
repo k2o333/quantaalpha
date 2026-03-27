@@ -28,6 +28,26 @@ from .scheduler import (
 
 logger = logging.getLogger(__name__)
 
+RETURN_ALIAS_EXPRESSION = "(close / ts_delay(close, 1) - 1)"
+
+
+def _translate_factor_expression(expression: str) -> tuple[str, list[str]]:
+    """Translate QuantaAlpha factor syntax into the vnpy-compatible expression dialect."""
+    if not expression:
+        return "", []
+
+    try:
+        import re
+        from third_party.glue.expression_translator import ExpressionTranslator
+
+        translator = ExpressionTranslator()
+        translated, warnings = translator.translate(expression)
+        translated = re.sub(r"\breturn\b", RETURN_ALIAS_EXPRESSION, translated)
+        return translated, warnings
+    except Exception as exc:
+        logger.warning(f"Expression translation failed, using raw expression: {exc}")
+        return expression, [str(exc)]
+
 
 class DefaultDataMonitor(DataMonitorTrigger):
     """
@@ -322,6 +342,13 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             if not expression:
                 logger.warning(f"Factor {factor_id} has no expression, skipping backtest")
                 return False
+            translated_expression, translation_warnings = _translate_factor_expression(expression)
+            if translation_warnings:
+                logger.debug(
+                    "Translation warnings for %s: %s",
+                    factor_id,
+                    "; ".join(translation_warnings),
+                )
 
             # Get periods from configured execution periods
             train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
@@ -348,7 +375,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
             result = executor.execute_single(
                 factor_name=factor_id,
-                expression=expression,
+                expression=translated_expression,
                 original_expression=expression,
             )
 
@@ -362,7 +389,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {min_ic}")
                     return False
             else:
-                error_msg = result.error_message or "Unknown error"
+                error_msg = result.error_message or "IC unavailable after execution"
                 logger.warning(f"Factor {factor_id} backtest failed: {error_msg}")
                 return False
 
@@ -407,7 +434,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             end_date = max(all_end_dates)
 
             df = self._data_bridge.load_price_data(
-                interfaces=["daily", "daily_basic"],
+                interfaces=["daily"],
                 start_date=start_date.replace("-", ""),
                 end_date=end_date.replace("-", ""),
             )
@@ -575,10 +602,18 @@ class DefaultMiningScheduler(MiningScheduler):
 
             # Try RAG first, fall back to Jaccard
             try:
-                results = query_active_factors_RAG(query="", top_k=10)
+                results = query_active_factors_RAG(
+                    query="",
+                    top_k=10,
+                    library_path=self.library_path,
+                )
             except Exception:
                 # Fallback to Jaccard similarity
-                results = query_active_factors_jaccard(query="", top_k=10)
+                results = query_active_factors_jaccard(
+                    query="",
+                    top_k=10,
+                    library_path=self.library_path,
+                )
 
             if results and len(results) > 0:
                 context = build_fewshot_context(
@@ -969,6 +1004,13 @@ class DefaultMiningScheduler(MiningScheduler):
                         "rank_ic_mean": None,
                     },
                 }
+            translated_expression, translation_warnings = _translate_factor_expression(expression)
+            if translation_warnings:
+                logger.debug(
+                    "Translation warnings for %s: %s",
+                    factor_id,
+                    "; ".join(translation_warnings),
+                )
 
             # Validation thresholds from pipeline.yaml
             min_ic = 0.02
@@ -1007,7 +1049,7 @@ class DefaultMiningScheduler(MiningScheduler):
 
             result = executor.execute_single(
                 factor_name=factor_id,
-                expression=expression,
+                expression=translated_expression,
                 original_expression=expression,
             )
 
@@ -1047,7 +1089,7 @@ class DefaultMiningScheduler(MiningScheduler):
                         },
                     }
             else:
-                error_msg = result.error_message or "Execution failed"
+                error_msg = result.error_message or "IC unavailable after execution"
                 return {
                     "status": "failure",
                     "summary": {
@@ -1115,7 +1157,7 @@ class DefaultMiningScheduler(MiningScheduler):
             end_date = max(all_end_dates)
 
             df = self._data_bridge.load_price_data(
-                interfaces=["daily", "daily_basic"],
+                interfaces=["daily"],
                 start_date=start_date.replace("-", ""),
                 end_date=end_date.replace("-", ""),
             )

@@ -36,6 +36,9 @@ app4_bridge:
   data_roots:
     - /home/quan/testdata/aspipe_v4/data
   freshness_threshold_hours: 24
+  update_timeout_seconds: 180
+  max_update_interfaces_per_cycle: 3
+  python_executable: /root/miniforge3/envs/get/bin/python
 
 factor:
   library_path: third_party/quantaalpha/data/factorlib/all_factors_library.json
@@ -91,6 +94,9 @@ features:
         assert "daily" in config.app4_bridge.interfaces
         assert "/home/quan/testdata/aspipe_v4/data" in config.app4_bridge.data_roots
         assert config.app4_bridge.freshness_threshold_hours == 24
+        assert config.app4_bridge.update_timeout_seconds == 180
+        assert config.app4_bridge.max_update_interfaces_per_cycle == 3
+        assert config.app4_bridge.python_executable == "/root/miniforge3/envs/get/bin/python"
 
         # Factor checks
         assert config.factor.library_path == "third_party/quantaalpha/data/factorlib/all_factors_library.json"
@@ -134,6 +140,9 @@ features:
         # Verify nested structure
         assert config_dict["runtime"]["data_check_interval_seconds"] == 300
         assert config_dict["app4_bridge"]["interfaces"] == ["daily", "daily_basic", "moneyflow"]
+        assert config_dict["app4_bridge"]["update_timeout_seconds"] == 180
+        assert config_dict["app4_bridge"]["max_update_interfaces_per_cycle"] == 3
+        assert config_dict["app4_bridge"]["python_executable"] == "/root/miniforge3/envs/get/bin/python"
         assert config_dict["validation"]["min_ic"] == 0.02
 
     def test_pipeline_config_defaults(self):
@@ -218,6 +227,10 @@ class TestApp4BridgeConfig:
 
         assert config.enabled is True
         assert config.interfaces == []
+        assert config.freshness_threshold_hours == 24
+        assert config.update_timeout_seconds == 120
+        assert config.max_update_interfaces_per_cycle == 5
+        assert config.python_executable == ""
         assert config.data_roots == []
         assert config.freshness_threshold_hours == 24
 

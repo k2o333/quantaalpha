@@ -3,6 +3,7 @@ Tests for continuous main.py - Runtime Entrypoint and ContinuousOrchestrator.
 """
 
 import json
+import math
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -225,6 +226,50 @@ class TestContinuousOrchestrator:
         orchestrator._orchestrator.run_mining_cycle.assert_called_once()
         assert result["mining"]["generated"] == 3
         assert result["mining"]["added"] == 1
+
+    def test_create_bridge_passes_configured_runtime_controls(self, tmp_path):
+        """Verify _create_bridge passes freshness, timeout, budget and python path from config."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily", "daily_basic"]
+        config.app4_bridge.data_roots = [str(tmp_path)]
+        config.app4_bridge.freshness_threshold_hours = 49
+        config.app4_bridge.update_timeout_seconds = 321
+        config.app4_bridge.max_update_interfaces_per_cycle = 7
+        config.app4_bridge.python_executable = "/root/miniforge3/envs/get/bin/python"
+
+        with patch("importlib.util.spec_from_file_location") as mock_spec_from_file_location:
+            mock_bridge_class = MagicMock()
+            fake_spec = MagicMock()
+            fake_loader = MagicMock()
+            fake_module = MagicMock()
+            fake_module.ContinuousUpdateBridge = mock_bridge_class
+            fake_spec.loader = fake_loader
+            mock_spec_from_file_location.return_value = fake_spec
+
+            with patch("importlib.util.module_from_spec", return_value=fake_module):
+                ContinuousOrchestrator(config)
+
+        mock_bridge_class.assert_called_once_with(
+            storage_dir=str(tmp_path),
+            monitored_interfaces=["daily", "daily_basic"],
+            stale_threshold_days=math.ceil(49 / 24),
+            update_timeout_seconds=321,
+            max_update_interfaces_per_cycle=7,
+            python_executable="/root/miniforge3/envs/get/bin/python",
+        )
 
 
 class TestStartCommand:
