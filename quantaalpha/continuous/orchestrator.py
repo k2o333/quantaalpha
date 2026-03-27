@@ -196,9 +196,13 @@ class MiningOrchestrator:
         self.status = OrchestratorStatus.STOPPED
         logger.info("MiningOrchestrator stopped")
 
-    def run_revalidation_cycle(self) -> RevalidationResult:
+    def run_revalidation_cycle(self, candidates: list = None) -> RevalidationResult:
         """
         Manually trigger a revalidation cycle.
+
+        Args:
+            candidates: Optional list of pre-selected factor candidates.
+                      If provided, these are used instead of querying the library.
 
         Returns:
             Result of the revalidation run.
@@ -207,7 +211,7 @@ class MiningOrchestrator:
             return RevalidationResult(errors=["Revalidation scheduler not enabled"])
 
         logger.info("Running manual revalidation cycle")
-        result = self.revalidation_scheduler.run_revalidation()
+        result = self.revalidation_scheduler.run_revalidation(candidates=candidates)
 
         self.stats.total_revalidations += 1
         self.stats.last_revalidation = datetime.now()
