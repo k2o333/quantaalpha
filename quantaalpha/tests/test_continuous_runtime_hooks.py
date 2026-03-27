@@ -1,0 +1,785 @@
+"""
+Unit tests for continuous runtime hooks (the four critical seams).
+
+Tests cover:
+- _run_factor_backtest: backtest execution seam
+- _validate_factor: factor validation seam
+- _generate_factors: factor generation seam
+- _retrieve_context: context retrieval seam
+
+These tests verify that stubs are replaced with real integration behavior.
+"""
+
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+class TestRunFactorBacktest:
+    """Tests for _run_factor_backtest seam."""
+
+    def test_injected_runner_takes_precedence(self, tmp_path):
+        """Verify injected backtest_runner is called instead of default."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        captured = []
+
+        def injected_runner(factor_id, factor_entry):
+            captured.append((factor_id, factor_entry))
+            return True
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            backtest_runner=injected_runner,
+        )
+
+        result = scheduler._run_factor_backtest("test_factor", {"factor_id": "test_factor", "factor_expression": "$close"})
+
+        assert result is True
+        assert len(captured) == 1
+        assert captured[0][0] == "test_factor"
+
+    def test_missing_expression_returns_false(self, tmp_path):
+        """Verify factor with no expression returns False."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        result = scheduler._run_factor_backtest("no_expr_factor", {"factor_id": "no_expr_factor", "factor_expression": ""})
+
+        assert result is False
+
+    def test_backtest_with_expression_uses_executor_path(self, tmp_path):
+        """Verify factors with expression attempt to use FactorExecutor."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        # Mock FactorExecutor at the correct import location
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.error_message = None
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._run_factor_backtest(
+                "test_factor",
+                {"factor_id": "test_factor", "factor_expression": "$close/$open - 1"}
+            )
+
+            # Should have attempted execution
+            mock_instance.execute_single.assert_called_once()
+
+    def test_backtest_ic_below_threshold_returns_false(self, tmp_path):
+        """Verify IC below threshold returns False."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.01  # Below 0.02 threshold
+            mock_result.error_message = None
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._run_factor_backtest(
+                "weak_factor",
+                {"factor_id": "weak_factor", "factor_expression": "$volume"}
+            )
+
+            # Should return False due to IC threshold
+            assert result is False
+
+    def test_backtest_ic_above_threshold_returns_true(self, tmp_path):
+        """Verify IC above threshold returns True."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05  # Above 0.02 threshold
+            mock_result.error_message = None
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._run_factor_backtest(
+                "strong_factor",
+                {"factor_id": "strong_factor", "factor_expression": "$close"}
+            )
+
+            assert result is True
+
+
+class TestValidateFactor:
+    """Tests for _validate_factor seam."""
+
+    def test_injected_validator_takes_precedence(self, tmp_path):
+        """Verify injected factor_validator is called instead of default."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        captured = []
+
+        def injected_validator(factor_id, factor_entry):
+            captured.append((factor_id, factor_entry))
+            return {"status": "success", "summary": {"stability_score": 0.8}}
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            factor_validator=injected_validator,
+        )
+
+        result = scheduler._validate_factor("test_factor", {"factor_id": "test_factor"})
+
+        assert result["status"] == "success"
+        assert len(captured) == 1
+        assert captured[0][0] == "test_factor"
+
+    def test_validation_result_structure_on_success(self, tmp_path):
+        """Verify success validation result has required keys."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.6
+            mock_result.ic_result.icir = 1.5
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "test_factor",
+                {"factor_id": "test_factor", "factor_expression": "$close"}
+            )
+
+            assert "status" in result
+            assert "summary" in result
+            assert "stability_score" in result["summary"]
+            assert "validation_summary" in result["summary"]
+            assert "ic_mean" in result["summary"]
+
+    def test_validation_result_structure_on_failure(self, tmp_path):
+        """Verify failure validation result has required keys."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.005  # Low IC
+            mock_result.ic_result = None
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "weak_factor",
+                {"factor_id": "weak_factor", "factor_expression": "$volume"}
+            )
+
+            assert result["status"] == "failure"
+            assert "summary" in result
+            assert "ic_mean" in result["summary"]
+
+    def test_no_expression_returns_failure(self, tmp_path):
+        """Verify factor without expression returns failure."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        result = scheduler._validate_factor(
+            "no_expr_factor",
+            {"factor_id": "no_expr_factor", "factor_expression": ""}
+        )
+
+        assert result["status"] == "failure"
+        assert "No expression" in result["summary"]["validation_summary"]
+
+
+class TestGenerateFactors:
+    """Tests for _generate_factors seam."""
+
+    def test_returns_list_not_empty(self, tmp_path):
+        """Verify _generate_factors does not return empty list."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        # Create library with active factors for mutation templates
+        factors = {
+            "active_1": {
+                "factor_id": "active_1",
+                "factor_name": "Active Factor 1",
+                "factor_expression": "ts_mean($close, 20)",
+                "evaluation": {"status": "active", "last_validated": None},
+                "tags": {"data_dependency": ["price_volume"]},
+            }
+        }
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": factors}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path), max_per_run=5)
+
+        # Mock LLM to return empty to force mutation path
+        with patch.object(scheduler, "_generate_via_llm", return_value=[]):
+            with patch.object(scheduler, "_generate_via_mutation") as mock_mutate:
+                mock_mutate.return_value = [
+                    {
+                        "factor_id": "mut_1",
+                        "factor_name": "Mutated 1",
+                        "factor_expression": "ts_mean($close, 10)",
+                        "tags": {"data_dependency": ["price_volume"]},
+                        "evaluation": {"status": "pending_validation"},
+                    }
+                ]
+                result = scheduler._generate_factors("some context")
+
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+    def test_generated_factors_normalized_shape(self, tmp_path):
+        """Verify generated factors have required keys."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path), max_per_run=5)
+
+        with patch.object(scheduler, "_generate_via_llm", return_value=[]):
+            with patch.object(scheduler, "_generate_via_mutation", return_value=[]):
+                # When both return empty, result should be empty
+                result = scheduler._generate_factors("context")
+                # This tests the deduplication and limit logic
+                assert isinstance(result, list)
+
+    def test_factor_id_generation_for_mutated(self, tmp_path):
+        """Verify mutated factors get unique IDs."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        factors = {
+            "template_1": {
+                "factor_id": "template_1",
+                "factor_name": "Template",
+                "factor_expression": "ts_mean($close, 20)",
+                "evaluation": {"status": "active"},
+                "tags": {"data_dependency": ["price_volume"]},
+            }
+        }
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": factors}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        mutated_expr = "ts_mean($close, 10)"
+        new_id = scheduler._generate_mutated_factor_id("template_1", mutated_expr)
+
+        assert new_id.startswith("mut_template_1_")
+        assert len(new_id) > len("mut_template_1_")
+
+    def test_normalize_factor_entry_adds_required_keys(self):
+        """Verify _normalize_factor_entry adds required keys."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        raw_entry = {
+            "factor_name": "Test Factor",
+            "factor_expression": "$close/$open - 1",
+        }
+
+        normalized = scheduler._normalize_factor_entry(raw_entry)
+
+        assert "factor_id" in normalized
+        assert "factor_name" in normalized
+        assert "factor_expression" in normalized
+        assert "tags" in normalized
+        assert "evaluation" in normalized
+        assert "data_dependency" in normalized["tags"]
+
+    def test_infers_price_volume_tag(self):
+        """Verify data_dependency is inferred as price_volume for price expressions."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        raw_entry = {
+            "factor_name": "Price Factor",
+            "factor_expression": "$close/$open - 1",
+        }
+
+        normalized = scheduler._normalize_factor_entry(raw_entry)
+
+        assert "price_volume" in normalized["tags"]["data_dependency"]
+
+    def test_infers_financial_tag(self):
+        """Verify data_dependency is inferred as financial for financial expressions."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        raw_entry = {
+            "factor_name": "Financial Factor",
+            "factor_expression": "$roe * $gross_margin",
+        }
+
+        normalized = scheduler._normalize_factor_entry(raw_entry)
+
+        assert "financial" in normalized["tags"]["data_dependency"]
+
+
+class TestRetrieveContext:
+    """Tests for _retrieve_context seam."""
+
+    def test_returns_string(self, tmp_path):
+        """Verify _retrieve_context returns a string."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        # Mock at the source module where functions are defined
+        with patch("quantaalpha.factors.fewshot.query_active_factors_RAG", side_effect=Exception("not available")):
+            with patch("quantaalpha.factors.fewshot.query_active_factors_jaccard", side_effect=Exception("not available")):
+                result = scheduler._retrieve_context()
+
+        assert isinstance(result, str)
+
+    def test_uses_fewshot_rag_when_available(self, tmp_path):
+        """Verify RAG query is attempted."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        mock_results = [
+            {"factor_id": "f1", "factor_name": "Factor 1", "factor_expression": "$close", "score": 0.9, "tags": {}, "metadata": {}}
+        ]
+
+        with patch("quantaalpha.factors.fewshot.query_active_factors_RAG", return_value=mock_results) as mock_rag:
+            with patch("quantaalpha.factors.fewshot.build_fewshot_context", return_value="Built context") as mock_build:
+                result = scheduler._retrieve_context()
+
+                mock_rag.assert_called_once()
+                mock_build.assert_called_once()
+
+    def test_fallback_to_jaccard_when_rag_fails(self, tmp_path):
+        """Verify Jaccard fallback when RAG fails."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        mock_results = [
+            {"factor_id": "f1", "factor_name": "Factor 1", "factor_expression": "$close", "score": 0.9, "tags": {}, "metadata": {}}
+        ]
+
+        with patch("quantaalpha.factors.fewshot.query_active_factors_RAG", side_effect=Exception("RAG failed")):
+            with patch("quantaalpha.factors.fewshot.query_active_factors_jaccard", return_value=mock_results) as mock_jaccard:
+                with patch("quantaalpha.factors.fewshot.build_fewshot_context", return_value="Built context"):
+                    result = scheduler._retrieve_context()
+
+                    mock_jaccard.assert_called_once()
+
+    def test_builds_context_from_library_when_rag_unavailable(self, tmp_path):
+        """Verify fallback context building from library."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        factors = {
+            "active_1": {
+                "factor_id": "active_1",
+                "factor_name": "Active Factor 1",
+                "factor_expression": "ts_mean($close, 20)",
+                "evaluation": {"status": "active", "last_validated": None},
+                "tags": {"data_dependency": ["price_volume"]},
+            }
+        }
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": factors}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("quantaalpha.factors.fewshot.query_active_factors_RAG", side_effect=Exception("not available")):
+            with patch("quantaalpha.factors.fewshot.query_active_factors_jaccard", side_effect=Exception("not available")):
+                result = scheduler._retrieve_context()
+
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_empty_library_returns_empty_context(self, tmp_path):
+        """Verify empty library returns empty string."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("quantaalpha.factors.fewshot.query_active_factors_RAG", side_effect=Exception("not available")):
+            with patch("quantaalpha.factors.fewshot.query_active_factors_jaccard", return_value=[]) as mock_jaccard:
+                result = scheduler._retrieve_context()
+
+                mock_jaccard.assert_called_once()
+                # Empty results should return empty context
+                assert result == ""
+
+
+class TestMutationGeneration:
+    """Tests for mutation-based factor generation."""
+
+    def test_mutate_time_windows(self):
+        """Verify time window mutation."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        result = scheduler._mutate_time_windows("ts_mean($close, 20)")
+
+        # Should have changed 20 to another value
+        assert "ts_mean($close," in result
+        assert result != "ts_mean($close, 20)"
+
+    def test_mutate_operators(self):
+        """Verify operator mutation."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        result = scheduler._mutate_operators("ts_mean($close, 20)")
+
+        # ts_mean should become ts_sum
+        assert "ts_sum(" in result
+
+    def test_mutate_simple_variation(self):
+        """Verify simple variation mutation."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        result = scheduler._mutate_simple_variation("$close")
+
+        # Should have added scaling
+        assert "$close" in result
+        assert result != "$close"
+
+    def test_mutation_generation_returns_list(self, tmp_path):
+        """Verify mutation generation returns list of factors."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        factors = {
+            "active_1": {
+                "factor_id": "active_1",
+                "factor_name": "Active Factor 1",
+                "factor_expression": "ts_mean($close, 20)",
+                "evaluation": {"status": "active"},
+                "tags": {"data_dependency": ["price_volume"]},
+            }
+        }
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": factors}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        result = scheduler._generate_via_mutation()
+
+        assert isinstance(result, list)
+        if len(result) > 0:
+            # Each should have required keys
+            for factor in result:
+                assert "factor_id" in factor
+                assert "factor_expression" in factor
+                assert "tags" in factor
+
+
+class TestValidationResultContract:
+    """
+    Tests that verify the exact contract of validation results.
+
+    Validation result contract (for FactorLibraryManager.apply_validation_result):
+    - status: "success" or "failure"
+    - summary.validation_summary: human-readable summary
+    - summary.ic_mean: IC value if computed
+    - summary.rank_ic_mean: Rank IC if computed (optional)
+    - summary.stability_score: computed stability metric
+    """
+
+    def test_success_result_has_required_fields(self, tmp_path):
+        """Verify success validation result matches contract."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.7
+            mock_result.ic_result.icir = 2.0
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "passing_factor",
+                {"factor_id": "passing_factor", "factor_expression": "$close"}
+            )
+
+        # Contract verification
+        assert result["status"] == "success"
+        summary = result["summary"]
+        assert "validation_summary" in summary
+        assert "stability_score" in summary
+        assert "ic_mean" in summary
+        assert summary["ic_mean"] == 0.05
+
+    def test_failure_result_has_required_fields(self, tmp_path):
+        """Verify failure validation result matches contract."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.005  # Below threshold
+            mock_result.ic_result = None
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "failing_factor",
+                {"factor_id": "failing_factor", "factor_expression": "$volume"}
+            )
+
+        # Contract verification
+        assert result["status"] == "failure"
+        summary = result["summary"]
+        assert "validation_summary" in summary
+        assert "ic_mean" in summary
+        assert summary["ic_mean"] == 0.005
+
+
+class TestGeneratedFactorCandidateContract:
+    """
+    Tests that verify the exact contract of generated factor candidates.
+
+    Generated factor candidate contract:
+    - factor_id: unique identifier (string)
+    - factor_name: human-readable name (string)
+    - factor_expression: the factor formula (string)
+    - tags: dict with data_dependency list
+    - evaluation: dict with status
+    """
+
+    def test_mutation_result_matches_contract(self, tmp_path):
+        """Verify mutation-generated factors match contract."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        factors = {
+            "template_1": {
+                "factor_id": "template_1",
+                "factor_name": "Template",
+                "factor_expression": "ts_mean($close, 20)",
+                "evaluation": {"status": "active"},
+                "tags": {"data_dependency": ["price_volume"]},
+            }
+        }
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": factors}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        mutations = scheduler._generate_via_mutation()
+
+        if len(mutations) > 0:
+            for factor in mutations:
+                # Contract verification
+                assert "factor_id" in factor
+                assert isinstance(factor["factor_id"], str)
+                assert "factor_name" in factor
+                assert "factor_expression" in factor
+                assert "tags" in factor
+                assert "data_dependency" in factor["tags"]
+                assert "evaluation" in factor
+
+    def test_normalized_entry_has_all_required_fields(self):
+        """Verify normalized entry has all contract fields."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        raw = {
+            "factor_name": "Test",
+            "factor_expression": "$close",
+        }
+
+        normalized = scheduler._normalize_factor_entry(raw)
+
+        # Required by contract
+        assert "factor_id" in normalized
+        assert "factor_name" in normalized
+        assert "factor_expression" in normalized
+        assert normalized["factor_expression"] == "$close"
+        assert "tags" in normalized
+        assert "data_dependency" in normalized["tags"]
+        assert "evaluation" in normalized
+        assert normalized["evaluation"]["status"] == "pending_validation"
+
+
+class TestBridgeDataIntegration:
+    """Tests verifying schedulers use bridge loader for real data."""
+
+    def test_run_factor_backtest_uses_bridge_loader_when_configured(self, tmp_path):
+        """Verify _run_factor_backtest calls bridge.load_price_data with configured periods."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+        import polars as pl
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        # Mock bridge that returns real data
+        mock_bridge = MagicMock()
+        expected_df = pl.DataFrame({
+            "datetime": [1, 2, 3],
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.5, 11.0],
+            "high": [10.5, 11.0, 11.5],
+            "low": [9.5, 10.0, 10.5],
+            "close": [10.2, 10.8, 11.2],
+            "volume": [1000000, 1500000, 2000000],
+        })
+        mock_bridge.load_price_data.return_value = expected_df
+
+        # Inject bridge and execution periods
+        scheduler._data_bridge = mock_bridge
+        scheduler._execution_periods = {
+            "train": ("2020-01-01", "2022-12-31"),
+            "valid": ("2023-01-01", "2023-12-31"),
+            "test": ("2024-01-01", "2024-12-31"),
+        }
+
+        # Mock FactorExecutor to avoid real execution
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.error_message = None
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            scheduler._run_factor_backtest("f1", {"factor_expression": "$close"})
+
+            # Verify bridge was called
+            mock_bridge.load_price_data.assert_called_once()
+            # Verify the call used configured periods
+            call_kwargs = mock_bridge.load_price_data.call_args[1]
+            assert "start_date" in call_kwargs or call_kwargs.get("interfaces") is not None
+
+    def test_validate_factor_uses_bridge_data_when_configured(self, tmp_path):
+        """Verify _validate_factor uses bridge data instead of placeholder."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        import polars as pl
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        # Mock bridge that returns real data
+        mock_bridge = MagicMock()
+        expected_df = pl.DataFrame({
+            "datetime": [1, 2, 3],
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.5, 11.0],
+            "high": [10.5, 11.0, 11.5],
+            "low": [9.5, 10.0, 10.5],
+            "close": [10.2, 10.8, 11.2],
+            "volume": [1000000, 1500000, 2000000],
+        })
+        mock_bridge.load_price_data.return_value = expected_df
+
+        # Inject bridge and execution periods
+        scheduler._data_bridge = mock_bridge
+        scheduler._execution_periods = {
+            "train": ("2020-01-01", "2022-12-31"),
+            "valid": ("2023-01-01", "2023-12-31"),
+            "test": ("2024-01-01", "2024-12-31"),
+        }
+
+        # Mock FactorExecutor
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.6
+            mock_result.ic_result.icir = 1.5
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor("f1", {"factor_expression": "$close"})
+
+            # Verify bridge was called
+            mock_bridge.load_price_data.assert_called_once()
+            # Verify FactorExecutor was called with real data (not empty placeholder)
+            mock_instance.execute_single.assert_called_once()

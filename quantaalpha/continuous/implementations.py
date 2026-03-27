@@ -155,6 +155,8 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         interval_hours: int = 24,
         library_path: Optional[str] = None,
         backtest_runner: Optional[Callable[[str, dict], bool]] = None,
+        data_bridge=None,
+        execution_periods: Optional[dict] = None,
     ):
         import os
 
@@ -162,9 +164,15 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
         self.library_path = library_path or os.environ.get(
-            "FACTOR_LIBRARY_PATH", "data/results/factor_library.json"
+            "FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json"
         )
         self._backtest_runner = backtest_runner
+        self._data_bridge = data_bridge
+        self._execution_periods = execution_periods or {
+            "train": ("2020-01-01", "2022-12-31"),
+            "valid": ("2023-01-01", "2023-12-31"),
+            "test": ("2024-01-01", "2024-12-31"),
+        }
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -292,9 +300,137 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             None indicates error/uncertain result.
         """
         logger.info(f"Running backtest for factor {factor_id}")
+
+        # Use injected runner if provided
         if self._backtest_runner is not None:
             return self._backtest_runner(factor_id, factor_entry)
-        return False
+
+        # Default path: use FactorExecutor from glue if available
+        try:
+            from third_party.glue.factor_executor import FactorExecutor
+
+            # Get factor expression
+            expression = factor_entry.get("factor_expression", "")
+            if not expression:
+                logger.warning(f"Factor {factor_id} has no expression, skipping backtest")
+                return False
+
+            # Get periods from configured execution periods
+            train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
+            valid_period = self._execution_periods.get("valid", ("2023-01-01", "2023-12-31"))
+            test_period = self._execution_periods.get("test", ("2024-01-01", "2024-12-31"))
+
+            # Load data from bridge if available, otherwise use empty placeholder
+            import polars as pl
+
+            df = self._get_execution_dataframe()
+
+            # Only fail if bridge was configured but returned empty/no data
+            # When bridge is not configured, use empty placeholder for backward compatibility
+            if self._data_bridge is not None and (df is None or df.is_empty()):
+                logger.warning(f"No data available from bridge for backtest of {factor_id}")
+                return False
+
+            executor = FactorExecutor(
+                df=df,
+                train_period=train_period,
+                valid_period=valid_period,
+                test_period=test_period,
+            )
+
+            result = executor.execute_single(
+                factor_name=factor_id,
+                expression=expression,
+                original_expression=expression,
+            )
+
+            if result.success and result.ic_value is not None:
+                # Check against validation thresholds
+                min_ic = 0.02  # From pipeline.yaml validation.min_ic
+                if result.ic_value >= min_ic:
+                    logger.info(f"Factor {factor_id} passed backtest with IC={result.ic_value:.4f}")
+                    return True
+                else:
+                    logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {min_ic}")
+                    return False
+            else:
+                error_msg = result.error_message or "Unknown error"
+                logger.warning(f"Factor {factor_id} backtest failed: {error_msg}")
+                return False
+
+        except ImportError as e:
+            logger.warning(f"FactorExecutor not available: {e}, backtest returning False")
+            return False
+        except Exception as e:
+            logger.error(f"Error running backtest for {factor_id}: {e}")
+            return False
+
+    def _get_execution_dataframe(self):
+        """
+        Get execution DataFrame from bridge if available.
+
+        Returns:
+            pl.DataFrame with price data, or empty DataFrame if bridge unavailable.
+        """
+        import polars as pl
+
+        if self._data_bridge is None:
+            logger.debug("No data bridge configured, using empty DataFrame")
+            return pl.DataFrame({
+                "datetime": pl.Series(dtype=pl.Date),
+                "vt_symbol": pl.Series(dtype=pl.String),
+                "open": pl.Series(dtype=pl.Float64),
+                "high": pl.Series(dtype=pl.Float64),
+                "low": pl.Series(dtype=pl.Float64),
+                "close": pl.Series(dtype=pl.Float64),
+                "volume": pl.Series(dtype=pl.Float64),
+            })
+
+        try:
+            # Get the maximum coverage window from execution periods
+            train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
+            valid_period = self._execution_periods.get("valid", ("2023-01-01", "2023-12-31"))
+            test_period = self._execution_periods.get("test", ("2024-01-01", "2024-12-31"))
+
+            # Use the earliest start and latest end for maximum coverage
+            all_start_dates = [train_period[0], valid_period[0], test_period[0]]
+            all_end_dates = [train_period[1], valid_period[1], test_period[1]]
+            start_date = min(all_start_dates)
+            end_date = max(all_end_dates)
+
+            df = self._data_bridge.load_price_data(
+                interfaces=["daily", "daily_basic"],
+                start_date=start_date.replace("-", ""),
+                end_date=end_date.replace("-", ""),
+            )
+
+            if df is None or df.is_empty():
+                logger.warning("Bridge returned empty DataFrame")
+                # Return empty DataFrame with correct schema for backward compatibility
+                return pl.DataFrame({
+                    "datetime": pl.Series(dtype=pl.Date),
+                    "vt_symbol": pl.Series(dtype=pl.String),
+                    "open": pl.Series(dtype=pl.Float64),
+                    "high": pl.Series(dtype=pl.Float64),
+                    "low": pl.Series(dtype=pl.Float64),
+                    "close": pl.Series(dtype=pl.Float64),
+                    "volume": pl.Series(dtype=pl.Float64),
+                })
+
+            logger.info(f"Loaded {len(df)} rows from bridge for backtest")
+            return df
+
+        except Exception as e:
+            logger.error(f"Error loading data from bridge: {e}")
+            return pl.DataFrame({
+                "datetime": pl.Series(dtype=pl.Date),
+                "vt_symbol": pl.Series(dtype=pl.String),
+                "open": pl.Series(dtype=pl.Float64),
+                "high": pl.Series(dtype=pl.Float64),
+                "low": pl.Series(dtype=pl.Float64),
+                "close": pl.Series(dtype=pl.Float64),
+                "volume": pl.Series(dtype=pl.Float64),
+            })
 
 
 class DefaultMiningScheduler(MiningScheduler):
@@ -314,15 +450,23 @@ class DefaultMiningScheduler(MiningScheduler):
         interval_hours: int = 12,
         library_path: Optional[str] = None,
         factor_validator: Optional[Callable[[str, dict], Optional[dict]]] = None,
+        data_bridge=None,
+        execution_periods: Optional[dict] = None,
     ):
         import os
 
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
         self.library_path = library_path or os.environ.get(
-            "FACTOR_LIBRARY_PATH", "data/results/factor_library.json"
+            "FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json"
         )
         self._factor_validator = factor_validator
+        self._data_bridge = data_bridge
+        self._execution_periods = execution_periods or {
+            "train": ("2020-01-01", "2022-12-31"),
+            "valid": ("2023-01-01", "2023-12-31"),
+            "test": ("2024-01-01", "2024-12-31"),
+        }
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -409,36 +553,378 @@ class DefaultMiningScheduler(MiningScheduler):
 
     def _retrieve_context(self) -> str:
         """
-        Retrieve context via RAG.
+        Retrieve context via RAG or fallback to library-based context.
 
         Returns:
             Context string for factor generation.
         """
         try:
-            from quantaalpha.factors.fewshot import query_active_factors_RAG
+            from quantaalpha.factors.fewshot import (
+                query_active_factors_RAG,
+                query_active_factors_jaccard,
+                build_fewshot_context,
+            )
 
-            results = query_active_factors_RAG(query="", top_k=10)
-            return results.get("context", "")
+            # Try RAG first, fall back to Jaccard
+            try:
+                results = query_active_factors_RAG(query="", top_k=10)
+            except Exception:
+                # Fallback to Jaccard similarity
+                results = query_active_factors_jaccard(query="", top_k=10)
 
-        except ImportError:
-            logger.warning("RAG module not available, using empty context")
-            return ""
+            if results and len(results) > 0:
+                context = build_fewshot_context(
+                    factors=results,
+                    include_expression=True,
+                    include_tags=True,
+                    include_ic=True,
+                )
+                logger.debug(f"Retrieved context from {len(results)} active factors")
+                return context
+            else:
+                logger.debug("No active factors found for context, using empty context")
+                return ""
+
+        except ImportError as e:
+            logger.warning(f"RAG/fewshot module not available: {e}, building fallback context")
+            return self._build_fallback_context()
         except Exception as e:
             logger.error(f"Error retrieving RAG context: {e}")
+            return self._build_fallback_context()
+
+    def _build_fallback_context(self) -> str:
+        """
+        Build context from recent active factors in the library without RAG.
+
+        Returns:
+            Context string from recent active factors.
+        """
+        try:
+            from quantaalpha.factors.library import FactorLibraryManager
+
+            library = FactorLibraryManager(self.library_path)
+
+            # Get active factors sorted by last_validated
+            candidates = library.select_revalidation_candidates(
+                days=90,  # Last 90 days
+                status="active",
+            )
+
+            if not candidates:
+                # Fall back to any non-failed factors
+                candidates = library.select_revalidation_candidates(
+                    days=90,
+                )
+
+            if not candidates:
+                return ""
+
+            # Build simple context string
+            lines = ["Recent active factors from the library:\n"]
+
+            for i, factor in enumerate(candidates[:10], 1):
+                lines.append(f"--- Factor {i} ---")
+                lines.append(f"Name: {factor.get('factor_name', 'Unknown')}")
+                expr = factor.get('factor_expression', '')
+                if expr:
+                    lines.append(f"Expression: {expr}")
+                tags = factor.get('tags', {})
+                if tags:
+                    lines.append(f"Tags: {tags}")
+                lines.append("")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            logger.warning(f"Error building fallback context: {e}")
             return ""
 
     def _generate_factors(self, context: str) -> list[dict]:
         """
-        Generate new factors via LLM.
+        Generate new factors via bounded mutation or template-based approach.
+
+        MVP strategy:
+        1. If LLM client is available and configured, use it for generation
+        2. Otherwise, use bounded mutation over recent active factors
+           - Take active factor expressions as templates
+           - Apply simple transformations (parameter variation, combination)
+           - Normalize to library-compatible shape
 
         Args:
             context: RAG context from existing factors.
 
         Returns:
-            List of generated factor entry dicts.
+            List of generated factor entry dicts with keys:
+            - factor_id: unique identifier
+            - factor_name: human-readable name
+            - factor_expression: the factor expression
+            - tags: factor tags including data_dependency
+            - evaluation: initial evaluation dict with status
         """
-        logger.info("Generating new factors via LLM")
-        return []
+        logger.info("Generating new factors")
+
+        generated_factors = []
+
+        # Try LLM-based generation first
+        llm_candidates = self._generate_via_llm(context)
+        if llm_candidates:
+            generated_factors.extend(llm_candidates)
+            logger.info(f"Generated {len(llm_candidates)} factors via LLM")
+
+        # Fallback to bounded mutation if no LLM candidates
+        if not generated_factors:
+            mutation_candidates = self._generate_via_mutation()
+            generated_factors.extend(mutation_candidates)
+            logger.info(f"Generated {len(mutation_candidates)} factors via mutation")
+
+        # Deduplicate by expression
+        seen_expressions = set()
+        unique_factors = []
+        for factor in generated_factors:
+            expr = factor.get('factor_expression', '')
+            if expr and expr not in seen_expressions:
+                seen_expressions.add(expr)
+                unique_factors.append(factor)
+
+        return unique_factors[:self.max_per_run]
+
+    def _generate_via_llm(self, context: str) -> list[dict]:
+        """
+        Generate factors via LLM client if available.
+
+        Returns:
+            List of generated factor dicts, or empty list if LLM unavailable.
+        """
+        try:
+            from quantaalpha.llm.client import QuantaAlphaLLMClient
+
+            client = QuantaAlphaLLMClient()
+
+            # Build generation prompt
+            prompt = self._build_generation_prompt(context)
+
+            response = client.generate(prompt=prompt)
+
+            if response:
+                # Parse LLM response into factor dicts
+                return self._parse_llm_response(response)
+            return []
+
+        except ImportError:
+            logger.debug("LLM client not available")
+            return []
+        except Exception as e:
+            logger.warning(f"LLM generation failed: {e}")
+            return []
+
+    def _build_generation_prompt(self, context: str) -> str:
+        """Build prompt for factor generation."""
+        prompt_parts = [
+            "You are a quantitative factor researcher.",
+            "",
+            "Generate new factors that are different from existing ones.",
+            "",
+            "Existing similar factors:\n" + (context or "No existing factors available."),
+            "",
+            "Generate 3-5 new factors following these rules:",
+            "1. Use $field syntax for data fields (e.g., $close, $volume, $open)",
+            "2. Use operators: +, -, *, /, ts_, cs_, rank, delta, log",
+            "3. Factors should be novel, not direct copies",
+            "4. Return as JSON array of objects with keys: factor_name, factor_expression, tags",
+            "",
+            "Example: {\"factor_name\": \"volume_strength\", \"factor_expression\": \"$volume/ts_mean($volume,20)\", \"tags\": {\"data_dependency\": [\"price_volume\"]}}",
+        ]
+        return "\n".join(prompt_parts)
+
+    def _parse_llm_response(self, response: str) -> list[dict]:
+        """Parse LLM response into factor dicts."""
+        import json
+        import re
+
+        factors = []
+
+        try:
+            # Try direct JSON parsing
+            # Find JSON array in response
+            json_match = re.search(r'\[.*\]', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and 'factor_expression' in item:
+                            factor = self._normalize_factor_entry(item)
+                            factors.append(factor)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Failed to parse LLM response as JSON: {e}")
+
+        return factors
+
+    def _generate_via_mutation(self) -> list[dict]:
+        """
+        Generate factors via bounded mutation over recent active factors.
+
+        Mutations applied:
+        - Parameter variation: change time windows (5, 10, 20, 60)
+        - Operator substitution: ts_mean -> ts_sum, rank -> cs_rank
+        - Expression combination: blend two expressions
+
+        Returns:
+            List of mutated factor dicts.
+        """
+        try:
+            from quantaalpha.factors.library import FactorLibraryManager
+
+            library = FactorLibraryManager(self.library_path)
+
+            # Get recent active factors as templates
+            candidates = library.select_revalidation_candidates(
+                days=90,
+                status="active",
+            )
+
+            if not candidates:
+                return []
+
+            # Take up to 5 templates
+            templates = candidates[:5]
+
+            mutated = []
+            import hashlib
+            import time
+
+            for template in templates:
+                template_expr = template.get('factor_expression', '')
+                if not template_expr:
+                    continue
+
+                # Generate mutations
+                mutations = [
+                    self._mutate_time_windows(template_expr),
+                    self._mutate_operators(template_expr),
+                    self._mutate_simple_variation(template_expr),
+                ]
+
+                for mutated_expr in mutations:
+                    if mutated_expr and mutated_expr != template_expr:
+                        # Create factor entry
+                        factor_id = self._generate_mutated_factor_id(
+                            template.get('factor_id', 'unknown'),
+                            mutated_expr
+                        )
+
+                        mutated.append({
+                            "factor_id": factor_id,
+                            "factor_name": f"Mutated_{template.get('factor_name', 'Factor')}",
+                            "factor_expression": mutated_expr,
+                            "tags": template.get('tags', {}).copy(),
+                            "evaluation": {
+                                "status": "pending_validation",
+                                "last_validated": None,
+                                "stability_score": None,
+                            },
+                            "metadata": {
+                                "source": "mutation",
+                                "template_factor_id": template.get('factor_id'),
+                            },
+                        })
+
+            return mutated
+
+        except ImportError:
+            logger.warning("Factor library not available for mutation")
+            return []
+        except Exception as e:
+            logger.error(f"Error in mutation generation: {e}")
+            return []
+
+    def _mutate_time_windows(self, expression: str) -> str:
+        """Replace time windows with variations."""
+        import re
+
+        # Replace common window sizes
+        replacements = [
+            (r'\b5\b', '10'),
+            (r'\b10\b', '20'),
+            (r'\b20\b', '60'),
+            (r'\b60\b', '5'),
+        ]
+
+        result = expression
+        for pattern, replacement in replacements:
+            result = re.sub(pattern, replacement, result)
+        return result
+
+    def _mutate_operators(self, expression: str) -> str:
+        """Substitute operators."""
+        # Only do one substitution pass to avoid undoing changes
+        if 'ts_mean(' in expression:
+            return expression.replace('ts_mean(', 'ts_sum(')
+        elif 'ts_sum(' in expression:
+            return expression.replace('ts_sum(', 'ts_mean(')
+        elif 'cs_rank(' in expression:
+            # cs_rank -> cs_rank is a no-op, try a different operator
+            if 'ts_mean(' in expression:
+                return expression.replace('ts_mean(', 'ts_sum(')
+        return expression
+
+    def _mutate_simple_variation(self, expression: str) -> str:
+        """Apply simple variations."""
+        # Add scaling factor
+        if '$close' in expression:
+            return f"({expression}) * 1.01"
+        return f"{expression} / 2"
+
+    def _generate_mutated_factor_id(self, template_id: str, expression: str) -> str:
+        """Generate unique factor ID for mutated factor."""
+        import hashlib
+
+        content = f"{template_id}:{expression}"
+        hash_val = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()[:8]
+        return f"mut_{template_id}_{hash_val}"
+
+    def _normalize_factor_entry(self, raw_entry: dict) -> dict:
+        """
+        Normalize a raw factor entry to library-compatible shape.
+
+        Args:
+            raw_entry: Raw factor dict potentially from LLM or mutation
+
+        Returns:
+            Normalized factor dict with required keys.
+        """
+        # Ensure required keys exist
+        normalized = {
+            "factor_id": raw_entry.get("factor_id", ""),
+            "factor_name": raw_entry.get("factor_name", "Generated Factor"),
+            "factor_expression": raw_entry.get("factor_expression", ""),
+            "tags": raw_entry.get("tags", {}),
+            "evaluation": raw_entry.get("evaluation", {
+                "status": "pending_validation",
+                "last_validated": None,
+                "stability_score": None,
+            }),
+            "metadata": raw_entry.get("metadata", {}),
+        }
+
+        # Ensure factor_id is set
+        if not normalized["factor_id"]:
+            import uuid
+            normalized["factor_id"] = f"gen_{uuid.uuid4().hex[:12]}"
+
+        # Ensure tags have data_dependency
+        if "data_dependency" not in normalized["tags"]:
+            # Infer from expression
+            expr = normalized["factor_expression"].lower()
+            if any(k in expr for k in ["roe", "revenue", "profit", "margin"]):
+                normalized["tags"]["data_dependency"] = ["financial"]
+            elif any(k in expr for k in ["moneyflow", "margin", "净流入"]):
+                normalized["tags"]["data_dependency"] = ["moneyflow"]
+            elif any(k in expr for k in ["chip", "holder", "float"]):
+                normalized["tags"]["data_dependency"] = ["chip"]
+            else:
+                normalized["tags"]["data_dependency"] = ["price_volume"]
+
+        return normalized
 
     def _validate_factor(self, factor_id: str, factor_entry: dict) -> Optional[dict]:
         """
@@ -455,15 +941,195 @@ class DefaultMiningScheduler(MiningScheduler):
             None indicates error/uncertain result.
         """
         logger.info(f"Validating factor {factor_id}")
+
+        # Use injected validator if provided
         if self._factor_validator is not None:
             return self._factor_validator(factor_id, factor_entry)
-        return {
-            "status": "failure",
-            "summary": {
-                "stability_score": 0.0,
-                "validation_summary": f"Validation not implemented for {factor_id}",
-            },
-        }
+
+        # Default validation path using FactorExecutor
+        try:
+            from third_party.glue.factor_executor import FactorExecutor
+
+            expression = factor_entry.get("factor_expression", "")
+            if not expression:
+                return {
+                    "status": "failure",
+                    "summary": {
+                        "stability_score": None,
+                        "validation_summary": f"No expression for {factor_id}",
+                        "ic_mean": None,
+                        "rank_ic_mean": None,
+                    },
+                }
+
+            # Validation thresholds from pipeline.yaml
+            min_ic = 0.02
+            min_rank_ic = 0.01
+
+            # Get periods from configured execution periods
+            train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
+            valid_period = self._execution_periods.get("valid", ("2023-01-01", "2023-12-31"))
+            test_period = self._execution_periods.get("test", ("2024-01-01", "2024-12-31"))
+
+            import polars as pl
+
+            # Load data from bridge if available
+            df = self._get_execution_dataframe()
+
+            # Only fail if bridge was configured but returned empty/no data
+            # When bridge is not configured, use empty placeholder for backward compatibility
+            if self._data_bridge is not None and (df is None or df.is_empty()):
+                logger.warning(f"No data available from bridge for validation of {factor_id}")
+                return {
+                    "status": "failure",
+                    "summary": {
+                        "stability_score": None,
+                        "validation_summary": f"No data available for validation of {factor_id}",
+                        "ic_mean": None,
+                        "rank_ic_mean": None,
+                    },
+                }
+
+            executor = FactorExecutor(
+                df=df,
+                train_period=train_period,
+                valid_period=valid_period,
+                test_period=test_period,
+            )
+
+            result = executor.execute_single(
+                factor_name=factor_id,
+                expression=expression,
+                original_expression=expression,
+            )
+
+            if result.success and result.ic_value is not None:
+                ic_mean = result.ic_value
+                ic_result = result.ic_result
+
+                # Determine if IC passes threshold
+                passes_ic = ic_mean >= min_ic
+
+                # Compute stability score (simple heuristic)
+                stability_score = 0.5
+                if ic_result:
+                    # Use ICIR as stability indicator
+                    icir = ic_result.icir
+                    stability_score = min(1.0, max(0.0, (icir + 1) / 2))
+
+                if passes_ic:
+                    return {
+                        "status": "success",
+                        "summary": {
+                            "stability_score": stability_score,
+                            "validation_summary": f"Factor {factor_id} passed with IC={ic_mean:.4f}",
+                            "ic_mean": ic_mean,
+                            "rank_ic_mean": None,  # Rank IC not computed in current executor
+                            "positive_ratio": ic_result.positive_ratio if ic_result else None,
+                        },
+                    }
+                else:
+                    return {
+                        "status": "failure",
+                        "summary": {
+                            "stability_score": stability_score,
+                            "validation_summary": f"Factor {factor_id} failed IC={ic_mean:.4f} < {min_ic}",
+                            "ic_mean": ic_mean,
+                            "rank_ic_mean": None,
+                        },
+                    }
+            else:
+                error_msg = result.error_message or "Execution failed"
+                return {
+                    "status": "failure",
+                    "summary": {
+                        "stability_score": None,
+                        "validation_summary": f"Execution error: {error_msg}",
+                        "ic_mean": None,
+                        "rank_ic_mean": None,
+                    },
+                }
+
+        except ImportError as e:
+            logger.warning(f"FactorExecutor not available: {e}, validation returning failure")
+            return {
+                "status": "failure",
+                "summary": {
+                    "stability_score": None,
+                    "validation_summary": f"Validation unavailable: {e}",
+                    "ic_mean": None,
+                    "rank_ic_mean": None,
+                },
+            }
+        except Exception as e:
+            logger.error(f"Error validating factor {factor_id}: {e}")
+            return {
+                "status": "failure",
+                "summary": {
+                    "stability_score": None,
+                    "validation_summary": f"Validation error: {str(e)}",
+                    "ic_mean": None,
+                    "rank_ic_mean": None,
+                },
+            }
+
+    def _get_execution_dataframe(self):
+        """
+        Get execution DataFrame from bridge if available.
+
+        Returns:
+            pl.DataFrame with price data, or empty DataFrame if bridge unavailable.
+        """
+        import polars as pl
+
+        if self._data_bridge is None:
+            logger.debug("No data bridge configured, using empty DataFrame")
+            return pl.DataFrame({
+                "datetime": pl.Series(dtype=pl.Date),
+                "vt_symbol": pl.Series(dtype=pl.String),
+                "open": pl.Series(dtype=pl.Float64),
+                "high": pl.Series(dtype=pl.Float64),
+                "low": pl.Series(dtype=pl.Float64),
+                "close": pl.Series(dtype=pl.Float64),
+                "volume": pl.Series(dtype=pl.Float64),
+            })
+
+        try:
+            # Get the maximum coverage window from execution periods
+            train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
+            valid_period = self._execution_periods.get("valid", ("2023-01-01", "2023-12-31"))
+            test_period = self._execution_periods.get("test", ("2024-01-01", "2024-12-31"))
+
+            # Use the earliest start and latest end for maximum coverage
+            all_start_dates = [train_period[0], valid_period[0], test_period[0]]
+            all_end_dates = [train_period[1], valid_period[1], test_period[1]]
+            start_date = min(all_start_dates)
+            end_date = max(all_end_dates)
+
+            df = self._data_bridge.load_price_data(
+                interfaces=["daily", "daily_basic"],
+                start_date=start_date.replace("-", ""),
+                end_date=end_date.replace("-", ""),
+            )
+
+            if df is None or df.is_empty():
+                logger.warning("Bridge returned empty DataFrame")
+                return df if df is not None else pl.DataFrame()
+
+            logger.info(f"Loaded {len(df)} rows from bridge for validation")
+            return df
+
+        except Exception as e:
+            logger.error(f"Error loading data from bridge: {e}")
+            return pl.DataFrame({
+                "datetime": pl.Series(dtype=pl.Date),
+                "vt_symbol": pl.Series(dtype=pl.String),
+                "open": pl.Series(dtype=pl.Float64),
+                "high": pl.Series(dtype=pl.Float64),
+                "low": pl.Series(dtype=pl.Float64),
+                "close": pl.Series(dtype=pl.Float64),
+                "volume": pl.Series(dtype=pl.Float64),
+            })
 
     def _add_factor_to_library(self, factor_entry: dict) -> None:
         """
