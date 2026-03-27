@@ -289,6 +289,67 @@ def revalidate(
     return report
 
 
+def _continuous_start(
+    config: str = "config/pipeline.yaml",
+    verbose: bool = False,
+    **kwargs,
+) -> None:
+    """
+    Start the continuous runtime in foreground loop.
+
+    Args:
+        config: Path to the pipeline configuration file.
+        verbose: Enable verbose debug logging.
+    """
+    # Filter out Fire help flags
+    kwargs.pop("help", None)
+    kwargs.pop("h", None)
+    from quantaalpha.continuous.main import start as continuous_start
+    continuous_start(config=config, verbose=verbose, run_once=False)
+
+
+def _continuous_once(
+    config: str = "config/pipeline.yaml",
+    verbose: bool = False,
+    **kwargs,
+) -> None:
+    """
+    Run a single deterministic cycle and exit.
+
+    Args:
+        config: Path to the pipeline configuration file.
+        verbose: Enable verbose debug logging.
+    """
+    # Filter out Fire help flags
+    kwargs.pop("help", None)
+    kwargs.pop("h", None)
+    from quantaalpha.continuous.main import once as continuous_once
+    continuous_once(config=config, verbose=verbose)
+
+
+def continuous(command: str = None, **kwargs):
+    """
+    Continuous runtime commands for 24H factor operations.
+
+    Commands:
+        start - Start continuous runtime in foreground loop
+        once  - Run a single deterministic cycle and exit
+
+    Usage:
+        quantaalpha continuous start --config config/pipeline.yaml
+        quantaalpha continuous once --config config/pipeline.yaml
+    """
+    if command == "start":
+        _continuous_start(**kwargs)
+    elif command == "once":
+        _continuous_once(**kwargs)
+    else:
+        raise ValueError(
+            "continuous command requires 'start' or 'once' subcommand. "
+            "Usage: quantaalpha continuous start --config config/pipeline.yaml"
+        )
+
+
 def app(argv=None):
     result = fire.Fire(
         {
@@ -297,6 +358,7 @@ def app(argv=None):
             "revalidate": revalidate,
             "health_check": health_check,
             "collect_info": collect_info,
+            "continuous": continuous,
         },
         command=argv,
     )

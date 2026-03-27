@@ -493,3 +493,83 @@ class TestImpactCandidateSelection:
         # When impact selection fails, should use fallback source
         assert result["candidate_factors_source"] == "fallback"
         assert result["candidate_factors"] == 5
+
+
+class TestUpdateFailureFailOpen:
+    """Tests verifying update failure doesn't block revalidation."""
+
+    def test_run_once_cycle_continues_when_update_fails(self, tmp_path):
+        """Verify run_once_cycle continues to revalidation even when update fails."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=True,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily"]
+
+        orchestrator = ContinuousOrchestrator(config)
+
+        # Mock bridge to simulate update failure
+        mock_bridge = MagicMock()
+        mock_bridge.inspect.return_value = {
+            "latest_dates": {"daily": "20260327"},
+            "stale_interfaces": ["daily"],
+            "checked_interfaces": ["daily"],
+            "errors": [],
+        }
+        mock_bridge.should_update.return_value = True
+        mock_bridge._last_inspection = {
+            "latest_dates": {"daily": "20260327"},
+            "stale_interfaces": ["daily"],
+            "checked_interfaces": ["daily"],
+            "errors": [],
+        }
+        # Simulate update failure
+        mock_bridge.run_update.return_value = {
+            "updated": False,
+            "update_attempted": True,
+            "updated_interfaces": [],
+            "latest_dates": {},
+            "stale_interfaces": ["daily"],
+            "errors": ["Update failed: connection timeout"],
+        }
+        orchestrator._bridge = mock_bridge
+
+        # Mock impact classifier
+        mock_impact_classifier = MagicMock()
+        mock_impact_classifier.classify_interfaces.return_value = ["price_volume"]
+        mock_impact_classifier.select_factor_candidates.return_value = [
+            {"factor_id": "f1", "factor_expression": "$close"},
+        ]
+        orchestrator._impact_classifier = mock_impact_classifier
+
+        # Mock base orchestrator to track revalidation was called
+        mock_reval_result = MagicMock()
+        mock_reval_result.total_candidates = 1
+        mock_reval_result.revalidated_count = 1
+        mock_reval_result.status_changes = {}
+        mock_reval_result.errors = []
+        mock_reval_result.duration_seconds = 1.0
+        orchestrator._orchestrator.run_revalidation_cycle = MagicMock(return_value=mock_reval_result)
+
+        result = orchestrator.run_once_cycle()
+
+        # Verify update failure was recorded
+        assert len(result["errors"]) > 0
+        assert any("Update failed" in err or "update" in err.lower() for err in result["errors"])
+
+        # Verify revalidation still ran (was called)
+        orchestrator._orchestrator.run_revalidation_cycle.assert_called_once()
+
+        # Verify validation summary has results
+        assert result["validation"]["total"] == 1
+        assert result["validation"]["passed"] == 1

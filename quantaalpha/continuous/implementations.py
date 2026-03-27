@@ -209,8 +209,14 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     logger.error(f"Error in revalidation cycle: {e}")
             self._stop_event.wait(timeout=60)
 
-    def run_revalidation(self) -> RevalidationResult:
-        """Run one revalidation cycle."""
+    def run_revalidation(self, candidates: list = None) -> RevalidationResult:
+        """
+        Run one revalidation cycle.
+
+        Args:
+            candidates: Optional list of pre-selected factor candidates.
+                      If None, queries library for candidates needing revalidation.
+        """
         from datetime import datetime as dt
 
         start_time = dt.now()
@@ -221,9 +227,11 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
             library = FactorLibraryManager(self.library_path)
 
-            candidates = library.select_revalidation_candidates(
-                days=self.days_threshold,
-            )
+            # Use provided candidates or query library
+            if candidates is None:
+                candidates = library.select_revalidation_candidates(
+                    days=self.days_threshold,
+                )
 
             result.total_candidates = len(candidates)
             candidates_to_run = candidates[: self.max_per_run]
