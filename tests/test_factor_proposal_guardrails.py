@@ -259,6 +259,84 @@ class TestFactorProposalGuardrails(unittest.TestCase):
         self.assertEqual(len(experiment.sub_tasks), 1)
         self.assertEqual(experiment.sub_tasks[0].factor_expression, "TS_STD($return, 21)")
 
+    def test_quality_gate_constructor_respects_runtime_config(self):
+        converter = factor_proposal.AlphaAgentHypothesis2FactorExpression(
+            consistency_enabled=True,
+            consistency_strict_mode=True,
+            max_correction_attempts=7,
+            complexity_enabled=False,
+            redundancy_enabled=False,
+            allowed_inconsistent_severities=("none", "minor", "major"),
+        )
+
+        quality_gate = converter.quality_gate
+
+        self.assertTrue(quality_gate.consistency_checker.strict_mode)
+        self.assertEqual(quality_gate.consistency_checker.max_correction_attempts, 7)
+        self.assertEqual(
+            quality_gate.consistency_checker.allowed_inconsistent_severities,
+            ("none", "minor", "major"),
+        )
+        self.assertFalse(quality_gate.complexity_checker.enabled)
+        self.assertFalse(quality_gate.redundancy_checker.enabled)
+
+    def test_convert_retries_when_expression_uses_unknown_fields(self):
+        converter = factor_proposal.AlphaAgentHypothesis2FactorExpression(consistency_enabled=False)
+        converter.factor_regulator = _FakeRegulator()
+
+        trace = Trace(scen=_FakeScenario())
+        hypothesis = Hypothesis(
+            hypothesis="Use only supported daily variables.",
+            reason="",
+            concise_reason="",
+            concise_observation="",
+            concise_justification="",
+            concise_knowledge="",
+        )
+
+        class ProposalAPIBackend:
+            calls = 0
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_messages_and_create_chat_completion(
+                self, user_prompt, system_prompt, json_mode=False, task_type=None
+            ):
+                type(self).calls += 1
+                if type(self).calls == 1:
+                    return """
+                    {
+                        "Unknown_Field_Factor": {
+                            "description": "desc",
+                            "formulation": "f",
+                            "expression": "TS_MEAN($pb, 5)",
+                            "variables": {"$pb": "price to book"}
+                        }
+                    }
+                    """
+                return """
+                {
+                    "Supported_Factor": {
+                        "description": "desc",
+                        "formulation": "f",
+                        "expression": "TS_MEAN($close, 5)",
+                        "variables": {"$close": "close"}
+                    }
+                }
+                """
+
+        original_backend = factor_proposal.APIBackend
+        factor_proposal.APIBackend = ProposalAPIBackend
+        try:
+            experiment = converter.convert(hypothesis, trace)
+        finally:
+            factor_proposal.APIBackend = original_backend
+
+        self.assertEqual(ProposalAPIBackend.calls, 2)
+        self.assertEqual(len(experiment.sub_tasks), 1)
+        self.assertEqual(experiment.sub_tasks[0].factor_name, "Supported_Factor")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -258,7 +258,21 @@ class FactorConsistencyChecker:
             return False, "multi-candidate corrected expression is not allowed"
 
         return True, ""
-    
+
+    @staticmethod
+    def _is_metadata_only_inconsistency(
+        result: ConsistencyCheckResult,
+        current_expression: str,
+        current_description: str,
+    ) -> bool:
+        has_expression_change = bool(
+            result.corrected_expression and result.corrected_expression != current_expression
+        )
+        has_description_change = bool(
+            result.corrected_description and result.corrected_description != current_description
+        )
+        return not has_expression_change and has_description_change
+
     def check_and_correct(
         self,
         hypothesis: str,
@@ -303,7 +317,18 @@ class FactorConsistencyChecker:
                     "corrected_description": result.corrected_description,
                 }
             )
-            
+
+            if self._is_metadata_only_inconsistency(result, current_expression, current_description):
+                logger.info(
+                    f"Reporting metadata-only inconsistency for {factor_name} without auto-correction"
+                )
+                result.severity = "minor"
+                result.overall_feedback = (
+                    f"{result.overall_feedback}\n"
+                    "Metadata-only inconsistency reported; keeping expression and description unchanged."
+                ).strip()
+                return result, current_expression, current_description
+
             if result.corrected_expression and result.corrected_expression != current_expression:
                 is_valid_correction, rejection_reason = self._validate_corrected_expression(result.corrected_expression)
                 if not is_valid_correction:

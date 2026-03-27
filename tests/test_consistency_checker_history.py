@@ -231,6 +231,47 @@ class TestSupportedFunctionGuardrails(unittest.TestCase):
         self.assertEqual(final_expr, "TS_MEAN($close, 5)")
         self.assertIn("unsupported", result.overall_feedback.lower())
 
+    def test_metadata_only_inconsistency_is_reported_without_retry_loop(self):
+        original_backend = consistency_checker.APIBackend
+        self.addCleanup(setattr, consistency_checker, "APIBackend", original_backend)
+
+        class MetadataOnlyAPIBackend:
+            prompts: list[dict[str, str]] = []
+            responses = [
+                {
+                    "is_consistent": False,
+                    "severity": "major",
+                    "overall_feedback": "Description/formulation mismatch but expression is already correct",
+                    "corrected_expression": None,
+                    "corrected_description": "metadata-only correction",
+                }
+            ]
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_messages_and_create_chat_completion_json(self, user_prompt, system_prompt):
+                type(self).prompts.append({"user": user_prompt, "system": system_prompt})
+                return type(self).responses.pop(0)
+
+        consistency_checker.APIBackend = MetadataOnlyAPIBackend
+
+        checker = FactorConsistencyChecker(enabled=True, max_correction_attempts=3)
+        result, final_expr, final_desc = checker.check_and_correct(
+            hypothesis="Keep the expression and only report metadata drift",
+            factor_name="factor_meta",
+            factor_description="desc",
+            factor_formulation="form",
+            factor_expression="TS_MEAN($close, 5)",
+        )
+
+        self.assertEqual(len(MetadataOnlyAPIBackend.prompts), 1)
+        self.assertEqual(final_expr, "TS_MEAN($close, 5)")
+        self.assertEqual(final_desc, "desc")
+        self.assertEqual(result.severity, "minor")
+        self.assertTrue(checker.should_proceed_to_backtest(result))
+        self.assertIn("metadata", result.overall_feedback.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

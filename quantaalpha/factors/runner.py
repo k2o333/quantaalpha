@@ -141,7 +141,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                 raise FactorEmptyError("No valid factor data found to merge.")
 
             # Combine the SOTA factor and new factors if SOTA factor exists
-            if False: # SOTA_factor is not None and not SOTA_factor.empty:
+            if SOTA_factor is not None and not SOTA_factor.empty:
                 new_factors = self.deduplicate_new_factors(SOTA_factor, new_factors)
                 if new_factors.empty:
                     raise FactorEmptyError("No valid factor data found to merge.")

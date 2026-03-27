@@ -15,6 +15,7 @@ import os
 import pandas as pd
 from quantaalpha.log import logger
 from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+from quantaalpha.factors.data_capability import get_data_capabilities
 
 DEFAULT_HISTORY_LIMIT = 6
 MIN_HISTORY_LIMIT = 1
@@ -492,7 +493,19 @@ class EmptyHypothesisGen(FactorHypothesisGen):
 
 
 class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
-    def __init__(self, *args, consistency_enabled: bool = False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        consistency_enabled: bool = False,
+        consistency_strict_mode: bool = False,
+        max_correction_attempts: int = 3,
+        complexity_enabled: bool = True,
+        redundancy_enabled: bool = True,
+        data_quality_enabled: bool = True,
+        allowed_inconsistent_severities: tuple[str, ...] = ("none", "minor"),
+        data_capabilities: dict | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         # Initialize FactorRegulator with config settings
         from quantaalpha.factors.coder.config import FACTOR_COSTEER_SETTINGS
@@ -503,6 +516,13 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
         # Initialize consistency checker if enabled
         self.consistency_enabled = consistency_enabled
+        self.consistency_strict_mode = consistency_strict_mode
+        self.max_correction_attempts = max_correction_attempts
+        self.complexity_enabled = complexity_enabled
+        self.redundancy_enabled = redundancy_enabled
+        self.data_quality_enabled = data_quality_enabled
+        self.allowed_inconsistent_severities = allowed_inconsistent_severities
+        self.data_capabilities = data_capabilities
         self._quality_gate = None
 
     @property
@@ -510,16 +530,58 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         """Lazy-load FactorQualityGate."""
         if self._quality_gate is None and self.consistency_enabled:
             try:
-                from quantaalpha.factors.regulator.consistency_checker import FactorQualityGate
+                from quantaalpha.factors.regulator.consistency_checker import (
+                    FactorConsistencyChecker,
+                    FactorQualityGate,
+                )
                 self._quality_gate = FactorQualityGate(
+                    consistency_checker=FactorConsistencyChecker(
+                        enabled=self.consistency_enabled,
+                        strict_mode=self.consistency_strict_mode,
+                        max_correction_attempts=self.max_correction_attempts,
+                        allowed_inconsistent_severities=self.allowed_inconsistent_severities,
+                    ),
                     consistency_enabled=self.consistency_enabled,
-                    complexity_enabled=True,
-                    redundancy_enabled=True
+                    complexity_enabled=self.complexity_enabled,
+                    redundancy_enabled=self.redundancy_enabled,
+                    data_quality_enabled=self.data_quality_enabled,
                 )
             except ImportError as e:
                 logger.warning(f"Could not load consistency checker: {e}")
                 self._quality_gate = None
         return self._quality_gate
+
+    def _allowed_expression_fields(self, trace: Trace) -> set[str]:
+        capabilities = self.data_capabilities
+        if capabilities is None:
+            capabilities = getattr(trace.scen, "data_capabilities", None)
+        registry = get_data_capabilities(capabilities)
+        allowed_fields: set[str] = {"$return"}
+        for spec in registry.values():
+            allowed_fields.update(str(field) for field in spec.get("fields", []))
+        return allowed_fields
+
+    def _extract_expression_variables(self, expression: str) -> set[str]:
+        from quantaalpha.factors.coder.factor_ast import collect_unique_vars, parse_expression
+
+        tree = parse_expression(expression)
+        variables: set[str] = set()
+        collect_unique_vars(tree, variables)
+        return variables
+
+    def _validate_expression_capabilities(self, expression: str, trace: Trace) -> tuple[bool, str]:
+        referenced = self._extract_expression_variables(expression)
+        allowed_fields = self._allowed_expression_fields(trace)
+        unknown_fields = sorted(field for field in referenced if field not in allowed_fields)
+        if not unknown_fields:
+            return True, ""
+        allowed_preview = ", ".join(sorted(allowed_fields))
+        return (
+            False,
+            "Unsupported fields in expression: "
+            + ", ".join(unknown_fields)
+            + f". Allowed fields: {allowed_preview}",
+        )
 
     def prepare_context(self, hypothesis: Hypothesis, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict | bool]:
         scenario = trace.scen.get_scenario_all_desc()
@@ -623,6 +685,30 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 # Check if expression is parsable
                 if not self.factor_regulator.is_parsable(expr):
                     logger.info(f"Failed to parse expr: {expr}, retrying...")
+                    break
+
+                capability_valid, capability_feedback = self._validate_expression_capabilities(expr, trace)
+                if not capability_valid:
+                    logger.warning(f"{factor_name}: {capability_feedback}")
+                    if expression_duplication_prompt is not None:
+                        expression_duplication_prompt = "\n\n".join(
+                            [expression_duplication_prompt, capability_feedback]
+                        )
+                    else:
+                        expression_duplication_prompt = capability_feedback
+                    user_prompt = (
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                        .render(
+                            targets=self.targets,
+                            target_hypothesis=context["target_hypothesis"],
+                            hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                            function_lib_description=context["function_lib_description"],
+                            target_list=context["target_list"],
+                            RAG=context["RAG"],
+                            expression_duplication=expression_duplication_prompt,
+                        )
+                    )
                     break
 
                 success, eval_dict = self.factor_regulator.evaluate(expr)

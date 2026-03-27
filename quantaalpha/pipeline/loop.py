@@ -136,9 +136,24 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             logger.log_object(self.hypothesis_generator, tag="hypothesis generator")
 
             # Pass consistency check config into factor constructor
+            factor_constructor_kwargs = {
+                "consistency_enabled": consistency_enabled,
+                "complexity_enabled": complexity_enabled,
+                "redundancy_enabled": redundancy_enabled,
+            }
+            for optional_key in (
+                "consistency_strict_mode",
+                "max_correction_attempts",
+                "allowed_inconsistent_severities",
+                "data_quality_enabled",
+                "data_capabilities",
+            ):
+                if optional_key in self.quality_gate_config:
+                    factor_constructor_kwargs[optional_key] = self.quality_gate_config[optional_key]
+
             self.factor_constructor: Hypothesis2Experiment = import_class(
                 PROP_SETTING.hypothesis2experiment
-            )(consistency_enabled=consistency_enabled)
+            )(**factor_constructor_kwargs)
             logger.log_object(self.factor_constructor, tag="experiment generation")
 
             self.coder: Developer = import_class(PROP_SETTING.coder)(scen)

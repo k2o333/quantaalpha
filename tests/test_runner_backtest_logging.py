@@ -41,3 +41,52 @@ def test_develop_logs_backtest_boundaries(tmp_path: Path) -> None:
     assert any("Backtest workspace ready" in message for message in messages)
     assert any("Backtest execution finished" in message for message in messages)
     assert result.result == "result-frame"
+
+
+def test_develop_runs_correlation_dedup_when_sota_factors_exist(tmp_path: Path) -> None:
+    runner = object.__new__(QlibFactorRunner)
+    (tmp_path / "ws").mkdir()
+
+    sota_df = __import__("pandas").DataFrame(
+        {"old_factor": [1.0, 2.0]},
+        index=__import__("pandas").MultiIndex.from_tuples(
+            [("2024-01-01", "A"), ("2024-01-02", "A")],
+            names=["datetime", "instrument"],
+        ),
+    )
+    new_df = __import__("pandas").DataFrame(
+        {"new_factor": [2.0, 3.0]},
+        index=sota_df.index,
+    )
+
+    workspace = SimpleNamespace(
+        workspace_path=tmp_path / "ws",
+        before_execute=lambda: None,
+        execute=lambda **kwargs: ("result-frame", "executor-log"),
+    )
+    exp = SimpleNamespace(
+        based_experiments=[SimpleNamespace(result="ok"), SimpleNamespace(result="ok")],
+        sub_workspace_list=[],
+        experiment_workspace=workspace,
+        result=None,
+    )
+
+    calls = {"dedup": 0}
+
+    def fake_process_factor_data(arg):
+        if isinstance(arg, list):
+            return sota_df
+        return new_df
+
+    def fake_dedup(sota, new):
+        calls["dedup"] += 1
+        return new
+
+    runner.process_factor_data = fake_process_factor_data
+    runner.deduplicate_new_factors = fake_dedup
+    runner._apply_combined_quality_gate = lambda df: df
+
+    result = QlibFactorRunner.develop.__wrapped__(runner, exp, use_local=True)
+
+    assert calls["dedup"] == 1
+    assert result.result == "result-frame"
