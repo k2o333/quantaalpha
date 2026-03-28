@@ -382,16 +382,23 @@ class ContinuousOrchestrator:
         self.config = config
         self.run_store = run_store or RunStore()
 
+        # Wire app4 bridge first so runtime schedulers can consume it.
+        self._bridge = None
+        if config.app4_bridge.enabled:
+            self._bridge = self._create_bridge(config)
+
+        execution_periods = self._build_execution_periods(config)
+
         # Create scheduler config from pipeline config
         scheduler_config = SchedulerConfig.from_pipeline_config(config)
 
         # Create base orchestrator
-        self._orchestrator = MiningOrchestrator(scheduler_config)
-
-        # Wire app4 bridge
-        self._bridge = None
-        if config.app4_bridge.enabled:
-            self._bridge = self._create_bridge(config)
+        self._orchestrator = MiningOrchestrator(
+            scheduler_config,
+            data_bridge=self._bridge,
+            execution_periods=execution_periods,
+            library_path=config.factor.library_path,
+        )
 
         # Wire impact classifier
         self._impact_classifier = None
@@ -401,6 +408,14 @@ class ContinuousOrchestrator:
                 default_limit=config.validation.max_revalidation_per_run,
                 fallback_limit=config.validation.max_mining_per_run,
             )
+
+    def _build_execution_periods(self, config) -> dict[str, tuple[str, str]]:
+        """Build execution period tuples from pipeline config."""
+        return {
+            "train": (config.execution.train.start, config.execution.train.end),
+            "valid": (config.execution.valid.start, config.execution.valid.end),
+            "test": (config.execution.test.start, config.execution.test.end),
+        }
 
     def _create_bridge(self, config):
         """Create app4 bridge from config."""

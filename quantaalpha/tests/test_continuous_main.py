@@ -271,6 +271,48 @@ class TestContinuousOrchestrator:
             python_executable="/root/miniforge3/envs/get/bin/python",
         )
 
+    def test_orchestrator_passes_bridge_and_periods_to_lazy_schedulers(self, tmp_path):
+        """Verify lazy schedulers receive the wired bridge and configured execution periods."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=True,
+            enable_mining=True,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.execution.train.start = "2020-01-01"
+        config.execution.train.end = "2022-12-31"
+        config.execution.valid.start = "2023-01-01"
+        config.execution.valid.end = "2023-12-31"
+        config.execution.test.start = "2024-01-01"
+        config.execution.test.end = "2024-12-31"
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily"]
+
+        with patch.object(ContinuousOrchestrator, "_create_bridge", return_value=MagicMock()) as mock_create_bridge:
+            orchestrator = ContinuousOrchestrator(config)
+
+        assert orchestrator._bridge is mock_create_bridge.return_value
+
+        revalidation_scheduler = orchestrator._orchestrator.revalidation_scheduler
+        mining_scheduler = orchestrator._orchestrator.mining_scheduler
+
+        expected_periods = {
+            "train": ("2020-01-01", "2022-12-31"),
+            "valid": ("2023-01-01", "2023-12-31"),
+            "test": ("2024-01-01", "2024-12-31"),
+        }
+        assert revalidation_scheduler._data_bridge is orchestrator._bridge
+        assert mining_scheduler._data_bridge is orchestrator._bridge
+        assert revalidation_scheduler._execution_periods == expected_periods
+        assert mining_scheduler._execution_periods == expected_periods
+
 
 class TestStartCommand:
     """Tests for the start/once CLI commands."""

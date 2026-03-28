@@ -85,6 +85,9 @@ class MiningOrchestrator:
         data_monitor=None,
         revalidation_scheduler=None,
         mining_scheduler=None,
+        data_bridge=None,
+        execution_periods: Optional[dict] = None,
+        library_path: Optional[str] = None,
     ):
         """
         Initialize the orchestrator.
@@ -103,6 +106,9 @@ class MiningOrchestrator:
         self._data_monitor = data_monitor
         self._revalidation_scheduler = revalidation_scheduler
         self._mining_scheduler = mining_scheduler
+        self._data_bridge = data_bridge
+        self._execution_periods = execution_periods or {}
+        self._library_path = library_path
 
         # Event callbacks
         self._event_callbacks: list[callable] = []
@@ -128,6 +134,9 @@ class MiningOrchestrator:
             self._revalidation_scheduler = DefaultRevalidationScheduler(
                 days_threshold=self.config.revalidation_days_threshold,
                 max_per_run=self.config.max_revalidation_per_run,
+                library_path=self._library_path,
+                data_bridge=self._data_bridge,
+                execution_periods=self._execution_periods,
             )
         return self._revalidation_scheduler
 
@@ -139,6 +148,9 @@ class MiningOrchestrator:
 
             self._mining_scheduler = DefaultMiningScheduler(
                 max_per_run=self.config.max_mining_per_run,
+                library_path=self._library_path,
+                data_bridge=self._data_bridge,
+                execution_periods=self._execution_periods,
             )
         return self._mining_scheduler
 

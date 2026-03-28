@@ -649,15 +649,12 @@ class DefaultMiningScheduler(MiningScheduler):
 
             # Get active factors sorted by last_validated
             candidates = library.select_revalidation_candidates(
-                days=90,  # Last 90 days
                 status="active",
             )
 
             if not candidates:
                 # Fall back to any non-failed factors
-                candidates = library.select_revalidation_candidates(
-                    days=90,
-                )
+                candidates = library.select_revalidation_candidates()
 
             if not candidates:
                 return ""
@@ -739,14 +736,17 @@ class DefaultMiningScheduler(MiningScheduler):
             List of generated factor dicts, or empty list if LLM unavailable.
         """
         try:
-            from quantaalpha.llm.client import QuantaAlphaLLMClient
+            from quantaalpha.llm.client import APIBackend
 
-            client = QuantaAlphaLLMClient()
+            client = APIBackend()
 
             # Build generation prompt
             prompt = self._build_generation_prompt(context)
 
-            response = client.generate(prompt=prompt)
+            response = client.build_messages_and_create_chat_completion(
+                user_prompt=prompt,
+                system_prompt="You are a quantitative factor researcher. Generate novel alpha factors.",
+            )
 
             if response:
                 # Parse LLM response into factor dicts
@@ -821,7 +821,6 @@ class DefaultMiningScheduler(MiningScheduler):
 
             # Get recent active factors as templates
             candidates = library.select_revalidation_candidates(
-                days=90,
                 status="active",
             )
 

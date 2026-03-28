@@ -722,6 +722,32 @@ class TestMutationGeneration:
                 assert "factor_expression" in factor
                 assert "tags" in factor
 
+    def test_mutation_uses_recent_active_factors_as_templates(self, tmp_path):
+        """Verify mutation does not exclude active templates solely because they were recently validated."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        factors = {
+            "active_recent": {
+                "factor_id": "active_recent",
+                "factor_name": "Active Recent",
+                "factor_expression": "ts_mean($close, 20)",
+                "evaluation": {
+                    "status": "active",
+                    "last_validated": "2026-03-18T02:37:27.936371",
+                },
+                "tags": {"data_dependency": ["price_volume"]},
+            }
+        }
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": factors}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        mutations = scheduler._generate_via_mutation()
+
+        assert len(mutations) > 0
+        assert all(item["metadata"]["source"] == "mutation" for item in mutations)
+
 
 class TestValidationResultContract:
     """
@@ -864,6 +890,33 @@ class TestGeneratedFactorCandidateContract:
         assert "data_dependency" in normalized["tags"]
         assert "evaluation" in normalized
         assert normalized["evaluation"]["status"] == "pending_validation"
+
+    def test_generate_via_llm_uses_api_backend_when_available(self, tmp_path):
+        """Verify LLM generation uses APIBackend instead of the removed QuantaAlphaLLMClient."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        response = json.dumps([
+            {
+                "factor_name": "LLM Factor",
+                "factor_expression": "$close / ts_mean($close, 5)",
+                "tags": {"data_dependency": ["price_volume"]},
+            }
+        ])
+
+        with patch("quantaalpha.llm.client.APIBackend") as mock_backend_class:
+            mock_backend = MagicMock()
+            mock_backend.build_messages_and_create_chat_completion.return_value = response
+            mock_backend_class.return_value = mock_backend
+
+            generated = scheduler._generate_via_llm("context")
+
+        mock_backend.build_messages_and_create_chat_completion.assert_called_once()
+        assert len(generated) == 1
+        assert generated[0]["factor_name"] == "LLM Factor"
 
 
 class TestBridgeDataIntegration:
