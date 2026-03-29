@@ -88,6 +88,7 @@ def start(
     config: str = "config/pipeline.yaml",
     verbose: bool = False,
     run_once: bool = False,
+    skip_update: bool = False,
 ) -> None:
     """
     Start the continuous runtime in foreground loop.
@@ -146,7 +147,7 @@ def start(
     try:
         if run_once:
             logger.info("Running in single-cycle mode (run_once=True)")
-            _run_once_cycle(orchestrator, pipeline_config)
+            _run_once_cycle(orchestrator, pipeline_config, skip_update=skip_update)
         else:
             logger.info("Running in continuous loop mode")
             _run_continuous_loop(orchestrator, pipeline_config)
@@ -158,7 +159,7 @@ def start(
         logger.info("Continuous runtime stopped")
 
 
-def _run_once_cycle(orchestrator, pipeline_config) -> None:
+def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) -> None:
     """Execute a single deterministic cycle."""
     from quantaalpha.continuous.run_store import DataUpdateSummary, MiningSummary, RunSummary, ValidationSummary
 
@@ -178,7 +179,7 @@ def _run_once_cycle(orchestrator, pipeline_config) -> None:
 
     try:
         # Execute the once cycle
-        cycle_result = orchestrator.run_once_cycle()
+        cycle_result = orchestrator.run_once_cycle(skip_update=skip_update)
 
         # Populate summary from cycle result
         if cycle_result.get("data_update"):
@@ -330,6 +331,7 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
 def once(
     config: str = "config/pipeline.yaml",
     verbose: bool = False,
+    skip_update: bool = False,
 ) -> None:
     """
     Run a single deterministic cycle and exit.
@@ -345,7 +347,7 @@ def once(
         verbose: Enable verbose debug logging.
     """
     _setup_logging(verbose)
-    start(config=config, verbose=verbose, run_once=True)
+    start(config=config, verbose=verbose, run_once=True, skip_update=skip_update)
 
 
 class ContinuousOrchestrator:
@@ -466,7 +468,16 @@ class ContinuousOrchestrator:
         """Stop the orchestrator gracefully."""
         self._orchestrator.stop()
 
-    def run_once_cycle(self) -> dict:
+    def _clear_runtime_caches(self) -> None:
+        """Clear per-cycle cached execution data on runtime schedulers."""
+        for scheduler in (
+            getattr(self._orchestrator, "_revalidation_scheduler", None),
+            getattr(self._orchestrator, "_mining_scheduler", None),
+        ):
+            if scheduler and hasattr(scheduler, "clear_execution_dataframe_cache"):
+                scheduler.clear_execution_dataframe_cache()
+
+    def run_once_cycle(self, skip_update: bool = False) -> dict:
         """
         Execute one complete cycle covering:
         1. Data freshness inspection
@@ -493,6 +504,8 @@ class ContinuousOrchestrator:
             "errors": [],
         }
 
+        self._clear_runtime_caches()
+
         # Step 1: Data inspection
         if self._bridge:
             try:
@@ -507,12 +520,17 @@ class ContinuousOrchestrator:
 
                 # Step 2: Data update if needed
                 if self._bridge.should_update(inspection):
-                    logger.info("Data is stale, running update...")
-                    update_result = self._bridge.run_update(dry_run=False)
-                    result["data_update"]["updated"] = update_result.get("updated", False)
-                    result["data_update"]["updated_interfaces"] = update_result.get("updated_interfaces", [])
-                    if update_result.get("errors"):
-                        result["errors"].extend(update_result["errors"])
+                    if skip_update:
+                        logger.info("skip_update=True, bypassing bridge update for this once cycle")
+                    else:
+                        logger.info("Data is stale, running update...")
+                        update_result = self._bridge.run_update(dry_run=False)
+                        result["data_update"]["updated"] = update_result.get("updated", False)
+                        result["data_update"]["updated_interfaces"] = update_result.get("updated_interfaces", [])
+                        if update_result.get("updated", False):
+                            self._clear_runtime_caches()
+                        if update_result.get("errors"):
+                            result["errors"].extend(update_result["errors"])
 
             except Exception as e:
                 logger.error(f"Data inspection failed: {e}")
@@ -646,13 +664,18 @@ def main():
         action="store_true",
         help="Enable verbose debug logging",
     )
+    parser.add_argument(
+        "--skip-update",
+        action="store_true",
+        help="Skip app4 data update in once mode for smoke/perf runs",
+    )
 
     args = parser.parse_args()
 
     if args.command == "start":
         start(config=args.config, verbose=args.verbose)
     elif args.command == "once":
-        once(config=args.config, verbose=args.verbose)
+        once(config=args.config, verbose=args.verbose, skip_update=args.skip_update)
 
 
 if __name__ == "__main__":

@@ -158,6 +158,53 @@ class TestContinuousOrchestrator:
             mock_bridge.inspect.assert_called_once()
             assert result["data_update"]["latest_dates"]["daily"] == "20260327"
 
+    def test_run_once_cycle_can_skip_update_for_smoke_runs(self, tmp_path):
+        """Verify skip_update bypasses bridge.run_update but still continues with revalidation."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=True,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily"]
+
+        with patch.object(ContinuousOrchestrator, "_create_bridge") as mock_create:
+            mock_bridge = MagicMock()
+            mock_inspection = {
+                "latest_dates": {"daily": "20260327"},
+                "stale_interfaces": ["daily"],
+                "checked_interfaces": ["daily"],
+                "errors": [],
+            }
+            mock_bridge.inspect.return_value = mock_inspection
+            mock_bridge.should_update.return_value = True
+            mock_bridge._last_inspection = mock_inspection
+            mock_create.return_value = mock_bridge
+
+            orchestrator = ContinuousOrchestrator(config)
+
+        mock_reval_result = MagicMock()
+        mock_reval_result.total_candidates = 1
+        mock_reval_result.revalidated_count = 1
+        mock_reval_result.status_changes = {}
+        mock_reval_result.errors = []
+        mock_reval_result.duration_seconds = 1.0
+        orchestrator._orchestrator.run_revalidation_cycle = MagicMock(return_value=mock_reval_result)
+
+        result = orchestrator.run_once_cycle(skip_update=True)
+
+        mock_bridge.run_update.assert_not_called()
+        orchestrator._orchestrator.run_revalidation_cycle.assert_called_once()
+        assert result["data_update"]["updated"] is False
+
     def test_run_once_cycle_calls_revalidation_when_enabled(self, tmp_path):
         """Verify run_once_cycle triggers revalidation when enabled."""
         from quantaalpha.continuous.main import ContinuousOrchestrator

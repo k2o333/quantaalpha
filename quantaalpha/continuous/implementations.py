@@ -11,6 +11,7 @@ These implementations use:
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread, Event
@@ -197,6 +198,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self._running = False
         self._stop_event = Event()
         self._scheduler_thread: Optional[Thread] = None
+        self._execution_dataframe_cache = None
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -313,6 +315,10 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         """Update next run timestamp."""
         self._next_run = datetime.now() + timedelta(hours=self.interval_hours)
 
+    def clear_execution_dataframe_cache(self) -> None:
+        """Clear per-cycle cached execution data."""
+        self._execution_dataframe_cache = None
+
     def _run_factor_backtest(self, factor_id: str, factor_entry: dict) -> bool:
         """
         Run backtest for a single factor.
@@ -327,6 +333,8 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             True if factor passed backtest, False if failed.
             None indicates error/uncertain result.
         """
+        factor_start = time.time()
+        logger.info("profile.revalidation.factor.start factor=%s", factor_id)
         logger.info(f"Running backtest for factor {factor_id}")
 
         # Use injected runner if provided
@@ -378,18 +386,40 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 expression=translated_expression,
                 original_expression=expression,
             )
+            total_seconds = time.time() - factor_start
 
             if result.success and result.ic_value is not None:
                 # Check against validation thresholds
                 min_ic = 0.02  # From pipeline.yaml validation.min_ic
                 if result.ic_value >= min_ic:
+                    logger.info(
+                        "profile.revalidation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
+                        factor_id,
+                        True,
+                        total_seconds,
+                        result.ic_value,
+                    )
                     logger.info(f"Factor {factor_id} passed backtest with IC={result.ic_value:.4f}")
                     return True
                 else:
+                    logger.info(
+                        "profile.revalidation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
+                        factor_id,
+                        False,
+                        total_seconds,
+                        result.ic_value,
+                    )
                     logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {min_ic}")
                     return False
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
+                logger.info(
+                    "profile.revalidation.factor.done factor=%s success=%s total_seconds=%.3f error=%s",
+                    factor_id,
+                    False,
+                    total_seconds,
+                    error_msg,
+                )
                 logger.warning(f"Factor {factor_id} backtest failed: {error_msg}")
                 return False
 
@@ -409,9 +439,13 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         """
         import polars as pl
 
+        if self._execution_dataframe_cache is not None:
+            logger.debug("Using cached execution DataFrame for backtest")
+            return self._execution_dataframe_cache
+
         if self._data_bridge is None:
             logger.debug("No data bridge configured, using empty DataFrame")
-            return pl.DataFrame({
+            self._execution_dataframe_cache = pl.DataFrame({
                 "datetime": pl.Series(dtype=pl.Date),
                 "vt_symbol": pl.Series(dtype=pl.String),
                 "open": pl.Series(dtype=pl.Float64),
@@ -420,6 +454,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 "close": pl.Series(dtype=pl.Float64),
                 "volume": pl.Series(dtype=pl.Float64),
             })
+            return self._execution_dataframe_cache
 
         try:
             # Get the maximum coverage window from execution periods
@@ -433,16 +468,28 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             start_date = min(all_start_dates)
             end_date = max(all_end_dates)
 
+            logger.info(
+                "profile.load_price_data.start context=backtest interfaces=%s start_date=%s end_date=%s",
+                ["daily"],
+                start_date,
+                end_date,
+            )
+            load_start = time.time()
             df = self._data_bridge.load_price_data(
                 interfaces=["daily"],
                 start_date=start_date.replace("-", ""),
                 end_date=end_date.replace("-", ""),
             )
+            load_seconds = time.time() - load_start
 
             if df is None or df.is_empty():
+                logger.info(
+                    "profile.load_price_data.done context=backtest rows=0 seconds=%.3f",
+                    load_seconds,
+                )
                 logger.warning("Bridge returned empty DataFrame")
                 # Return empty DataFrame with correct schema for backward compatibility
-                return pl.DataFrame({
+                self._execution_dataframe_cache = pl.DataFrame({
                     "datetime": pl.Series(dtype=pl.Date),
                     "vt_symbol": pl.Series(dtype=pl.String),
                     "open": pl.Series(dtype=pl.Float64),
@@ -451,13 +498,20 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     "close": pl.Series(dtype=pl.Float64),
                     "volume": pl.Series(dtype=pl.Float64),
                 })
+                return self._execution_dataframe_cache
 
+            logger.info(
+                "profile.load_price_data.done context=backtest rows=%s seconds=%.3f",
+                len(df),
+                load_seconds,
+            )
             logger.info(f"Loaded {len(df)} rows from bridge for backtest")
-            return df
+            self._execution_dataframe_cache = df
+            return self._execution_dataframe_cache
 
         except Exception as e:
             logger.error(f"Error loading data from bridge: {e}")
-            return pl.DataFrame({
+            self._execution_dataframe_cache = pl.DataFrame({
                 "datetime": pl.Series(dtype=pl.Date),
                 "vt_symbol": pl.Series(dtype=pl.String),
                 "open": pl.Series(dtype=pl.Float64),
@@ -466,6 +520,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 "close": pl.Series(dtype=pl.Float64),
                 "volume": pl.Series(dtype=pl.Float64),
             })
+            return self._execution_dataframe_cache
 
 
 class DefaultMiningScheduler(MiningScheduler):
@@ -506,6 +561,7 @@ class DefaultMiningScheduler(MiningScheduler):
         self._running = False
         self._stop_event = Event()
         self._scheduler_thread: Optional[Thread] = None
+        self._execution_dataframe_cache = None
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -585,6 +641,10 @@ class DefaultMiningScheduler(MiningScheduler):
     def _update_next_run(self) -> None:
         """Update next run timestamp."""
         self._next_run = datetime.now() + timedelta(hours=self.interval_hours)
+
+    def clear_execution_dataframe_cache(self) -> None:
+        """Clear per-cycle cached execution data."""
+        self._execution_dataframe_cache = None
 
     def _retrieve_context(self) -> str:
         """
@@ -991,6 +1051,8 @@ class DefaultMiningScheduler(MiningScheduler):
         # Default validation path using FactorExecutor
         try:
             from third_party.glue.factor_executor import FactorExecutor
+            factor_start = time.time()
+            logger.info("profile.validation.factor.start factor=%s", factor_id)
 
             expression = factor_entry.get("factor_expression", "")
             if not expression:
@@ -1051,6 +1113,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 expression=translated_expression,
                 original_expression=expression,
             )
+            total_seconds = time.time() - factor_start
 
             if result.success and result.ic_value is not None:
                 ic_mean = result.ic_value
@@ -1067,6 +1130,13 @@ class DefaultMiningScheduler(MiningScheduler):
                     stability_score = min(1.0, max(0.0, (icir + 1) / 2))
 
                 if passes_ic:
+                    logger.info(
+                        "profile.validation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
+                        factor_id,
+                        True,
+                        total_seconds,
+                        ic_mean,
+                    )
                     return {
                         "status": "success",
                         "summary": {
@@ -1078,6 +1148,13 @@ class DefaultMiningScheduler(MiningScheduler):
                         },
                     }
                 else:
+                    logger.info(
+                        "profile.validation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
+                        factor_id,
+                        False,
+                        total_seconds,
+                        ic_mean,
+                    )
                     return {
                         "status": "failure",
                         "summary": {
@@ -1089,6 +1166,13 @@ class DefaultMiningScheduler(MiningScheduler):
                     }
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
+                logger.info(
+                    "profile.validation.factor.done factor=%s success=%s total_seconds=%.3f error=%s",
+                    factor_id,
+                    False,
+                    total_seconds,
+                    error_msg,
+                )
                 return {
                     "status": "failure",
                     "summary": {
@@ -1131,9 +1215,13 @@ class DefaultMiningScheduler(MiningScheduler):
         """
         import polars as pl
 
+        if self._execution_dataframe_cache is not None:
+            logger.debug("Using cached execution DataFrame for validation")
+            return self._execution_dataframe_cache
+
         if self._data_bridge is None:
             logger.debug("No data bridge configured, using empty DataFrame")
-            return pl.DataFrame({
+            self._execution_dataframe_cache = pl.DataFrame({
                 "datetime": pl.Series(dtype=pl.Date),
                 "vt_symbol": pl.Series(dtype=pl.String),
                 "open": pl.Series(dtype=pl.Float64),
@@ -1142,6 +1230,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 "close": pl.Series(dtype=pl.Float64),
                 "volume": pl.Series(dtype=pl.Float64),
             })
+            return self._execution_dataframe_cache
 
         try:
             # Get the maximum coverage window from execution periods
@@ -1155,22 +1244,41 @@ class DefaultMiningScheduler(MiningScheduler):
             start_date = min(all_start_dates)
             end_date = max(all_end_dates)
 
+            logger.info(
+                "profile.load_price_data.start context=validation interfaces=%s start_date=%s end_date=%s",
+                ["daily"],
+                start_date,
+                end_date,
+            )
+            load_start = time.time()
             df = self._data_bridge.load_price_data(
                 interfaces=["daily"],
                 start_date=start_date.replace("-", ""),
                 end_date=end_date.replace("-", ""),
             )
+            load_seconds = time.time() - load_start
 
             if df is None or df.is_empty():
+                logger.info(
+                    "profile.load_price_data.done context=validation rows=0 seconds=%.3f",
+                    load_seconds,
+                )
                 logger.warning("Bridge returned empty DataFrame")
-                return df if df is not None else pl.DataFrame()
+                self._execution_dataframe_cache = df if df is not None else pl.DataFrame()
+                return self._execution_dataframe_cache
 
+            logger.info(
+                "profile.load_price_data.done context=validation rows=%s seconds=%.3f",
+                len(df),
+                load_seconds,
+            )
             logger.info(f"Loaded {len(df)} rows from bridge for validation")
-            return df
+            self._execution_dataframe_cache = df
+            return self._execution_dataframe_cache
 
         except Exception as e:
             logger.error(f"Error loading data from bridge: {e}")
-            return pl.DataFrame({
+            self._execution_dataframe_cache = pl.DataFrame({
                 "datetime": pl.Series(dtype=pl.Date),
                 "vt_symbol": pl.Series(dtype=pl.String),
                 "open": pl.Series(dtype=pl.Float64),
@@ -1179,6 +1287,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 "close": pl.Series(dtype=pl.Float64),
                 "volume": pl.Series(dtype=pl.Float64),
             })
+            return self._execution_dataframe_cache
 
     def _add_factor_to_library(self, factor_entry: dict) -> None:
         """

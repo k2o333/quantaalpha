@@ -238,7 +238,7 @@ except ImportError:
 try:
     from llama import Llama
 except ImportError:
-    logger.warning("llama is not installed.")
+    logger.info("llama is not installed.")
 
 
 class ConvManager:

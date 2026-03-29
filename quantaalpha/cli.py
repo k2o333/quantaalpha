@@ -311,6 +311,7 @@ def _continuous_start(
 def _continuous_once(
     config: str = "config/pipeline.yaml",
     verbose: bool = False,
+    skip_update: bool = False,
     **kwargs,
 ) -> None:
     """
@@ -324,7 +325,7 @@ def _continuous_once(
     kwargs.pop("help", None)
     kwargs.pop("h", None)
     from quantaalpha.continuous.main import once as continuous_once
-    continuous_once(config=config, verbose=verbose)
+    continuous_once(config=config, verbose=verbose, skip_update=skip_update)
 
 
 def continuous(command: str = None, **kwargs):

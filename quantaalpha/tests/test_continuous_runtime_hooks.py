@@ -11,6 +11,7 @@ These tests verify that stubs are replaced with real integration behavior.
 """
 
 import json
+import logging
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -225,6 +226,52 @@ class TestRunFactorBacktest:
 
         call = mock_instance.execute_single.call_args
         assert call.kwargs["expression"] == "ts_corr((close / ts_delay(close, 1) - 1), ts_delta(volume, 1), 10)"
+
+    def test_backtest_reuses_cached_execution_dataframe_within_scheduler(self, tmp_path):
+        """Verify repeated backtests reuse the same loaded price DataFrame."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        bridge_df = pl.DataFrame({
+            "datetime": pl.date_range(
+                start=date(2024, 1, 1),
+                end=date(2024, 1, 3),
+                interval="1d",
+                eager=True,
+            ),
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.1, 10.2],
+            "high": [10.2, 10.3, 10.4],
+            "low": [9.9, 10.0, 10.1],
+            "close": [10.1, 10.2, 10.3],
+            "volume": [1000.0, 1100.0, 1200.0],
+        })
+        data_bridge = MagicMock()
+        data_bridge.load_price_data.return_value = bridge_df
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            data_bridge=data_bridge,
+        )
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock(success=True, ic_value=0.05, error_message=None)
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            scheduler._run_factor_backtest(
+                "factor_a",
+                {"factor_id": "factor_a", "factor_expression": "$close"},
+            )
+            scheduler._run_factor_backtest(
+                "factor_b",
+                {"factor_id": "factor_b", "factor_expression": "$open"},
+            )
+
+        data_bridge.load_price_data.assert_called_once()
 
 
 class TestValidateFactor:
@@ -970,6 +1017,43 @@ class TestBridgeDataIntegration:
             # Verify the call used configured periods
             call_kwargs = mock_bridge.load_price_data.call_args[1]
             assert "start_date" in call_kwargs or call_kwargs.get("interfaces") is not None
+
+    def test_run_factor_backtest_emits_profiling_logs(self, tmp_path, caplog):
+        """Verify revalidation backtest emits per-factor and bridge-load profiling logs."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        mock_bridge = MagicMock()
+        mock_bridge.load_price_data.return_value = pl.DataFrame({
+            "datetime": [1, 2, 3],
+            "vt_symbol": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.5, 11.0],
+            "high": [10.5, 11.0, 11.5],
+            "low": [9.5, 10.0, 10.5],
+            "close": [10.2, 10.8, 11.2],
+            "volume": [1000000, 1500000, 2000000],
+        })
+        scheduler._data_bridge = mock_bridge
+
+        caplog.set_level(logging.INFO)
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock(success=True, ic_value=0.05, error_message=None)
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            scheduler._run_factor_backtest("f1", {"factor_expression": "$close"})
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("profile.revalidation.factor.start" in message for message in messages)
+        assert any("profile.load_price_data.start" in message for message in messages)
+        assert any("profile.load_price_data.done" in message for message in messages)
+        assert any("profile.revalidation.factor.done" in message for message in messages)
 
     def test_validate_factor_uses_bridge_data_when_configured(self, tmp_path):
         """Verify _validate_factor uses bridge data instead of placeholder."""
