@@ -729,6 +729,17 @@ class TestMutationGeneration:
         # ts_mean should become ts_sum
         assert "ts_sum(" in result
 
+    def test_mutate_operators_cs_rank_is_not_noop(self):
+        """Verify cs_rank expressions produce a real operator mutation."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        result = scheduler._mutate_operators("cs_rank($close)")
+
+        assert result != "cs_rank($close)"
+        assert "rank(" in result
+
     def test_mutate_simple_variation_removed(self):
         """Verify _mutate_simple_variation has been removed."""
         from quantaalpha.continuous.implementations import DefaultMiningScheduler
@@ -1397,6 +1408,19 @@ class TestMutationIsParsableFilter:
             if r == o:
                 # This is the cascade bug
                 assert False, f"Cascade bug: '{o}' -> '{r}' (no change due to cascade)"
+
+    def test_mutate_time_windows_only_replaces_window_arguments(self):
+        """Verify numeric constants outside window arguments are not rewritten."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        original = "ts_mean($close * 1.5 + $open * 0.05, 5)"
+        result = scheduler._mutate_time_windows(original)
+
+        assert "1.5" in result
+        assert "0.05" in result
+        assert result.endswith(", 10)")
 
 
 class TestPerFactorTimeoutEnforcement:

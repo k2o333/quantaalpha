@@ -997,11 +997,9 @@ class DefaultMiningScheduler(MiningScheduler):
             return []
 
     def _mutate_time_windows(self, expression: str) -> str:
-        """Replace time windows with variations using single-pass replacement."""
+        """Replace a window-parameter argument without touching other numeric constants."""
         import re
 
-        # Single-pass replacement map - each value maps to exactly one other value
-        # No cascade: 5->10, 10->20, 20->60, 60->5 (but only one step per call)
         replacement_map = {
             '5': '10',
             '10': '20',
@@ -1009,12 +1007,12 @@ class DefaultMiningScheduler(MiningScheduler):
             '60': '5',
         }
 
-        # Use a function to perform single-pass replacement
         def replace_match(match):
-            return replacement_map.get(match.group(0), match.group(0))
+            window = match.group(1)
+            suffix = match.group(2)
+            return f", {replacement_map.get(window, window)}{suffix}"
 
-        result = re.sub(r'\b(5|10|20|60)\b', replace_match, expression)
-        return result
+        return re.sub(r',\s*(5|10|20|60)(\s*\))', replace_match, expression, count=1)
 
     def _mutate_operators(self, expression: str) -> str:
         """Substitute operators."""
@@ -1024,9 +1022,7 @@ class DefaultMiningScheduler(MiningScheduler):
         elif 'ts_sum(' in expression:
             return expression.replace('ts_sum(', 'ts_mean(')
         elif 'cs_rank(' in expression:
-            # cs_rank -> cs_rank is a no-op, try a different operator
-            if 'ts_mean(' in expression:
-                return expression.replace('ts_mean(', 'ts_sum(')
+            return expression.replace('cs_rank(', 'rank(')
         return expression
 
     def _is_parsable(self, expression: str) -> bool:

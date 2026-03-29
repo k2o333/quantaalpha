@@ -137,7 +137,7 @@ class MiningOrchestrator:
                 library_path=self._library_path,
                 data_bridge=self._data_bridge,
                 execution_periods=self._execution_periods,
-                min_ic=getattr(self.config, 'min_ic', 0.02),
+                min_ic=self.config.min_ic,
                 per_factor_timeout_seconds=self.config.per_factor_timeout_seconds,
             )
         return self._revalidation_scheduler
@@ -153,8 +153,8 @@ class MiningOrchestrator:
                 library_path=self._library_path,
                 data_bridge=self._data_bridge,
                 execution_periods=self._execution_periods,
-                min_ic=getattr(self.config, 'min_ic', 0.02),
-                min_rank_ic=getattr(self.config, 'min_rank_ic', 0.01),
+                min_ic=self.config.min_ic,
+                min_rank_ic=self.config.min_rank_ic,
                 per_factor_timeout_seconds=self.config.per_factor_timeout_seconds,
             )
         return self._mining_scheduler

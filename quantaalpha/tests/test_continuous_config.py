@@ -441,9 +441,9 @@ app4_bridge:
     - daily
     - moneyflow
   interface_tiers:
-    tier1:
+    critical:
       - daily
-    tier2:
+    normal:
       - moneyflow
 """
         yaml_path = tmp_path / "test_interface_tiers.yaml"
@@ -451,7 +451,7 @@ app4_bridge:
 
         config = PipelineConfig.from_yaml(str(yaml_path))
 
-        assert config.app4_bridge.interface_tiers == {"tier1": ["daily"], "tier2": ["moneyflow"]}
+        assert config.app4_bridge.interface_tiers == {"critical": ["daily"], "normal": ["moneyflow"]}
 
     def test_pipeline_config_to_dict_includes_interface_tiers(self, tmp_path: Path):
         """Test PipelineConfig.to_dict includes interface_tiers."""
@@ -461,7 +461,7 @@ app4_bridge:
 app4_bridge:
   enabled: true
   interface_tiers:
-    tier1:
+    critical:
       - daily
 """
         yaml_path = tmp_path / "test_tiers_dict.yaml"
@@ -471,7 +471,7 @@ app4_bridge:
         config_dict = config.to_dict()
 
         assert "interface_tiers" in config_dict["app4_bridge"]
-        assert config_dict["app4_bridge"]["interface_tiers"] == {"tier1": ["daily"]}
+        assert config_dict["app4_bridge"]["interface_tiers"] == {"critical": ["daily"]}
 
 
 class TestValidationConfig:
@@ -582,6 +582,24 @@ class TestConfigContract:
         scheduler = SchedulerConfig.from_pipeline_config(pipeline)
 
         assert scheduler.data_dirs == ["/path/to/data1", "/path/to/data2"]
+
+    def test_downstream_assumptions_validation_thresholds(self):
+        """Test downstream assumption: validation thresholds map into SchedulerConfig fields."""
+        from quantaalpha.continuous.scheduler import PipelineConfig, SchedulerConfig, ValidationConfig
+
+        pipeline = PipelineConfig(
+            validation=ValidationConfig(
+                min_ic=0.05,
+                min_rank_ic=0.03,
+                max_revalidation_per_run=10,
+                max_mining_per_run=5,
+            )
+        )
+
+        scheduler = SchedulerConfig.from_pipeline_config(pipeline)
+
+        assert scheduler.min_ic == 0.05
+        assert scheduler.min_rank_ic == 0.03
 
     def test_downstream_assumptions_execution_periods(self):
         """Test downstream assumption: execution periods are accessible."""

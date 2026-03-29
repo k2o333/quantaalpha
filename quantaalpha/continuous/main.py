@@ -495,10 +495,16 @@ class ContinuousOrchestrator:
             Dict mapping interface name to tier name
             e.g., {"daily": "tier1", "moneyflow": "tier1", "volume": "tier2"}
         """
+        tier_aliases = {
+            "tier1": "critical",
+            "tier2": "normal",
+            "tier3": "deferred",
+        }
         result = {}
         for tier, interfaces in tiers_config.items():
+            normalized_tier = tier_aliases.get(tier, tier)
             for interface in interfaces:
-                result[interface] = tier
+                result[interface] = normalized_tier
         return result
 
     def start(self) -> None:

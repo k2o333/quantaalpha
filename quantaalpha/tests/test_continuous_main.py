@@ -343,8 +343,8 @@ class TestContinuousOrchestrator:
         config.app4_bridge.python_executable = "/root/miniforge3/envs/get/bin/python"
         # Configure interface_tiers in tier->[interfaces] format (as from pipeline.yaml)
         config.app4_bridge.interface_tiers = {
-            "tier1": ["daily", "daily_basic"],
-            "tier2": ["moneyflow"],
+            "critical": ["daily", "daily_basic"],
+            "normal": ["moneyflow"],
         }
 
         with patch("importlib.util.spec_from_file_location") as mock_spec_from_file_location:
@@ -364,9 +364,54 @@ class TestContinuousOrchestrator:
         call_kwargs = mock_bridge_class.call_args.kwargs
         assert "interface_tiers" in call_kwargs, "interface_tiers not passed to bridge"
         # Verify the format conversion: tier->[interfaces] => interface->tier
-        assert call_kwargs["interface_tiers"]["daily"] == "tier1"
-        assert call_kwargs["interface_tiers"]["daily_basic"] == "tier1"
-        assert call_kwargs["interface_tiers"]["moneyflow"] == "tier2"
+        assert call_kwargs["interface_tiers"]["daily"] == "critical"
+        assert call_kwargs["interface_tiers"]["daily_basic"] == "critical"
+        assert call_kwargs["interface_tiers"]["moneyflow"] == "normal"
+
+    def test_create_bridge_normalizes_legacy_tier_aliases(self, tmp_path):
+        """Verify legacy tier1/tier2/tier3 aliases are normalized for bridge runtime semantics."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily", "moneyflow", "income_vip"]
+        config.app4_bridge.data_roots = [str(tmp_path)]
+        config.app4_bridge.freshness_threshold_hours = 24
+        config.app4_bridge.update_timeout_seconds = 120
+        config.app4_bridge.max_update_interfaces_per_cycle = 5
+        config.app4_bridge.python_executable = "/root/miniforge3/envs/get/bin/python"
+        config.app4_bridge.interface_tiers = {
+            "tier1": ["daily"],
+            "tier2": ["moneyflow"],
+            "tier3": ["income_vip"],
+        }
+
+        with patch("importlib.util.spec_from_file_location") as mock_spec_from_file_location:
+            mock_bridge_class = MagicMock()
+            fake_spec = MagicMock()
+            fake_loader = MagicMock()
+            fake_module = MagicMock()
+            fake_module.ContinuousUpdateBridge = mock_bridge_class
+            fake_spec.loader = fake_loader
+            mock_spec_from_file_location.return_value = fake_spec
+
+            with patch("importlib.util.module_from_spec", return_value=fake_module):
+                ContinuousOrchestrator(config)
+
+        call_kwargs = mock_bridge_class.call_args.kwargs
+        assert call_kwargs["interface_tiers"]["daily"] == "critical"
+        assert call_kwargs["interface_tiers"]["moneyflow"] == "normal"
+        assert call_kwargs["interface_tiers"]["income_vip"] == "deferred"
 
     def test_create_bridge_passes_empty_interface_tiers_when_not_configured(self, tmp_path):
         """Verify _create_bridge passes empty interface_tiers dict when not configured."""

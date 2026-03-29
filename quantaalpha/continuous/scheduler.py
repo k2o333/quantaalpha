@@ -264,6 +264,10 @@ class SchedulerConfig:
     cycle_budget_seconds: int = 3600  # 1 hour per cycle
     per_factor_timeout_seconds: int = 300  # 5 minutes per factor
 
+    # Validation thresholds
+    min_ic: float = 0.02
+    min_rank_ic: float = 0.01
+
     # Global
     enable_data_monitor: bool = True
     enable_revalidation: bool = True
@@ -290,6 +294,8 @@ class SchedulerConfig:
             max_mining_per_run=pipeline_config.validation.max_mining_per_run,
             cycle_budget_seconds=pipeline_config.cycle_budget_seconds,
             per_factor_timeout_seconds=pipeline_config.per_factor_timeout_seconds,
+            min_ic=pipeline_config.validation.min_ic,
+            min_rank_ic=pipeline_config.validation.min_rank_ic,
             enable_data_monitor=pipeline_config.enable_data_monitor,
             enable_revalidation=pipeline_config.enable_revalidation,
             enable_mining=pipeline_config.enable_mining,
