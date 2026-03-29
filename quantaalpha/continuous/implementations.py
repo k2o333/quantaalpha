@@ -179,6 +179,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         data_bridge=None,
         execution_periods: Optional[dict] = None,
         min_ic: float = 0.02,
+        per_factor_timeout_seconds: int = 300,
     ):
         import os
 
@@ -196,6 +197,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             "test": ("2024-01-01", "2024-12-31"),
         }
         self.min_ic = min_ic
+        self._per_factor_timeout_seconds = per_factor_timeout_seconds
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -341,7 +343,12 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
         # Use injected runner if provided
         if self._backtest_runner is not None:
-            return self._backtest_runner(factor_id, factor_entry)
+            return self._run_with_timeout(
+                self._backtest_runner,
+                factor_id,
+                factor_entry,
+                self._per_factor_timeout_seconds,
+            )
 
         # Default path: use FactorExecutor from glue if available
         try:
@@ -430,6 +437,47 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         except Exception as e:
             logger.error(f"Error running backtest for {factor_id}: {e}")
             return False
+
+    def _run_with_timeout(self, func: Callable, factor_id: str, factor_entry: dict, timeout_seconds: int) -> bool:
+        """
+        Run a function with timeout enforcement.
+
+        Args:
+            func: Function to run (backtest_runner or factor_validator)
+            factor_id: Factor ID for logging
+            factor_entry: Factor entry dict
+            timeout_seconds: Maximum seconds to allow
+
+        Returns:
+            True if func returned True before timeout, False otherwise.
+        """
+        from threading import Thread, Event
+
+        result = {"value": None, "exception": None}
+        done_event = Event()
+
+        def run_func():
+            try:
+                result["value"] = func(factor_id, factor_entry)
+            except Exception as e:
+                result["exception"] = e
+            finally:
+                done_event.set()
+
+        thread = Thread(target=run_func, daemon=True)
+        thread.start()
+
+        if not done_event.wait(timeout=timeout_seconds):
+            logger.warning(
+                f"per_factor_timeout: {factor_id} exceeded {timeout_seconds}s limit, interrupting",
+            )
+            return False
+
+        if result["exception"] is not None:
+            logger.error(f"Exception in backtest_runner for {factor_id}: {result['exception']}")
+            return False
+
+        return result["value"] is not None and result["value"] is True
 
     def _get_execution_dataframe(self):
         """
@@ -545,6 +593,7 @@ class DefaultMiningScheduler(MiningScheduler):
         execution_periods: Optional[dict] = None,
         min_ic: float = 0.02,
         min_rank_ic: float = 0.01,
+        per_factor_timeout_seconds: int = 300,
     ):
         import os
 
@@ -562,6 +611,7 @@ class DefaultMiningScheduler(MiningScheduler):
         }
         self.min_ic = min_ic
         self.min_rank_ic = min_rank_ic
+        self._per_factor_timeout_seconds = per_factor_timeout_seconds
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -1059,7 +1109,13 @@ class DefaultMiningScheduler(MiningScheduler):
 
         # Use injected validator if provided
         if self._factor_validator is not None:
-            return self._factor_validator(factor_id, factor_entry)
+            result = self._validate_with_timeout(
+                self._factor_validator,
+                factor_id,
+                factor_entry,
+                self._per_factor_timeout_seconds,
+            )
+            return result
 
         # Default validation path using FactorExecutor
         try:
@@ -1234,6 +1290,70 @@ class DefaultMiningScheduler(MiningScheduler):
                     "rank_ic_mean": None,
                 },
             }
+
+    def _validate_with_timeout(
+        self,
+        validator: Callable,
+        factor_id: str,
+        factor_entry: dict,
+        timeout_seconds: int,
+    ) -> Optional[dict]:
+        """
+        Run a validator with timeout enforcement.
+
+        Args:
+            validator: Validator function to run
+            factor_id: Factor ID for logging
+            factor_entry: Factor entry dict
+            timeout_seconds: Maximum seconds to allow
+
+        Returns:
+            Validation result dict if completed before timeout, failure dict if timed out.
+            None indicates uncertain result.
+        """
+        from threading import Thread, Event
+
+        result = {"value": None, "exception": None}
+        done_event = Event()
+
+        def run_validator():
+            try:
+                result["value"] = validator(factor_id, factor_entry)
+            except Exception as e:
+                result["exception"] = e
+            finally:
+                done_event.set()
+
+        thread = Thread(target=run_validator, daemon=True)
+        thread.start()
+
+        if not done_event.wait(timeout=timeout_seconds):
+            logger.warning(
+                f"per_factor_timeout: {factor_id} exceeded {timeout_seconds}s limit, interrupting validation",
+            )
+            return {
+                "status": "failure",
+                "summary": {
+                    "stability_score": None,
+                    "validation_summary": f"Validation timeout after {timeout_seconds}s (per_factor_timeout)",
+                    "ic_mean": None,
+                    "rank_ic_mean": None,
+                },
+            }
+
+        if result["exception"] is not None:
+            logger.error(f"Exception in validator for {factor_id}: {result['exception']}")
+            return {
+                "status": "failure",
+                "summary": {
+                    "stability_score": None,
+                    "validation_summary": f"Validation error: {str(result['exception'])}",
+                    "ic_mean": None,
+                    "rank_ic_mean": None,
+                },
+            }
+
+        return result["value"]
 
     def _get_execution_dataframe(self):
         """

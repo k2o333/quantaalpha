@@ -1397,3 +1397,131 @@ class TestMutationIsParsableFilter:
             if r == o:
                 # This is the cascade bug
                 assert False, f"Cascade bug: '{o}' -> '{r}' (no change due to cascade)"
+
+
+class TestPerFactorTimeoutEnforcement:
+    """Tests for per_factor_timeout_seconds enforcement in backtest/validation."""
+
+    def test_backtest_with_small_timeout_stops_slow_runner(self, tmp_path):
+        """
+        Verify that per_factor_timeout_seconds actually interrupts a slow backtest_runner.
+
+        When per_factor_timeout_seconds is set to a very small value,
+        a backtest_runner that would take much longer should return False (timeout failure).
+
+        Currently this test FAILS because per_factor_timeout is not enforced.
+        After fix, it should PASS.
+        """
+        import time
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        # A slow runner that takes 5 seconds
+        def slow_backtest_runner(factor_id, factor_entry):
+            time.sleep(5.0)  # Simulate slow backtest
+            return True
+
+        # Create scheduler with very small timeout (0.1 seconds)
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            backtest_runner=slow_backtest_runner,
+            per_factor_timeout_seconds=1,  # 1 second timeout
+        )
+
+        result = scheduler._run_factor_backtest(
+            "slow_factor",
+            {"factor_id": "slow_factor", "factor_expression": "$close"}
+        )
+
+        # With timeout enforcement, result should be False (timed out)
+        # Without enforcement, result would be True (slow runner completed)
+        assert result is False, (
+            "per_factor_timeout_seconds is not enforced: "
+            "slow backtest_runner completed instead of timing out"
+        )
+
+    def test_backtest_timeout_returns_timeout_failure_reason(self, tmp_path, caplog):
+        """
+        Verify that timeout produces a clear failure reason mentioning 'timeout'.
+
+        Currently this test FAILS because no timeout reason is returned.
+        After fix, the error message should contain 'timeout' or 'per_factor_timeout'.
+        """
+        import time
+        import logging
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        # A slow runner that takes 5 seconds
+        def slow_backtest_runner(factor_id, factor_entry):
+            time.sleep(5.0)
+            return True
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            backtest_runner=slow_backtest_runner,
+            per_factor_timeout_seconds=1,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = scheduler._run_factor_backtest(
+                "slow_factor",
+                {"factor_id": "slow_factor", "factor_expression": "$close"}
+            )
+
+        # Check that result indicates failure
+        assert result is False, "Expected False due to timeout"
+
+        # After fix, there should be a log message containing 'timeout' or 'per_factor_timeout'
+        timeout_logged = any(
+            'timeout' in record.message.lower() or 'per_factor_timeout' in record.message.lower()
+            for record in caplog.records
+        )
+        assert timeout_logged, (
+            "No timeout-related message found in logs. "
+            f"Log records: {[r.message for r in caplog.records]}"
+        )
+
+    def test_validation_with_small_timeout_stops_slow_validator(self, tmp_path):
+        """
+        Verify that per_factor_timeout_seconds interrupts a slow factor_validator.
+
+        When per_factor_timeout_seconds is set to a very small value,
+        a validator that would take much longer should return failure (timeout).
+
+        Currently this test FAILS because per_factor_timeout is not enforced.
+        After fix, it should PASS.
+        """
+        import time
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        # A slow validator that takes 5 seconds
+        def slow_validator(factor_id, factor_entry):
+            time.sleep(5.0)  # Simulate slow validation
+            return {"status": "success"}  # Would succeed if not interrupted
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            factor_validator=slow_validator,
+            per_factor_timeout_seconds=1,  # 1 second timeout
+        )
+
+        result = scheduler._validate_factor(
+            "slow_factor",
+            {"factor_id": "slow_factor", "factor_expression": "$close"}
+        )
+
+        # With timeout enforcement, result should indicate failure
+        # Without enforcement, result would be success
+        assert result is None or result.get("status") == "failure", (
+            "per_factor_timeout_seconds is not enforced: "
+            "slow validator completed instead of timing out. "
+            f"Got result: {result}"
+        )

@@ -10,6 +10,111 @@ from pathlib import Path
 import pytest
 
 
+class TestDataUpdateSummaryDocSchemaMatch:
+    """Tests verifying DataUpdateSummary docstring matches actual dataclass schema."""
+
+    def test_docstring_freshness_delta_is_dict_not_int(self):
+        """Verify docstring artifact example shows freshness_delta as dict[str, int], not int.
+
+        The actual dataclass field is:
+            freshness_delta: dict[str, int] = field(default_factory=dict)
+
+        So the artifact doc must show:
+            "freshness_delta": dict[str, int],
+        NOT:
+            "freshness_delta": int,
+        """
+        import re
+        import quantaalpha.continuous.run_store as run_store_module
+
+        # Read the source file to check docstring
+        import inspect
+        source = inspect.getsource(run_store_module)
+
+        # The docstring should NOT contain the old incorrect type
+        # Find the data_update section in the docstring
+        doc_match = re.search(
+            r'"data_update":\s*\{[^}]+\}', source, re.DOTALL
+        )
+        assert doc_match, "data_update section not found in docstring"
+        data_update_doc = doc_match.group()
+
+        # Freshness delta should be described as dict[str, int], not int
+        assert "freshness_delta" in data_update_doc
+        # Should NOT match the incorrect "freshness_delta": int pattern
+        incorrect_pattern = r'"freshness_delta":\s*int\s*[,}]'
+        assert not re.search(incorrect_pattern, data_update_doc), \
+            "Docstring still shows freshness_delta as int, should be dict[str, int]"
+
+    def test_docstring_unchanged_after_update_is_list_not_bool(self):
+        """Verify docstring artifact example shows unchanged_after_update as list[str], not bool.
+
+        The actual dataclass field is:
+            unchanged_after_update: list[str] = field(default_factory=list)
+
+        So the artifact doc must show:
+            "unchanged_after_update": list[str],
+        NOT:
+            "unchanged_after_update": bool,
+        """
+        import re
+        import quantaalpha.continuous.run_store as run_store_module
+
+        import inspect
+        source = inspect.getsource(run_store_module)
+
+        doc_match = re.search(
+            r'"data_update":\s*\{[^}]+\}', source, re.DOTALL
+        )
+        assert doc_match, "data_update section not found in docstring"
+        data_update_doc = doc_match.group()
+
+        # unchanged_after_update should NOT be described as bool
+        incorrect_pattern = r'"unchanged_after_update":\s*bool\s*[,}]'
+        assert not re.search(incorrect_pattern, data_update_doc), \
+            "Docstring still shows unchanged_after_update as bool, should be list[str]"
+
+    def test_schema_example_freshness_delta_dict_roundtrip(self):
+        """Verify a DataUpdateSummary with dict freshness_delta survives to_dict roundtrip."""
+        from quantaalpha.continuous.run_store import DataUpdateSummary
+
+        summary = DataUpdateSummary(
+            updated=True,
+            updated_interfaces=["daily"],
+            stale_interfaces=[],
+            latest_dates={"daily": "20260327"},
+            freshness_delta={"daily": 5, "moneyflow": 3},
+            advanced_interfaces=["minutely"],
+            unchanged_after_update=["moneyflow"],
+        )
+
+        d = summary.to_dict()
+
+        # freshness_delta must be dict in output
+        assert isinstance(d["freshness_delta"], dict), \
+            f"freshness_delta should be dict, got {type(d['freshness_delta'])}"
+        assert d["freshness_delta"] == {"daily": 5, "moneyflow": 3}
+
+    def test_schema_example_unchanged_after_update_list_roundtrip(self):
+        """Verify a DataUpdateSummary with list unchanged_after_update survives to_dict roundtrip."""
+        from quantaalpha.continuous.run_store import DataUpdateSummary
+
+        summary = DataUpdateSummary(
+            updated=False,
+            updated_interfaces=[],
+            stale_interfaces=["daily"],
+            latest_dates={"daily": "20260327"},
+            unchanged_after_update=["moneyflow", "minutely"],
+        )
+
+        d = summary.to_dict()
+
+        # unchanged_after_update must be list in output
+        assert isinstance(d["unchanged_after_update"], list), \
+            f"unchanged_after_update should be list, got {type(d['unchanged_after_update'])}"
+        assert d["unchanged_after_update"] == ["moneyflow", "minutely"]
+
+
 class TestDataUpdateSummaryNewFields:
     """Tests for DataUpdateSummary Wave A/B new fields."""
 

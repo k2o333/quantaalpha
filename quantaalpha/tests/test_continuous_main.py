@@ -316,7 +316,99 @@ class TestContinuousOrchestrator:
             update_timeout_seconds=321,
             max_update_interfaces_per_cycle=7,
             python_executable="/root/miniforge3/envs/get/bin/python",
+            interface_tiers={},
         )
+
+    def test_create_bridge_passes_interface_tiers_to_bridge(self, tmp_path):
+        """Verify _create_bridge converts and passes interface_tiers from tier->[interfaces] to interface->tier format."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily", "daily_basic", "moneyflow"]
+        config.app4_bridge.data_roots = [str(tmp_path)]
+        config.app4_bridge.freshness_threshold_hours = 24
+        config.app4_bridge.update_timeout_seconds = 120
+        config.app4_bridge.max_update_interfaces_per_cycle = 5
+        config.app4_bridge.python_executable = "/root/miniforge3/envs/get/bin/python"
+        # Configure interface_tiers in tier->[interfaces] format (as from pipeline.yaml)
+        config.app4_bridge.interface_tiers = {
+            "tier1": ["daily", "daily_basic"],
+            "tier2": ["moneyflow"],
+        }
+
+        with patch("importlib.util.spec_from_file_location") as mock_spec_from_file_location:
+            mock_bridge_class = MagicMock()
+            fake_spec = MagicMock()
+            fake_loader = MagicMock()
+            fake_module = MagicMock()
+            fake_module.ContinuousUpdateBridge = mock_bridge_class
+            fake_spec.loader = fake_loader
+            mock_spec_from_file_location.return_value = fake_spec
+
+            with patch("importlib.util.module_from_spec", return_value=fake_module):
+                ContinuousOrchestrator(config)
+
+        # Bridge should be called with interface_tiers converted to interface->tier format
+        mock_bridge_class.assert_called_once()
+        call_kwargs = mock_bridge_class.call_args.kwargs
+        assert "interface_tiers" in call_kwargs, "interface_tiers not passed to bridge"
+        # Verify the format conversion: tier->[interfaces] => interface->tier
+        assert call_kwargs["interface_tiers"]["daily"] == "tier1"
+        assert call_kwargs["interface_tiers"]["daily_basic"] == "tier1"
+        assert call_kwargs["interface_tiers"]["moneyflow"] == "tier2"
+
+    def test_create_bridge_passes_empty_interface_tiers_when_not_configured(self, tmp_path):
+        """Verify _create_bridge passes empty interface_tiers dict when not configured."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily"]
+        config.app4_bridge.data_roots = [str(tmp_path)]
+        config.app4_bridge.freshness_threshold_hours = 24
+        config.app4_bridge.update_timeout_seconds = 120
+        config.app4_bridge.max_update_interfaces_per_cycle = 5
+        config.app4_bridge.python_executable = "/root/miniforge3/envs/get/bin/python"
+        # interface_tiers defaults to empty dict in App4BridgeConfig
+
+        with patch("importlib.util.spec_from_file_location") as mock_spec_from_file_location:
+            mock_bridge_class = MagicMock()
+            fake_spec = MagicMock()
+            fake_loader = MagicMock()
+            fake_module = MagicMock()
+            fake_module.ContinuousUpdateBridge = mock_bridge_class
+            fake_spec.loader = fake_loader
+            mock_spec_from_file_location.return_value = fake_spec
+
+            with patch("importlib.util.module_from_spec", return_value=fake_module):
+                ContinuousOrchestrator(config)
+
+        # Bridge should be called with interface_tiers key present (even if empty)
+        mock_bridge_class.assert_called_once()
+        call_kwargs = mock_bridge_class.call_args.kwargs
+        assert "interface_tiers" in call_kwargs, "interface_tiers not passed to bridge"
+        assert call_kwargs["interface_tiers"] == {}
 
     def test_orchestrator_passes_bridge_and_periods_to_lazy_schedulers(self, tmp_path):
         """Verify lazy schedulers receive the wired bridge and configured execution periods."""
@@ -1183,6 +1275,138 @@ class TestCycleBudgetAndAdaptiveSleep:
         assert result.get("mining", {}).get("added") == 0 or result.get("mining", {}).get("added") == 1, \
             "Expected mining to be skipped or limited when budget exhausted"
 
+    def test_budget_enforcement_skips_mining_when_exhausted(self, tmp_path):
+        """
+        FAILING TEST: When cycle_budget_seconds is exhausted during revalidation,
+        subsequent mining step must be skipped entirely.
+
+        This is a behavioral test that proves budget enforcement changes the
+        execution path - not just accounting for budget after the fact.
+
+        Expected behavior:
+        - Revalidation takes 2 seconds (exceeds 0.3s budget)
+        - After revalidation, budget is exhausted
+        - Mining should NOT run (mining.added should be 0)
+
+        Current behavior (this test FAILS):
+        - Mining runs regardless of budget exhaustion
+        - mining.added returns mock value (not 0)
+        """
+        import time
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        # Set very low budget to force exhaustion during revalidation
+        config = PipelineConfig(
+            data_check_interval_seconds=300,
+            enable_data_monitor=False,
+            enable_revalidation=True,
+            enable_mining=True,
+            cycle_budget_seconds=0.3,  # 300ms budget - will exhaust quickly
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        orchestrator = ContinuousOrchestrator(config)
+
+        # Track if mining was actually called
+        mining_called = False
+
+        def slow_revalidation(*args, **kwargs):
+            """Takes 2 seconds, will exceed 0.3s budget."""
+            time.sleep(2)
+            nonlocal mining_called
+            mining_called = False  # Not called yet
+            mock_result = MagicMock()
+            mock_result.total_candidates = 5
+            mock_result.revalidated_count = 5
+            mock_result.status_changes = {}
+            mock_result.errors = []
+            mock_result.duration_seconds = 2.0
+            return mock_result
+
+        mock_mining_result = MagicMock()
+        mock_mining_result.factors_generated = 3
+        mock_mining_result.factors_validated = 2
+        mock_mining_result.factors_added = 1
+        mock_mining_result.factor_ids = ["gen_1"]
+        mock_mining_result.errors = []
+        mock_mining_result.duration_seconds = 0.5
+
+        def track_mining(*args, **kwargs):
+            nonlocal mining_called
+            mining_called = True
+            return mock_mining_result
+
+        orchestrator._orchestrator.run_revalidation_cycle = slow_revalidation
+        orchestrator._orchestrator.run_mining_cycle = track_mining
+
+        result = orchestrator.run_once_cycle()
+
+        # Budget enforcement behavior: mining MUST be skipped when budget exhausted
+        # This assertion is STRICT - mining.added must be 0, not just 0 or 1
+        assert result.get("mining", {}).get("added") == 0, \
+            f"Budget enforcement failed: mining.added={result.get('mining', {}).get('added')}, expected 0 (mining should be skipped when budget exhausted during revalidation)"
+
+    def test_budget_enforcement_result_includes_budget_exhausted_flag(self, tmp_path):
+        """
+        FAILING TEST: run_once_cycle result dict must include budget_exhausted
+        when the budget is exhausted, so callers know the budget state.
+
+        Currently the result dict does not include budget_exhausted field.
+        After implementation, the result should include this field.
+
+        This test verifies the contract: budget_exhausted is not just
+        post-hoc accounting but part of the runtime feedback.
+        """
+        import time
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            data_check_interval_seconds=300,
+            enable_data_monitor=False,
+            enable_revalidation=True,
+            enable_mining=True,
+            cycle_budget_seconds=0.2,  # 200ms budget
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        orchestrator = ContinuousOrchestrator(config)
+
+        def slow_revalidation(*args, **kwargs):
+            time.sleep(2)  # Exceeds budget
+            mock_result = MagicMock()
+            mock_result.total_candidates = 5
+            mock_result.revalidated_count = 5
+            mock_result.status_changes = {}
+            mock_result.errors = []
+            mock_result.duration_seconds = 2.0
+            return mock_result
+
+        orchestrator._orchestrator.run_revalidation_cycle = slow_revalidation
+        orchestrator._orchestrator.run_mining_cycle = MagicMock(return_value=MagicMock(
+            factors_generated=3, factors_validated=2, factors_added=1,
+            factor_ids=["gen_1"], errors=[], duration_seconds=0.5
+        ))
+
+        result = orchestrator.run_once_cycle()
+
+        # Budget exhaustion state must be in result for runtime feedback
+        assert "budget_exhausted" in result, \
+            "budget_exhausted field missing from result - runtime doesn't know budget state"
+        assert result["budget_exhausted"] is True, \
+            f"budget_exhausted should be True when budget exceeded, got {result.get('budget_exhausted')}"
+
     def test_run_continuous_loop_sets_budget_fields_in_summary(self, tmp_path):
         """
         Verify _run_continuous_loop computes budget_exhausted and budget_remaining_seconds.
@@ -1308,3 +1532,173 @@ class TestCycleBudgetAndAdaptiveSleep:
         # Long cycle: should sleep max(0, 300 - 400) = 0 seconds
         expected_long = max(0, check_interval - cycle_duration_long)
         assert expected_long == 0, f"Expected 0s sleep for long cycle, got {expected_long}"
+
+
+class TestDataUpdateFieldsPassthrough:
+    """Tests verifying freshness_delta, unchanged_after_update, and advanced_interfaces are passed through."""
+
+    def test_run_once_cycle_passes_freshness_delta_from_update_result(self, tmp_path):
+        """
+        FAILING TEST: run_once_cycle() should pass freshness_delta from run_update() result.
+
+        When bridge.run_update() returns freshness_delta, it should be copied into
+        the data_update dict returned by run_once_cycle().
+        """
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily"]
+
+        with patch.object(ContinuousOrchestrator, "_create_bridge") as mock_create:
+            mock_bridge = MagicMock()
+            mock_inspection = {
+                "latest_dates": {"daily": "20260327"},
+                "stale_interfaces": ["daily"],
+                "checked_interfaces": ["daily"],
+                "errors": [],
+            }
+            mock_bridge.inspect.return_value = mock_inspection
+            mock_bridge.should_update.return_value = True
+            mock_bridge._last_inspection = mock_inspection
+            mock_bridge.run_update.return_value = {
+                "updated": True,
+                "update_attempted": True,
+                "updated_interfaces": ["daily"],
+                "latest_dates": {"daily": "20260328"},
+                "stale_interfaces": [],
+                "errors": [],
+                "freshness_delta": {"daily": -1},  # Improved by 1 day
+                "unchanged_after_update": [],
+            }
+            mock_create.return_value = mock_bridge
+
+            orchestrator = ContinuousOrchestrator(config)
+            result = orchestrator.run_once_cycle()
+
+            # freshness_delta should be passed through from run_update result
+            assert "freshness_delta" in result["data_update"], \
+                "freshness_delta missing from data_update - run_update result not passed through"
+            assert result["data_update"]["freshness_delta"].get("daily") == -1, \
+                "freshness_delta value not preserved from run_update result"
+
+    def test_run_once_cycle_passes_unchanged_after_update_from_update_result(self, tmp_path):
+        """
+        FAILING TEST: run_once_cycle() should pass unchanged_after_update from run_update() result.
+
+        When bridge.run_update() returns unchanged_after_update, it should be copied into
+        the data_update dict returned by run_once_cycle().
+        """
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily"]
+
+        with patch.object(ContinuousOrchestrator, "_create_bridge") as mock_create:
+            mock_bridge = MagicMock()
+            mock_inspection = {
+                "latest_dates": {"daily": "20260327"},
+                "stale_interfaces": ["daily"],
+                "checked_interfaces": ["daily"],
+                "errors": [],
+            }
+            mock_bridge.inspect.return_value = mock_inspection
+            mock_bridge.should_update.return_value = True
+            mock_bridge._last_inspection = mock_inspection
+            mock_bridge.run_update.return_value = {
+                "updated": True,
+                "update_attempted": True,
+                "updated_interfaces": ["daily"],
+                "latest_dates": {"daily": "20260327"},  # No change
+                "stale_interfaces": [],
+                "errors": [],
+                "freshness_delta": {"daily": 0},
+                "unchanged_after_update": ["daily"],  # Updated but unchanged
+            }
+            mock_create.return_value = mock_bridge
+
+            orchestrator = ContinuousOrchestrator(config)
+            result = orchestrator.run_once_cycle()
+
+            # unchanged_after_update should be passed through from run_update result
+            assert "unchanged_after_update" in result["data_update"], \
+                "unchanged_after_update missing from data_update - run_update result not passed through"
+            assert "daily" in result["data_update"]["unchanged_after_update"], \
+                "unchanged_after_update value not preserved from run_update result"
+
+    def test_run_once_cycle_preserves_advanced_interfaces_in_summary(self, tmp_path):
+        """
+        FAILING TEST: advanced_interfaces from upstream should be preserved in DataUpdateSummary.
+
+        If run_update() returns advanced_interfaces, they should be passed through
+        to the data_update dict and ultimately to DataUpdateSummary.
+        """
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = True
+        config.app4_bridge.interfaces = ["daily", "adj"]
+
+        with patch.object(ContinuousOrchestrator, "_create_bridge") as mock_create:
+            mock_bridge = MagicMock()
+            mock_inspection = {
+                "latest_dates": {"daily": "20260327", "adj": "20260325"},
+                "stale_interfaces": ["daily", "adj"],
+                "checked_interfaces": ["daily", "adj"],
+                "errors": [],
+            }
+            mock_bridge.inspect.return_value = mock_inspection
+            mock_bridge.should_update.return_value = True
+            mock_bridge._last_inspection = mock_inspection
+            mock_bridge.run_update.return_value = {
+                "updated": True,
+                "update_attempted": True,
+                "updated_interfaces": ["daily", "adj"],
+                "latest_dates": {"daily": "20260328", "adj": "20260326"},
+                "stale_interfaces": [],
+                "errors": [],
+                "freshness_delta": {"daily": -1, "adj": -1},
+                "unchanged_after_update": [],
+                "advanced_interfaces": ["adj"],  # advanced interface identified
+            }
+            mock_create.return_value = mock_bridge
+
+            orchestrator = ContinuousOrchestrator(config)
+            result = orchestrator.run_once_cycle()
+
+            # advanced_interfaces should be passed through from run_update result
+            assert "advanced_interfaces" in result["data_update"], \
+                "advanced_interfaces missing from data_update - upstream value not preserved"
+            assert result["data_update"]["advanced_interfaces"] == ["adj"], \
+                "advanced_interfaces value not preserved from run_update result"

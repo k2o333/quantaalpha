@@ -451,6 +451,10 @@ class ContinuousOrchestrator:
         # Use the bridge from continuous_bridge.py
         storage_dir = config.app4_bridge.data_roots[0] if config.app4_bridge.data_roots else None
 
+        # Convert interface_tiers from tier->[interfaces] to interface->tier format
+        # This is required because ContinuousUpdateBridge expects interface->tier mapping
+        interface_tiers = self._convert_interface_tiers(config.app4_bridge.interface_tiers)
+
         # Import bridge directly to avoid app4.update.__init__ import issues
         # (app4.update.__init__ imports from core.date_utils which may not be in path)
         try:
@@ -476,7 +480,26 @@ class ContinuousOrchestrator:
             update_timeout_seconds=config.app4_bridge.update_timeout_seconds,
             max_update_interfaces_per_cycle=config.app4_bridge.max_update_interfaces_per_cycle,
             python_executable=config.app4_bridge.python_executable,
+            interface_tiers=interface_tiers,
         )
+
+    def _convert_interface_tiers(self, tiers_config: dict) -> dict:
+        """
+        Convert interface_tiers from tier->[interfaces] to interface->tier format.
+
+        Args:
+            tiers_config: Dict mapping tier name to list of interface names
+                          e.g., {"tier1": ["daily", "moneyflow"], "tier2": ["volume"]}
+
+        Returns:
+            Dict mapping interface name to tier name
+            e.g., {"daily": "tier1", "moneyflow": "tier1", "volume": "tier2"}
+        """
+        result = {}
+        for tier, interfaces in tiers_config.items():
+            for interface in interfaces:
+                result[interface] = tier
+        return result
 
     def start(self) -> None:
         """Start the orchestrator."""
@@ -503,6 +526,9 @@ class ContinuousOrchestrator:
         3. Revalidation (if stale interfaces detected)
         4. Mining (on schedule)
 
+        Budget enforcement: If cycle_budget_seconds is exhausted during execution,
+        subsequent steps (mining) will be skipped to stay within budget.
+
         Returns:
             Dict with cycle results including:
             - data_update: Data update summary
@@ -510,6 +536,7 @@ class ContinuousOrchestrator:
             - validation: Validation summary
             - mining: Mining summary
             - candidate_factors: Number of candidates selected
+            - budget_exhausted: True if budget was exhausted during cycle
             - errors: List of errors encountered
         """
         result = {
@@ -519,8 +546,13 @@ class ContinuousOrchestrator:
             "mining": {"generated": 0, "validated": 0, "added": 0, "errors": []},
             "candidate_factors": 0,
             "candidate_factors_source": "",
+            "budget_exhausted": False,
             "errors": [],
         }
+
+        # Track cycle start time for budget enforcement
+        cycle_start_time = time.time()
+        budget = self.config.cycle_budget_seconds
 
         self._clear_runtime_caches()
 
@@ -545,6 +577,9 @@ class ContinuousOrchestrator:
                         update_result = self._bridge.run_update(dry_run=False)
                         result["data_update"]["updated"] = update_result.get("updated", False)
                         result["data_update"]["updated_interfaces"] = update_result.get("updated_interfaces", [])
+                        result["data_update"]["freshness_delta"] = update_result.get("freshness_delta", {})
+                        result["data_update"]["unchanged_after_update"] = update_result.get("unchanged_after_update", [])
+                        result["data_update"]["advanced_interfaces"] = update_result.get("advanced_interfaces", [])
                         if update_result.get("updated", False):
                             self._clear_runtime_caches()
                         if update_result.get("errors"):
@@ -576,6 +611,14 @@ class ContinuousOrchestrator:
             except Exception as e:
                 logger.error(f"Revalidation failed: {e}")
                 result["errors"].append(f"revalidation: {str(e)}")
+
+        # Phase boundary budget check: After revalidation, check if budget is exhausted
+        elapsed = time.time() - cycle_start_time
+        if elapsed >= budget:
+            logger.warning(f"Cycle budget exhausted after revalidation: {elapsed:.2f}s >= {budget}s (budget_exhausted)")
+            result["budget_exhausted"] = True
+            # Skip mining when budget exhausted - don't run expensive mining operations
+            return result
 
         # Step 4: Mining on schedule
         if self.config.enable_mining:

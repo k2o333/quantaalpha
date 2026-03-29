@@ -21,9 +21,9 @@ Artifact format (schema_version=1.0):
         "updated_interfaces": list[str],
         "stale_interfaces": list[str],
         "latest_dates": dict[str, str],
-        "freshness_delta": int,              # Wave A/B: seconds since last update
+        "freshness_delta": dict[str, int],   # Wave A/B: seconds since last update per interface
         "advanced_interfaces": list[str],    # Wave A/B: advanced interface names
-        "unchanged_after_update": bool,      # Wave A/B: no changes after update
+        "unchanged_after_update": list[str], # Wave A/B: interfaces with no changes after update
     },
     "impact_groups": list[str],
     "candidate_factors": {
