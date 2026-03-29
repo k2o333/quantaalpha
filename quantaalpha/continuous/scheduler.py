@@ -31,6 +31,7 @@ class App4BridgeConfig:
 
     enabled: bool = True
     interfaces: list[str] = field(default_factory=list)
+    interface_tiers: dict[str, list[str]] = field(default_factory=dict)
     data_roots: list[str] = field(default_factory=list)
     freshness_threshold_hours: int = 24
     update_timeout_seconds: int = 120
@@ -83,6 +84,8 @@ class PipelineConfig:
     revalidation_interval_hours: int = 24
     revalidation_days_threshold: int = 21
     mining_interval_hours: int = 12
+    cycle_budget_seconds: int = 3600
+    per_factor_timeout_seconds: int = 300
 
     # App4 bridge
     app4_bridge: App4BridgeConfig = field(default_factory=App4BridgeConfig)
@@ -126,12 +129,15 @@ class PipelineConfig:
         revalidation_interval = runtime.get("revalidation_interval_hours", 24)
         revalidation_days = runtime.get("revalidation_days_threshold", 21)
         mining_interval = runtime.get("mining_interval_hours", 12)
+        cycle_budget = runtime.get("cycle_budget_seconds", 3600)
+        per_factor_timeout = runtime.get("per_factor_timeout_seconds", 300)
 
         # Parse app4_bridge section
         app4_data = data.get("app4_bridge", {})
         app4_bridge = App4BridgeConfig(
             enabled=app4_data.get("enabled", True),
             interfaces=app4_data.get("interfaces", []),
+            interface_tiers=app4_data.get("interface_tiers", {}),
             data_roots=app4_data.get("data_roots", []),
             freshness_threshold_hours=app4_data.get("freshness_threshold_hours", 24),
             update_timeout_seconds=app4_data.get("update_timeout_seconds", 120),
@@ -181,6 +187,8 @@ class PipelineConfig:
             revalidation_interval_hours=revalidation_interval,
             revalidation_days_threshold=revalidation_days,
             mining_interval_hours=mining_interval,
+            cycle_budget_seconds=cycle_budget,
+            per_factor_timeout_seconds=per_factor_timeout,
             app4_bridge=app4_bridge,
             factor=factor,
             validation=validation,
@@ -198,10 +206,13 @@ class PipelineConfig:
                 "revalidation_interval_hours": self.revalidation_interval_hours,
                 "revalidation_days_threshold": self.revalidation_days_threshold,
                 "mining_interval_hours": self.mining_interval_hours,
+                "cycle_budget_seconds": self.cycle_budget_seconds,
+                "per_factor_timeout_seconds": self.per_factor_timeout_seconds,
             },
             "app4_bridge": {
                 "enabled": self.app4_bridge.enabled,
                 "interfaces": self.app4_bridge.interfaces,
+                "interface_tiers": self.app4_bridge.interface_tiers,
                 "data_roots": self.app4_bridge.data_roots,
                 "freshness_threshold_hours": self.app4_bridge.freshness_threshold_hours,
                 "update_timeout_seconds": self.app4_bridge.update_timeout_seconds,
@@ -249,6 +260,10 @@ class SchedulerConfig:
     mining_interval_hours: int = 12  # Mine new factors every 12 hours
     max_mining_per_run: int = 5
 
+    # Runtime budgets
+    cycle_budget_seconds: int = 3600  # 1 hour per cycle
+    per_factor_timeout_seconds: int = 300  # 5 minutes per factor
+
     # Global
     enable_data_monitor: bool = True
     enable_revalidation: bool = True
@@ -273,6 +288,8 @@ class SchedulerConfig:
             max_revalidation_per_run=pipeline_config.validation.max_revalidation_per_run,
             mining_interval_hours=pipeline_config.mining_interval_hours,
             max_mining_per_run=pipeline_config.validation.max_mining_per_run,
+            cycle_budget_seconds=pipeline_config.cycle_budget_seconds,
+            per_factor_timeout_seconds=pipeline_config.per_factor_timeout_seconds,
             enable_data_monitor=pipeline_config.enable_data_monitor,
             enable_revalidation=pipeline_config.enable_revalidation,
             enable_mining=pipeline_config.enable_mining,

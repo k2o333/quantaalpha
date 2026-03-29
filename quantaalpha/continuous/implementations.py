@@ -178,6 +178,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         backtest_runner: Optional[Callable[[str, dict], bool]] = None,
         data_bridge=None,
         execution_periods: Optional[dict] = None,
+        min_ic: float = 0.02,
     ):
         import os
 
@@ -194,6 +195,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             "valid": ("2023-01-01", "2023-12-31"),
             "test": ("2024-01-01", "2024-12-31"),
         }
+        self.min_ic = min_ic
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -390,8 +392,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
             if result.success and result.ic_value is not None:
                 # Check against validation thresholds
-                min_ic = 0.02  # From pipeline.yaml validation.min_ic
-                if result.ic_value >= min_ic:
+                if result.ic_value >= self.min_ic:
                     logger.info(
                         "profile.revalidation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
                         factor_id,
@@ -409,7 +410,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                         total_seconds,
                         result.ic_value,
                     )
-                    logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {min_ic}")
+                    logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {self.min_ic}")
                     return False
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
@@ -542,6 +543,8 @@ class DefaultMiningScheduler(MiningScheduler):
         factor_validator: Optional[Callable[[str, dict], Optional[dict]]] = None,
         data_bridge=None,
         execution_periods: Optional[dict] = None,
+        min_ic: float = 0.02,
+        min_rank_ic: float = 0.01,
     ):
         import os
 
@@ -557,6 +560,8 @@ class DefaultMiningScheduler(MiningScheduler):
             "valid": ("2023-01-01", "2023-12-31"),
             "test": ("2024-01-01", "2024-12-31"),
         }
+        self.min_ic = min_ic
+        self.min_rank_ic = min_rank_ic
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -899,15 +904,17 @@ class DefaultMiningScheduler(MiningScheduler):
                 if not template_expr:
                     continue
 
-                # Generate mutations
+                # Generate mutations (simple variation removed - it produced trivial mutations)
                 mutations = [
                     self._mutate_time_windows(template_expr),
                     self._mutate_operators(template_expr),
-                    self._mutate_simple_variation(template_expr),
                 ]
 
                 for mutated_expr in mutations:
                     if mutated_expr and mutated_expr != template_expr:
+                        # Filter through is_parsable to ensure syntactic validity
+                        if not self._is_parsable(mutated_expr):
+                            continue
                         # Create factor entry
                         factor_id = self._generate_mutated_factor_id(
                             template.get('factor_id', 'unknown'),
@@ -940,20 +947,23 @@ class DefaultMiningScheduler(MiningScheduler):
             return []
 
     def _mutate_time_windows(self, expression: str) -> str:
-        """Replace time windows with variations."""
+        """Replace time windows with variations using single-pass replacement."""
         import re
 
-        # Replace common window sizes
-        replacements = [
-            (r'\b5\b', '10'),
-            (r'\b10\b', '20'),
-            (r'\b20\b', '60'),
-            (r'\b60\b', '5'),
-        ]
+        # Single-pass replacement map - each value maps to exactly one other value
+        # No cascade: 5->10, 10->20, 20->60, 60->5 (but only one step per call)
+        replacement_map = {
+            '5': '10',
+            '10': '20',
+            '20': '60',
+            '60': '5',
+        }
 
-        result = expression
-        for pattern, replacement in replacements:
-            result = re.sub(pattern, replacement, result)
+        # Use a function to perform single-pass replacement
+        def replace_match(match):
+            return replacement_map.get(match.group(0), match.group(0))
+
+        result = re.sub(r'\b(5|10|20|60)\b', replace_match, expression)
         return result
 
     def _mutate_operators(self, expression: str) -> str:
@@ -969,12 +979,15 @@ class DefaultMiningScheduler(MiningScheduler):
                 return expression.replace('ts_mean(', 'ts_sum(')
         return expression
 
-    def _mutate_simple_variation(self, expression: str) -> str:
-        """Apply simple variations."""
-        # Add scaling factor
-        if '$close' in expression:
-            return f"({expression}) * 1.01"
-        return f"{expression} / 2"
+    def _is_parsable(self, expression: str) -> bool:
+        """Check if expression can be parsed successfully."""
+        try:
+            from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+            regulator = FactorRegulator()
+            return regulator.is_parsable(expression)
+        except Exception:
+            # If regulator is not available, assume it's parsable
+            return True
 
     def _generate_mutated_factor_id(self, template_id: str, expression: str) -> str:
         """Generate unique factor ID for mutated factor."""
@@ -1073,9 +1086,9 @@ class DefaultMiningScheduler(MiningScheduler):
                     "; ".join(translation_warnings),
                 )
 
-            # Validation thresholds from pipeline.yaml
-            min_ic = 0.02
-            min_rank_ic = 0.01
+            # Validation thresholds - use instance configuration
+            min_ic = self.min_ic
+            min_rank_ic = self.min_rank_ic
 
             # Get periods from configured execution periods
             train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
@@ -1122,6 +1135,15 @@ class DefaultMiningScheduler(MiningScheduler):
                 # Determine if IC passes threshold
                 passes_ic = ic_mean >= min_ic
 
+                # Check rank IC if available and is a valid number
+                rank_ic_mean = None
+                passes_rank_ic = True
+                if ic_result and hasattr(ic_result, 'rank_ic_mean'):
+                    raw_rank_ic = ic_result.rank_ic_mean
+                    if raw_rank_ic is not None and isinstance(raw_rank_ic, (int, float)):
+                        rank_ic_mean = raw_rank_ic
+                        passes_rank_ic = rank_ic_mean >= min_rank_ic
+
                 # Compute stability score (simple heuristic)
                 stability_score = 0.5
                 if ic_result:
@@ -1129,7 +1151,9 @@ class DefaultMiningScheduler(MiningScheduler):
                     icir = ic_result.icir
                     stability_score = min(1.0, max(0.0, (icir + 1) / 2))
 
-                if passes_ic:
+                passes_validation = passes_ic and passes_rank_ic
+
+                if passes_validation:
                     logger.info(
                         "profile.validation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
                         factor_id,
@@ -1143,7 +1167,7 @@ class DefaultMiningScheduler(MiningScheduler):
                             "stability_score": stability_score,
                             "validation_summary": f"Factor {factor_id} passed with IC={ic_mean:.4f}",
                             "ic_mean": ic_mean,
-                            "rank_ic_mean": None,  # Rank IC not computed in current executor
+                            "rank_ic_mean": rank_ic_mean,
                             "positive_ratio": ic_result.positive_ratio if ic_result else None,
                         },
                     }
@@ -1155,13 +1179,18 @@ class DefaultMiningScheduler(MiningScheduler):
                         total_seconds,
                         ic_mean,
                     )
+                    # Build failure reason
+                    if not passes_ic:
+                        failure_reason = f"IC={ic_mean:.4f} < {min_ic}"
+                    else:
+                        failure_reason = f"rank_ic={rank_ic_mean:.4f} < {min_rank_ic}"
                     return {
                         "status": "failure",
                         "summary": {
                             "stability_score": stability_score,
-                            "validation_summary": f"Factor {factor_id} failed IC={ic_mean:.4f} < {min_ic}",
+                            "validation_summary": f"Factor {factor_id} failed {failure_reason}",
                             "ic_mean": ic_mean,
-                            "rank_ic_mean": None,
+                            "rank_ic_mean": rank_ic_mean,
                         },
                     }
             else:

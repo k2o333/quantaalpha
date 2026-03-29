@@ -326,6 +326,154 @@ app4_bridge:
         assert config.factor.library_path.endswith("third_party/quantaalpha/data/factorlib/all_factors_library.json")
 
 
+class TestRuntimeConfig:
+    """Tests for runtime configuration fields."""
+
+    def test_runtime_config_has_cycle_budget_seconds(self):
+        """Test RuntimeConfig/SchedulerConfig has cycle_budget_seconds field."""
+        from quantaalpha.continuous.scheduler import SchedulerConfig
+
+        config = SchedulerConfig()
+        assert hasattr(config, "cycle_budget_seconds")
+        assert config.cycle_budget_seconds == 3600  # default 1 hour
+
+    def test_runtime_config_has_per_factor_timeout_seconds(self):
+        """Test RuntimeConfig/SchedulerConfig has per_factor_timeout_seconds field."""
+        from quantaalpha.continuous.scheduler import SchedulerConfig
+
+        config = SchedulerConfig()
+        assert hasattr(config, "per_factor_timeout_seconds")
+        assert config.per_factor_timeout_seconds == 300  # default 5 minutes
+
+    def test_pipeline_config_parses_cycle_budget_seconds_from_yaml(self, tmp_path: Path):
+        """Test PipelineConfig parses cycle_budget_seconds from YAML."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  cycle_budget_seconds: 7200
+"""
+        yaml_path = tmp_path / "test_cycle_budget.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+
+        assert config.cycle_budget_seconds == 7200
+
+    def test_pipeline_config_parses_per_factor_timeout_seconds_from_yaml(self, tmp_path: Path):
+        """Test PipelineConfig parses per_factor_timeout_seconds from YAML."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  per_factor_timeout_seconds: 600
+"""
+        yaml_path = tmp_path / "test_factor_timeout.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+
+        assert config.per_factor_timeout_seconds == 600
+
+    def test_pipeline_config_runtime_defaults(self):
+        """Test PipelineConfig has reasonable defaults for runtime fields."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        # Create empty YAML file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write("")
+            temp_path = Path(f.name)
+
+        try:
+            config = PipelineConfig.from_yaml(str(temp_path))
+
+            # Check runtime defaults
+            assert config.cycle_budget_seconds == 3600
+            assert config.per_factor_timeout_seconds == 300
+        finally:
+            temp_path.unlink()
+
+    def test_scheduler_config_from_pipeline_preserves_cycle_budget(self):
+        """Test SchedulerConfig.from_pipeline_config preserves cycle_budget_seconds."""
+        from quantaalpha.continuous.scheduler import PipelineConfig, SchedulerConfig
+
+        pipeline = PipelineConfig(cycle_budget_seconds=7200)
+        scheduler = SchedulerConfig.from_pipeline_config(pipeline)
+
+        assert scheduler.cycle_budget_seconds == 7200
+
+    def test_scheduler_config_from_pipeline_preserves_per_factor_timeout(self):
+        """Test SchedulerConfig.from_pipeline_config preserves per_factor_timeout_seconds."""
+        from quantaalpha.continuous.scheduler import PipelineConfig, SchedulerConfig
+
+        pipeline = PipelineConfig(per_factor_timeout_seconds=600)
+        scheduler = SchedulerConfig.from_pipeline_config(pipeline)
+
+        assert scheduler.per_factor_timeout_seconds == 600
+
+
+class TestApp4BridgeInterfaceTiers:
+    """Tests for app4_bridge interface_tiers field."""
+
+    def test_app4_bridge_has_interface_tiers(self):
+        """Test App4BridgeConfig has interface_tiers field."""
+        from quantaalpha.continuous.scheduler import App4BridgeConfig
+
+        config = App4BridgeConfig()
+        assert hasattr(config, "interface_tiers")
+        assert config.interface_tiers == {}
+
+    def test_app4_bridge_interface_tiers_default_empty_dict(self):
+        """Test App4BridgeConfig interface_tiers defaults to empty dict."""
+        from quantaalpha.continuous.scheduler import App4BridgeConfig
+
+        config = App4BridgeConfig()
+        assert config.interface_tiers == {}
+
+    def test_pipeline_config_parses_interface_tiers_from_yaml(self, tmp_path: Path):
+        """Test PipelineConfig parses interface_tiers from YAML."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+app4_bridge:
+  enabled: true
+  interfaces:
+    - daily
+    - moneyflow
+  interface_tiers:
+    tier1:
+      - daily
+    tier2:
+      - moneyflow
+"""
+        yaml_path = tmp_path / "test_interface_tiers.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+
+        assert config.app4_bridge.interface_tiers == {"tier1": ["daily"], "tier2": ["moneyflow"]}
+
+    def test_pipeline_config_to_dict_includes_interface_tiers(self, tmp_path: Path):
+        """Test PipelineConfig.to_dict includes interface_tiers."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+app4_bridge:
+  enabled: true
+  interface_tiers:
+    tier1:
+      - daily
+"""
+        yaml_path = tmp_path / "test_tiers_dict.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        config_dict = config.to_dict()
+
+        assert "interface_tiers" in config_dict["app4_bridge"]
+        assert config_dict["app4_bridge"]["interface_tiers"] == {"tier1": ["daily"]}
+
+
 class TestValidationConfig:
     """Tests for ValidationConfig dataclass."""
 

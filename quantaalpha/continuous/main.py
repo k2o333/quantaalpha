@@ -189,6 +189,9 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
                 updated_interfaces=du.get("updated_interfaces", []),
                 stale_interfaces=du.get("stale_interfaces", []),
                 latest_dates=du.get("latest_dates", {}),
+                freshness_delta=du.get("freshness_delta", {}),
+                advanced_interfaces=du.get("advanced_interfaces", []),
+                unchanged_after_update=du.get("unchanged_after_update", []),
             )
 
         if cycle_result.get("impact_groups"):
@@ -224,6 +227,11 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
         summary.errors.append(str(e))
 
     summary.duration_seconds = (datetime.now() - start_time).total_seconds()
+
+    # Wave B: Compute budget fields
+    budget = pipeline_config.cycle_budget_seconds
+    summary.budget_exhausted = summary.duration_seconds >= budget
+    summary.budget_remaining_seconds = max(0.0, budget - summary.duration_seconds)
 
     # Persist
     try:
@@ -276,6 +284,9 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
                     updated_interfaces=du.get("updated_interfaces", []),
                     stale_interfaces=du.get("stale_interfaces", []),
                     latest_dates=du.get("latest_dates", {}),
+                    freshness_delta=du.get("freshness_delta", {}),
+                    advanced_interfaces=du.get("advanced_interfaces", []),
+                    unchanged_after_update=du.get("unchanged_after_update", []),
                 )
 
             if cycle_result.get("impact_groups"):
@@ -312,6 +323,11 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
 
         summary.duration_seconds = (datetime.now() - cycle_start).total_seconds()
 
+        # Wave B: Compute budget fields
+        budget = pipeline_config.cycle_budget_seconds
+        summary.budget_exhausted = summary.duration_seconds >= budget
+        summary.budget_remaining_seconds = max(0.0, budget - summary.duration_seconds)
+
         # Persist cycle summary
         try:
             from quantaalpha.continuous.run_store import RunStore
@@ -324,8 +340,10 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
         cycle_end = datetime.now()
         logger.info(f"--- Cycle {cycle_count} completed in {summary.duration_seconds:.2f}s ---")
 
-        # Wait for next cycle or stop signal
-        _stop_event.wait(timeout=check_interval)
+        # Wave B: Adaptive sleep - skip wait if cycle exceeded check_interval
+        actual_sleep = max(0, check_interval - summary.duration_seconds)
+        logger.info(f"--- Adaptive sleep: {actual_sleep:.2f}s (interval={check_interval}s, cycle={summary.duration_seconds:.2f}s) ---")
+        _stop_event.wait(timeout=actual_sleep)
 
 
 def once(

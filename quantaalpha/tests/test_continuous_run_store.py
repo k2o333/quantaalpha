@@ -10,6 +10,173 @@ from pathlib import Path
 import pytest
 
 
+class TestDataUpdateSummaryNewFields:
+    """Tests for DataUpdateSummary Wave A/B new fields."""
+
+    def test_data_update_summary_freshness_delta_serialization(self):
+        """Verify DataUpdateSummary serializes freshness_delta field."""
+        from quantaalpha.continuous.run_store import DataUpdateSummary
+
+        summary = DataUpdateSummary(
+            updated=True,
+            updated_interfaces=["daily"],
+            stale_interfaces=[],
+            latest_dates={"daily": "20260327"},
+            freshness_delta=3600,
+        )
+
+        d = summary.to_dict()
+        assert "freshness_delta" in d
+        assert d["freshness_delta"] == 3600
+
+    def test_data_update_summary_advanced_interfaces_serialization(self):
+        """Verify DataUpdateSummary serializes advanced_interfaces field."""
+        from quantaalpha.continuous.run_store import DataUpdateSummary
+
+        summary = DataUpdateSummary(
+            updated=True,
+            updated_interfaces=["daily"],
+            stale_interfaces=[],
+            latest_dates={"daily": "20260327"},
+            advanced_interfaces=["minutely", "tick"],
+        )
+
+        d = summary.to_dict()
+        assert "advanced_interfaces" in d
+        assert d["advanced_interfaces"] == ["minutely", "tick"]
+
+    def test_data_update_summary_unchanged_after_update_serialization(self):
+        """Verify DataUpdateSummary serializes unchanged_after_update field."""
+        from quantaalpha.continuous.run_store import DataUpdateSummary
+
+        summary = DataUpdateSummary(
+            updated=False,
+            updated_interfaces=[],
+            stale_interfaces=["daily"],
+            latest_dates={"daily": "20260327"},
+            unchanged_after_update=True,
+        )
+
+        d = summary.to_dict()
+        assert "unchanged_after_update" in d
+        assert d["unchanged_after_update"] is True
+
+    def test_data_update_summary_roundtrip_with_new_fields(self):
+        """Verify DataUpdateSummary deserializes new fields correctly."""
+        from quantaalpha.continuous.run_store import DataUpdateSummary
+
+        data = {
+            "updated": True,
+            "updated_interfaces": ["daily", "moneyflow"],
+            "stale_interfaces": [],
+            "latest_dates": {"daily": "20260327"},
+            "freshness_delta": {"daily": 5, "moneyflow": 3},
+            "advanced_interfaces": ["daily"],
+            "unchanged_after_update": ["moneyflow"],
+        }
+
+        summary = DataUpdateSummary.from_dict(data)
+
+        assert summary.freshness_delta == {"daily": 5, "moneyflow": 3}
+        assert summary.advanced_interfaces == ["daily"]
+        assert summary.unchanged_after_update == ["moneyflow"]
+
+    def test_data_update_summary_default_values_for_new_fields(self):
+        """Verify new fields have sensible defaults when not provided."""
+        from quantaalpha.continuous.run_store import DataUpdateSummary
+
+        summary = DataUpdateSummary()
+
+        assert summary.freshness_delta == {}
+        assert summary.advanced_interfaces == []
+        assert summary.unchanged_after_update == []
+
+
+class TestRunSummaryBudgetFields:
+    """Tests for RunSummary budget-related Wave A/B fields."""
+
+    def test_run_summary_budget_exhausted_serialization(self):
+        """Verify run_summary serializes budget_exhausted field."""
+        from quantaalpha.continuous.run_store import RunSummary
+
+        summary = RunSummary(
+            cycle_timestamp="2026-03-27T10:00:00",
+            cycle_type="once",
+            budget_exhausted=True,
+        )
+
+        d = summary.to_dict()
+        assert "budget_exhausted" in d["run_summary"]
+        assert d["run_summary"]["budget_exhausted"] is True
+
+    def test_run_summary_budget_remaining_seconds_serialization(self):
+        """Verify run_summary serializes budget_remaining_seconds field."""
+        from quantaalpha.continuous.run_store import RunSummary
+
+        summary = RunSummary(
+            cycle_timestamp="2026-03-27T10:00:00",
+            cycle_type="once",
+            budget_remaining_seconds=1800.5,
+        )
+
+        d = summary.to_dict()
+        assert "budget_remaining_seconds" in d["run_summary"]
+        assert d["run_summary"]["budget_remaining_seconds"] == 1800.5
+
+    def test_run_summary_budget_fields_roundtrip(self):
+        """Verify budget fields survive save/load roundtrip."""
+        from quantaalpha.continuous.run_store import RunStore, RunSummary
+
+        original = RunSummary(
+            schema_version="1.0",
+            cycle_timestamp="2026-03-27T10:00:00",
+            cycle_type="once",
+            budget_exhausted=False,
+            budget_remaining_seconds=3600.0,
+            duration_seconds=120.5,
+        )
+
+        store = RunStore("/tmp/test_budget_roundtrip")
+        filepath = store.save(original)
+        loaded = store.load(filepath)
+
+        assert loaded.budget_exhausted == original.budget_exhausted
+        assert loaded.budget_remaining_seconds == original.budget_remaining_seconds
+
+        import shutil
+        shutil.rmtree("/tmp/test_budget_roundtrip", ignore_errors=True)
+
+    def test_run_summary_from_dict_budget_fields(self):
+        """Verify from_dict reconstructs budget fields correctly."""
+        from quantaalpha.continuous.run_store import RunSummary
+
+        data = {
+            "schema_version": "1.0",
+            "cycle_timestamp": "2026-03-27T10:00:00",
+            "cycle_type": "once",
+            "run_summary": {
+                "duration_seconds": 45.5,
+                "errors": [],
+                "budget_exhausted": True,
+                "budget_remaining_seconds": 0.0,
+            },
+        }
+
+        summary = RunSummary.from_dict(data)
+
+        assert summary.budget_exhausted is True
+        assert summary.budget_remaining_seconds == 0.0
+
+    def test_run_summary_default_budget_values(self):
+        """Verify budget fields have sensible defaults."""
+        from quantaalpha.continuous.run_store import RunSummary
+
+        summary = RunSummary()
+
+        assert summary.budget_exhausted is False
+        assert summary.budget_remaining_seconds == 0.0
+
+
 class TestRunSummary:
     """Tests for RunSummary dataclass."""
 

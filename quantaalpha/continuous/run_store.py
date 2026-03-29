@@ -21,6 +21,9 @@ Artifact format (schema_version=1.0):
         "updated_interfaces": list[str],
         "stale_interfaces": list[str],
         "latest_dates": dict[str, str],
+        "freshness_delta": int,              # Wave A/B: seconds since last update
+        "advanced_interfaces": list[str],    # Wave A/B: advanced interface names
+        "unchanged_after_update": bool,      # Wave A/B: no changes after update
     },
     "impact_groups": list[str],
     "candidate_factors": {
@@ -42,6 +45,8 @@ Artifact format (schema_version=1.0):
     "run_summary": {
         "duration_seconds": float,
         "errors": list[str],
+        "budget_exhausted": bool,           # Wave A/B: budget fully consumed
+        "budget_remaining_seconds": float,   # Wave A/B: remaining budget time
     },
 }
 """
@@ -93,6 +98,42 @@ class DataUpdateSummary:
     updated_interfaces: list[str] = field(default_factory=list)
     stale_interfaces: list[str] = field(default_factory=list)
     latest_dates: dict[str, str] = field(default_factory=dict)
+    # Wave A/B fields
+    freshness_delta: dict[str, int] = field(default_factory=dict)
+    advanced_interfaces: list[str] = field(default_factory=list)
+    unchanged_after_update: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "updated": self.updated,
+            "updated_interfaces": self.updated_interfaces,
+            "stale_interfaces": self.stale_interfaces,
+            "latest_dates": self.latest_dates,
+            "freshness_delta": self.freshness_delta,
+            "advanced_interfaces": self.advanced_interfaces,
+            "unchanged_after_update": self.unchanged_after_update,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DataUpdateSummary":
+        """Reconstruct from dictionary."""
+        # Handle backward compatibility for Wave A/B schema changes
+        fd = data.get("freshness_delta", {})
+        if isinstance(fd, int):
+            fd = {"_legacy_seconds": fd}  # old int format -> new dict format
+        ua = data.get("unchanged_after_update", [])
+        if isinstance(ua, bool):
+            ua = [] if not ua else ["_legacy"]  # old bool format -> new list format
+        return cls(
+            updated=data.get("updated", False),
+            updated_interfaces=data.get("updated_interfaces", []),
+            stale_interfaces=data.get("stale_interfaces", []),
+            latest_dates=data.get("latest_dates", {}),
+            freshness_delta=fd,
+            advanced_interfaces=data.get("advanced_interfaces", []),
+            unchanged_after_update=ua,
+        )
 
 
 @dataclass
@@ -111,6 +152,9 @@ class RunSummary:
     mining_summary: MiningSummary = field(default_factory=MiningSummary)
     duration_seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
+    # Wave A/B budget fields
+    budget_exhausted: bool = False
+    budget_remaining_seconds: float = 0.0
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -119,12 +163,7 @@ class RunSummary:
             "cycle_timestamp": self.cycle_timestamp,
             "cycle_type": self.cycle_type,
             "config_snapshot": self.config_snapshot,
-            "data_update": {
-                "updated": self.data_update.updated,
-                "updated_interfaces": self.data_update.updated_interfaces,
-                "stale_interfaces": self.data_update.stale_interfaces,
-                "latest_dates": self.data_update.latest_dates,
-            },
+            "data_update": self.data_update.to_dict(),
             "impact_groups": self.impact_groups,
             "candidate_factors": {
                 "count": self.candidate_factors_count,
@@ -145,6 +184,8 @@ class RunSummary:
             "run_summary": {
                 "duration_seconds": self.duration_seconds,
                 "errors": self.errors,
+                "budget_exhausted": self.budget_exhausted,
+                "budget_remaining_seconds": self.budget_remaining_seconds,
             },
         }
         return result
@@ -156,12 +197,7 @@ class RunSummary:
     @classmethod
     def from_dict(cls, data: dict) -> "RunSummary":
         """Reconstruct from dictionary."""
-        data_update = DataUpdateSummary(
-            updated=data.get("data_update", {}).get("updated", False),
-            updated_interfaces=data.get("data_update", {}).get("updated_interfaces", []),
-            stale_interfaces=data.get("data_update", {}).get("stale_interfaces", []),
-            latest_dates=data.get("data_update", {}).get("latest_dates", {}),
-        )
+        data_update = DataUpdateSummary.from_dict(data.get("data_update", {}))
         validation_data = data.get("validation_summary", {})
         validation_summary = ValidationSummary(
             total=validation_data.get("total", 0),
@@ -176,6 +212,7 @@ class RunSummary:
             added=mining_data.get("added", 0),
             errors=mining_data.get("errors", []),
         )
+        run_summary = data.get("run_summary", {})
         return cls(
             schema_version=data.get("schema_version", SCHEMA_VERSION),
             cycle_timestamp=data.get("cycle_timestamp", ""),
@@ -187,8 +224,10 @@ class RunSummary:
             candidate_factors_source=data.get("candidate_factors", {}).get("source", ""),
             validation_summary=validation_summary,
             mining_summary=mining_summary,
-            duration_seconds=data.get("run_summary", {}).get("duration_seconds", 0.0),
-            errors=data.get("run_summary", {}).get("errors", []),
+            duration_seconds=run_summary.get("duration_seconds", 0.0),
+            errors=run_summary.get("errors", []),
+            budget_exhausted=run_summary.get("budget_exhausted", False),
+            budget_remaining_seconds=run_summary.get("budget_remaining_seconds", 0.0),
         )
 
 
