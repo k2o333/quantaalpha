@@ -155,6 +155,12 @@ class RunSummary:
     # Wave A/B budget fields
     budget_exhausted: bool = False
     budget_remaining_seconds: float = 0.0
+    # Circuit breaker status
+    circuit_breaker: dict = field(default_factory=lambda: {
+        "active": False,
+        "consecutive_zero_pass": 0,
+        "cooldown_count": 0,
+    })
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -186,6 +192,7 @@ class RunSummary:
                 "errors": self.errors,
                 "budget_exhausted": self.budget_exhausted,
                 "budget_remaining_seconds": self.budget_remaining_seconds,
+                "circuit_breaker": self.circuit_breaker,
             },
         }
         return result
@@ -213,6 +220,11 @@ class RunSummary:
             errors=mining_data.get("errors", []),
         )
         run_summary = data.get("run_summary", {})
+        cb_data = run_summary.get("circuit_breaker", {
+            "active": False,
+            "consecutive_zero_pass": 0,
+            "cooldown_count": 0,
+        })
         return cls(
             schema_version=data.get("schema_version", SCHEMA_VERSION),
             cycle_timestamp=data.get("cycle_timestamp", ""),
@@ -228,6 +240,7 @@ class RunSummary:
             errors=run_summary.get("errors", []),
             budget_exhausted=run_summary.get("budget_exhausted", False),
             budget_remaining_seconds=run_summary.get("budget_remaining_seconds", 0.0),
+            circuit_breaker=cb_data,
         )
 
 

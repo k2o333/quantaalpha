@@ -22,6 +22,8 @@ from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import pandas as pd
 
+from quantaalpha.backtest.safe_eval import safe_eval, UnsafeExpressionError
+
 # Add project root (from quantaalpha/backtest/ up two levels)
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
@@ -234,8 +236,15 @@ class CustomFactorCalculator:
                         exec_globals[name] = obj
             
             with parallel_backend('threading', n_jobs=1):
-                result = eval(expr, exec_globals)
-            
+                try:
+                    result = safe_eval(expr, exec_globals)
+                except UnsafeExpressionError as e:
+                    logger.error(f"Expression blocked by safety validator: {e}")
+                    result = None
+
+            if result is None:
+                return None
+
             if isinstance(result, pd.DataFrame):
                 result = result.iloc[:, 0]
             
@@ -540,10 +549,18 @@ class CustomFactorDataLoader:
                 if callable(obj):
                     exec_globals[name] = obj
         
-        label = eval(expr, exec_globals)
+        try:
+            label = safe_eval(expr, exec_globals)
+        except UnsafeExpressionError as e:
+            logger.error(f"Expression blocked by safety validator: {e}")
+            label = None
+
+        if label is None:
+            return self.factor_df, pd.DataFrame({'LABEL0': [None] * len(df)})
+
         if isinstance(label, pd.DataFrame):
             label = label.iloc[:, 0]
-        
+
         labels_df = pd.DataFrame({'LABEL0': label})
         
         return self.factor_df, labels_df

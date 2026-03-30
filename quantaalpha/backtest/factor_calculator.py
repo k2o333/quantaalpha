@@ -17,6 +17,8 @@ from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
 import pandas as pd
 
+from quantaalpha.backtest.safe_eval import safe_eval, UnsafeExpressionError
+
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
 
@@ -200,15 +202,19 @@ Only the following operations are allowed in expressions:
                 if not name.startswith('_'):
                     exec_globals[name] = getattr(func_lib, name)
             
-            result = eval(parsed_expr, exec_globals)
-            
+            try:
+                result = safe_eval(parsed_expr, exec_globals)
+            except UnsafeExpressionError as e:
+                logger.error(f"Expression blocked by safety validator: {e}")
+                return None
+
             if isinstance(result, pd.Series):
                 return result
             elif isinstance(result, pd.DataFrame):
                 return result.iloc[:, 0]
             else:
                 return pd.Series(result, index=df.index)
-                
+
         except Exception as e:
             logger.debug(f"Expression parse failed: {str(e)}")
             return None

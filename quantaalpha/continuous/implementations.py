@@ -594,6 +594,7 @@ class DefaultMiningScheduler(MiningScheduler):
         min_ic: float = 0.02,
         min_rank_ic: float = 0.01,
         per_factor_timeout_seconds: int = 300,
+        monitor_engine=None,
     ):
         import os
 
@@ -612,6 +613,7 @@ class DefaultMiningScheduler(MiningScheduler):
         self.min_ic = min_ic
         self.min_rank_ic = min_rank_ic
         self._per_factor_timeout_seconds = per_factor_timeout_seconds
+        self._monitor_engine = monitor_engine
         self._next_run: Optional[datetime] = None
         self._running = False
         self._stop_event = Event()
@@ -672,6 +674,23 @@ class DefaultMiningScheduler(MiningScheduler):
                         and validation_result.get("status") == "success"
                     ):
                         result.factors_validated += 1
+
+                        # ===== NEW: Redundancy check =====
+                        redundancy = self._check_redundancy(factor_entry)
+                        if redundancy.get("is_redundant", False):
+                            logger.info(
+                                f"Factor {factor_id} is redundant with "
+                                f"{redundancy.get('most_similar_factor_id')} "
+                                f"(similarity={redundancy.get('max_similarity', 0):.3f}), "
+                                f"skipping admission"
+                            )
+                            result.errors.append(
+                                f"{factor_id}: redundant with "
+                                f"{redundancy.get('most_similar_factor_id')}"
+                            )
+                            continue  # Skip admission
+                        # =================================
+
                         result.factor_ids.append(factor_id)
                         self._add_factor_to_library(factor_entry)
                         result.factors_added += 1
@@ -688,6 +707,34 @@ class DefaultMiningScheduler(MiningScheduler):
         self._update_next_run()
 
         return result
+
+    def _check_redundancy(self, factor_entry: dict) -> dict:
+        """
+        Check if a factor is redundant with existing factors.
+
+        Args:
+            factor_entry: Factor entry to check
+
+        Returns:
+            Redundancy check result dict
+        """
+        try:
+            from quantaalpha.factors.library import FactorLibraryManager
+
+            library = FactorLibraryManager(self.library_path)
+            expression = factor_entry.get("factor_expression", "")
+
+            if not expression:
+                return {"is_redundant": False}
+
+            return library.check_redundancy(
+                new_factor_expression=expression,
+                correlation_threshold=0.85,
+                max_comparisons=50,
+            )
+        except Exception as e:
+            logger.debug(f"Redundancy check failed: {e}, proceeding with admission")
+            return {"is_redundant": False}  # fail-open
 
     def get_next_scheduled_run(self) -> Optional[datetime]:
         """Get next scheduled run time."""
@@ -911,6 +958,13 @@ class DefaultMiningScheduler(MiningScheduler):
                     for item in data:
                         if isinstance(item, dict) and 'factor_expression' in item:
                             factor = self._normalize_factor_entry(item)
+                            # Syntax validation — match mutation path behavior
+                            expr = factor.get('factor_expression', '')
+                            if expr and not self._is_parsable(expr):
+                                logger.debug(
+                                    f"Skipping unparsable LLM factor: {expr[:80]}"
+                                )
+                                continue
                             factors.append(factor)
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Failed to parse LLM response as JSON: {e}")
@@ -923,8 +977,7 @@ class DefaultMiningScheduler(MiningScheduler):
 
         Mutations applied:
         - Parameter variation: change time windows (5, 10, 20, 60)
-        - Operator substitution: ts_mean -> ts_sum, rank -> cs_rank
-        - Expression combination: blend two expressions
+        - Operator substitution: ts_mean <-> ts_sum, ts_std <-> ts_var, rank <-> ZSCORE
 
         Returns:
             List of mutated factor dicts.
@@ -964,6 +1017,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     if mutated_expr and mutated_expr != template_expr:
                         # Filter through is_parsable to ensure syntactic validity
                         if not self._is_parsable(mutated_expr):
+                            logger.debug(f"Mutation unparsable, skipping: {mutated_expr[:80]}")
                             continue
                         # Create factor entry
                         factor_id = self._generate_mutated_factor_id(
@@ -987,6 +1041,11 @@ class DefaultMiningScheduler(MiningScheduler):
                             },
                         })
 
+            logger.info(
+                f"Mutation stats: {len(templates)} templates → "
+                f"{len(mutated)} valid mutants "
+                f"(rejected {len(templates) * 2 - len(mutated)} unparsable/identical)"
+            )
             return mutated
 
         except ImportError:
@@ -1015,14 +1074,25 @@ class DefaultMiningScheduler(MiningScheduler):
         return re.sub(r',\s*(5|10|20|60)(\s*\))', replace_match, expression, count=1)
 
     def _mutate_operators(self, expression: str) -> str:
-        """Substitute operators."""
-        # Only do one substitution pass to avoid undoing changes
-        if 'ts_mean(' in expression:
-            return expression.replace('ts_mean(', 'ts_sum(')
-        elif 'ts_sum(' in expression:
-            return expression.replace('ts_sum(', 'ts_mean(')
-        elif 'cs_rank(' in expression:
-            return expression.replace('cs_rank(', 'rank(')
+        """Substitute one operator to create a variant expression.
+
+        Strategy: 尝试多种替换，返回第一个与原始不同的结果。
+        只替换第一次出现（count=1），避免全局替换导致语义破坏。
+        """
+        # 替换候选列表: (source, target)
+        substitutions = [
+            ('ts_mean(', 'ts_sum('),
+            ('ts_sum(', 'ts_mean('),
+            ('ts_std(', 'ts_var('),
+            ('ts_var(', 'ts_std('),
+            ('rank(', 'ZSCORE('),
+            ('ZSCORE(', 'rank('),
+        ]
+
+        for source, target in substitutions:
+            if source in expression:
+                return expression.replace(source, target, 1)  # count=1
+
         return expression
 
     def _is_parsable(self, expression: str) -> bool:
@@ -1087,6 +1157,55 @@ class DefaultMiningScheduler(MiningScheduler):
 
         return normalized
 
+    def _run_monitor_hook(
+        self,
+        factor_id: str,
+        factor_entry: dict,
+        ic_result,
+        df,
+    ) -> None:
+        """
+        Post-validation monitor hook: automatically generate IC/Quantile/Turnover analysis
+        and write to storage.
+
+        Design principles:
+        - fail-safe: any exception only logs, does not raise
+        - Reuses already-loaded df and ic_result, no re-computation
+        - Writes to monitor_output_path under Parquet partition
+
+        Args:
+            factor_id: Factor ID
+            factor_entry: Complete factor entry dict
+            ic_result: Pre-computed IC result object
+            df: Pre-loaded price DataFrame
+        """
+        if self._monitor_engine is None:
+            return
+
+        try:
+            from factor_monitor.core import FactorMonitorEngine, FactorMonitorConfig
+
+            monitor_config = FactorMonitorConfig(
+                factor_name=factor_id,
+            )
+
+            # Re-use existing IC result to avoid re-computation
+            self._monitor_engine.analyze_and_save(
+                factor_data=None,  # Let engine extract from ic_result
+                price_data=df,
+                ic_result=ic_result,
+                config=monitor_config,
+                save=True,
+            )
+
+            logger.info(f"Monitor hook completed for {factor_id}")
+        except Exception as e:
+            # Monitor failure does not block main pipeline
+            logger.warning(
+                f"Monitor hook failed for {factor_id}: {e}",
+                exc_info=True,
+            )
+
     def _validate_factor(self, factor_id: str, factor_entry: dict) -> Optional[dict]:
         """
         Validate a single factor via backtest.
@@ -1111,6 +1230,22 @@ class DefaultMiningScheduler(MiningScheduler):
                 factor_entry,
                 self._per_factor_timeout_seconds,
             )
+
+            # Monitor Hook (fail-safe) - called on validation success in injected path
+            if result and result.get("status") == "success" and self._monitor_engine is not None:
+                try:
+                    self._run_monitor_hook(
+                        factor_id=factor_id,
+                        factor_entry=factor_entry,
+                        ic_result=None,
+                        df=None,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Monitor hook failed for {factor_id}: {e}",
+                        exc_info=True,
+                    )
+
             return result
 
         # Default validation path using FactorExecutor
@@ -1185,7 +1320,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 ic_result = result.ic_result
 
                 # Determine if IC passes threshold
-                passes_ic = ic_mean >= min_ic
+                passes_ic = abs(ic_mean) >= min_ic
 
                 # Check rank IC if available and is a valid number
                 rank_ic_mean = None
@@ -1213,6 +1348,22 @@ class DefaultMiningScheduler(MiningScheduler):
                         total_seconds,
                         ic_mean,
                     )
+
+                    # Monitor Hook (fail-safe) - does not block validation
+                    if self._monitor_engine is not None:
+                        try:
+                            self._run_monitor_hook(
+                                factor_id=factor_id,
+                                factor_entry=factor_entry,
+                                ic_result=ic_result,
+                                df=df,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Monitor hook failed for {factor_id}: {e}",
+                                exc_info=True,
+                            )
+
                     return {
                         "status": "success",
                         "summary": {

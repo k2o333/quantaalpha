@@ -359,6 +359,35 @@ class TestValidateFactor:
             assert "summary" in result
             assert "ic_mean" in result["summary"]
 
+    def test_negative_ic_above_threshold_is_accepted(self, tmp_path):
+        """Verify strong negative IC is treated as a valid signal."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path), min_ic=0.02)
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = -0.03
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.4
+            mock_result.ic_result.icir = -1.2
+            mock_result.ic_result.rank_ic_mean = None
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "inverse_factor",
+                {"factor_id": "inverse_factor", "factor_expression": "$close"},
+            )
+
+            assert result["status"] == "success"
+            assert result["summary"]["ic_mean"] == -0.03
+
     def test_no_expression_returns_failure(self, tmp_path):
         """Verify factor without expression returns failure."""
         from quantaalpha.continuous.implementations import DefaultMiningScheduler
@@ -738,7 +767,7 @@ class TestMutationGeneration:
         result = scheduler._mutate_operators("cs_rank($close)")
 
         assert result != "cs_rank($close)"
-        assert "rank(" in result
+        assert "ZSCORE(" in result
 
     def test_mutate_simple_variation_removed(self):
         """Verify _mutate_simple_variation has been removed."""
@@ -1421,6 +1450,129 @@ class TestMutationIsParsableFilter:
         assert "1.5" in result
         assert "0.05" in result
         assert result.endswith(", 10)")
+
+
+class TestMutationBugFixes:
+    """
+    Tests that verify bugs in mutation engine are fixed.
+
+    Bug 1: _parse_llm_response does not filter unparsable expressions.
+    Bug 2: _mutate_operators does global replace instead of single replacement.
+    Bug 3: _mutate_operators missing ts_std<->ts_var and rank<->ZSCORE substitutions.
+    """
+
+    def test_parse_llm_response_filters_unparsable(self):
+        """
+        FAILING TEST: _parse_llm_response should filter out unparsable expressions.
+
+        Currently, _parse_llm_response does NOT call _is_parsable on the expressions,
+        so invalid expressions like "invalid @@@ broken" are returned without filtering.
+        """
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        import json
+
+        scheduler = DefaultMiningScheduler()
+
+        # Mock _is_parsable to return False for "invalid @@@ broken"
+        original_is_parsable = scheduler._is_parsable
+
+        def mock_is_parsable(expr):
+            if "invalid @@@ broken" in expr:
+                return False
+            return original_is_parsable(expr)
+
+        scheduler._is_parsable = mock_is_parsable
+
+        response = json.dumps([
+            {"factor_expression": "ts_mean($close, 20)", "factor_name": "valid"},
+            {"factor_expression": "invalid @@@ broken", "factor_name": "broken"},
+        ])
+
+        factors = scheduler._parse_llm_response(response)
+
+        # After fix: only the valid expression should pass
+        # Currently (bug): both are returned because _is_parsable is NOT called
+        assert len(factors) == 1, \
+            f"Expected 1 factor after filtering, got {len(factors)}: {factors}"
+        assert factors[0]["factor_expression"] == "ts_mean($close, 20)"
+
+    def test_mutate_operators_no_global_replace(self):
+        """
+        FAILING TEST: _mutate_operators should only replace the FIRST occurrence.
+
+        Currently, _mutate_operators uses str.replace() without count=1,
+        which does global replacement and breaks nested expressions like:
+        ts_mean(ts_mean(...)) -> ts_sum(ts_sum(...))  # WRONG, should be ts_sum(ts_mean(...))
+        """
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        expr = "ts_mean(ts_mean($close, 5), 20)"
+        result = scheduler._mutate_operators(expr)
+
+        # After fix: only the FIRST ts_mean should be replaced
+        # Currently (bug): ALL ts_mean are replaced to ts_sum
+        expected = "ts_sum(ts_mean($close, 5), 20)"  # Only first replaced
+        buggy_result = "ts_sum(ts_sum($close, 5), 20)"  # All replaced (bug)
+
+        assert result == expected, \
+            f"Expected single replacement '{expected}', got '{result}'. Bug: global replace."
+
+    def test_mutate_operators_has_std_var(self):
+        """
+        FAILING TEST: _mutate_operators should support ts_std <-> ts_var substitution.
+
+        Currently, _mutate_operators only has ts_mean <-> ts_sum substitution.
+        After fix, it should also have ts_std <-> ts_var and rank <-> ZSCORE.
+        """
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        # Test ts_std -> ts_var
+        expr_std = "ts_std($close, 20)"
+        result_std = scheduler._mutate_operators(expr_std)
+        assert "ts_var(" in result_std, \
+            f"Expected ts_var in result, got '{result_std}'. Missing std<->var substitution."
+
+        # Test ts_var -> ts_std
+        expr_var = "ts_var($close, 20)"
+        result_var = scheduler._mutate_operators(expr_var)
+        assert "ts_std(" in result_var, \
+            f"Expected ts_std in result, got '{result_var}'. Missing var<->std substitution."
+
+        # Test rank -> ZSCORE
+        expr_rank = "rank($close)"
+        result_rank = scheduler._mutate_operators(expr_rank)
+        assert "ZSCORE(" in result_rank, \
+            f"Expected ZSCORE in result, got '{result_rank}'. Missing rank<->ZSCORE substitution."
+
+        # Test ZSCORE -> rank
+        expr_zscore = "ZSCORE($close)"
+        result_zscore = scheduler._mutate_operators(expr_zscore)
+        assert "rank(" in result_zscore, \
+            f"Expected rank in result, got '{result_zscore}'. Missing ZSCORE<->rank substitution."
+
+    def test_mutate_operators_no_cs_rank_dead_code(self):
+        """
+        _mutate_operators should NOT have cs_rank branch since it's dead code.
+        FactorRegulator doesn't support cs_rank operator.
+        """
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        # cs_rank is not a valid operator - calling it should NOT change behavior
+        # The bug is that cs_rank was being replaced with rank(), but cs_rank never appears
+        # because FactorRegulator doesn't support it
+        expr = "rank($close)"
+        result = scheduler._mutate_operators(expr)
+
+        # rank should be replaced with ZSCORE (after fix), not cs_rank
+        # Currently it goes to cs_rank which is dead code
+        assert "ZSCORE(" in result or result == expr, \
+            f"Expected ZSCORE or unchanged, got '{result}'"
 
 
 class TestPerFactorTimeoutEnforcement:

@@ -76,6 +76,25 @@ class ExecutionConfig:
 
 
 @dataclass
+class CircuitBreakerConfig:
+    """Configuration for the global circuit breaker mechanism."""
+
+    max_consecutive_zero_pass_cycles: int = 3
+    cooldown_multiplier: float = 3.0
+    max_cooldown_count: int = 5
+    reset_on_success: bool = True
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CircuitBreakerConfig":
+        return cls(
+            max_consecutive_zero_pass_cycles=d.get("max_consecutive_zero_pass_cycles", 3),
+            cooldown_multiplier=d.get("cooldown_multiplier", 3.0),
+            max_cooldown_count=d.get("max_cooldown_count", 5),
+            reset_on_success=d.get("reset_on_success", True),
+        )
+
+
+@dataclass
 class PipelineConfig:
     """Full pipeline configuration parsed from pipeline.yaml."""
 
@@ -103,6 +122,9 @@ class PipelineConfig:
     enable_data_monitor: bool = True
     enable_revalidation: bool = True
     enable_mining: bool = True
+
+    # Circuit breaker
+    circuit_breaker: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "PipelineConfig":
@@ -182,6 +204,11 @@ class PipelineConfig:
         # Parse features section
         features = data.get("features", {})
 
+        # Parse circuit_breaker section
+        cb_config = CircuitBreakerConfig.from_dict(
+            data.get("circuit_breaker", {})
+        )
+
         return cls(
             data_check_interval_seconds=data_check_interval,
             revalidation_interval_hours=revalidation_interval,
@@ -196,6 +223,7 @@ class PipelineConfig:
             enable_data_monitor=features.get("enable_data_monitor", True),
             enable_revalidation=features.get("enable_revalidation", True),
             enable_mining=features.get("enable_mining", True),
+            circuit_breaker=cb_config,
         )
 
     def to_dict(self) -> dict:
@@ -239,6 +267,12 @@ class PipelineConfig:
                 "enable_data_monitor": self.enable_data_monitor,
                 "enable_revalidation": self.enable_revalidation,
                 "enable_mining": self.enable_mining,
+            },
+            "circuit_breaker": {
+                "max_consecutive_zero_pass_cycles": self.circuit_breaker.max_consecutive_zero_pass_cycles,
+                "cooldown_multiplier": self.circuit_breaker.cooldown_multiplier,
+                "max_cooldown_count": self.circuit_breaker.max_cooldown_count,
+                "reset_on_success": self.circuit_breaker.reset_on_success,
             },
         }
 

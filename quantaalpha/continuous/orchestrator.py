@@ -88,6 +88,7 @@ class MiningOrchestrator:
         data_bridge=None,
         execution_periods: Optional[dict] = None,
         library_path: Optional[str] = None,
+        monitor_engine=None,
     ):
         """
         Initialize the orchestrator.
@@ -97,6 +98,7 @@ class MiningOrchestrator:
             data_monitor: DataMonitorTrigger implementation.
             revalidation_scheduler: RevalidationScheduler implementation.
             mining_scheduler: MiningScheduler implementation.
+            monitor_engine: Optional FactorMonitorEngine for post-validation monitoring.
         """
         self.config = config or SchedulerConfig()
         self.status = OrchestratorStatus.STOPPED
@@ -109,6 +111,7 @@ class MiningOrchestrator:
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {}
         self._library_path = library_path
+        self._monitor_engine = monitor_engine
 
         # Event callbacks
         self._event_callbacks: list[callable] = []
@@ -156,6 +159,7 @@ class MiningOrchestrator:
                 min_ic=self.config.min_ic,
                 min_rank_ic=self.config.min_rank_ic,
                 per_factor_timeout_seconds=self.config.per_factor_timeout_seconds,
+                monitor_engine=self._monitor_engine,
             )
         return self._mining_scheduler
 

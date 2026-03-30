@@ -257,6 +257,14 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
     logger.info(f"Continuous loop check interval: {check_interval} seconds")
 
     cycle_count = 0
+
+    # ===== Circuit Breaker State =====
+    cb_config = getattr(pipeline_config, "circuit_breaker", None)
+    consecutive_zero_pass = 0
+    cooldown_count = 0
+    circuit_breaker_active = False
+    # =================================
+
     while not _stop_event.is_set():
         cycle_count += 1
         cycle_start = datetime.now()
@@ -328,6 +336,50 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
         summary.budget_exhausted = summary.duration_seconds >= budget
         summary.budget_remaining_seconds = max(0.0, budget - summary.duration_seconds)
 
+        # ===== Circuit Breaker Detection =====
+        validation_total = summary.validation_summary.total
+        validation_passed = summary.validation_summary.passed
+        mining_added = summary.mining_summary.added
+
+        cycle_has_success = (validation_passed > 0 or mining_added > 0)
+
+        if cb_config:
+            if cycle_has_success:
+                if cb_config.reset_on_success:
+                    consecutive_zero_pass = 0
+                    cooldown_count = 0
+                    if circuit_breaker_active:
+                        logger.info("Circuit breaker RESET: successful cycle detected")
+                        circuit_breaker_active = False
+            else:
+                consecutive_zero_pass += 1
+                logger.info(
+                    f"Circuit breaker: consecutive zero-pass cycles = {consecutive_zero_pass}"
+                    f"/{cb_config.max_consecutive_zero_pass_cycles}"
+                )
+
+                if consecutive_zero_pass >= cb_config.max_consecutive_zero_pass_cycles:
+                    circuit_breaker_active = True
+                    cooldown_count += 1
+                    logger.warning(
+                        f"Circuit breaker TRIGGERED: {consecutive_zero_pass} consecutive "
+                        f"zero-pass cycles (cooldown #{cooldown_count})"
+                    )
+
+                    if cooldown_count >= cb_config.max_cooldown_count:
+                        logger.critical(
+                            f"Circuit breaker CRITICAL: {cooldown_count} consecutive "
+                            f"cooldowns without recovery. System may need manual inspection."
+                        )
+
+        # Write circuit breaker state into summary
+        summary.circuit_breaker = {
+            "active": circuit_breaker_active,
+            "consecutive_zero_pass": consecutive_zero_pass,
+            "cooldown_count": cooldown_count,
+        }
+        # ====================================
+
         # Persist cycle summary
         try:
             from quantaalpha.continuous.run_store import RunStore
@@ -342,6 +394,14 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
 
         # Wave B: Adaptive sleep - skip wait if cycle exceeded check_interval
         actual_sleep = max(0, check_interval - summary.duration_seconds)
+
+        if circuit_breaker_active and cb_config:
+            actual_sleep = check_interval * cb_config.cooldown_multiplier
+            logger.warning(
+                f"Circuit breaker cooldown: sleeping {actual_sleep:.0f}s "
+                f"(normal: {check_interval}s × {cb_config.cooldown_multiplier})"
+            )
+
         logger.info(f"--- Adaptive sleep: {actual_sleep:.2f}s (interval={check_interval}s, cycle={summary.duration_seconds:.2f}s) ---")
         _stop_event.wait(timeout=actual_sleep)
 
@@ -409,6 +469,22 @@ class ContinuousOrchestrator:
 
         execution_periods = self._build_execution_periods(config)
 
+        # Initialize optional MonitorEngine from factor.monitoring_output_path
+        self._monitor_engine = None
+        if getattr(config, 'factor', None) and getattr(config.factor, 'monitoring_output_path', None):
+            try:
+                from factor_monitor.core import FactorMonitorEngine
+                self._monitor_engine = FactorMonitorEngine(
+                    storage_dir=config.factor.monitoring_output_path,
+                )
+                logger.info(
+                    f"MonitorEngine wired, output_dir={config.factor.monitoring_output_path}"
+                )
+            except ImportError as e:
+                logger.warning(f"factor_monitor not available, monitor hook disabled: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MonitorEngine: {e}")
+
         # Create scheduler config from pipeline config
         scheduler_config = SchedulerConfig.from_pipeline_config(config)
 
@@ -418,6 +494,7 @@ class ContinuousOrchestrator:
             data_bridge=self._bridge,
             execution_periods=execution_periods,
             library_path=config.factor.library_path,
+            monitor_engine=self._monitor_engine,
         )
 
         # Wire impact classifier
@@ -560,7 +637,9 @@ class ContinuousOrchestrator:
         cycle_start_time = time.time()
         budget = self.config.cycle_budget_seconds
 
-        self._clear_runtime_caches()
+        # Track whether cache was invalidated this cycle
+        # Only invalidate when data actually advances, not unconditionally
+        cache_invalidated = False
 
         # Step 1: Data inspection
         if self._bridge:
@@ -586,14 +665,28 @@ class ContinuousOrchestrator:
                         result["data_update"]["freshness_delta"] = update_result.get("freshness_delta", {})
                         result["data_update"]["unchanged_after_update"] = update_result.get("unchanged_after_update", [])
                         result["data_update"]["advanced_interfaces"] = update_result.get("advanced_interfaces", [])
-                        if update_result.get("updated", False):
+                        # Only invalidate cache when data actually advanced (new dates written)
+                        advanced = update_result.get("advanced_interfaces", [])
+                        if advanced:
+                            logger.info(
+                                f"Data advanced for {advanced}, invalidating DataFrame cache"
+                            )
                             self._clear_runtime_caches()
+                            cache_invalidated = True
+                        else:
+                            logger.info(
+                                "Data update completed but no freshness advancement, "
+                                "keeping DataFrame cache"
+                            )
                         if update_result.get("errors"):
                             result["errors"].extend(update_result["errors"])
 
             except Exception as e:
                 logger.error(f"Data inspection failed: {e}")
                 result["errors"].append(f"data_inspection: {str(e)}")
+                # Invalidate cache on exception as safety fallback to prevent dirty data
+                self._clear_runtime_caches()
+                cache_invalidated = True
 
         # Step 3: Impact-based revalidation
         if self.config.enable_revalidation:
@@ -623,6 +716,8 @@ class ContinuousOrchestrator:
         if elapsed >= budget:
             logger.warning(f"Cycle budget exhausted after revalidation: {elapsed:.2f}s >= {budget}s (budget_exhausted)")
             result["budget_exhausted"] = True
+            # Record cache state before returning
+            result["cache_invalidated"] = cache_invalidated
             # Skip mining when budget exhausted - don't run expensive mining operations
             return result
 
@@ -639,6 +734,8 @@ class ContinuousOrchestrator:
                 logger.error(f"Mining failed: {e}")
                 result["errors"].append(f"mining: {str(e)}")
 
+        # Record cache state in result
+        result["cache_invalidated"] = cache_invalidated
         return result
 
     def _run_revalidation(self) -> dict:

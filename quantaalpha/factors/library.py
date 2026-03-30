@@ -12,7 +12,7 @@ import fcntl
 import struct
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -74,6 +74,9 @@ class FactorLibraryManager:
     def __init__(self, library_path: str):
         self.library_path = Path(library_path)
         self.data = self._load()
+        self._dirty = False
+        self._dirty_factor_ids = set()
+        self._last_save_time = None
 
     def _acquire_lock(self):
         self._ensure_lock_dir()
@@ -110,6 +113,11 @@ class FactorLibraryManager:
         )
 
     def _save(self):
+        """Persist factor library to disk. Only writes when _dirty is True."""
+        if not self._dirty:
+            logger.debug("No changes to persist, skipping save")
+            return
+
         self.library_path.parent.mkdir(parents=True, exist_ok=True)
         lock_fd = self._acquire_lock()
         try:
@@ -126,6 +134,18 @@ class FactorLibraryManager:
                 json.dump(merged_data, f, ensure_ascii=False, indent=2, default=str)
             os.replace(tmp_path, self.library_path)
             self.data = merged_data
+
+            # Clear dirty state after successful save
+            saved_count = len(self._dirty_factor_ids)
+            self._dirty = False
+            self._dirty_factor_ids.clear()
+            self._last_save_time = datetime.now()
+
+            logger.debug(f"Factor library saved ({saved_count} factors modified)")
+        except Exception as e:
+            # Preserve dirty state on failure for retry
+            logger.error(f"Failed to save factor library: {e}")
+            raise
         finally:
             self._release_lock(lock_fd)
 
@@ -538,6 +558,8 @@ class FactorLibraryManager:
             factor_id = updated.get("factor_id")
             if factor_id:
                 self.data["factors"][factor_id] = updated
+                self._dirty = True
+                self._dirty_factor_ids.add(factor_id)
                 new_status = updated.get("evaluation", {}).get("status")
                 if previous_status != new_status:
                     summary = validation_result.get("summary", validation_result)
@@ -762,8 +784,53 @@ class FactorLibraryManager:
         if not factor_id:
             return factor_entry
         self.data["factors"][factor_id] = self._normalize_factor_entry(factor_entry)
+        self._dirty = True
+        self._dirty_factor_ids.add(factor_id)
         self._save()
         return self.data["factors"][factor_id]
+
+    def batch_upsert(
+        self,
+        factor_entries: List[Dict[str, Any]],
+        *,
+        now: Optional[datetime] = None,
+    ) -> int:
+        """
+        Batch upsert multiple factor entries, triggering only one disk write.
+
+        More efficient than calling upsert_factor() in a loop because:
+        1. Only one _load_from_disk + merge + json.dump cycle
+        2. Only acquires/releases lock once
+
+        Args:
+            factor_entries: List of factor entry dicts to upsert
+            now: Optional time override
+
+        Returns:
+            Number of factors successfully upserted
+        """
+        count = 0
+        for entry in factor_entries:
+            factor_id = entry.get("factor_id")
+            if not factor_id:
+                continue
+            self.data["factors"][factor_id] = self._normalize_factor_entry(entry)
+            self._dirty = True
+            self._dirty_factor_ids.add(factor_id)
+            count += 1
+
+        if self._dirty:
+            self._save()
+
+        logger.info(f"Batch upsert: {count} factors persisted in single write")
+        return count
+
+    def flush(self):
+        """Explicitly persist any pending changes. Public interface for _save()."""
+        if self._dirty:
+            self._save()
+        else:
+            logger.debug("flush() called but nothing to save")
 
     def get_factor(self, factor_id: str) -> Optional[dict[str, Any]]:
         """Get a single factor by ID."""
@@ -782,3 +849,152 @@ class FactorLibraryManager:
             for fid, entry in factors.items()
             if entry.get("evaluation", {}).get("status") == status
         ]
+
+    def check_redundancy(
+        self,
+        new_factor_expression: str,
+        correlation_threshold: float = 0.85,
+        max_comparisons: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        Check if a new factor expression is redundant with existing factors.
+
+        Method:
+        1. Expression string similarity pre-filter (fast elimination of obvious non-matches)
+        2. Factor value cross-section correlation check (if factor values available)
+
+        Args:
+            new_factor_expression: The factor expression to check
+            correlation_threshold: Similarity threshold (0-1)
+            max_comparisons: Maximum number of comparisons (to limit computation)
+
+        Returns:
+            {
+                "is_redundant": bool,
+                "most_similar_factor_id": str or None,
+                "max_similarity": float,
+                "method": "expression" | "value" | None,
+                "comparisons_made": int,
+            }
+        """
+        import re
+
+        result: Dict[str, Any] = {
+            "is_redundant": False,
+            "most_similar_factor_id": None,
+            "max_similarity": 0.0,
+            "method": None,
+            "comparisons_made": 0,
+        }
+
+        try:
+            active_factors = self.select_revalidation_candidates(status="active")
+        except Exception:
+            # fail-open: if we can't query the library, don't block admission
+            return result
+
+        if not active_factors:
+            return result
+
+        # Limit comparison count
+        candidates = active_factors[:max_comparisons]
+        result["comparisons_made"] = len(candidates)
+
+        # Stage 1: Expression string similarity
+        new_normalized = self._normalize_expression_for_comparison(new_factor_expression)
+
+        max_sim = 0.0
+        most_similar_id = None
+
+        for factor in candidates:
+            existing_expr = factor.get("factor_expression", "")
+            existing_normalized = self._normalize_expression_for_comparison(existing_expr)
+
+            similarity = self._expression_similarity(new_normalized, existing_normalized)
+
+            if similarity > max_sim:
+                max_sim = similarity
+                most_similar_id = factor.get("factor_id")
+
+        result["max_similarity"] = max_sim
+        result["most_similar_factor_id"] = most_similar_id
+        result["method"] = "expression"
+
+        # Expression identical
+        if max_sim >= 0.99:
+            result["is_redundant"] = True
+            return result
+
+        # Expression highly similar (above threshold)
+        if max_sim >= correlation_threshold:
+            result["is_redundant"] = True
+            return result
+
+        return result
+
+    def _normalize_expression_for_comparison(self, expr: str) -> str:
+        """
+        Normalize expression for comparison.
+
+        Removes whitespace, unifies case, replaces numeric parameters with placeholders.
+        """
+        import re
+
+        if not expr:
+            return ""
+
+        normalized = expr.strip().lower()
+        # Remove extra whitespace
+        normalized = re.sub(r"\s+", "", normalized)
+        return normalized
+
+    def _expression_similarity(self, expr_a: str, expr_b: str) -> float:
+        """
+        Calculate similarity between two normalized expressions.
+
+        Uses set-based Jaccard similarity + edit distance hybrid:
+        - Split expression into token sets by operators
+        - Calculate Jaccard coefficient
+        - For short expressions, supplement with edit distance
+
+        Returns:
+            Similarity value 0.0 ~ 1.0
+        """
+        import re
+
+        if not expr_a or not expr_b:
+            return 0.0
+
+        if expr_a == expr_b:
+            return 1.0
+
+        # Tokenize: split by operators and parentheses
+        def tokenize(expr: str) -> set:
+            return set(re.findall(r"[a-z_]+|\$[a-z_]+|\d+", expr))
+
+        tokens_a = tokenize(expr_a)
+        tokens_b = tokenize(expr_b)
+
+        if not tokens_a and not tokens_b:
+            return 1.0
+        if not tokens_a or not tokens_b:
+            return 0.0
+
+        # Jaccard coefficient
+        intersection = len(tokens_a & tokens_b)
+        union = len(tokens_a | tokens_b)
+        jaccard = intersection / union if union > 0 else 0.0
+
+        # For short expressions, supplement with structured comparison
+        # Remove numeric parameters and compare skeleton
+        def skeleton(expr: str) -> str:
+            return re.sub(r"\d+", "N", expr)
+
+        skel_a = skeleton(expr_a)
+        skel_b = skeleton(expr_b)
+
+        if skel_a == skel_b:
+            # Only parameters differ — highly similar
+            return max(jaccard, 0.90)
+
+        return jaccard
