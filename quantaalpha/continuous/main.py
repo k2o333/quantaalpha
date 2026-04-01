@@ -73,8 +73,10 @@ def _create_orchestrator(config, run_store):
         ContinuousOrchestrator instance.
     """
     from quantaalpha.continuous.main import ContinuousOrchestrator
+    from quantaalpha.continuous.alerting import AlertDispatcher
 
-    return ContinuousOrchestrator(config, run_store=run_store)
+    alert_dispatcher = AlertDispatcher()
+    return ContinuousOrchestrator(config, run_store=run_store, alert_dispatcher=alert_dispatcher)
 
 
 def _handle_signal(signum, frame):
