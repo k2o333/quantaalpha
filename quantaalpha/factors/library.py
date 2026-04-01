@@ -3,6 +3,8 @@ Factor library manager: save experiment output to unified JSON factor library.
 Called from quantaalpha/pipeline/loop.py feedback step.
 """
 
+from __future__ import annotations
+
 import json
 import hashlib
 import logging
@@ -535,6 +537,19 @@ class FactorLibraryManager:
             "dimensions", self._infer_dimensions(entry)
         )
         entry["data_requirements"].setdefault("fields", self._infer_fields(entry))
+
+        # Infer tags from expression using shared inference engine
+        # This is the "three-point convergence" for tag inference safety net
+        expr = entry.get("factor_expression", "")
+        if expr:
+            from quantaalpha.factors.tag_inference import infer_tags_from_expression
+            inferred = infer_tags_from_expression(expr)
+            # Merge: fill in empty tag slots, don't override existing values
+            for tag_key, tag_values in inferred.items():
+                existing = entry["tags"].get(tag_key, [])
+                if isinstance(existing, list) and not existing:
+                    entry["tags"][tag_key] = tag_values
+
         return entry
 
     def apply_validation_result(

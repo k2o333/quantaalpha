@@ -112,6 +112,17 @@ BUCKET_TAG_MAP = {
     "other": [],  # Everything else
 }
 
+# Reverse index: tag value -> bucket key
+# This fixes the bug where tag VALUES (like "alternative") were never matched
+# because the old code only checked if dep was a BUCKET KEY
+TAG_TO_BUCKET: dict[str, str] = {}
+for bucket, tags in BUCKET_TAG_MAP.items():
+    for tag in tags:
+        TAG_TO_BUCKET[tag] = bucket
+# Map the bucket keys themselves too
+for bucket in BUCKET_TAG_MAP:
+    TAG_TO_BUCKET.setdefault(bucket, bucket)
+
 # Keywords in factor expressions that suggest a particular bucket
 EXPRESSION_KEYWORDS = {
     "financial": [
@@ -143,8 +154,8 @@ def _extract_buckets_from_factor_entry(factor_entry: dict[str, Any]) -> list[str
         data_deps = [data_deps]
 
     for dep in data_deps:
-        if dep in BUCKET_TAG_MAP:
-            buckets.add(dep)
+        if dep in TAG_TO_BUCKET:
+            buckets.add(TAG_TO_BUCKET[dep])
 
     # Check factor expression for keywords
     expression = str(factor_entry.get("factor_expression", "")).lower()

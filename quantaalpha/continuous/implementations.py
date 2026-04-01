@@ -1142,18 +1142,19 @@ class DefaultMiningScheduler(MiningScheduler):
             import uuid
             normalized["factor_id"] = f"gen_{uuid.uuid4().hex[:12]}"
 
-        # Ensure tags have data_dependency
-        if "data_dependency" not in normalized["tags"]:
-            # Infer from expression
-            expr = normalized["factor_expression"].lower()
-            if any(k in expr for k in ["roe", "revenue", "profit", "margin"]):
-                normalized["tags"]["data_dependency"] = ["financial"]
-            elif any(k in expr for k in ["moneyflow", "margin", "净流入"]):
-                normalized["tags"]["data_dependency"] = ["moneyflow"]
-            elif any(k in expr for k in ["chip", "holder", "float"]):
-                normalized["tags"]["data_dependency"] = ["chip"]
-            else:
-                normalized["tags"]["data_dependency"] = ["price_volume"]
+        # Infer tags from expression using shared inference engine
+        # This is the "three-point convergence" for tag inference safety net
+        from quantaalpha.factors.tag_inference import infer_tags_from_expression
+        expr = normalized["factor_expression"]
+        if expr:
+            inferred = infer_tags_from_expression(expr)
+            # Merge: only fill in empty slots, don't override existing tags
+            for tag_key, tag_values in inferred.items():
+                existing = normalized["tags"].get(tag_key, [])
+                if not existing:
+                    normalized["tags"][tag_key] = tag_values
+                elif isinstance(existing, list) and not existing:
+                    normalized["tags"][tag_key] = tag_values
 
         return normalized
 
