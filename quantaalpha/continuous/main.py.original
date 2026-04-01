@@ -366,15 +366,6 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
                         f"zero-pass cycles (cooldown #{cooldown_count})"
                     )
 
-                    # Dispatch alert via AlertDispatcher if wired
-                    if orchestrator._alert_dispatcher is not None:
-                        is_critical = cooldown_count >= cb_config.max_cooldown_count
-                        orchestrator._alert_dispatcher.dispatch_circuit_breaker(
-                            consecutive_zero_pass=consecutive_zero_pass,
-                            cooldown_count=cooldown_count,
-                            is_critical=is_critical,
-                        )
-
                     if cooldown_count >= cb_config.max_cooldown_count:
                         logger.critical(
                             f"Circuit breaker CRITICAL: {cooldown_count} consecutive "
@@ -457,7 +448,6 @@ class ContinuousOrchestrator:
         self,
         config,
         run_store=None,
-        alert_dispatcher=None,
     ):
         """
         Initialize the continuous orchestrator.
@@ -465,15 +455,12 @@ class ContinuousOrchestrator:
         Args:
             config: PipelineConfig instance.
             run_store: Optional RunStore instance for persistence.
-            alert_dispatcher: Optional AlertDispatcher for sending alerts on circuit breaker
-                and degradation events. If not provided, alerts are disabled.
         """
         from quantaalpha.continuous.orchestrator import MiningOrchestrator, SchedulerConfig
         from quantaalpha.continuous.run_store import RunStore
 
         self.config = config
         self.run_store = run_store or RunStore()
-        self._alert_dispatcher = alert_dispatcher
 
         # Wire app4 bridge first so runtime schedulers can consume it.
         self._bridge = None
