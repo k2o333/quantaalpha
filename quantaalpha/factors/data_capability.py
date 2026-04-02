@@ -61,6 +61,7 @@ def _load_experiment_config() -> dict[str, Any]:
         return {}
     try:
         import yaml
+
         return yaml.safe_load(EXPERIMENT_CONFIG_PATH.read_text(encoding="utf-8")) or {}
     except Exception:
         return {}
@@ -110,18 +111,27 @@ def _load_raw_report(report_path: Path) -> dict[str, Any] | None:
         return None
 
 
-def _get_best_saturation(periods: dict[str, Any]) -> float:
+def _get_best_saturation(saturation: Any) -> float | None:
     """
-    Get the best (maximum) date_saturation across all periods.
-    Returns 0.0 if no valid saturation found.
+    Extract the best (maximum) date_saturation value.
+
+    Handles two shapes:
+    - V1: _saturation is null -> returns None (unknown, do not filter)
+    - Future: _saturation is a dict with periods -> returns max date_saturation
+
+    Returns None when saturation data is unavailable (V1 null case).
     """
-    best = 0.0
-    for period_data in periods.values():
-        if isinstance(period_data, dict):
-            sat = period_data.get("date_saturation")
-            if isinstance(sat, (int, float)) and sat > best:
-                best = sat
-    return best
+    if saturation is None:
+        return None
+    if isinstance(saturation, dict):
+        best = 0.0
+        for period_data in saturation.values():
+            if isinstance(period_data, dict):
+                sat = period_data.get("date_saturation")
+                if isinstance(sat, (int, float)) and sat > best:
+                    best = sat
+        return best
+    return None
 
 
 def normalize_capability_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
@@ -194,27 +204,13 @@ def load_from_report(
         if not field_aliases:
             continue
 
-        # Skip if date_saturation is below threshold
-        periods = info.get("periods", {})
-        best_sat = _get_best_saturation(periods)
-        if best_sat < saturation_threshold:
+        # V1: tolerate _saturation: null (do not filter by saturation)
+        best_sat = _get_best_saturation(info.get("_saturation"))
+        if best_sat is not None and best_sat < saturation_threshold:
             continue
 
-        # Determine available_from from the best period
+        # Determine available_from (V1: leave as None)
         available_from = None
-        if periods:
-            # Find the period with the best saturation and extract earliest date hint
-            # We use the period key as a proxy (e.g., "2020-2024")
-            best_period_key = max(
-                periods.keys(),
-                key=lambda k: periods[k].get("date_saturation", 0) if isinstance(periods[k], dict) else 0,
-                default=None,
-            )
-            if best_period_key:
-                # Extract the start year from period key like "2020-2024"
-                parts = best_period_key.split("-")
-                if parts and len(parts) == 2:
-                    available_from = f"{parts[0]}-01-01"
 
         # Build the capability spec using field_aliases for fields
         freq = info.get("freq", "daily")
@@ -258,10 +254,7 @@ def render_data_capabilities(capabilities: Mapping[str, Mapping[str, Any]] | Non
         available_from = spec.get("available_from") or "(unknown)"
         join_mode = spec.get("join_mode", DEFAULT_CAPABILITY_SPEC["join_mode"])
         hints = ", ".join(spec.get("factor_hints", [])) or "general research"
-        sections.append(
-            f"- {name}: fields={fields}; freq={freq}; lag_days={lag_days}; "
-            f"available_from={available_from}; join_mode={join_mode}; typical_uses={hints}"
-        )
+        sections.append(f"- {name}: fields={fields}; freq={freq}; lag_days={lag_days}; available_from={available_from}; join_mode={join_mode}; typical_uses={hints}")
     return "Available data capabilities:\n" + "\n".join(sections)
 
 
@@ -272,6 +265,7 @@ def infer_available_from_from_parquet(parquet_path: str | Path) -> str | None:
     """
     try:
         import polars as pl
+
         df = pl.read_parquet(str(parquet_path), n_rows=1)
         date_col = None
         for col in ["date", "trade_date", "$date", "$trade_date"]:
