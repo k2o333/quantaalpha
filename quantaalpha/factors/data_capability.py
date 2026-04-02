@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+
+# Path to the experiment config file (quantaalpha/configs/experiment.yaml)
+EXPERIMENT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "experiment.yaml"
+
+# Project-level fallback path for the data capability report
+_PROJECT_REPORT_FALLBACK = Path(__file__).resolve().parents[3] / "data" / ".data_capability_report.json"
 
 
 DATA_CAPABILITIES: dict[str, dict[str, Any]] = {
@@ -47,6 +55,75 @@ _FREQ_TO_JOIN_MODE: dict[str, str] = {
 }
 
 
+def _load_experiment_config() -> dict[str, Any]:
+    """Load the experiment configuration from experiment.yaml."""
+    if not EXPERIMENT_CONFIG_PATH.exists():
+        return {}
+    try:
+        import yaml
+        return yaml.safe_load(EXPERIMENT_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
+def _resolve_report_path(explicit_path: str | Path | None = None) -> Path | None:
+    """
+    Resolve the report path according to the priority:
+    1. explicit report_path parameter
+    2. report_path from experiment.yaml config
+    3. project-level fallback path
+
+    Returns the resolved Path or None if no valid path found.
+    """
+    # Priority 1: explicit path
+    if explicit_path is not None:
+        path = Path(explicit_path)
+        if path.exists():
+            return path
+        return None
+
+    # Priority 2: from experiment.yaml config
+    config = _load_experiment_config()
+    registry_cfg = config.get("data_capability_registry", {})
+    raw_path = registry_cfg.get("report_path")
+    if raw_path:
+        # Path is relative to the config file's parent directory
+        path = (EXPERIMENT_CONFIG_PATH.parent / raw_path).resolve()
+        if path.exists():
+            return path
+
+    # Priority 3: project-level fallback
+    if _PROJECT_REPORT_FALLBACK.exists():
+        return _PROJECT_REPORT_FALLBACK
+
+    return None
+
+
+def _load_raw_report(report_path: Path) -> dict[str, Any] | None:
+    """
+    Load and parse the raw JSON report from the given path.
+    Returns None if the file cannot be read or parsed.
+    """
+    try:
+        return json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _get_best_saturation(periods: dict[str, Any]) -> float:
+    """
+    Get the best (maximum) date_saturation across all periods.
+    Returns 0.0 if no valid saturation found.
+    """
+    best = 0.0
+    for period_data in periods.values():
+        if isinstance(period_data, dict):
+            sat = period_data.get("date_saturation")
+            if isinstance(sat, (int, float)) and sat > best:
+                best = sat
+    return best
+
+
 def normalize_capability_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(spec, Mapping):
         raise TypeError("Capability spec must be a mapping.")
@@ -67,6 +144,98 @@ def normalize_capability_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         "factor_hints": [str(hint) for hint in factor_hints],
     }
     return normalized
+
+
+def load_from_report(
+    report_path: str | Path | None = None,
+    saturation_threshold: float = 0.5,
+) -> dict[str, dict[str, Any]]:
+    """
+    Load data capabilities from a JSON report file.
+
+    Path resolution priority:
+    1. explicit report_path parameter
+    2. report_path from experiment.yaml config
+    3. project-level fallback path
+    4. fallback to DATA_CAPABILITIES if report is missing or invalid
+
+    Args:
+        report_path: Explicit path to the report JSON file.
+        saturation_threshold: Minimum date_saturation required for an interface
+            to be included. Interfaces with best saturation below this threshold
+            are filtered out.
+
+    Returns:
+        A dict mapping capability names to their specs, in the same format
+        as returned by get_data_capabilities(). The 'fields' values come
+        from the JSON's 'field_aliases', not raw source field names.
+    """
+    # Try to resolve and load the report
+    resolved_path = _resolve_report_path(report_path)
+
+    if resolved_path is None:
+        # Fallback to DATA_CAPABILITIES
+        return dict(DATA_CAPABILITIES)
+
+    raw_report = _load_raw_report(resolved_path)
+    if raw_report is None:
+        # Fallback to DATA_CAPABILITIES
+        return dict(DATA_CAPABILITIES)
+
+    interfaces = raw_report.get("interfaces", {})
+    if not interfaces:
+        return dict(DATA_CAPABILITIES)
+
+    capabilities: dict[str, dict[str, Any]] = {}
+
+    for name, info in interfaces.items():
+        # Skip if no field_aliases (not useful for factor mining)
+        field_aliases = info.get("field_aliases")
+        if not field_aliases:
+            continue
+
+        # Skip if date_saturation is below threshold
+        periods = info.get("periods", {})
+        best_sat = _get_best_saturation(periods)
+        if best_sat < saturation_threshold:
+            continue
+
+        # Determine available_from from the best period
+        available_from = None
+        if periods:
+            # Find the period with the best saturation and extract earliest date hint
+            # We use the period key as a proxy (e.g., "2020-2024")
+            best_period_key = max(
+                periods.keys(),
+                key=lambda k: periods[k].get("date_saturation", 0) if isinstance(periods[k], dict) else 0,
+                default=None,
+            )
+            if best_period_key:
+                # Extract the start year from period key like "2020-2024"
+                parts = best_period_key.split("-")
+                if parts and len(parts) == 2:
+                    available_from = f"{parts[0]}-01-01"
+
+        # Build the capability spec using field_aliases for fields
+        freq = info.get("freq", "daily")
+        lag_days = info.get("lag_days", 0)
+        join_mode = info.get("join_mode") or _FREQ_TO_JOIN_MODE.get(str(freq), "same_day")
+        factor_hints = info.get("factor_hints", [])
+
+        capabilities[name] = {
+            "fields": list(field_aliases),
+            "freq": str(freq),
+            "lag_days": lag_days,
+            "available_from": available_from,
+            "join_mode": str(join_mode),
+            "factor_hints": list(factor_hints) if factor_hints else [],
+        }
+
+    # If no capabilities loaded, fallback to DATA_CAPABILITIES
+    if not capabilities:
+        return dict(DATA_CAPABILITIES)
+
+    return capabilities
 
 
 def get_data_capabilities(

@@ -190,6 +190,11 @@ prompts:
 # ============================================================
 data_capability_registry:
   enabled: true
+  # Path to the data capability report JSON, relative to configs/ directory
+  # Use "../../../data/.data_capability_report.json" for project-level data dir
+  report_path: "../../../data/.data_capability_report.json"
+  # Minimum date_saturation threshold (0.0-1.0) for interface to be included
+  saturation_threshold: 0.5
 
 
 # ============================================================

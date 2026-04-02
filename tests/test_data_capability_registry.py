@@ -286,3 +286,208 @@ def test_scenario_falls_back_to_base_source_data_on_registry_failure():
     args, kwargs = log_mod.warning_calls[0]
     assert "Failed to inject data capability registry" in args[0]
     assert kwargs["exc_info"] is True
+
+
+# =============================================================================
+# Tests for load_from_report() - report-driven capability loading
+# =============================================================================
+
+import json
+import tempfile
+
+
+def test_load_from_report_returns_correct_capability_shape(tmp_path):
+    """load_from_report() must return the same shape expected by get_data_capabilities()."""
+    data_capability = _load_module(
+        "quantaalpha.factors.data_capability",
+        PKG_ROOT / "factors" / "data_capability.py",
+    )
+
+    # Create a minimal valid report JSON
+    report = {
+        "version": "1.0",
+        "generated_at": "2026-04-01T00:00:00",
+        "interfaces": {
+            "daily": {
+                "mode": "date_range",
+                "periods": {
+                    "2020-2024": {
+                        "date_saturation": 0.95,
+                        "stock_coverage": 0.98,
+                    }
+                },
+                "fields": ["ts_code", "trade_date", "open", "close"],
+                "field_aliases": ["$open", "$close"],
+                "freq": "daily",
+                "lag_days": 0,
+                "factor_hints": ["momentum", "reversal"],
+            }
+        },
+    }
+    report_path = tmp_path / ".data_capability_report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = data_capability.load_from_report(report_path)
+
+    # Must return a dict with capability name keys
+    assert isinstance(result, dict)
+    assert "daily" in result
+    cap = result["daily"]
+    # Must have the expected keys from get_data_capabilities() consumers
+    assert "fields" in cap
+    assert "freq" in cap
+    assert "lag_days" in cap
+    assert "available_from" in cap
+    assert "join_mode" in cap
+    assert "factor_hints" in cap
+
+
+def test_load_from_report_fields_from_field_aliases(tmp_path):
+    """fields must come from JSON field_aliases, not raw source fields."""
+    data_capability = _load_module(
+        "quantaalpha.factors.data_capability",
+        PKG_ROOT / "factors" / "data_capability.py",
+    )
+
+    report = {
+        "version": "1.0",
+        "generated_at": "2026-04-01T00:00:00",
+        "interfaces": {
+            "daily": {
+                "mode": "date_range",
+                "periods": {
+                    "2020-2024": {
+                        "date_saturation": 0.95,
+                    }
+                },
+                "fields": ["ts_code", "trade_date", "open", "close", "high", "low"],
+                "field_aliases": ["$open", "$close", "$high", "$low"],
+                "freq": "daily",
+                "lag_days": 0,
+                "factor_hints": ["momentum"],
+            }
+        },
+    }
+    report_path = tmp_path / ".data_capability_report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = data_capability.load_from_report(report_path)
+
+    # fields must be from field_aliases, not from raw fields
+    assert result["daily"]["fields"] == ["$open", "$close", "$high", "$low"]
+    assert "ts_code" not in result["daily"]["fields"]
+    assert "trade_date" not in result["daily"]["fields"]
+
+
+def test_load_from_report_fallback_to_data_capabilities_on_missing_report():
+    """Must fallback to DATA_CAPABILITIES when report file does not exist."""
+    data_capability = _load_module(
+        "quantaalpha.factors.data_capability",
+        PKG_ROOT / "factors" / "data_capability.py",
+    )
+
+    # Call with a path that definitely doesn't exist
+    result = data_capability.load_from_report(Path("/nonexistent/path/report.json"))
+
+    # Must return DATA_CAPABILITIES fallback
+    assert isinstance(result, dict)
+    assert "price_volume" in result
+    assert "financial" in result
+
+
+def test_load_from_report_respects_saturation_threshold(tmp_path):
+    """Interfaces with date_saturation below threshold must be filtered out."""
+    data_capability = _load_module(
+        "quantaalpha.factors.data_capability",
+        PKG_ROOT / "factors" / "data_capability.py",
+    )
+
+    report = {
+        "version": "1.0",
+        "generated_at": "2026-04-01T00:00:00",
+        "interfaces": {
+            "daily": {
+                "mode": "date_range",
+                "periods": {
+                    "2020-2024": {
+                        "date_saturation": 0.95,
+                    }
+                },
+                "fields": ["open", "close"],
+                "field_aliases": ["$open", "$close"],
+                "freq": "daily",
+                "lag_days": 0,
+                "factor_hints": ["momentum"],
+            },
+            "sparse_data": {
+                "mode": "date_range",
+                "periods": {
+                    "2020-2024": {
+                        "date_saturation": 0.30,  # Below typical 0.5 threshold
+                    }
+                },
+                "fields": ["some_field"],
+                "field_aliases": ["$some_alias"],
+                "freq": "daily",
+                "lag_days": 0,
+                "factor_hints": [],
+            },
+        },
+    }
+    report_path = tmp_path / ".data_capability_report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = data_capability.load_from_report(report_path, saturation_threshold=0.5)
+
+    # High saturation interface must be present
+    assert "daily" in result
+    # Low saturation interface must be filtered out
+    assert "sparse_data" not in result
+
+
+def test_load_from_report_filters_interfaces_without_field_aliases(tmp_path):
+    """Interfaces without field_aliases must be filtered out."""
+    data_capability = _load_module(
+        "quantaalpha.factors.data_capability",
+        PKG_ROOT / "factors" / "data_capability.py",
+    )
+
+    report = {
+        "version": "1.0",
+        "generated_at": "2026-04-01T00:00:00",
+        "interfaces": {
+            "daily": {
+                "mode": "date_range",
+                "periods": {
+                    "2020-2024": {
+                        "date_saturation": 0.95,
+                    }
+                },
+                "fields": ["open", "close"],
+                "field_aliases": ["$open", "$close"],
+                "freq": "daily",
+                "lag_days": 0,
+                "factor_hints": ["momentum"],
+            },
+            "auxiliary": {
+                "mode": "date_range",
+                "periods": {
+                    "2020-2024": {
+                        "date_saturation": 0.99,
+                    }
+                },
+                "fields": ["cal_date", "is_open"],
+                "field_aliases": [],  # No aliases - should be filtered
+                "freq": "daily",
+                "lag_days": 0,
+                "factor_hints": [],
+            },
+        },
+    }
+    report_path = tmp_path / ".data_capability_report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = data_capability.load_from_report(report_path)
+
+    assert "daily" in result
+    assert "auxiliary" not in result
