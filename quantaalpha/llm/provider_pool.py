@@ -90,6 +90,7 @@ SELECT_FUNCTIONS = {
 @dataclass
 class LatencyStats:
     """Running statistics for latency tracking."""
+
     total_latency_ms: float = 0.0
     sample_count: int = 0
     min_latency_ms: float = float("inf")
@@ -119,12 +120,15 @@ class LatencyStats:
 @dataclass
 class ProviderConfig:
     """Configuration for a single LLM provider."""
+
     name: str
     api_keys: list[str]
     base_url: str | None = None
     model: str | None = None
     timeout: int = 60
     metadata: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    tier: int = 2  # 1=basic/low-cost, 2=standard, 3=premium/high-cost
 
 
 # =============================================================================
@@ -164,9 +168,7 @@ class ProviderPool:
         min_latency_samples: int = 3,
     ):
         if routing not in ROUTING_STRATEGIES:
-            raise ValueError(
-                f"Unknown routing '{routing}'. Valid: {ROUTING_STRATEGIES}"
-            )
+            raise ValueError(f"Unknown routing '{routing}'. Valid: {ROUTING_STRATEGIES}")
         self.routing = routing
         self.min_latency_samples = min_latency_samples
         self._providers: dict[str, ProviderConfig] = {}
@@ -184,6 +186,8 @@ class ProviderPool:
         model: str | None = None,
         timeout: int = 60,
         metadata: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+        tier: int = 2,
     ) -> None:
         """
         Add a provider to the pool.
@@ -195,6 +199,8 @@ class ProviderPool:
             model: Default model name
             timeout: Request timeout in seconds
             metadata: Additional provider metadata
+            tags: Capability tags for declarative routing
+            tier: Cost tier (1=basic, 2=standard, 3=premium)
         """
         if isinstance(api_keys, str):
             api_keys = [api_keys]
@@ -207,6 +213,8 @@ class ProviderPool:
                 model=model,
                 timeout=timeout,
                 metadata=metadata or {},
+                tags=tags or [],
+                tier=tier,
             )
             # Initialize latency stats for each key
             if name not in self._latency_stats:
@@ -237,6 +245,52 @@ class ProviderPool:
         """Return provider config by name."""
         with self._lock:
             return self._providers.get(name)
+
+    def get_by_capability(
+        self,
+        require_tags: list[str] | None = None,
+        exclude_tags: list[str] | None = None,
+        min_tier: int = 1,
+        max_tier: int = 3,
+    ) -> list[ProviderConfig]:
+        """
+        Declarative provider lookup by capability.
+
+        Args:
+            require_tags: All these tags must be present in provider.tags
+            exclude_tags: Any of these tags disqualifies a provider
+            min_tier: Minimum tier level (inclusive)
+            max_tier: Maximum tier level (inclusive)
+
+        Returns:
+            Sorted list of matching ProviderConfig (by tier ascending).
+            Empty list if no matches.
+        """
+        with self._lock:
+            results = []
+            required = set(require_tags) if require_tags else set()
+            excluded = set(exclude_tags) if exclude_tags else set()
+
+            for provider in self._providers.values():
+                provider_tags = set(provider.tags)
+
+                # Check tier bounds
+                if not (min_tier <= provider.tier <= max_tier):
+                    continue
+
+                # Check exclusion
+                if provider_tags & excluded:
+                    continue
+
+                # Check requirement
+                if required and not required.issubset(provider_tags):
+                    continue
+
+                results.append(provider)
+
+            # Sort by tier ascending (cheapest first)
+            results.sort(key=lambda p: p.tier)
+            return results
 
     def get_key_and_provider(
         self,
