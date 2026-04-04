@@ -86,22 +86,21 @@ class ContinuousStateManager:
 
             dir_name = str(self._pool_save_path.parent)
             fd, tmp_path = tempfile.mkstemp(suffix=".tmp", dir=dir_name)
+            os.close(fd)
+
             try:
-                data = {
-                    "trajectories": {tid: t.to_dict() for tid, t in pool_to_save._trajectories.items()},
-                    "by_direction": pool_to_save._by_direction,
-                    "by_phase": {p.value: ids for p, ids in pool_to_save._by_phase.items()},
-                    "saved_at": __import__("datetime").datetime.now().isoformat(),
-                }
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+                original_save_path = pool_to_save.save_path
+                pool_to_save.save_path = Path(tmp_path)
+                pool_to_save._save()
                 os.replace(tmp_path, str(self._pool_save_path))
+                pool_to_save.save_path = original_save_path
                 logger.info(f"Saved trajectory pool: {len(pool_to_save.get_all())} trajectories")
             except Exception:
                 try:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
+                pool_to_save.save_path = original_save_path
                 raise
         except Exception as e:
             logger.error(f"Failed to save trajectory pool: {e}")
@@ -124,18 +123,11 @@ class ContinuousStateManager:
         )
 
         to_remove = sorted_trajectories[self._max_pool_size :]
-        removed_count = len(to_remove)
+        removed_count = 0
 
         for traj in to_remove:
-            tid = traj.trajectory_id
-            if tid in pool._trajectories:
-                del pool._trajectories[tid]
-            for dir_id, tids in pool._by_direction.items():
-                if tid in tids:
-                    tids.remove(tid)
-            for phase, tids in pool._by_phase.items():
-                if tid in tids:
-                    tids.remove(tid)
+            if pool.remove(traj.trajectory_id):
+                removed_count += 1
 
         logger.info(f"Purged {removed_count} trajectories from pool ({current_size} -> {len(pool.get_all())})")
         return removed_count

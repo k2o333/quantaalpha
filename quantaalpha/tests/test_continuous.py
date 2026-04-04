@@ -380,12 +380,12 @@ class TestRevalidationSchedulerLibraryPath:
         assert scheduler.library_path == "/custom/path.json"
 
     def test_library_path_fallback_default(self, monkeypatch):
-        """Test library_path falls back to data/results/factor_library.json."""
+        """Test library_path falls back to third_party/quantaalpha/data/factorlib/all_factors_library.json."""
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
 
         monkeypatch.delenv("FACTOR_LIBRARY_PATH", raising=False)
         scheduler = DefaultRevalidationScheduler()
-        assert scheduler.library_path == "data/results/factor_library.json"
+        assert scheduler.library_path == "third_party/quantaalpha/data/factorlib/all_factors_library.json"
 
 
 class TestMiningSchedulerLibraryPath:
@@ -407,12 +407,12 @@ class TestMiningSchedulerLibraryPath:
         assert scheduler.library_path == "/custom/path.json"
 
     def test_library_path_fallback_default(self, monkeypatch):
-        """Test library_path falls back to data/results/factor_library.json."""
+        """Test library_path falls back to third_party/quantaalpha/data/factorlib/all_factors_library.json."""
         from quantaalpha.continuous.implementations import DefaultMiningScheduler
 
         monkeypatch.delenv("FACTOR_LIBRARY_PATH", raising=False)
         scheduler = DefaultMiningScheduler()
-        assert scheduler.library_path == "data/results/factor_library.json"
+        assert scheduler.library_path == "third_party/quantaalpha/data/factorlib/all_factors_library.json"
 
 
 class TestRevalidationSchedulerStartStop:
@@ -492,9 +492,7 @@ class TestMiningSchedulerStartStop:
 class TestRevalidationFailurePath:
     """Tests for failure handling in revalidation scheduler."""
 
-    def test_run_revalidation_uses_proper_validation_result_structure(
-        self, tmp_path, monkeypatch
-    ):
+    def test_run_revalidation_uses_proper_validation_result_structure(self, tmp_path, monkeypatch):
         """Test run_revalidation builds proper validation_result dict for failures."""
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
         import json
@@ -535,9 +533,7 @@ class TestRevalidationFailurePath:
         assert result.revalidated_count == 0
 
         for factor_id, new_status in result.status_changes.items():
-            assert new_status != "active", (
-                f"Failed backtest should not result in active status for {factor_id}"
-            )
+            assert new_status != "active", f"Failed backtest should not result in active status for {factor_id}"
 
 
 class TestMiningFailurePath:
@@ -558,10 +554,7 @@ class TestMiningFailurePath:
 
         result = scheduler._validate_factor("test_factor", {"factor_id": "test_factor"})
         assert result["status"] == "failure"
-        assert (
-            result["summary"]["validation_summary"]
-            == "Validation failed for test_factor"
-        )
+        assert result["summary"]["validation_summary"] == "Validation failed for test_factor"
 
     def test_run_mining_with_failure_skips_add_to_library(self, tmp_path, monkeypatch):
         """Test run_mining does not add factors to library when validation fails."""
@@ -592,9 +585,7 @@ class TestMiningFailurePath:
 class TestApplyValidationResultSignature:
     """Tests that apply_validation_result is called with correct signature."""
 
-    def test_run_revalidation_iterates_factor_entries_correctly(
-        self, tmp_path, monkeypatch
-    ):
+    def test_run_revalidation_iterates_factor_entries_correctly(self, tmp_path, monkeypatch):
         """Verify run_revalidation properly extracts factor_id from factor_entry dict."""
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
         import json
@@ -662,9 +653,7 @@ class TestStubReturnsFailure:
 class TestInjectedExecutionHooks:
     """Tests for injectable execution hooks on schedulers."""
 
-    def test_revalidation_scheduler_uses_injected_backtest_runner(
-        self, tmp_path, monkeypatch
-    ):
+    def test_revalidation_scheduler_uses_injected_backtest_runner(self, tmp_path, monkeypatch):
         """Injected backtest runner should be called instead of the default seam."""
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
         import json
@@ -728,9 +717,7 @@ class TestInjectedExecutionHooks:
             max_per_run=10,
             factor_validator=injected_validator,
         )
-        scheduler._generate_factors = lambda ctx: [
-            {"factor_id": "new_factor_1", "factor_name": "Test Factor"}
-        ]
+        scheduler._generate_factors = lambda ctx: [{"factor_id": "new_factor_1", "factor_name": "Test Factor"}]
 
         result = scheduler.run_mining()
 

@@ -667,7 +667,7 @@ class DefaultMiningScheduler(MiningScheduler):
         try:
             if self._pipeline_mode:
                 # Pipeline mode: use AlphaAgentLoop or EvolutionController
-                budget = getattr(self, "_cycle_budget_seconds", None)
+                budget = self._state_cfg.get("cycle_budget_seconds")
                 pipeline_result = self._run_pipeline_mining(budget_seconds=budget)
                 result.factors_generated = pipeline_result["factors_generated"]
                 result.factors_validated = pipeline_result.get("factors_validated", 0)
