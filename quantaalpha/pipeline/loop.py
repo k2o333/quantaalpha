@@ -194,7 +194,20 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             if self._ensemble_config.get("enabled"):
                 idea = self._propose_with_ensemble()
             else:
+                # Check for step-specific model routing
+                model = self.get_model_for_step("propose")
+                original_model = None
+                if model:
+                    if hasattr(self.hypothesis_generator, "_api_backend") and self.hypothesis_generator._api_backend:
+                        original_model = self.hypothesis_generator._api_backend.chat_model
+                        self.hypothesis_generator._api_backend.chat_model = model
+
                 idea = self.hypothesis_generator.gen(self.trace)
+
+                # Restore original model if it was switched
+                if model and original_model is not None:
+                    if hasattr(self.hypothesis_generator, "_api_backend") and self.hypothesis_generator._api_backend:
+                        self.hypothesis_generator._api_backend.chat_model = original_model
             logger.log_object(idea, tag="hypothesis generation")
             self._last_hypothesis = idea
         return idea
