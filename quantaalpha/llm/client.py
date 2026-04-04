@@ -634,7 +634,47 @@ class APIBackend:
         """
         return ChatSession(self, conversation_id, session_system_prompt)
 
-    def get_model_for_task(self, task_type: str | None = None, tag: str | None = None) -> str:
+    def get_model_for_task(
+        self,
+        task_type: str | None = None,
+        tag: str | None = None,
+        required_capabilities: list[str] | None = None,
+        max_tier: int = 3,
+    ) -> str:
+        """
+        Get the model for a task, optionally filtering by capabilities.
+
+        Args:
+            task_type: Task type for legacy routing
+            tag: Tag for legacy routing
+            required_capabilities: List of required capability tags (e.g. ["tool_calling"])
+            max_tier: Maximum tier level to consider
+
+        Returns:
+            Model name string.
+        """
+        # Capability-aware routing
+        if required_capabilities and hasattr(self, "_provider_pool") and self._provider_pool is not None:
+            matching = self._provider_pool.get_by_capability(
+                require_tags=required_capabilities,
+                max_tier=max_tier,
+            )
+            if matching:
+                # Return model from the cheapest matching provider
+                for provider in matching:
+                    if provider.model:
+                        return provider.model
+            # No matching provider or no model set; fall back to default
+            logger.warning(f"No model found for capabilities {required_capabilities}; falling back to default chat_model")
+            if matching:
+                # Return model from the cheapest matching provider
+                for provider in matching:
+                    if provider.model:
+                        return provider.model
+                # If no model set on provider, fall through to default
+                logger.warning(f"No model found for capabilities {required_capabilities}; falling back to default chat_model")
+
+        # Fall back to existing routing logic
         if task_type:
             if task_type not in KNOWN_TASK_TYPES:
                 logger.warning(f"Unknown llm task_type={task_type}; falling back to default routing")
@@ -653,10 +693,12 @@ class APIBackend:
         former_messages: list[dict] | None = None,
         *,
         shrink_multiple_break: bool = False,
+        tool_results: list[dict] | None = None,
     ) -> list[dict]:
         """
         build the messages to avoid implementing several redundant lines of code
 
+        tool_results: list of {"tool_call_id": str, "name": str, "content": str}
         """
         if former_messages is None:
             former_messages = []
@@ -681,6 +723,19 @@ class APIBackend:
                 "content": user_prompt,
             },
         )
+
+        # Append tool results
+        if tool_results:
+            for tr in tool_results:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tr["tool_call_id"],
+                        "name": tr["name"],
+                        "content": tr["content"],
+                    }
+                )
+
         return messages
 
     def build_messages_and_create_chat_completion(

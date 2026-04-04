@@ -175,3 +175,55 @@ class TestToolCallResponseParsing:
         assert len(result[2]) == 1
         assert result[2][0]["id"] == "call_abc123"
         assert result[2][0]["function"]["name"] == "propose_factors"
+
+
+class TestBuildMessagesToolRole:
+    """Tests for tool role in build_messages."""
+
+    def _make_backend(self):
+        from quantaalpha.llm.client import APIBackend
+
+        backend = object.__new__(APIBackend)
+        backend.use_azure = False
+        backend.use_llama2 = False
+        backend.use_gcr_endpoint = False
+        backend.chat_stream = False
+        backend.use_chat_cache = False
+        backend.chat_model = "gpt-4-turbo"
+        backend.reasoning_model = ""
+        backend.chat_client = MagicMock()
+        backend.cache = MagicMock()
+        backend.cache.chat_get.return_value = None
+        backend.task_model_map = {}
+        backend.routing_default = ""
+        backend.chat_model_map = {}
+        backend.chat_api_key = "test"
+        backend.base_url = None
+        backend.embedding_api_key = ""
+        backend.embedding_base_url = None
+        backend.encoder = None
+        backend.chat_seed = None
+        backend.retry_wait_seconds = 1
+        backend.dump_chat_cache = False
+        return backend
+
+    def test_build_messages_with_tool_results(self):
+        """build_messages appends tool role messages."""
+        backend = self._make_backend()
+
+        messages = backend.build_messages(
+            user_prompt="propose factors",
+            system_prompt="You are a factor mining assistant",
+            tool_results=[
+                {"tool_call_id": "call_abc", "name": "propose_factors", "content": '{"factors": []}'},
+            ],
+        )
+
+        # Should have system, user, and tool messages
+        roles = [m["role"] for m in messages]
+        assert "tool" in roles
+
+        tool_msg = [m for m in messages if m["role"] == "tool"][0]
+        assert tool_msg["tool_call_id"] == "call_abc"
+        assert tool_msg["name"] == "propose_factors"
+        assert tool_msg["content"] == '{"factors": []}'
