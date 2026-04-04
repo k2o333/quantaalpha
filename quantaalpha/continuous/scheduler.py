@@ -95,6 +95,96 @@ class CircuitBreakerConfig:
 
 
 @dataclass
+class EvolutionConfig:
+    """Configuration for evolution mode in continuous mining."""
+
+    enabled: bool = False
+    max_rounds: int = 3
+    mutation_enabled: bool = True
+    crossover_enabled: bool = False
+    crossover_size: int = 2
+    crossover_n: int = 2
+    parallel_enabled: bool = False
+    fresh_start: bool = False
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "EvolutionConfig":
+        return cls(
+            enabled=d.get("enabled", False),
+            max_rounds=d.get("max_rounds", 3),
+            mutation_enabled=d.get("mutation_enabled", True),
+            crossover_enabled=d.get("crossover_enabled", False),
+            crossover_size=d.get("crossover_size", 2),
+            crossover_n=d.get("crossover_n", 2),
+            parallel_enabled=d.get("parallel_enabled", False),
+            fresh_start=d.get("fresh_start", False),
+        )
+
+
+@dataclass
+class StatePersistenceConfig:
+    """Configuration for cross-cycle state persistence."""
+
+    pool_save_path: str = "log/continuous/trajectory_pool.json"
+    max_pool_size: int = 500
+    failure_cooldown_hours: int = 48
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StatePersistenceConfig":
+        return cls(
+            pool_save_path=d.get("pool_save_path", "log/continuous/trajectory_pool.json"),
+            max_pool_size=d.get("max_pool_size", 500),
+            failure_cooldown_hours=d.get("failure_cooldown_hours", 48),
+        )
+
+
+@dataclass
+class QualityGateConfig:
+    """Configuration for quality gate in pipeline mining."""
+
+    min_ic: float = 0.02
+    min_rank_ic: float = 0.03
+    max_correlation: float = 0.7
+    min_sharpe: float = 0.3
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "QualityGateConfig":
+        return cls(
+            min_ic=d.get("min_ic", 0.02),
+            min_rank_ic=d.get("min_rank_ic", 0.03),
+            max_correlation=d.get("max_correlation", 0.7),
+            min_sharpe=d.get("min_sharpe", 0.3),
+        )
+
+
+@dataclass
+class MiningConfig:
+    """Configuration for pipeline-based mining."""
+
+    pipeline_mode: bool = False
+    steps_per_mining: int = 5
+    max_loops_per_cycle: int = 3
+    log_root: str = "log/continuous/mining"
+    evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
+    state: StatePersistenceConfig = field(default_factory=StatePersistenceConfig)
+    quality_gate: QualityGateConfig = field(default_factory=QualityGateConfig)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "MiningConfig":
+        if not d:
+            return cls()
+        return cls(
+            pipeline_mode=d.get("pipeline_mode", False),
+            steps_per_mining=d.get("steps_per_mining", 5),
+            max_loops_per_cycle=d.get("max_loops_per_cycle", 3),
+            log_root=d.get("log_root", "log/continuous/mining"),
+            evolution=EvolutionConfig.from_dict(d.get("evolution", {})),
+            state=StatePersistenceConfig.from_dict(d.get("state", {})),
+            quality_gate=QualityGateConfig.from_dict(d.get("quality_gate", {})),
+        )
+
+
+@dataclass
 class PipelineConfig:
     """Full pipeline configuration parsed from pipeline.yaml."""
 
@@ -125,6 +215,9 @@ class PipelineConfig:
 
     # Circuit breaker
     circuit_breaker: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
+
+    # Mining
+    mining: MiningConfig = field(default_factory=MiningConfig)
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "PipelineConfig":
@@ -205,9 +298,11 @@ class PipelineConfig:
         features = data.get("features", {})
 
         # Parse circuit_breaker section
-        cb_config = CircuitBreakerConfig.from_dict(
-            data.get("circuit_breaker", {})
-        )
+        cb_config = CircuitBreakerConfig.from_dict(data.get("circuit_breaker", {}))
+
+        # Parse mining section
+        mining_data = data.get("mining", {})
+        mining = MiningConfig.from_dict(mining_data)
 
         return cls(
             data_check_interval_seconds=data_check_interval,
@@ -224,6 +319,7 @@ class PipelineConfig:
             enable_revalidation=features.get("enable_revalidation", True),
             enable_mining=features.get("enable_mining", True),
             circuit_breaker=cb_config,
+            mining=mining,
         )
 
     def to_dict(self) -> dict:
@@ -274,6 +370,26 @@ class PipelineConfig:
                 "max_cooldown_count": self.circuit_breaker.max_cooldown_count,
                 "reset_on_success": self.circuit_breaker.reset_on_success,
             },
+            "mining": {
+                "pipeline_mode": self.mining.pipeline_mode,
+                "steps_per_mining": self.mining.steps_per_mining,
+                "max_loops_per_cycle": self.mining.max_loops_per_cycle,
+                "log_root": self.mining.log_root,
+                "evolution": {
+                    "enabled": self.mining.evolution.enabled,
+                    "max_rounds": self.mining.evolution.max_rounds,
+                    "mutation_enabled": self.mining.evolution.mutation_enabled,
+                    "crossover_enabled": self.mining.evolution.crossover_enabled,
+                },
+                "state": {
+                    "pool_save_path": self.mining.state.pool_save_path,
+                    "max_pool_size": self.mining.state.max_pool_size,
+                },
+                "quality_gate": {
+                    "min_ic": self.mining.quality_gate.min_ic,
+                    "min_rank_ic": self.mining.quality_gate.min_rank_ic,
+                },
+            },
         }
 
 
@@ -307,6 +423,9 @@ class SchedulerConfig:
     enable_revalidation: bool = True
     enable_mining: bool = True
 
+    # Mining pipeline config
+    mining: MiningConfig = field(default_factory=MiningConfig)
+
     @classmethod
     def from_pipeline_config(cls, pipeline_config: PipelineConfig) -> "SchedulerConfig":
         """
@@ -333,6 +452,7 @@ class SchedulerConfig:
             enable_data_monitor=pipeline_config.enable_data_monitor,
             enable_revalidation=pipeline_config.enable_revalidation,
             enable_mining=pipeline_config.enable_mining,
+            mining=pipeline_config.mining,
         )
 
 

@@ -71,9 +71,7 @@ features:
     @pytest.fixture
     def temp_yaml_file(self, sample_yaml_content: str) -> Path:
         """Create a temporary YAML file for testing."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(sample_yaml_content)
             return Path(f.name)
 
@@ -573,11 +571,7 @@ class TestConfigContract:
         """Test downstream assumption: data_roots maps to data_dirs in SchedulerConfig."""
         from quantaalpha.continuous.scheduler import App4BridgeConfig, PipelineConfig, SchedulerConfig
 
-        pipeline = PipelineConfig(
-            app4_bridge=App4BridgeConfig(
-                data_roots=["/path/to/data1", "/path/to/data2"]
-            )
-        )
+        pipeline = PipelineConfig(app4_bridge=App4BridgeConfig(data_roots=["/path/to/data1", "/path/to/data2"]))
 
         scheduler = SchedulerConfig.from_pipeline_config(pipeline)
 
@@ -617,3 +611,67 @@ class TestConfigContract:
         assert config.execution.train.end == "2022-12-31"
         assert config.execution.valid.start == "2023-01-01"
         assert config.execution.test.start == "2024-01-01"
+
+
+class TestMiningConfig:
+    """Tests for MiningConfig dataclasses and YAML parsing."""
+
+    def test_pipeline_config_mining_section(self, tmp_path):
+        """PipelineConfig parses mining section from YAML."""
+        import yaml
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+  cycle_budget_seconds: 7200
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  steps_per_mining: 5
+  max_loops_per_cycle: 3
+  log_root: "log/continuous/mining"
+  evolution:
+    enabled: false
+    max_rounds: 3
+    mutation_enabled: true
+    crossover_enabled: false
+    crossover_size: 2
+    crossover_n: 2
+    parallel_enabled: false
+    fresh_start: false
+  state:
+    pool_save_path: "log/continuous/trajectory_pool.json"
+    max_pool_size: 500
+    failure_cooldown_hours: 48
+  quality_gate:
+    min_ic: 0.02
+    min_rank_ic: 0.03
+    max_correlation: 0.7
+    min_sharpe: 0.3
+"""
+        yaml_path = tmp_path / "test_mining.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.mining is not None
+        assert config.mining.pipeline_mode is True
+        assert config.mining.steps_per_mining == 5
+        assert config.mining.max_loops_per_cycle == 3
+        assert config.mining.evolution.max_rounds == 3
+        assert config.mining.evolution.parallel_enabled is False
+        assert config.mining.state.max_pool_size == 500
+
+    def test_pipeline_config_mining_defaults(self):
+        """PipelineConfig uses safe defaults when mining section is absent."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig()
+        assert config.mining.pipeline_mode is False
+        assert config.mining.steps_per_mining == 5
+        assert config.mining.evolution.max_rounds == 3
+        assert config.mining.state.max_pool_size == 500
