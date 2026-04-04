@@ -1644,7 +1644,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     "fresh_start": self._evolution_cfg.get("fresh_start", False),
                 }
 
-                summary = run_evolution_loop(
+                run_evolution_loop(
                     initial_direction=direction,
                     evolution_cfg=ev_cfg,
                     exec_cfg={
