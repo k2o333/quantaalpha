@@ -203,3 +203,25 @@ mining:
         scheduler = orchestrator.mining_scheduler
         assert scheduler._provider_pool_cfg["enabled"] is True
         assert scheduler._provider_pool_cfg["routing"] == "least_latency"
+
+    def test_orchestrator_passes_direction_planner_config(self):
+        from quantaalpha.continuous.scheduler import (
+            SchedulerConfig,
+            MiningConfig,
+            DirectionPlannerConfig,
+        )
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        config = SchedulerConfig(
+            mining=MiningConfig(
+                pipeline_mode=True,
+                direction_planner=DirectionPlannerConfig(
+                    enabled=True,
+                    diversity_window=5,
+                ),
+            ),
+        )
+        orchestrator = MiningOrchestrator(config=config)
+        scheduler = orchestrator.mining_scheduler
+        assert scheduler._direction_planner_cfg["enabled"] is True
+        assert scheduler._direction_planner_cfg["diversity_window"] == 5

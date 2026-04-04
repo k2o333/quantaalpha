@@ -194,6 +194,11 @@ class MiningOrchestrator:
                 agent_loop_cfg={
                     "step_model_routing": self.config.mining.agent_loop.step_model_routing,
                 },
+                direction_planner_cfg={
+                    "enabled": self.config.mining.direction_planner.enabled,
+                    "diversity_window": self.config.mining.direction_planner.diversity_window,
+                    "last_failed_within_hours": self.config.mining.direction_planner.last_failed_within_hours,
+                },
                 ensemble_cfg={
                     "enabled": self.config.mining.ensemble.enabled,
                     "strategy": self.config.mining.ensemble.strategy,
