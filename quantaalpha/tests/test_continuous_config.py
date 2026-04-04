@@ -675,3 +675,136 @@ mining:
         assert config.mining.steps_per_mining == 5
         assert config.mining.evolution.max_rounds == 3
         assert config.mining.state.max_pool_size == 500
+
+
+class TestEscalationConfig:
+    """Tests for EscalationConfig dataclass and YAML parsing."""
+
+    def test_escalation_config_defaults(self):
+        """EscalationConfig uses safe defaults."""
+        from quantaalpha.continuous.scheduler import EscalationConfig
+
+        config = EscalationConfig()
+        assert config.enabled is False
+        assert config.trigger_after_failed_attempts == 2
+        assert config.start_with_tier == 1
+        assert config.escalate_to_max_tier == 3
+        assert config.max_escalations_per_cycle == 2
+
+    def test_escalation_config_from_dict(self):
+        """EscalationConfig parses from dict."""
+        from quantaalpha.continuous.scheduler import EscalationConfig
+
+        config = EscalationConfig.from_dict(
+            {
+                "enabled": True,
+                "trigger_after_failed_attempts": 3,
+                "start_with_tier": 1,
+                "escalate_to_max_tier": 3,
+                "max_escalations_per_cycle": 1,
+            }
+        )
+        assert config.enabled is True
+        assert config.trigger_after_failed_attempts == 3
+        assert config.max_escalations_per_cycle == 1
+
+    def test_mining_config_has_escalation(self):
+        """MiningConfig includes escalation field."""
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        config = MiningConfig()
+        assert config.escalation is not None
+        assert config.escalation.enabled is False
+
+    def test_pipeline_config_parses_escalation(self, tmp_path):
+        """PipelineConfig parses mining.escalation section from YAML."""
+        import yaml
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+  cycle_budget_seconds: 7200
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  escalation:
+    enabled: true
+    trigger_after_failed_attempts: 3
+    max_escalations_per_cycle: 1
+"""
+        yaml_path = tmp_path / "test_escalation.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.mining.escalation.enabled is True
+        assert config.mining.escalation.trigger_after_failed_attempts == 3
+        assert config.mining.escalation.max_escalations_per_cycle == 1
+
+
+class TestAgentLoopConfig:
+    """Tests for AgentLoopConfig dataclass and YAML parsing."""
+
+    def test_agent_loop_config_defaults(self):
+        """AgentLoopConfig uses safe defaults."""
+        from quantaalpha.continuous.scheduler import AgentLoopConfig
+
+        config = AgentLoopConfig()
+        assert config.step_model_routing == {}
+
+    def test_agent_loop_config_from_dict(self):
+        """AgentLoopConfig parses from dict."""
+        from quantaalpha.continuous.scheduler import AgentLoopConfig
+
+        config = AgentLoopConfig.from_dict(
+            {
+                "step_model_routing": {
+                    "propose": {"require_capabilities": ["reasoning"], "max_tier": 3},
+                    "feedback": {"require_capabilities": ["structured"], "max_tier": 3},
+                }
+            }
+        )
+        assert "propose" in config.step_model_routing
+        assert config.step_model_routing["propose"]["require_capabilities"] == ["reasoning"]
+        assert config.step_model_routing["propose"]["max_tier"] == 3
+
+    def test_mining_config_has_agent_loop(self):
+        """MiningConfig includes agent_loop field."""
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        config = MiningConfig()
+        assert config.agent_loop is not None
+        assert config.agent_loop.step_model_routing == {}
+
+    def test_pipeline_config_parses_agent_loop(self, tmp_path):
+        """PipelineConfig parses mining.agent_loop section from YAML."""
+        import yaml
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+  cycle_budget_seconds: 7200
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  agent_loop:
+    step_model_routing:
+      propose:
+        require_capabilities: ["reasoning"]
+        max_tier: 3
+"""
+        yaml_path = tmp_path / "test_agent_loop.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert "propose" in config.mining.agent_loop.step_model_routing
+        assert config.mining.agent_loop.step_model_routing["propose"]["require_capabilities"] == ["reasoning"]

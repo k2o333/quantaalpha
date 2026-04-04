@@ -158,6 +158,44 @@ class QualityGateConfig:
 
 
 @dataclass
+class EscalationConfig:
+    """Configuration for model escalation in continuous mining."""
+
+    enabled: bool = False
+    trigger_after_failed_attempts: int = 2
+    start_with_tier: int = 1
+    escalate_to_max_tier: int = 3
+    max_escalations_per_cycle: int = 2
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "EscalationConfig":
+        if not d:
+            return cls()
+        return cls(
+            enabled=d.get("enabled", False),
+            trigger_after_failed_attempts=d.get("trigger_after_failed_attempts", 2),
+            start_with_tier=d.get("start_with_tier", 1),
+            escalate_to_max_tier=d.get("escalate_to_max_tier", 3),
+            max_escalations_per_cycle=d.get("max_escalations_per_cycle", 2),
+        )
+
+
+@dataclass
+class AgentLoopConfig:
+    """Configuration for AlphaAgentLoop in continuous mining."""
+
+    step_model_routing: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "AgentLoopConfig":
+        if not d:
+            return cls()
+        return cls(
+            step_model_routing=d.get("step_model_routing", {}),
+        )
+
+
+@dataclass
 class MiningConfig:
     """Configuration for pipeline-based mining."""
 
@@ -168,6 +206,8 @@ class MiningConfig:
     evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
     state: StatePersistenceConfig = field(default_factory=StatePersistenceConfig)
     quality_gate: QualityGateConfig = field(default_factory=QualityGateConfig)
+    escalation: EscalationConfig = field(default_factory=EscalationConfig)
+    agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "MiningConfig":
@@ -181,6 +221,8 @@ class MiningConfig:
             evolution=EvolutionConfig.from_dict(d.get("evolution", {})),
             state=StatePersistenceConfig.from_dict(d.get("state", {})),
             quality_gate=QualityGateConfig.from_dict(d.get("quality_gate", {})),
+            escalation=EscalationConfig.from_dict(d.get("escalation", {})),
+            agent_loop=AgentLoopConfig.from_dict(d.get("agent_loop", {})),
         )
 
 
@@ -388,6 +430,14 @@ class PipelineConfig:
                 "quality_gate": {
                     "min_ic": self.mining.quality_gate.min_ic,
                     "min_rank_ic": self.mining.quality_gate.min_rank_ic,
+                },
+                "escalation": {
+                    "enabled": self.mining.escalation.enabled,
+                    "trigger_after_failed_attempts": self.mining.escalation.trigger_after_failed_attempts,
+                    "max_escalations_per_cycle": self.mining.escalation.max_escalations_per_cycle,
+                },
+                "agent_loop": {
+                    "step_model_routing": self.mining.agent_loop.step_model_routing,
                 },
             },
         }
