@@ -600,6 +600,8 @@ class DefaultMiningScheduler(MiningScheduler):
         agent_loop_cfg: Optional[dict] = None,
         ensemble_cfg: Optional[dict] = None,
         provider_pool_cfg: Optional[dict] = None,
+        degraded_mode: bool = False,
+        direction_planner_cfg: Optional[dict] = None,
     ):
         import os
 
@@ -633,6 +635,8 @@ class DefaultMiningScheduler(MiningScheduler):
         self._agent_loop_cfg = agent_loop_cfg or {}
         self._ensemble_cfg = ensemble_cfg or {}
         self._provider_pool_cfg = provider_pool_cfg or {}
+        self._degraded_mode = degraded_mode
+        self._direction_planner_cfg = direction_planner_cfg or {}
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -1624,6 +1628,12 @@ class DefaultMiningScheduler(MiningScheduler):
             "errors": [],
         }
 
+        # Apply degraded mode overrides
+        effective_evolution_cfg = dict(self._evolution_cfg)
+        if self._degraded_mode:
+            effective_evolution_cfg["crossover_enabled"] = False
+            logger.info("Degraded mode: crossover disabled, using mutation-only")
+
         # Initialize escalation state
         from quantaalpha.continuous.escalation import EscalationState
         from quantaalpha.continuous.scheduler import EscalationConfig
@@ -1650,13 +1660,13 @@ class DefaultMiningScheduler(MiningScheduler):
                 from quantaalpha.pipeline.factor_mining import run_evolution_loop
 
                 ev_cfg = {
-                    "max_rounds": self._evolution_cfg.get("max_rounds", 3),
-                    "mutation_enabled": self._evolution_cfg.get("mutation_enabled", True),
-                    "crossover_enabled": self._evolution_cfg.get("crossover_enabled", False),
-                    "crossover_size": self._evolution_cfg.get("crossover_size", 2),
-                    "crossover_n": self._evolution_cfg.get("crossover_n", 2),
-                    "parallel_enabled": self._evolution_cfg.get("parallel_enabled", False),
-                    "fresh_start": self._evolution_cfg.get("fresh_start", False),
+                    "max_rounds": effective_evolution_cfg.get("max_rounds", 3),
+                    "mutation_enabled": effective_evolution_cfg.get("mutation_enabled", True),
+                    "crossover_enabled": effective_evolution_cfg.get("crossover_enabled", False),
+                    "crossover_size": effective_evolution_cfg.get("crossover_size", 2),
+                    "crossover_n": effective_evolution_cfg.get("crossover_n", 2),
+                    "parallel_enabled": effective_evolution_cfg.get("parallel_enabled", False),
+                    "fresh_start": effective_evolution_cfg.get("fresh_start", False),
                 }
 
                 run_evolution_loop(
@@ -1741,7 +1751,28 @@ class DefaultMiningScheduler(MiningScheduler):
         )
 
     def _get_mining_direction(self) -> Optional[str]:
-        """Get mining direction from trajectory history or fallback."""
+        """Get mining direction from planner or trajectory history."""
+        # Use direction planner if enabled
+        if self._direction_planner_cfg.get("enabled") and self._state_manager is not None:
+            from quantaalpha.continuous.planner import ContinuousDirectionPlanner
+
+            failure_tracker = self._state_manager.get_failure_tracker()
+            pool = self._state_manager.load_pool()
+
+            planner = ContinuousDirectionPlanner(
+                failure_tracker=failure_tracker,
+                trajectory_pool=pool,
+                diversity_window=self._direction_planner_cfg.get("diversity_window", 3),
+                last_failed_within_hours=self._direction_planner_cfg.get("last_failed_within_hours", 48),
+            )
+
+            force_different = self._degraded_mode
+            result = planner.plan_next_direction(force_different_category=force_different)
+            planner.record_used_category(result.category)
+            logger.info(f"Direction planner selected: {result.direction} (category={result.category}, source={result.source})")
+            return result.direction
+
+        # Fallback to existing logic
         if self._state_manager is not None:
             pool = self._state_manager.load_pool()
             if pool.trajectories:
