@@ -160,6 +160,30 @@ class MiningOrchestrator:
                 min_rank_ic=self.config.min_rank_ic,
                 per_factor_timeout_seconds=self.config.per_factor_timeout_seconds,
                 monitor_engine=self._monitor_engine,
+                pipeline_mode=self.config.mining.pipeline_mode,
+                quality_gate_config={
+                    "min_ic": self.config.mining.quality_gate.min_ic,
+                    "min_rank_ic": self.config.mining.quality_gate.min_rank_ic,
+                    "max_correlation": self.config.mining.quality_gate.max_correlation,
+                    "min_sharpe": self.config.mining.quality_gate.min_sharpe,
+                },
+                evolution_cfg={
+                    "enabled": self.config.mining.evolution.enabled,
+                    "max_rounds": self.config.mining.evolution.max_rounds,
+                    "mutation_enabled": self.config.mining.evolution.mutation_enabled,
+                    "crossover_enabled": self.config.mining.evolution.crossover_enabled,
+                    "crossover_size": self.config.mining.evolution.crossover_size,
+                    "crossover_n": self.config.mining.evolution.crossover_n,
+                    "parallel_enabled": self.config.mining.evolution.parallel_enabled,
+                    "fresh_start": self.config.mining.evolution.fresh_start,
+                },
+                state_cfg={
+                    "pool_save_path": self.config.mining.state.pool_save_path,
+                    "max_pool_size": self.config.mining.state.max_pool_size,
+                    "failure_cooldown_hours": self.config.mining.state.failure_cooldown_hours,
+                    "steps_per_mining": self.config.mining.steps_per_mining,
+                    "log_root": self.config.mining.log_root,
+                },
             )
         return self._mining_scheduler
 
@@ -305,46 +329,26 @@ class MiningOrchestrator:
             "data_monitor": {
                 "enabled": self.config.enable_data_monitor,
                 "running": self.data_monitor is not None,
-                "last_check": (
-                    self.stats.last_data_check.isoformat()
-                    if self.stats.last_data_check
-                    else None
-                ),
+                "last_check": (self.stats.last_data_check.isoformat() if self.stats.last_data_check else None),
             },
             "revalidation": {
                 "enabled": self.config.enable_revalidation,
                 "running": self.revalidation_scheduler is not None,
                 "total_runs": self.stats.total_revalidations,
-                "last_run": (
-                    self.stats.last_revalidation.isoformat()
-                    if self.stats.last_revalidation
-                    else None
-                ),
-                "next_run": (
-                    self._get_next_run_safe(self.revalidation_scheduler)
-                ),
+                "last_run": (self.stats.last_revalidation.isoformat() if self.stats.last_revalidation else None),
+                "next_run": (self._get_next_run_safe(self.revalidation_scheduler)),
             },
             "mining": {
                 "enabled": self.config.enable_mining,
                 "running": self.mining_scheduler is not None,
                 "total_runs": self.stats.total_mining_runs,
-                "last_run": (
-                    self.stats.last_mining_run.isoformat()
-                    if self.stats.last_mining_run
-                    else None
-                ),
-                "next_run": (
-                    self._get_next_run_safe(self.mining_scheduler)
-                ),
+                "last_run": (self.stats.last_mining_run.isoformat() if self.stats.last_mining_run else None),
+                "next_run": (self._get_next_run_safe(self.mining_scheduler)),
             },
             "errors": {
                 "count": self.stats.error_count,
                 "last_error": self.stats.last_error,
-                "last_error_time": (
-                    self.stats.last_error_time.isoformat()
-                    if self.stats.last_error_time
-                    else None
-                ),
+                "last_error_time": (self.stats.last_error_time.isoformat() if self.stats.last_error_time else None),
             },
         }
 
