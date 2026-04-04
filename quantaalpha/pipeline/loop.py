@@ -69,6 +69,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         round_idx: int = 0,
         quality_gate_config: dict = None,
         step_model_routing: dict | None = None,
+        ensemble_config: dict | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
@@ -88,6 +89,9 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
             # Step-level model routing
             self._step_model_routing = step_model_routing or {}
+
+            # Ensemble configuration
+            self._ensemble_config = ensemble_config or {}
 
             # Failure tracking for debug rounds
             self._failure_tracker = FactorFailureTracker(max_debug_rounds=10)  # Default max rounds
