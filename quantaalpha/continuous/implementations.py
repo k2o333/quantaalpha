@@ -596,6 +596,7 @@ class DefaultMiningScheduler(MiningScheduler):
         quality_gate_config: Optional[dict] = None,
         evolution_cfg: Optional[dict] = None,
         state_cfg: Optional[dict] = None,
+        escalation_cfg: Optional[dict] = None,
     ):
         import os
 
@@ -625,6 +626,7 @@ class DefaultMiningScheduler(MiningScheduler):
         self._evolution_cfg = evolution_cfg or {}
         self._state_cfg = state_cfg or {}
         self._state_manager = None
+        self._escalation_cfg = escalation_cfg or {"enabled": False}
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -1616,6 +1618,13 @@ class DefaultMiningScheduler(MiningScheduler):
             "errors": [],
         }
 
+        # Initialize escalation state
+        from quantaalpha.continuous.escalation import EscalationState
+        from quantaalpha.continuous.scheduler import EscalationConfig
+
+        escalation_config = EscalationConfig.from_dict(self._escalation_cfg)
+        escalation_state = EscalationState(escalation_config)
+
         # Initialize state manager if not done
         if self._state_manager is None:
             self._init_state_manager()
@@ -1685,9 +1694,29 @@ class DefaultMiningScheduler(MiningScheduler):
                 result["factors_validated"] = len(factor_ids)
                 result["factors_added"] = len(factor_ids)
 
+                # Record success/failure for escalation
+                if factor_ids:
+                    escalation_state.record_success()
+                else:
+                    escalation_state.record_failure(
+                        {
+                            "error": "No factors generated",
+                            "step": "AlphaAgentLoop",
+                        }
+                    )
+                    if escalation_state.should_escalate(escalation_config):
+                        escalation_state.escalate(escalation_config)
+                        logger.info(f"Escalation triggered: tier={escalation_state.current_tier}")
+
             except Exception as e:
                 logger.error(f"Pipeline mining failed: {e}")
                 result["errors"].append(f"pipeline: {str(e)}")
+                escalation_state.record_failure(
+                    {
+                        "error": str(e),
+                        "step": "AlphaAgentLoop",
+                    }
+                )
 
         # Save state after mining
         self._persist_state()

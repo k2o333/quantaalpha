@@ -156,3 +156,25 @@ class TestEscalationState:
         assert state.consecutive_failures == 0
         assert state.total_escalations == 0
         assert len(state.failed_trajectories) == 0
+
+
+class TestEscalationIntegration:
+    """Tests for escalation integration in DefaultMiningScheduler."""
+
+    def test_scheduler_accepts_escalation_cfg(self):
+        """DefaultMiningScheduler accepts escalation_cfg parameter."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(
+            pipeline_mode=True,
+            escalation_cfg={"enabled": True, "trigger_after_failed_attempts": 2},
+        )
+        assert scheduler._escalation_cfg["enabled"] is True
+        assert scheduler._escalation_cfg["trigger_after_failed_attempts"] == 2
+
+    def test_scheduler_escalation_defaults(self):
+        """DefaultMiningScheduler defaults escalation to disabled."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(pipeline_mode=True)
+        assert scheduler._escalation_cfg.get("enabled") is False
