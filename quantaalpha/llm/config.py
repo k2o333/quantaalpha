@@ -66,5 +66,8 @@ class LLMSettings(ExtendedBaseSettings):
     routing_default: str = ""
     routing_tasks: str = "{}"
 
+    # Tool calling
+    use_tool_calling: bool = False  # Default off, gradual rollout
+
 
 LLM_SETTINGS = LLMSettings()
