@@ -30,9 +30,7 @@ KNOWN_TASK_TYPES = {
     "evaluation_screening",
     "feedback_summarization",
 }
-TOKENIZER_UNSUPPORTED_MODEL_PREFIXES = (
-    "qwen",
-)
+TOKENIZER_UNSUPPORTED_MODEL_PREFIXES = ("qwen",)
 DEFAULT_FALLBACK_TOKENIZER = "cl100k_base"
 _TOKENIZER_FALLBACK_WARNED_MODELS: set[str] = set()
 
@@ -70,9 +68,7 @@ def log_tokenizer_fallback_once(model: str | None, reason: str) -> None:
     if normalized in _TOKENIZER_FALLBACK_WARNED_MODELS:
         return
     _TOKENIZER_FALLBACK_WARNED_MODELS.add(normalized)
-    logger.warning(
-        f"Tokenizer lookup failed for model {model}; falling back to {DEFAULT_FALLBACK_TOKENIZER}. reason={reason}"
-    )
+    logger.warning(f"Tokenizer lookup failed for model {model}; falling back to {DEFAULT_FALLBACK_TOKENIZER}. reason={reason}")
 
 
 def _extract_balanced_json_object(text: str) -> str | None:
@@ -134,7 +130,7 @@ def _escape_common_json_sequences(text: str) -> str:
         fixed_text,
     )
     # Fix all unrecognized backslash escapes (generic fallback)
-    fixed_text = re.sub(r'\\(?!["\\\/bfnrtu])', r'\\\\', fixed_text)
+    fixed_text = re.sub(r'\\(?!["\\\/bfnrtu])', r"\\\\", fixed_text)
     return fixed_text
 
 
@@ -169,9 +165,9 @@ def robust_json_parse(text: str, max_retries: int = 3) -> dict:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    
+
     # Strategy 2: extract JSON code block
-    json_block_pattern = r'```(?:json)?\s*\n?([\s\S]*?)\n?```'
+    json_block_pattern = r"```(?:json)?\s*\n?([\s\S]*?)\n?```"
     matches = re.findall(json_block_pattern, text)
     if matches:
         for match in matches:
@@ -179,7 +175,7 @@ def robust_json_parse(text: str, max_retries: int = 3) -> dict:
                 return json.loads(match.strip())
             except json.JSONDecodeError:
                 continue
-    
+
     # Strategy 3: balanced object extraction, with conservative repairs for common truncation.
     json_candidate = _extract_balanced_json_object(text)
     if json_candidate:
@@ -200,7 +196,7 @@ def robust_json_parse(text: str, max_retries: int = 3) -> dict:
                 continue
 
     # Strategy 4: looser JSON extraction
-    potential_jsons = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text)
+    potential_jsons = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text)
     for pj in potential_jsons:
         try:
             result = json.loads(pj)
@@ -265,9 +261,9 @@ class ConvManager:
                 pairs.append((n, f))
         pairs.sort(key=lambda x: x[0])
         for n, f in pairs[: self.recent_n][::-1]:
-            if (self.path / f"{n+1}.json").exists():
-                (self.path / f"{n+1}.json").unlink()
-            f.rename(self.path / f"{n+1}.json")
+            if (self.path / f"{n + 1}.json").exists():
+                (self.path / f"{n + 1}.json").unlink()
+            f.rename(self.path / f"{n + 1}.json")
 
     def append(self, conv: tuple[list, str]) -> None:
         self._rotate_files()
@@ -513,34 +509,14 @@ class APIBackend:
 
             # Priority: chat_api_key/embedding_api_key > openai_api_key > os.environ.get("OPENAI_API_KEY")
             # TODO: Simplify the key design. Consider Pandatic's field alias & priority.
-            self.chat_api_key = (
-                chat_api_key
-                or LLM_SETTINGS.chat_openai_api_key
-                or LLM_SETTINGS.openai_api_key
-                or os.environ.get("OPENAI_API_KEY")
-            )
-            self.embedding_api_key = (
-                embedding_api_key
-                or LLM_SETTINGS.embedding_openai_api_key
-                or LLM_SETTINGS.openai_api_key
-                or os.environ.get("OPENAI_API_KEY")
-            )
-            
-            self.base_url = (
-                LLM_SETTINGS.openai_base_url
-                or os.environ.get("OPENAI_BASE_URL")
-            )
-            
-            self.embedding_base_url = (
-                LLM_SETTINGS.embedding_base_url
-                or os.environ.get("EMBEDDING_BASE_URL")
-            )
+            self.chat_api_key = chat_api_key or LLM_SETTINGS.chat_openai_api_key or LLM_SETTINGS.openai_api_key or os.environ.get("OPENAI_API_KEY")
+            self.embedding_api_key = embedding_api_key or LLM_SETTINGS.embedding_openai_api_key or LLM_SETTINGS.openai_api_key or os.environ.get("OPENAI_API_KEY")
 
-            self.embedding_api_key = (
-                LLM_SETTINGS.embedding_api_key
-                or os.environ.get("EMBEDDING_API_KEY")
-            )
-            
+            self.base_url = LLM_SETTINGS.openai_base_url or os.environ.get("OPENAI_BASE_URL")
+
+            self.embedding_base_url = LLM_SETTINGS.embedding_base_url or os.environ.get("EMBEDDING_BASE_URL")
+
+            self.embedding_api_key = LLM_SETTINGS.embedding_api_key or os.environ.get("EMBEDDING_API_KEY")
 
             self.chat_model = LLM_SETTINGS.chat_model if chat_model is None else chat_model
             self.reasoning_model = LLM_SETTINGS.reasoning_model if reasoning_model is None else reasoning_model
@@ -559,21 +535,15 @@ class APIBackend:
                 except Exception as exc:  # noqa: BLE001
                     log_tokenizer_fallback_once(self.chat_model, str(exc))
                     self.encoder = tiktoken.get_encoding(DEFAULT_FALLBACK_TOKENIZER)
-            
+
             self.chat_api_base = LLM_SETTINGS.chat_azure_api_base if chat_api_base is None else chat_api_base
-            self.chat_api_version = (
-                LLM_SETTINGS.chat_azure_api_version if chat_api_version is None else chat_api_version
-            )
+            self.chat_api_version = LLM_SETTINGS.chat_azure_api_version if chat_api_version is None else chat_api_version
             self.chat_stream = LLM_SETTINGS.chat_stream
             self.chat_seed = LLM_SETTINGS.chat_seed
 
             self.embedding_model = LLM_SETTINGS.embedding_model if embedding_model is None else embedding_model
-            self.embedding_api_base = (
-                LLM_SETTINGS.embedding_azure_api_base if embedding_api_base is None else embedding_api_base
-            )
-            self.embedding_api_version = (
-                LLM_SETTINGS.embedding_azure_api_version if embedding_api_version is None else embedding_api_version
-            )
+            self.embedding_api_base = LLM_SETTINGS.embedding_azure_api_base if embedding_api_base is None else embedding_api_base
+            self.embedding_api_version = LLM_SETTINGS.embedding_azure_api_version if embedding_api_version is None else embedding_api_version
 
             if self.use_azure:
                 if self.chat_use_azure_token_provider or self.embedding_use_azure_token_provider:
@@ -616,12 +586,8 @@ class APIBackend:
 
         self.dump_chat_cache = LLM_SETTINGS.dump_chat_cache if dump_chat_cache is None else dump_chat_cache
         self.use_chat_cache = LLM_SETTINGS.use_chat_cache if use_chat_cache is None else use_chat_cache
-        self.dump_embedding_cache = (
-            LLM_SETTINGS.dump_embedding_cache if dump_embedding_cache is None else dump_embedding_cache
-        )
-        self.use_embedding_cache = (
-            LLM_SETTINGS.use_embedding_cache if use_embedding_cache is None else use_embedding_cache
-        )
+        self.dump_embedding_cache = LLM_SETTINGS.dump_embedding_cache if dump_embedding_cache is None else dump_embedding_cache
+        self.use_embedding_cache = LLM_SETTINGS.use_embedding_cache if use_embedding_cache is None else use_embedding_cache
         if self.dump_chat_cache or self.use_chat_cache or self.dump_embedding_cache or self.use_embedding_cache:
             self.cache_file_location = LLM_SETTINGS.prompt_cache_path
             self.cache = SQliteLazyCache(cache_location=self.cache_file_location)
@@ -779,7 +745,9 @@ class APIBackend:
         Call the chat completion function and automatically continue the conversation if the finish_reason is length.
         TODO: This function only continues once, maybe need to continue more than once in the future.
         """
-        response, finish_reason = self._create_chat_completion_inner_function(messages=messages, **kwargs)
+        result = self._create_chat_completion_inner_function(messages=messages, **kwargs)
+        response = result[0]
+        finish_reason = result[1]
 
         if finish_reason == "length":
             new_message = deepcopy(messages)
@@ -790,7 +758,8 @@ class APIBackend:
                     "content": "continue the former output with no overlap",
                 },
             )
-            new_response, finish_reason = self._create_chat_completion_inner_function(messages=new_message, **kwargs)
+            new_result = self._create_chat_completion_inner_function(messages=new_message, **kwargs)
+            new_response = new_result[0]
             return response + new_response
         return response
 
@@ -819,27 +788,23 @@ class APIBackend:
                     failing_model = self.embedding_model if embedding else self.chat_model
                     logger.error(f"Unrecoverable BadRequest: invalid model '{failing_model}'. Check model configuration.")
                     raise
-                logger.warning(f"Retrying {i+1}th time...")
+                logger.warning(f"Retrying {i + 1}th time...")
                 if "'messages' must contain the word 'json' in some form" in error_str:
                     kwargs["add_json_in_prompt"] = True
                 elif embedding and "maximum context length" in error_str:
-                    kwargs["input_content_list"] = [
-                        content[: len(content) // 2] for content in kwargs.get("input_content_list", [])
-                    ]
+                    kwargs["input_content_list"] = [content[: len(content) // 2] for content in kwargs.get("input_content_list", [])]
                 # Wait before retry to avoid rate limit
                 if i < max_retry - 1:
                     time.sleep(self.retry_wait_seconds)
             except Exception as e:  # noqa: BLE001
                 logger.warning(e)
-                logger.warning(f"Retrying {i+1}th time...")
+                logger.warning(f"Retrying {i + 1}th time...")
                 if i < max_retry - 1:
                     time.sleep(self.retry_wait_seconds)
         error_message = f"Failed to create chat completion after {max_retry} retries."
         raise RuntimeError(error_message)
 
-    def _create_embedding_inner_function(
-        self, input_content_list: list[str], **kwargs: Any
-    ) -> list[Any]:  # noqa: ARG002
+    def _create_embedding_inner_function(self, input_content_list: list[str], **kwargs: Any) -> list[Any]:  # noqa: ARG002
         content_to_embedding_dict = {}
         filtered_input_content_list = []
         if self.use_embedding_cache:
@@ -859,13 +824,10 @@ class APIBackend:
                 # DashScope embedding: use smaller batch to avoid overload
                 batch_size = min(batch_size, 3)
                 # DashScope embedding: smaller batch (silent)
-            
+
             batch_wait_seconds = LLM_SETTINGS.embedding_batch_wait_seconds
-            batches = [
-                filtered_input_content_list[i : i + batch_size]
-                for i in range(0, len(filtered_input_content_list), batch_size)
-            ]
-            
+            batches = [filtered_input_content_list[i : i + batch_size] for i in range(0, len(filtered_input_content_list), batch_size)]
+
             for batch_idx, sliced_filtered_input_content_list in enumerate(batches):
                 if self.use_azure:
                     response = self.embedding_client.embeddings.create(
@@ -882,7 +844,7 @@ class APIBackend:
 
                 if self.dump_embedding_cache:
                     self.cache.embedding_set(content_to_embedding_dict)
-                
+
                 # Wait between batches to avoid API overload
                 if batch_idx < len(batches) - 1 and batch_wait_seconds > 0:
                     time.sleep(batch_wait_seconds)
@@ -892,25 +854,20 @@ class APIBackend:
         """Build log string from messages (content truncated to max_prompt_length)."""
         log_messages = ""
         for m in messages:
-            role = m['role']
-            content = m['content']
+            role = m["role"]
+            content = m["content"]
             if len(content) > max_prompt_length:
                 display_content = content[:max_prompt_length] + f"... [{len(content)} chars]"
             else:
                 display_content = content
-            
-            log_messages += (
-                f"\n{LogColors.MAGENTA}{LogColors.BOLD}Role:{LogColors.END}"
-                f"{LogColors.CYAN}{role}{LogColors.END}\n"
-                f"{LogColors.MAGENTA}{LogColors.BOLD}Content:{LogColors.END} "
-                f"{LogColors.CYAN}{display_content}{LogColors.END}\n"
-            )
+
+            log_messages += f"\n{LogColors.MAGENTA}{LogColors.BOLD}Role:{LogColors.END}{LogColors.CYAN}{role}{LogColors.END}\n{LogColors.MAGENTA}{LogColors.BOLD}Content:{LogColors.END} {LogColors.CYAN}{display_content}{LogColors.END}\n"
         return log_messages
 
     def _create_chat_completion_inner_function(  # noqa: C901, PLR0912, PLR0915
         self,
         messages: list[dict],
-        reasoning_flag = True,
+        reasoning_flag=True,
         temperature: float | None = None,
         max_tokens: int | None = None,
         chat_cache_prefix: str = "",
@@ -921,7 +878,9 @@ class APIBackend:
         add_json_in_prompt: bool = False,
         seed: Optional[int] = None,
         task_type: str | None = None,
-    ) -> str:
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+    ) -> tuple[str, str | None] | tuple[str, str | None, list[dict] | None]:
         """
         seed : Optional[int]
             When retrying with cache enabled, it will keep returning the same results.
@@ -936,9 +895,7 @@ class APIBackend:
             logger.info(self._build_log_messages(messages), tag="llm_messages")
         # TODO: fail to use loguru adaptor due to stream response
         input_content_json = json.dumps(messages)
-        input_content_json = (
-            chat_cache_prefix + input_content_json + f"<seed={seed}/>"
-        )  # FIXME this is a hack to make sure the cache represents the round index
+        input_content_json = chat_cache_prefix + input_content_json + f"<seed={seed}/>"  # FIXME this is a hack to make sure the cache represents the round index
         if self.use_chat_cache:
             cache_result = self.cache.chat_get(input_content_json)
             if cache_result is not None:
@@ -963,7 +920,7 @@ class APIBackend:
             tag = caller_locals["self"].__class__.__name__
         else:
             tag = inspect.stack()[4].function
-            
+
         if reasoning_flag:
             model = self.reasoning_model
             json_mode = None
@@ -971,6 +928,7 @@ class APIBackend:
             model = self.get_model_for_task(task_type=task_type, tag=tag)
 
         finish_reason = None
+        tool_calls_result = None
         if self.use_llama2:
             response = self.generator.chat_completion(
                 messages,  # type: ignore
@@ -1012,7 +970,7 @@ class APIBackend:
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
             )
-            
+
             if json_mode:
                 if add_json_in_prompt:
                     for message in messages[::-1]:
@@ -1020,29 +978,24 @@ class APIBackend:
                         if message["role"] == "system":
                             break
                 kwargs["response_format"] = {"type": "json_object"}
+            if tools is not None:
+                kwargs["tools"] = tools
+                if tool_choice is not None:
+                    kwargs["tool_choice"] = tool_choice
             response = self.chat_client.chat.completions.create(**kwargs)
 
-            
             if self.chat_stream:
                 resp = ""
                 for chunk in response:
-                    content = (
-                        chunk.choices[0].delta.content
-                        if len(chunk.choices) > 0 and chunk.choices[0].delta.content is not None
-                        else ""
-                    )
+                    content = chunk.choices[0].delta.content if len(chunk.choices) > 0 and chunk.choices[0].delta.content is not None else ""
                     resp += content
                     if len(chunk.choices) > 0 and chunk.choices[0].finish_reason is not None:
                         finish_reason = chunk.choices[0].finish_reason
 
                 # Check for empty response after streaming
                 if not resp or not resp.strip():
-                    logger.warning(
-                        f"Empty LLM response for model {model} after streaming; raising retryable error"
-                    )
-                    raise EmptyLLMResponseError(
-                        f"Model {model} returned empty content after streaming completion"
-                    )
+                    logger.warning(f"Empty LLM response for model {model} after streaming; raising retryable error")
+                    raise EmptyLLMResponseError(f"Model {model} returned empty content after streaming completion")
 
                 if LLM_SETTINGS.log_llm_chat_content:
                     display_resp = resp[:200] + f"... [{len(resp)} chars]" if len(resp) > 200 else resp
@@ -1051,12 +1004,30 @@ class APIBackend:
             else:
                 resp = response.choices[0].message.content
                 finish_reason = response.choices[0].finish_reason
-                
+
+                # Extract tool_calls if present
+                tool_calls_result = None
+                if finish_reason == "tool_calls":
+                    message = response.choices[0].message
+                    if hasattr(message, "tool_calls") and message.tool_calls:
+                        tool_calls_result = []
+                        for tc in message.tool_calls:
+                            tool_calls_result.append(
+                                {
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments,
+                                    },
+                                }
+                            )
+
                 # Check for None response
                 if resp is None:
                     logger.warning(f"Empty LLM response for model {model} (non-streaming), returning empty string")
                     resp = ""
-                
+
                 if LLM_SETTINGS.log_llm_chat_content:
                     display_resp = resp[:200] + f"... [{len(resp)} chars]" if len(resp) > 200 else resp
                     logger.info(f"{LogColors.CYAN}Response:{display_resp}{LogColors.END}", tag="llm_messages")
@@ -1074,21 +1045,22 @@ class APIBackend:
                     )
             if json_mode or reasoning_flag:
                 # Extract JSON part
-                json_start = resp.find('{')
-                json_end = resp.rfind('}') + 1
+                json_start = resp.find("{")
+                json_end = resp.rfind("}") + 1
                 resp = resp[json_start:json_end]
                 # Try parse JSON; on failure try to fix
                 try:
                     json.loads(resp)
                 except json.JSONDecodeError as e:
                     import re
+
                     error_msg = str(e).lower()
                     # Fix common JSON format issues
                     fixed_resp = resp
-                    
+
                     # Fix LaTeX backslash + generic backslash escapes via shared function
                     fixed_resp = _escape_common_json_sequences(fixed_resp)
-                    
+
                     # Fix control characters inside JSON string values
                     # We need to escape actual control chars (U+0000-U+001F) that appear inside JSON strings
                     # but NOT touch the JSON structural whitespace outside strings
@@ -1101,7 +1073,7 @@ class APIBackend:
                                 result.append(char)
                                 escape_next = False
                                 continue
-                            if char == '\\':
+                            if char == "\\":
                                 result.append(char)
                                 escape_next = True
                                 continue
@@ -1110,16 +1082,17 @@ class APIBackend:
                                 result.append(char)
                                 continue
                             if in_string and ord(char) < 32:  # Control character inside string
-                                escape_map = {'\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f'}
+                                escape_map = {"\n": "\\n", "\r": "\\r", "\t": "\\t", "\b": "\\b", "\f": "\\f"}
                                 if char in escape_map:
                                     result.append(escape_map[char])
                                 else:
-                                    result.append(f'\\u{ord(char):04x}')
+                                    result.append(f"\\u{ord(char):04x}")
                                 continue
                             result.append(char)
-                        return ''.join(result)
+                        return "".join(result)
+
                     fixed_resp = _escape_control_chars_in_json(fixed_resp)
-                    
+
                     try:
                         json.loads(fixed_resp)
                         resp = fixed_resp
@@ -1128,6 +1101,8 @@ class APIBackend:
                         logger.warning(f"JSON fix failed: {e2}, using raw response")
         if self.dump_chat_cache:
             self.cache.chat_set(input_content_json, resp)
+        if tools is not None and tool_calls_result is not None:
+            return resp, finish_reason, tool_calls_result
         return resp, finish_reason
 
     def calculate_token_from_messages(self, messages: list[dict]) -> int:
@@ -1164,9 +1139,7 @@ class APIBackend:
     ) -> int:
         if former_messages is None:
             former_messages = []
-        messages = self.build_messages(
-            user_prompt, system_prompt, former_messages, shrink_multiple_break=shrink_multiple_break
-        )
+        messages = self.build_messages(user_prompt, system_prompt, former_messages, shrink_multiple_break=shrink_multiple_break)
         return self.calculate_token_from_messages(messages)
 
 
