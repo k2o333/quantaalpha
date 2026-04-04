@@ -59,3 +59,47 @@ class TestEnsembleIntegration:
                 stop_event=threading.Event(),
             )
             assert loop._ensemble_config == {}
+
+
+class TestEnsembleProposeStep:
+    """Tests for ensemble in propose step."""
+
+    def test_propose_with_ensemble_disabled(self):
+        """When ensemble disabled, uses hypothesis_generator.gen()."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": False},
+            )
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.gen.return_value = "test hypothesis"
+            loop.trace = MagicMock()
+
+            result = loop.factor_propose({})
+            loop.hypothesis_generator.gen.assert_called_once()
+            assert result == "test hypothesis"
+
+    def test_propose_with_ensemble_enabled_fallback(self):
+        """When ensemble enabled but no models, falls back to single model."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "models": []},
+            )
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.gen.return_value = "fallback hypothesis"
+            loop.trace = MagicMock()
+
+            result = loop.factor_propose({})
+            loop.hypothesis_generator.gen.assert_called_once()
+            assert result == "fallback hypothesis"

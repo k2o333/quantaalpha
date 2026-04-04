@@ -191,10 +191,60 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     def factor_propose(self, prev_out: dict[str, Any]):
         """Propose hypothesis as the basis for factor construction."""
         with logger.tag("r"):
-            idea = self.hypothesis_generator.gen(self.trace)
+            if self._ensemble_config.get("enabled"):
+                idea = self._propose_with_ensemble()
+            else:
+                idea = self.hypothesis_generator.gen(self.trace)
             logger.log_object(idea, tag="hypothesis generation")
             self._last_hypothesis = idea
         return idea
+
+    def _propose_with_ensemble(self):
+        """
+        Generate hypothesis using ensemble of models.
+
+        Calls each model in the ensemble config separately and aggregates results.
+        """
+        from quantaalpha.llm.client import APIBackend
+        from quantaalpha.llm.ensemble import EnsembleAggregator, ModelResponse
+
+        models = self._ensemble_config.get("models", [])
+        strategy = self._ensemble_config.get("strategy", "voting")
+
+        aggregator = EnsembleAggregator(strategy=strategy)
+        responses = []
+
+        prompt_text = str(self.trace)
+
+        for model_cfg in models:
+            model_name = model_cfg.get("name", "")
+            if not model_name:
+                continue
+
+            try:
+                backend = APIBackend(chat_model=model_name)
+                start_time = time.time()
+                output = backend.build_messages_and_create_chat_completion(
+                    user_prompt=prompt_text,
+                    system_prompt="You are an expert quantitative factor researcher. Generate innovative alpha factor hypotheses.",
+                )
+                latency_ms = (time.time() - start_time) * 1000
+
+                responses.append(
+                    ModelResponse(
+                        model_name=model_name,
+                        raw_output=output,
+                        latency_ms=latency_ms,
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Ensemble model {model_name} failed: {e}")
+
+        if not responses:
+            return self.hypothesis_generator.gen(self.trace)
+
+        result = aggregator.aggregate(responses)
+        return result.output[0] if result.output else "No hypothesis generated"
 
     @measure_time
     @stop_event_check
