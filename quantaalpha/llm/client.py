@@ -790,7 +790,7 @@ class APIBackend:
             return resp[0]
         return resp
 
-    def _create_chat_completion_auto_continue(self, messages: list, **kwargs: dict) -> str:
+    def _create_chat_completion_auto_continue(self, messages: list, **kwargs: dict) -> str | dict:
         """
         Call the chat completion function and automatically continue the conversation if the finish_reason is length.
         TODO: This function only continues once, maybe need to continue more than once in the future.
@@ -798,6 +798,10 @@ class APIBackend:
         result = self._create_chat_completion_inner_function(messages=messages, **kwargs)
         response = result[0]
         finish_reason = result[1]
+
+        # Tool calls: return structured result immediately (don't discard tool_calls)
+        if len(result) >= 3 and result[2] is not None:
+            return {"content": response, "finish_reason": finish_reason, "tool_calls": result[2]}
 
         if finish_reason == "length":
             new_message = deepcopy(messages)
@@ -1037,7 +1041,7 @@ class APIBackend:
             start_time = None
             pool_provider = None
             pool_api_key = None
-            if self._provider_pool is not None:
+            if getattr(self, "_provider_pool", None) is not None:
                 try:
                     api_key, provider_config = self._provider_pool.get_key_and_provider()
                     if api_key:
@@ -1117,7 +1121,7 @@ class APIBackend:
                     )
 
             # Record latency if provider pool is available
-            if self._provider_pool is not None and pool_provider is not None and pool_api_key is not None and start_time is not None:
+            if getattr(self, "_provider_pool", None) is not None and pool_provider is not None and pool_api_key is not None and start_time is not None:
                 try:
                     latency_ms = (time.time() - start_time) * 1000
                     self._provider_pool.record_latency(pool_provider, pool_api_key, latency_ms)

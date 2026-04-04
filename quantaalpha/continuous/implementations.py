@@ -637,6 +637,8 @@ class DefaultMiningScheduler(MiningScheduler):
         self._provider_pool_cfg = provider_pool_cfg or {}
         self._degraded_mode = degraded_mode
         self._direction_planner_cfg = direction_planner_cfg or {}
+        self._escalation_state = None
+        self._direction_planner = None
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -1634,12 +1636,14 @@ class DefaultMiningScheduler(MiningScheduler):
             effective_evolution_cfg["crossover_enabled"] = False
             logger.info("Degraded mode: crossover disabled, using mutation-only")
 
-        # Initialize escalation state
+        # Initialize escalation state (persist across cycles)
         from quantaalpha.continuous.escalation import EscalationState
         from quantaalpha.continuous.scheduler import EscalationConfig
 
         escalation_config = EscalationConfig.from_dict(self._escalation_cfg)
-        escalation_state = EscalationState(escalation_config)
+        if self._escalation_state is None:
+            self._escalation_state = EscalationState(escalation_config)
+        escalation_state = self._escalation_state
 
         # Initialize state manager if not done
         if self._state_manager is None:
@@ -1692,49 +1696,52 @@ class DefaultMiningScheduler(MiningScheduler):
                 logger.error(f"Evolution mining failed: {e}")
                 result["errors"].append(f"evolution: {str(e)}")
         else:
-            # Run single AlphaAgentLoop
-            try:
-                steps = self._state_cfg.get("steps_per_mining", 5)
-                loop = AlphaAgentLoop(
-                    ALPHA_AGENT_FACTOR_PROP_SETTING,
-                    potential_direction=direction,
-                    stop_event=self._stop_event,
-                    use_local=True,
-                    quality_gate_config=self._quality_gate_config,
-                    step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
-                    ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
-                )
-                loop.run(step_n=steps, stop_event=self._stop_event)
+            # Run AlphaAgentLoop with max_loops_per_cycle
+            max_loops = self._state_cfg.get("max_loops_per_cycle", 1)
+            for loop_idx in range(max_loops):
+                try:
+                    steps = self._state_cfg.get("steps_per_mining", 5)
+                    loop = AlphaAgentLoop(
+                        ALPHA_AGENT_FACTOR_PROP_SETTING,
+                        potential_direction=direction,
+                        stop_event=self._stop_event,
+                        use_local=True,
+                        quality_gate_config=self._quality_gate_config,
+                        step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
+                        ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
+                    )
+                    loop.run(step_n=steps, stop_event=self._stop_event)
 
-                factor_ids = self._extract_factors_from_loop(loop)
-                result["factor_ids"] = factor_ids
-                result["factors_generated"] = len(factor_ids)
-                result["factors_validated"] = len(factor_ids)
-                result["factors_added"] = len(factor_ids)
+                    factor_ids = self._extract_factors_from_loop(loop)
+                    result["factor_ids"] = factor_ids
+                    result["factors_generated"] = len(factor_ids)
+                    result["factors_validated"] = len(factor_ids)
+                    result["factors_added"] = len(factor_ids)
 
-                # Record success/failure for escalation
-                if factor_ids:
-                    escalation_state.record_success()
-                else:
+                    # Record success/failure for escalation
+                    if factor_ids:
+                        escalation_state.record_success()
+                        break  # Success — stop looping
+                    else:
+                        escalation_state.record_failure(
+                            {
+                                "error": "No factors generated",
+                                "step": "AlphaAgentLoop",
+                            }
+                        )
+                        if escalation_state.should_escalate(escalation_config):
+                            escalation_state.escalate(escalation_config)
+                            logger.info(f"Escalation triggered: tier={escalation_state.current_tier}")
+
+                except Exception as e:
+                    logger.error(f"Pipeline mining failed (loop {loop_idx + 1}/{max_loops}): {e}")
+                    result["errors"].append(f"pipeline: {str(e)}")
                     escalation_state.record_failure(
                         {
-                            "error": "No factors generated",
+                            "error": str(e),
                             "step": "AlphaAgentLoop",
                         }
                     )
-                    if escalation_state.should_escalate(escalation_config):
-                        escalation_state.escalate(escalation_config)
-                        logger.info(f"Escalation triggered: tier={escalation_state.current_tier}")
-
-            except Exception as e:
-                logger.error(f"Pipeline mining failed: {e}")
-                result["errors"].append(f"pipeline: {str(e)}")
-                escalation_state.record_failure(
-                    {
-                        "error": str(e),
-                        "step": "AlphaAgentLoop",
-                    }
-                )
 
         # Save state after mining
         self._persist_state()
@@ -1759,12 +1766,19 @@ class DefaultMiningScheduler(MiningScheduler):
             failure_tracker = self._state_manager.get_failure_tracker()
             pool = self._state_manager.load_pool()
 
-            planner = ContinuousDirectionPlanner(
-                failure_tracker=failure_tracker,
-                trajectory_pool=pool,
-                diversity_window=self._direction_planner_cfg.get("diversity_window", 3),
-                last_failed_within_hours=self._direction_planner_cfg.get("last_failed_within_hours", 48),
-            )
+            # Cache planner instance to preserve _used_categories across calls
+            if self._direction_planner is None:
+                self._direction_planner = ContinuousDirectionPlanner(
+                    failure_tracker=failure_tracker,
+                    trajectory_pool=pool,
+                    diversity_window=self._direction_planner_cfg.get("diversity_window", 3),
+                    last_failed_within_hours=self._direction_planner_cfg.get("last_failed_within_hours", 48),
+                )
+            else:
+                # Update data references while preserving _used_categories
+                self._direction_planner._failure_tracker = failure_tracker
+                self._direction_planner._trajectory_pool = pool
+            planner = self._direction_planner
 
             force_different = self._degraded_mode
             result = planner.plan_next_direction(force_different_category=force_different)
@@ -1775,9 +1789,10 @@ class DefaultMiningScheduler(MiningScheduler):
         # Fallback to existing logic
         if self._state_manager is not None:
             pool = self._state_manager.load_pool()
-            if pool.trajectories:
+            trajectories = pool.get_all()
+            if trajectories:
                 best = max(
-                    pool.trajectories,
+                    trajectories,
                     key=lambda t: t.get_primary_metric() or 0.0,
                 )
                 if best.hypothesis:
@@ -1802,7 +1817,7 @@ class DefaultMiningScheduler(MiningScheduler):
 
             pool = self._state_manager.load_pool()
             active_ids = []
-            for traj in pool.trajectories:
+            for traj in pool.get_all():
                 eval_info = traj.extra_info.get("evaluation", {})
                 if eval_info.get("status") == "active":
                     for factor in traj.factors:

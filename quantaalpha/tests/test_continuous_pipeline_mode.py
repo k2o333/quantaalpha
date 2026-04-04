@@ -95,3 +95,92 @@ class TestMiningSchedulerPipelineMode:
 
                 mock_generate.assert_called_once_with("context")
                 assert result.factors_generated == 0
+
+
+class TestMaxLoopsPerCycle:
+    """Tests for Bug 5: max_loops_per_cycle should run multiple AlphaAgentLoop iterations."""
+
+    def test_max_loops_per_cycle_runs_multiple_loops(self):
+        """_run_pipeline_mining runs AlphaAgentLoop max_loops_per_cycle times when no factors found.
+
+        Bug 5: Previously only ran a single AlphaAgentLoop regardless of max_loops_per_cycle config.
+        """
+        from unittest.mock import patch, MagicMock
+
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(
+            pipeline_mode=True,
+            state_cfg={
+                "log_root": "/tmp/test_max_loops",
+                "steps_per_mining": 2,
+                "max_loops_per_cycle": 3,
+            },
+            escalation_cfg={"enabled": False},
+            evolution_cfg={"enabled": False},
+        )
+
+        loop_run_count = []
+
+        def mock_loop_init(self, *args, **kwargs):
+            pass
+
+        def mock_loop_run(self, step_n=None, stop_event=None):
+            loop_run_count.append(1)
+
+        with (
+            patch.object(scheduler, "_get_mining_direction", return_value=None),
+            patch.object(scheduler, "_state_manager", None),
+            patch.object(scheduler, "_extract_factors_from_loop", return_value=[]),
+            patch.object(scheduler, "_persist_state"),
+            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.__init__", mock_loop_init),
+            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.run", mock_loop_run),
+        ):
+            scheduler._run_pipeline_mining()
+
+        assert len(loop_run_count) == 3, f"Expected AlphaAgentLoop to run 3 times (max_loops_per_cycle=3), but it ran {len(loop_run_count)} time(s). max_loops_per_cycle config is not being used."
+
+    def test_max_loops_per_cycle_stops_early_on_success(self):
+        """_run_pipeline_mining stops looping when factors are found."""
+        from unittest.mock import patch, MagicMock
+
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(
+            pipeline_mode=True,
+            state_cfg={
+                "log_root": "/tmp/test_max_loops_early_stop",
+                "steps_per_mining": 2,
+                "max_loops_per_cycle": 3,
+            },
+            escalation_cfg={"enabled": False},
+            evolution_cfg={"enabled": False},
+        )
+
+        loop_run_count = []
+        call_num = [0]
+
+        def mock_loop_init(self, *args, **kwargs):
+            pass
+
+        def mock_loop_run(self, step_n=None, stop_event=None):
+            loop_run_count.append(1)
+            call_num[0] += 1
+
+        # First call returns factors (success), so loop should stop after 1 iteration
+        def mock_extract(loop):
+            if call_num[0] == 1:
+                return ["factor_1"]
+            return []
+
+        with (
+            patch.object(scheduler, "_get_mining_direction", return_value=None),
+            patch.object(scheduler, "_state_manager", None),
+            patch.object(scheduler, "_extract_factors_from_loop", side_effect=mock_extract),
+            patch.object(scheduler, "_persist_state"),
+            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.__init__", mock_loop_init),
+            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.run", mock_loop_run),
+        ):
+            scheduler._run_pipeline_mining()
+
+        assert len(loop_run_count) == 1, f"Expected loop to stop after 1 iteration (factors found), but it ran {len(loop_run_count)} time(s)."

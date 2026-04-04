@@ -199,8 +199,14 @@ def load_from_report(
     capabilities: dict[str, dict[str, Any]] = {}
 
     for name, info in interfaces.items():
+        # Prefer semantic block when present, fall back to flat layout
+        semantic = info.get("semantic")
+        if semantic:
+            field_aliases = semantic.get("field_aliases")
+        else:
+            field_aliases = info.get("field_aliases")
+
         # Skip if no field_aliases (not useful for factor mining)
-        field_aliases = info.get("field_aliases")
         if not field_aliases:
             continue
 
@@ -213,10 +219,18 @@ def load_from_report(
         available_from = None
 
         # Build the capability spec using field_aliases for fields
-        freq = info.get("freq", "daily")
-        lag_days = info.get("lag_days", 0)
-        join_mode = info.get("join_mode") or _FREQ_TO_JOIN_MODE.get(str(freq), "same_day")
-        factor_hints = info.get("factor_hints", [])
+        if semantic:
+            freq = semantic.get("freq", "daily")
+            lag_days = semantic.get("lag_days", 0)
+            join_mode = semantic.get("join_mode") or _FREQ_TO_JOIN_MODE.get(str(freq), "same_day")
+            factor_hints = semantic.get("factor_hints", [])
+            layer = semantic.get("layer")
+        else:
+            freq = info.get("freq", "daily")
+            lag_days = info.get("lag_days", 0)
+            join_mode = info.get("join_mode") or _FREQ_TO_JOIN_MODE.get(str(freq), "same_day")
+            factor_hints = info.get("factor_hints", [])
+            layer = None
 
         capabilities[name] = {
             "fields": list(field_aliases),
@@ -226,6 +240,8 @@ def load_from_report(
             "join_mode": str(join_mode),
             "factor_hints": list(factor_hints) if factor_hints else [],
         }
+        if layer is not None:
+            capabilities[name]["layer"] = layer
 
     # If no capabilities loaded, fallback to DATA_CAPABILITIES
     if not capabilities:

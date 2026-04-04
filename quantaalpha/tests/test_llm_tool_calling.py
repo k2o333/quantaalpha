@@ -227,3 +227,110 @@ class TestBuildMessagesToolRole:
         assert tool_msg["tool_call_id"] == "call_abc"
         assert tool_msg["name"] == "propose_factors"
         assert tool_msg["content"] == '{"factors": []}'
+
+
+class TestAutoContinueToolCalls:
+    """Tests for Bug 4: _auto_continue path must not discard tool_calls."""
+
+    def _make_backend(self):
+        from quantaalpha.llm.client import APIBackend
+
+        backend = object.__new__(APIBackend)
+        backend.use_azure = False
+        backend.use_llama2 = False
+        backend.use_gcr_endpoint = False
+        backend.chat_stream = False
+        backend.use_chat_cache = False
+        backend.chat_model = "gpt-4-turbo"
+        backend.reasoning_model = ""
+        backend.chat_client = MagicMock()
+        backend.cache = MagicMock()
+        backend.cache.chat_get.return_value = None
+        backend.task_model_map = {}
+        backend.routing_default = ""
+        backend.chat_model_map = {}
+        backend.chat_api_key = "test"
+        backend.base_url = None
+        backend.embedding_api_key = ""
+        backend.embedding_base_url = None
+        backend.encoder = None
+        backend.chat_seed = None
+        backend.retry_wait_seconds = 1
+        backend.dump_chat_cache = False
+        return backend
+
+    def test_auto_continue_preserves_tool_calls(self):
+        """_create_chat_completion_auto_continue returns tool_calls when present.
+
+        Bug 4: Previously the function only returned str (response content),
+        discarding result[2] (tool_calls) from _create_chat_completion_inner_function.
+        """
+        backend = self._make_backend()
+
+        tool_call_mock = MagicMock()
+        tool_call_mock.id = "call_xyz"
+        tool_call_mock.function.name = "propose_factors"
+        tool_call_mock.function.arguments = '{"factors": []}'
+
+        message_mock = MagicMock()
+        message_mock.content = "I will propose factors"
+        message_mock.tool_calls = [tool_call_mock]
+
+        choice_mock = MagicMock()
+        choice_mock.message = message_mock
+        choice_mock.finish_reason = "tool_calls"
+
+        mock_response = MagicMock()
+        mock_response.choices = [choice_mock]
+        backend.chat_client.chat.completions.create.return_value = mock_response
+
+        messages = [{"role": "user", "content": "propose factors"}]
+        tools = [{"type": "function", "function": {"name": "propose_factors"}}]
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_auto_chat_cache_seed_gen = False
+            result = backend._create_chat_completion_auto_continue(
+                messages=messages,
+                tools=tools,
+                reasoning_flag=False,
+            )
+
+        # When tool_calls are present, result should be a dict containing tool_calls
+        assert isinstance(result, dict), f"Expected dict when tool_calls present, got {type(result).__name__}. tool_calls data must not be discarded."
+        assert "tool_calls" in result, "Result dict must contain 'tool_calls' key"
+        assert len(result["tool_calls"]) == 1
+        assert result["tool_calls"][0]["id"] == "call_xyz"
+        assert result["tool_calls"][0]["function"]["name"] == "propose_factors"
+        assert result["content"] == "I will propose factors"
+        assert result["finish_reason"] == "tool_calls"
+
+    def test_auto_continue_returns_str_when_no_tool_calls(self):
+        """_create_chat_completion_auto_continue returns str when no tool_calls (backward compat)."""
+        backend = self._make_backend()
+
+        message_mock = MagicMock()
+        message_mock.content = "Hello world"
+        message_mock.tool_calls = None
+
+        choice_mock = MagicMock()
+        choice_mock.message = message_mock
+        choice_mock.finish_reason = "stop"
+
+        mock_response = MagicMock()
+        mock_response.choices = [choice_mock]
+        backend.chat_client.chat.completions.create.return_value = mock_response
+
+        messages = [{"role": "user", "content": "hello"}]
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_auto_chat_cache_seed_gen = False
+            result = backend._create_chat_completion_auto_continue(
+                messages=messages,
+                reasoning_flag=False,
+            )
+
+        # No tool_calls — should return str as before
+        assert isinstance(result, str)
+        assert result == "Hello world"

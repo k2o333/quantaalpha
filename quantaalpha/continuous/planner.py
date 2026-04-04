@@ -181,9 +181,10 @@ class ContinuousDirectionPlanner:
 
     def _get_seed_direction(self) -> str:
         """Get seed direction from best trajectory or default."""
-        if self._trajectory_pool.trajectories:
+        trajectories = self._trajectory_pool.get_all()
+        if trajectories:
             best = max(
-                self._trajectory_pool.trajectories,
+                trajectories,
                 key=lambda t: t.get_primary_metric() or 0.0,
             )
             if best.hypothesis:
