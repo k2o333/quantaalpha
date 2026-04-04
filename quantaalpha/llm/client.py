@@ -668,13 +668,6 @@ class APIBackend:
                         return provider.model
             # No matching provider or no model set; fall back to default
             logger.warning(f"No model found for capabilities {required_capabilities}; falling back to default chat_model")
-            if matching:
-                # Return model from the cheapest matching provider
-                for provider in matching:
-                    if provider.model:
-                        return provider.model
-                # If no model set on provider, fall through to default
-                logger.warning(f"No model found for capabilities {required_capabilities}; falling back to default chat_model")
 
         # Fall back to existing routing logic
         if task_type:
@@ -1039,6 +1032,28 @@ class APIBackend:
                 kwargs["tools"] = tools
                 if tool_choice is not None:
                     kwargs["tool_choice"] = tool_choice
+
+            # ProviderPool integration: get key and provider if pool is available
+            start_time = None
+            pool_provider = None
+            pool_api_key = None
+            if self._provider_pool is not None:
+                try:
+                    api_key, provider_config = self._provider_pool.get_key_and_provider()
+                    if api_key:
+                        pool_provider = provider_config.name
+                        pool_api_key = api_key
+                        pool_base_url = provider_config.base_url or self.base_url
+                        self.chat_client = openai.OpenAI(
+                            api_key=api_key,
+                            base_url=pool_base_url,
+                        )
+                except Exception as e:
+                    logger.warning(f"ProviderPool get_key_and_provider failed: {e}, using default key")
+                start_time = time.time()
+            else:
+                start_time = time.time()
+
             response = self.chat_client.chat.completions.create(**kwargs)
 
             if self.chat_stream:
@@ -1100,6 +1115,15 @@ class APIBackend:
                         ),
                         tag="llm_messages",
                     )
+
+            # Record latency if provider pool is available
+            if self._provider_pool is not None and pool_provider is not None and pool_api_key is not None and start_time is not None:
+                try:
+                    latency_ms = (time.time() - start_time) * 1000
+                    self._provider_pool.record_latency(pool_provider, pool_api_key, latency_ms)
+                except Exception as e:
+                    logger.warning(f"ProviderPool record_latency failed: {e}")
+
             if json_mode or reasoning_flag:
                 # Extract JSON part
                 json_start = resp.find("{")
