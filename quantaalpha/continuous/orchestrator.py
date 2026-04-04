@@ -184,6 +184,16 @@ class MiningOrchestrator:
                     "steps_per_mining": self.config.mining.steps_per_mining,
                     "log_root": self.config.mining.log_root,
                 },
+                escalation_cfg={
+                    "enabled": self.config.mining.escalation.enabled,
+                    "trigger_after_failed_attempts": self.config.mining.escalation.trigger_after_failed_attempts,
+                    "start_with_tier": self.config.mining.escalation.start_with_tier,
+                    "escalate_to_max_tier": self.config.mining.escalation.escalate_to_max_tier,
+                    "max_escalations_per_cycle": self.config.mining.escalation.max_escalations_per_cycle,
+                },
+                agent_loop_cfg={
+                    "step_model_routing": self.config.mining.agent_loop.step_model_routing,
+                },
             )
         return self._mining_scheduler
 

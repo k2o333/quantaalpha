@@ -109,3 +109,51 @@ mining:
         assert scheduler_config.mining.evolution.enabled is True
         assert scheduler_config.mining.evolution.max_rounds == 2
         assert scheduler_config.mining.quality_gate.min_ic == 0.03
+
+    def test_orchestrator_passes_escalation_config(self):
+        """MiningOrchestrator passes escalation config to DefaultMiningScheduler."""
+        from quantaalpha.continuous.scheduler import (
+            SchedulerConfig,
+            MiningConfig,
+            EscalationConfig,
+        )
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        config = SchedulerConfig(
+            mining=MiningConfig(
+                pipeline_mode=True,
+                escalation=EscalationConfig(
+                    enabled=True,
+                    trigger_after_failed_attempts=3,
+                ),
+            ),
+        )
+        orchestrator = MiningOrchestrator(config=config)
+        scheduler = orchestrator.mining_scheduler
+
+        assert scheduler._escalation_cfg["enabled"] is True
+        assert scheduler._escalation_cfg["trigger_after_failed_attempts"] == 3
+
+    def test_orchestrator_passes_agent_loop_config(self):
+        """MiningOrchestrator passes agent_loop config to DefaultMiningScheduler."""
+        from quantaalpha.continuous.scheduler import (
+            SchedulerConfig,
+            MiningConfig,
+            AgentLoopConfig,
+        )
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        config = SchedulerConfig(
+            mining=MiningConfig(
+                pipeline_mode=True,
+                agent_loop=AgentLoopConfig(
+                    step_model_routing={
+                        "propose": {"require_capabilities": ["reasoning"], "max_tier": 3},
+                    },
+                ),
+            ),
+        )
+        orchestrator = MiningOrchestrator(config=config)
+        scheduler = orchestrator.mining_scheduler
+
+        assert "propose" in scheduler._agent_loop_cfg.get("step_model_routing", {})
