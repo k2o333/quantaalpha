@@ -194,6 +194,26 @@ class MiningOrchestrator:
                 agent_loop_cfg={
                     "step_model_routing": self.config.mining.agent_loop.step_model_routing,
                 },
+                ensemble_cfg={
+                    "enabled": self.config.mining.ensemble.enabled,
+                    "strategy": self.config.mining.ensemble.strategy,
+                    "models": [{"name": m.name, "tier": m.tier} for m in self.config.mining.ensemble.models],
+                },
+                provider_pool_cfg={
+                    "enabled": self.config.mining.provider_pool.enabled,
+                    "routing": self.config.mining.provider_pool.routing,
+                    "providers": [
+                        {
+                            "name": p.name,
+                            "api_keys": p.api_keys,
+                            "base_url": p.base_url,
+                            "model": p.model,
+                            "tags": p.tags,
+                            "tier": p.tier,
+                        }
+                        for p in self.config.mining.provider_pool.providers
+                    ],
+                },
             )
         return self._mining_scheduler
 

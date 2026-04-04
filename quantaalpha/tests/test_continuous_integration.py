@@ -157,3 +157,49 @@ mining:
         scheduler = orchestrator.mining_scheduler
 
         assert "propose" in scheduler._agent_loop_cfg.get("step_model_routing", {})
+
+    def test_orchestrator_passes_ensemble_config(self):
+        from quantaalpha.continuous.scheduler import (
+            SchedulerConfig,
+            MiningConfig,
+            EnsembleConfig,
+            ModelConfig,
+        )
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        config = SchedulerConfig(
+            mining=MiningConfig(
+                pipeline_mode=True,
+                ensemble=EnsembleConfig(
+                    enabled=True,
+                    strategy="voting",
+                    models=[ModelConfig(name="gpt-4-turbo", tier=3)],
+                ),
+            ),
+        )
+        orchestrator = MiningOrchestrator(config=config)
+        scheduler = orchestrator.mining_scheduler
+        assert scheduler._ensemble_cfg["enabled"] is True
+        assert scheduler._ensemble_cfg["strategy"] == "voting"
+
+    def test_orchestrator_passes_provider_pool_config(self):
+        from quantaalpha.continuous.scheduler import (
+            SchedulerConfig,
+            MiningConfig,
+            ProviderPoolConfig,
+        )
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        config = SchedulerConfig(
+            mining=MiningConfig(
+                pipeline_mode=True,
+                provider_pool=ProviderPoolConfig(
+                    enabled=True,
+                    routing="least_latency",
+                ),
+            ),
+        )
+        orchestrator = MiningOrchestrator(config=config)
+        scheduler = orchestrator.mining_scheduler
+        assert scheduler._provider_pool_cfg["enabled"] is True
+        assert scheduler._provider_pool_cfg["routing"] == "least_latency"

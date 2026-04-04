@@ -598,6 +598,8 @@ class DefaultMiningScheduler(MiningScheduler):
         state_cfg: Optional[dict] = None,
         escalation_cfg: Optional[dict] = None,
         agent_loop_cfg: Optional[dict] = None,
+        ensemble_cfg: Optional[dict] = None,
+        provider_pool_cfg: Optional[dict] = None,
     ):
         import os
 
@@ -629,6 +631,8 @@ class DefaultMiningScheduler(MiningScheduler):
         self._state_manager = None
         self._escalation_cfg = escalation_cfg or {"enabled": False}
         self._agent_loop_cfg = agent_loop_cfg or {}
+        self._ensemble_cfg = ensemble_cfg or {}
+        self._provider_pool_cfg = provider_pool_cfg or {}
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -1688,6 +1692,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     use_local=True,
                     quality_gate_config=self._quality_gate_config,
                     step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
+                    ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
                 )
                 loop.run(step_n=steps, stop_event=self._stop_event)
 
