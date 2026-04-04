@@ -68,6 +68,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         direction_id: int = 0,
         round_idx: int = 0,
         quality_gate_config: dict = None,
+        step_model_routing: dict | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
@@ -85,40 +86,27 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             # Quality gate config
             self.quality_gate_config = quality_gate_config or {}
 
+            # Step-level model routing
+            self._step_model_routing = step_model_routing or {}
+
             # Failure tracking for debug rounds
-            self._failure_tracker = FactorFailureTracker(
-                max_debug_rounds=10
-            )  # Default max rounds
+            self._failure_tracker = FactorFailureTracker(max_debug_rounds=10)  # Default max rounds
             self._current_round_factors = []
 
             # For trajectory collection
             self._last_hypothesis = None
             self._last_experiment = None
             self._last_feedback = None
-            logger.info(
-                f"Initialized AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}"
-            )
+            logger.info(f"Initialized AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}")
             if potential_direction:
                 logger.info(f"Initial direction: {potential_direction}")
             if evolution_phase != "original":
-                logger.info(
-                    f"Evolution phase: {evolution_phase}, round: {round_idx}, trajectory_id: {trajectory_id}"
-                )
+                logger.info(f"Evolution phase: {evolution_phase}, round: {round_idx}, trajectory_id: {trajectory_id}")
 
-            consistency_enabled = self.quality_gate_config.get(
-                "consistency_enabled", False
-            )
-            complexity_enabled = self.quality_gate_config.get(
-                "complexity_enabled", True
-            )
-            redundancy_enabled = self.quality_gate_config.get(
-                "redundancy_enabled", True
-            )
-            logger.info(
-                f"Quality gate: consistency={'on' if consistency_enabled else 'off'}, "
-                f"complexity={'on' if complexity_enabled else 'off'}, "
-                f"redundancy={'on' if redundancy_enabled else 'off'}"
-            )
+            consistency_enabled = self.quality_gate_config.get("consistency_enabled", False)
+            complexity_enabled = self.quality_gate_config.get("complexity_enabled", True)
+            redundancy_enabled = self.quality_gate_config.get("redundancy_enabled", True)
+            logger.info(f"Quality gate: consistency={'on' if consistency_enabled else 'off'}, complexity={'on' if complexity_enabled else 'off'}, redundancy={'on' if redundancy_enabled else 'off'}")
 
             scen: Scenario = import_class(PROP_SETTING.scen)(use_local=use_local)
             logger.log_object(scen, tag="scenario")
@@ -126,13 +114,9 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             # If strategy suffix is set, append it to the direction
             effective_direction = potential_direction
             if strategy_suffix:
-                effective_direction = (
-                    (potential_direction or "") + "\n" + strategy_suffix
-                )
+                effective_direction = (potential_direction or "") + "\n" + strategy_suffix
 
-            self.hypothesis_generator: HypothesisGen = import_class(
-                PROP_SETTING.hypothesis_gen
-            )(scen, effective_direction)
+            self.hypothesis_generator: HypothesisGen = import_class(PROP_SETTING.hypothesis_gen)(scen, effective_direction)
             logger.log_object(self.hypothesis_generator, tag="hypothesis generator")
 
             # Pass consistency check config into factor constructor
@@ -151,9 +135,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 if optional_key in self.quality_gate_config:
                     factor_constructor_kwargs[optional_key] = self.quality_gate_config[optional_key]
 
-            self.factor_constructor: Hypothesis2Experiment = import_class(
-                PROP_SETTING.hypothesis2experiment
-            )(**factor_constructor_kwargs)
+            self.factor_constructor: Hypothesis2Experiment = import_class(PROP_SETTING.hypothesis2experiment)(**factor_constructor_kwargs)
             logger.log_object(self.factor_constructor, tag="experiment generation")
 
             self.coder: Developer = import_class(PROP_SETTING.coder)(scen)
@@ -162,9 +144,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             self.runner: Developer = import_class(PROP_SETTING.runner)(scen)
             logger.log_object(self.runner, tag="runner")
 
-            self.summarizer: HypothesisExperiment2Feedback = import_class(
-                PROP_SETTING.summarizer
-            )(scen)
+            self.summarizer: HypothesisExperiment2Feedback = import_class(PROP_SETTING.summarizer)(scen)
             logger.log_object(self.summarizer, tag="summarizer")
             self.trace = Trace(scen=scen)
 
@@ -172,14 +152,34 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             STOP_EVENT = stop_event
             super().__init__()
 
+    def get_model_for_step(self, step_name: str) -> str | None:
+        """
+        Get the model for a specific step based on step_model_routing.
+
+        Args:
+            step_name: Step name (e.g. "propose", "feedback")
+
+        Returns:
+            Model name string, or None if no routing config for this step.
+        """
+        if step_name not in self._step_model_routing:
+            return None
+
+        routing = self._step_model_routing[step_name]
+        if not hasattr(self, "_api_backend") or self._api_backend is None:
+            return None
+
+        return self._api_backend.get_model_for_task(
+            required_capabilities=routing.get("require_capabilities"),
+            max_tier=routing.get("max_tier", 3),
+        )
+
     @classmethod
     def load(cls, path, use_local: bool = True):
         """Load existing session."""
         instance = super().load(path)
         instance.use_local = use_local
-        logger.info(
-            f"Loaded AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}"
-        )
+        logger.info(f"Loaded AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}")
         return instance
 
     @measure_time
@@ -197,9 +197,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     def factor_construct(self, prev_out: dict[str, Any]):
         """Construct multiple factors from the hypothesis."""
         with logger.tag("r"):
-            factor = self.factor_constructor.convert(
-                prev_out["factor_propose"], self.trace
-            )
+            factor = self.factor_constructor.convert(prev_out["factor_propose"], self.trace)
             logger.log_object(factor.sub_tasks, tag="experiment generation")
 
             # Register factors for failure tracking
@@ -235,23 +233,16 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     @measure_time
     @stop_event_check
     def feedback(self, prev_out: dict[str, Any]):
-        feedback = self.summarizer.generate_feedback(
-            prev_out["factor_backtest"], prev_out["factor_propose"], self.trace
-        )
+        feedback = self.summarizer.generate_feedback(prev_out["factor_backtest"], prev_out["factor_propose"], self.trace)
         with logger.tag("ef"):  # evaluate and feedback
             logger.log_object(feedback, tag="feedback")
-        self.trace.hist.append(
-            (prev_out["factor_propose"], prev_out["factor_backtest"], feedback)
-        )
+        self.trace.hist.append((prev_out["factor_propose"], prev_out["factor_backtest"], feedback))
 
         self._last_feedback = feedback
 
         # Finalize debug round for failure tracking
         round_summary = self._finalize_debug_round()
-        logger.info(
-            f"Debug round {round_summary['round_idx']} completed: "
-            f"{round_summary['successful_count']}/{round_summary['total_factors']} successful"
-        )
+        logger.info(f"Debug round {round_summary['round_idx']} completed: {round_summary['successful_count']}/{round_summary['total_factors']} successful")
 
         if round_summary["all_succeeded"]:
             logger.info("All factors succeeded - debug completed early")
@@ -314,35 +305,25 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 trajectory_id=trajectory_id,
                 parent_trajectory_ids=parent_trajectory_ids,
             )
-            logger.info(
-                f"Saved factors to library: {library_path} (phase={evolution_phase})"
-            )
+            logger.info(f"Saved factors to library: {library_path} (phase={evolution_phase})")
         except Exception as e:
             logger.warning(f"Failed to save factors to library: {e}")
 
     def _generate_factor_id(self, factor_name: str, factor_expression: str) -> str:
         """Generate a unique factor ID from name and expression."""
-        return hashlib.md5(f"{factor_name}_{factor_expression}".encode()).hexdigest()[
-            :16
-        ]
+        return hashlib.md5(f"{factor_name}_{factor_expression}".encode()).hexdigest()[:16]
 
     def _register_factors_from_experiment(self, experiment) -> List[str]:
         """Register all factors from experiment for failure tracking."""
         if not getattr(self._failure_tracker, "_round_in_progress", False):
             self._failure_tracker.start_round()
 
-        retry_ids = (
-            set(self._failure_tracker.get_factors_for_retry())
-            if self._failure_tracker.round_summaries
-            else None
-        )
+        retry_ids = set(self._failure_tracker.get_factors_for_retry()) if self._failure_tracker.round_summaries else None
         original_tasks = list(getattr(experiment, "sub_tasks", []) or [])
         if retry_ids is not None:
             filtered_tasks = []
             for task in original_tasks:
-                factor_id = self._generate_factor_id(
-                    task.factor_name, task.factor_expression
-                )
+                factor_id = self._generate_factor_id(task.factor_name, task.factor_expression)
                 if factor_id in retry_ids:
                     filtered_tasks.append(task)
             experiment.sub_tasks = filtered_tasks
@@ -351,9 +332,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
         factor_ids = []
         for task in filtered_tasks:
-            factor_id = self._generate_factor_id(
-                task.factor_name, task.factor_expression
-            )
+            factor_id = self._generate_factor_id(task.factor_name, task.factor_expression)
             self._failure_tracker.ensure_factor(
                 factor_id=factor_id,
                 factor_name=task.factor_name,
@@ -367,9 +346,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         """Track coder results for all factors."""
         from quantaalpha.factors.failure_tracker import FailureReason
 
-        for i, (task, workspace) in enumerate(
-            zip(experiment.sub_tasks, experiment.sub_workspace_list)
-        ):
+        for i, (task, workspace) in enumerate(zip(experiment.sub_tasks, experiment.sub_workspace_list)):
             factor_id = self._current_round_factors[i]
             if workspace is not None:
                 self._failure_tracker.mark_coder_success(factor_id)
@@ -392,14 +369,10 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         if hasattr(experiment, "sub_results") and experiment.sub_results:
             for factor_name, result in experiment.sub_results.items():
                 # Find factor ID by name
-                for task, factor_id in zip(
-                    experiment.sub_tasks, self._current_round_factors
-                ):
+                for task, factor_id in zip(experiment.sub_tasks, self._current_round_factors):
                     if task.factor_name == factor_name:
                         if result:
-                            self._failure_tracker.mark_backtest_success(
-                                factor_id, result
-                            )
+                            self._failure_tracker.mark_backtest_success(factor_id, result)
                         else:
                             self._failure_tracker.mark_backtest_failure(
                                 factor_id,
@@ -476,14 +449,10 @@ class BacktestLoop(LoopBase, metaclass=LoopMeta):
             scen: Scenario = import_class(PROP_SETTING.scen)()
             logger.log_object(scen, tag="scenario")
 
-            self.hypothesis_generator: HypothesisGen = import_class(
-                PROP_SETTING.hypothesis_gen
-            )(scen)
+            self.hypothesis_generator: HypothesisGen = import_class(PROP_SETTING.hypothesis_gen)(scen)
             logger.log_object(self.hypothesis_generator, tag="hypothesis generator")
 
-            self.factor_constructor: Hypothesis2Experiment = import_class(
-                PROP_SETTING.hypothesis2experiment
-            )(factor_path=factor_path)
+            self.factor_constructor: Hypothesis2Experiment = import_class(PROP_SETTING.hypothesis2experiment)(factor_path=factor_path)
             logger.log_object(self.factor_constructor, tag="experiment generation")
 
             self.coder: Developer = import_class(PROP_SETTING.coder)(
@@ -497,9 +466,7 @@ class BacktestLoop(LoopBase, metaclass=LoopMeta):
             self.runner: Developer = import_class(PROP_SETTING.runner)(scen)
             logger.log_object(self.runner, tag="runner")
 
-            self.summarizer: HypothesisExperiment2Feedback = import_class(
-                PROP_SETTING.summarizer
-            )(scen)
+            self.summarizer: HypothesisExperiment2Feedback = import_class(PROP_SETTING.summarizer)(scen)
             logger.log_object(self.summarizer, tag="summarizer")
             self.trace = Trace(scen=scen)
             super().__init__()
@@ -519,9 +486,7 @@ class BacktestLoop(LoopBase, metaclass=LoopMeta):
         Construct a variety of factors that depend on the hypothesis
         """
         with logger.tag("r"):
-            factor = self.factor_constructor.convert(
-                prev_out["factor_propose"], self.trace
-            )
+            factor = self.factor_constructor.convert(prev_out["factor_propose"], self.trace)
             logger.log_object(factor.sub_tasks, tag="experiment generation")
         return factor
 
