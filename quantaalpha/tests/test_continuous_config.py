@@ -808,3 +808,121 @@ mining:
         config = PipelineConfig.from_yaml(str(yaml_path))
         assert "propose" in config.mining.agent_loop.step_model_routing
         assert config.mining.agent_loop.step_model_routing["propose"]["require_capabilities"] == ["reasoning"]
+
+
+class TestEnsembleConfig:
+    """Tests for EnsembleConfig dataclass."""
+
+    def test_ensemble_config_defaults(self):
+        from quantaalpha.continuous.scheduler import EnsembleConfig
+
+        config = EnsembleConfig()
+        assert config.enabled is False
+        assert config.strategy == "voting"
+        assert config.models == []
+
+    def test_ensemble_config_from_dict(self):
+        from quantaalpha.continuous.scheduler import EnsembleConfig
+
+        config = EnsembleConfig.from_dict(
+            {
+                "enabled": True,
+                "strategy": "fusion_score",
+                "models": [{"name": "gpt-4-turbo", "tier": 3}],
+            }
+        )
+        assert config.enabled is True
+        assert config.strategy == "fusion_score"
+        assert len(config.models) == 1
+
+    def test_mining_config_has_ensemble(self):
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        config = MiningConfig()
+        assert config.ensemble is not None
+        assert config.ensemble.enabled is False
+
+    def test_pipeline_config_parses_ensemble(self, tmp_path):
+        import yaml
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+  cycle_budget_seconds: 7200
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  ensemble:
+    enabled: true
+    strategy: "voting"
+"""
+        yaml_path = tmp_path / "test_ensemble.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.mining.ensemble.enabled is True
+        assert config.mining.ensemble.strategy == "voting"
+
+
+class TestProviderPoolConfig:
+    """Tests for ProviderPoolConfig dataclass."""
+
+    def test_provider_pool_config_defaults(self):
+        from quantaalpha.continuous.scheduler import ProviderPoolConfig
+
+        config = ProviderPoolConfig()
+        assert config.enabled is False
+        assert config.routing == "round_robin"
+        assert config.providers == []
+
+    def test_provider_pool_config_from_dict(self):
+        from quantaalpha.continuous.scheduler import ProviderPoolConfig
+
+        config = ProviderPoolConfig.from_dict(
+            {
+                "enabled": True,
+                "routing": "least_latency",
+                "providers": [{"name": "openai", "api_keys": ["k1"], "model": "gpt-4"}],
+            }
+        )
+        assert config.enabled is True
+        assert config.routing == "least_latency"
+        assert len(config.providers) == 1
+
+    def test_mining_config_has_provider_pool(self):
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        config = MiningConfig()
+        assert hasattr(config, "provider_pool")
+        assert config.provider_pool.enabled is False
+
+    def test_pipeline_config_parses_provider_pool(self, tmp_path):
+        import yaml
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+  cycle_budget_seconds: 7200
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  provider_pool:
+    enabled: true
+    routing: "least_latency"
+"""
+        yaml_path = tmp_path / "test_pp.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.mining.provider_pool.enabled is True
+        assert config.mining.provider_pool.routing == "least_latency"

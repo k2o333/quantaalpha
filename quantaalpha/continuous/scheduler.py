@@ -196,6 +196,86 @@ class AgentLoopConfig:
 
 
 @dataclass
+class ModelConfig:
+    """Configuration for a single model in ensemble."""
+
+    name: str = ""
+    tier: int = 2
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ModelConfig":
+        if not d:
+            return cls()
+        return cls(
+            name=d.get("name", ""),
+            tier=d.get("tier", 2),
+        )
+
+
+@dataclass
+class EnsembleConfig:
+    """Configuration for ensemble aggregation in continuous mining."""
+
+    enabled: bool = False
+    strategy: str = "voting"
+    models: list[ModelConfig] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "EnsembleConfig":
+        if not d:
+            return cls()
+        return cls(
+            enabled=d.get("enabled", False),
+            strategy=d.get("strategy", "voting"),
+            models=[ModelConfig.from_dict(m) for m in d.get("models", [])],
+        )
+
+
+@dataclass
+class ProviderEntryConfig:
+    """Configuration for a single provider in the pool."""
+
+    name: str = ""
+    api_keys: list[str] = field(default_factory=list)
+    base_url: str | None = None
+    model: str | None = None
+    tags: list[str] = field(default_factory=list)
+    tier: int = 2
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProviderEntryConfig":
+        if not d:
+            return cls()
+        return cls(
+            name=d.get("name", ""),
+            api_keys=d.get("api_keys", []),
+            base_url=d.get("base_url"),
+            model=d.get("model"),
+            tags=d.get("tags", []),
+            tier=d.get("tier", 2),
+        )
+
+
+@dataclass
+class ProviderPoolConfig:
+    """Configuration for LLM provider pool."""
+
+    enabled: bool = False
+    routing: str = "round_robin"
+    providers: list[ProviderEntryConfig] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProviderPoolConfig":
+        if not d:
+            return cls()
+        return cls(
+            enabled=d.get("enabled", False),
+            routing=d.get("routing", "round_robin"),
+            providers=[ProviderEntryConfig.from_dict(p) for p in d.get("providers", [])],
+        )
+
+
+@dataclass
 class MiningConfig:
     """Configuration for pipeline-based mining."""
 
@@ -208,6 +288,8 @@ class MiningConfig:
     quality_gate: QualityGateConfig = field(default_factory=QualityGateConfig)
     escalation: EscalationConfig = field(default_factory=EscalationConfig)
     agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
+    ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
+    provider_pool: ProviderPoolConfig = field(default_factory=ProviderPoolConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "MiningConfig":
@@ -223,6 +305,8 @@ class MiningConfig:
             quality_gate=QualityGateConfig.from_dict(d.get("quality_gate", {})),
             escalation=EscalationConfig.from_dict(d.get("escalation", {})),
             agent_loop=AgentLoopConfig.from_dict(d.get("agent_loop", {})),
+            ensemble=EnsembleConfig.from_dict(d.get("ensemble", {})),
+            provider_pool=ProviderPoolConfig.from_dict(d.get("provider_pool", {})),
         )
 
 
@@ -438,6 +522,26 @@ class PipelineConfig:
                 },
                 "agent_loop": {
                     "step_model_routing": self.mining.agent_loop.step_model_routing,
+                },
+                "ensemble": {
+                    "enabled": self.mining.ensemble.enabled,
+                    "strategy": self.mining.ensemble.strategy,
+                    "models": [{"name": m.name, "tier": m.tier} for m in self.mining.ensemble.models],
+                },
+                "provider_pool": {
+                    "enabled": self.mining.provider_pool.enabled,
+                    "routing": self.mining.provider_pool.routing,
+                    "providers": [
+                        {
+                            "name": p.name,
+                            "api_keys": p.api_keys,
+                            "base_url": p.base_url,
+                            "model": p.model,
+                            "tags": p.tags,
+                            "tier": p.tier,
+                        }
+                        for p in self.mining.provider_pool.providers
+                    ],
                 },
             },
         }
