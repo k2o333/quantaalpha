@@ -10,7 +10,7 @@ Supports parallel execution within each phase when enabled.
 """
 
 from collections import Counter
-from typing import Any
+from typing import Any, Optional
 from pathlib import Path
 import fire
 import signal
@@ -27,7 +27,7 @@ from quantaalpha.pipeline.planning import generate_parallel_directions
 from quantaalpha.pipeline.planning import load_run_config
 from quantaalpha.pipeline.loop import AlphaAgentLoop
 from quantaalpha.pipeline.evolution import (
-    EvolutionController, 
+    EvolutionController,
     EvolutionConfig,
     StrategyTrajectory,
     RoundPhase,
@@ -38,13 +38,12 @@ from quantaalpha.log.time import measure_time
 from quantaalpha.llm.config import LLM_SETTINGS
 
 
-
-
 def force_timeout():
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             seconds = LLM_SETTINGS.factor_mining_timeout
+
             def handle_timeout(signum, frame):
                 logger.error(f"Process terminated: timeout exceeded ({seconds}s)")
                 sys.exit(1)
@@ -57,7 +56,9 @@ def force_timeout():
             finally:
                 signal.alarm(0)
             return result
+
         return wrapper
+
     return decorator
 
 
@@ -117,7 +118,7 @@ def _run_evolution_task(
     strategy_suffix = task.get("strategy_suffix", "")
     round_idx = task["round_idx"]
     parent_trajectories = task.get("parent_trajectories", [])
-    
+
     # Resolve direction by phase
     if phase == RoundPhase.ORIGINAL:
         direction = directions[direction_id] if direction_id < len(directions) else None
@@ -152,13 +153,13 @@ def _run_evolution_task(
         quality_gate_config=quality_gate_cfg or {},
     )
     model_loop.user_initial_direction = user_direction
-    
+
     # Run one small loop (5 steps)
     model_loop.run(step_n=step_n, stop_event=stop_event)
 
     traj_data = model_loop._get_trajectory_data()
     traj_data["task"] = task
-    
+
     return traj_data
 
 
@@ -178,10 +179,9 @@ def _parallel_task_worker(
     """
     try:
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
+
         RD_AGENT_SETTINGS.use_file_lock = False
-        RD_AGENT_SETTINGS.pickle_cache_folder_path_str = str(
-            Path(log_root) / f"pickle_cache_{task_idx}"
-        )
+        RD_AGENT_SETTINGS.pickle_cache_folder_path_str = str(Path(log_root) / f"pickle_cache_{task_idx}")
 
         traj_data = _run_evolution_task(
             task=task,
@@ -192,39 +192,42 @@ def _parallel_task_worker(
             log_root=log_root,
             stop_event=None,
         )
-        result_queue.put({
-            "success": True,
-            "task_idx": task_idx,
-            "task": task,
-            "traj_data": traj_data,
-        })
+        result_queue.put(
+            {
+                "success": True,
+                "task_idx": task_idx,
+                "task": task,
+                "traj_data": traj_data,
+            }
+        )
     except Exception as e:
         import traceback
-        result_queue.put({
-            "success": False,
-            "task_idx": task_idx,
-            "task": task,
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-        })
+
+        result_queue.put(
+            {
+                "success": False,
+                "task_idx": task_idx,
+                "task": task,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
 
 
 def _serialize_task_for_parallel(task: dict[str, Any]) -> dict[str, Any]:
     """Serialize task for use in child process (parent_trajectories are complex objects)."""
     serialized = task.copy()
-    
+
     # RoundPhase -> string
     if "phase" in serialized and isinstance(serialized["phase"], RoundPhase):
         serialized["phase"] = serialized["phase"]
-    
+
     # Convert parent_trajectories to serializable info
     if "parent_trajectories" in serialized:
-        serialized["parent_trajectory_ids"] = [
-            p.trajectory_id for p in serialized.get("parent_trajectories", [])
-        ]
+        serialized["parent_trajectory_ids"] = [p.trajectory_id for p in serialized.get("parent_trajectories", [])]
         # Child process does not need full trajectory objects; strategy_suffix has required info
         serialized["parent_trajectories"] = []
-    
+
     return serialized
 
 
@@ -242,15 +245,15 @@ def _run_tasks_parallel(
     """
     if not tasks:
         return []
-    
+
     result_queue = Queue()
     processes = []
-    
+
     logger.info(f"Starting {len(tasks)} parallel evolution tasks")
 
     for idx, task in enumerate(tasks):
         serialized_task = _serialize_task_for_parallel(task)
-        
+
         p = Process(
             target=_parallel_task_worker,
             args=(
@@ -278,7 +281,7 @@ def _run_tasks_parallel(
             logger.info(f"Task {result['task_idx']} completed")
         else:
             logger.error(f"Task {result['task_idx']} failed: {result['error']}")
-            logger.error(result.get('traceback', ''))
+            logger.error(result.get("traceback", ""))
         results.append(result)
 
     for p in processes:
@@ -286,7 +289,7 @@ def _run_tasks_parallel(
 
     successful_results = sum(1 for result in results if result["success"])
     logger.info(f"Parallel tasks done: {successful_results}/{len(tasks)} succeeded")
-    
+
     return results
 
 
@@ -317,17 +320,10 @@ def _log_failure_summary(failures: list[dict[str, Any]], total_tasks: int) -> di
         return summary
 
     phase_counter = Counter(failure["phase"] for failure in failures)
-    logger.warning(
-        f"Task failure summary: {len(failures)}/{total_tasks} failed "
-        f"({summary['successful_tasks']} succeeded)"
-    )
+    logger.warning(f"Task failure summary: {len(failures)}/{total_tasks} failed ({summary['successful_tasks']} succeeded)")
     logger.warning(f"Failed tasks by phase: {dict(phase_counter)}")
     for failure in failures:
-        logger.warning(
-            "Failed task detail: "
-            f"phase={failure['phase']}, round={failure['round_idx']}, "
-            f"direction={failure['direction_id']}, error={failure['error']}"
-        )
+        logger.warning(f"Failed task detail: phase={failure['phase']}, round={failure['round_idx']}, direction={failure['direction_id']}, error={failure['error']}")
     logger.info("=" * 60)
     return summary
 
@@ -339,13 +335,16 @@ def run_evolution_loop(
     planning_cfg: dict[str, Any],
     stop_event: threading.Event | None = None,
     quality_gate_cfg: dict[str, Any] | None = None,
+    budget_seconds: Optional[int] = None,
 ):
     """
     Run evolution loop: Original -> Mutation -> Crossover -> Mutation -> ...
     Supports parallel execution per phase.
     """
+    loop_start_time = time.time()
     quality_gate_cfg = quality_gate_cfg or {}
     from quantaalpha.core.conf import RD_AGENT_SETTINGS
+
     RD_AGENT_SETTINGS.use_file_lock = False
     logger.info("Evolution mode: file lock disabled to avoid deadlock")
 
@@ -356,7 +355,7 @@ def run_evolution_loop(
     crossover_n = int(evolution_cfg.get("crossover_n", 3))
     steps_per_loop = int(exec_cfg.get("steps_per_loop", 5))
     use_local = bool(exec_cfg.get("use_local", True))
-    
+
     mutation_enabled = bool(evolution_cfg.get("mutation_enabled", True))
     crossover_enabled = bool(evolution_cfg.get("crossover_enabled", True))
     parent_selection_strategy = str(evolution_cfg.get("parent_selection_strategy", "best"))
@@ -374,7 +373,7 @@ def run_evolution_loop(
     planning_enabled = bool(planning_cfg.get("enabled", False))
     prompt_file = planning_cfg.get("prompt_file") or "planning_prompts.yaml"
     prompt_path = Path(__file__).parent / "prompts" / str(prompt_file)
-    
+
     if planning_enabled and initial_direction:
         directions = generate_parallel_directions(
             initial_direction=initial_direction,
@@ -395,7 +394,7 @@ def run_evolution_loop(
 
     pool_save_path = Path(log_root) / "trajectory_pool.json"
     mutation_prompt_path = Path(__file__).parent / "prompts" / "evolution_prompts.yaml"
-    
+
     logger.info(f"Trajectory pool path: {pool_save_path} (fresh_start={fresh_start})")
 
     config = EvolutionConfig(
@@ -418,12 +417,10 @@ def run_evolution_loop(
 
     controller = EvolutionController(config)
 
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info("Starting evolution loop")
-    logger.info(f"Config: directions={len(directions)}, max_rounds={max_rounds}, "
-               f"crossover_size={crossover_size}, crossover_n={crossover_n}")
-    logger.info(f"Phases: mutation={'on' if mutation_enabled else 'off'}, "
-               f"crossover={'on' if crossover_enabled else 'off'}")
+    logger.info(f"Config: directions={len(directions)}, max_rounds={max_rounds}, crossover_size={crossover_size}, crossover_n={crossover_n}")
+    logger.info(f"Phases: mutation={'on' if mutation_enabled else 'off'}, crossover={'on' if crossover_enabled else 'off'}")
     if mutation_enabled and not crossover_enabled:
         logger.info("Mode: mutation only (Original -> Mutation -> ...)")
     elif crossover_enabled and not mutation_enabled:
@@ -432,13 +429,18 @@ def run_evolution_loop(
         logger.info("Mode: full evolution (Original -> Mutation -> Crossover -> ...)")
     else:
         logger.info("Mode: original only (no evolution)")
-    logger.info(f"Parent selection: {parent_selection_strategy}" +
-               (f" (top_percent={top_percent_threshold})" if parent_selection_strategy == "top_percent_plus_random" else ""))
+    logger.info(f"Parent selection: {parent_selection_strategy}" + (f" (top_percent={top_percent_threshold})" if parent_selection_strategy == "top_percent_plus_random" else ""))
     logger.info(f"Parallel execution: {'on' if parallel_enabled else 'off'}")
-    logger.info("="*60)
+    logger.info("=" * 60)
 
     if parallel_enabled:
         while not controller.is_complete():
+            # Budget check
+            if budget_seconds is not None:
+                elapsed = time.time() - loop_start_time
+                if elapsed >= budget_seconds:
+                    logger.info(f"Evolution budget exhausted: {elapsed:.0f}s / {budget_seconds}s")
+                    break
             if stop_event and stop_event.is_set():
                 logger.info("Stop signal received, ending evolution loop")
                 break
@@ -461,7 +463,7 @@ def run_evolution_loop(
                 user_direction=initial_direction,
                 log_root=log_root,
             )
-            
+
             completed_tasks = []
             for result in results:
                 if result["success"]:
@@ -488,6 +490,12 @@ def run_evolution_loop(
 
     else:
         while not controller.is_complete():
+            # Budget check
+            if budget_seconds is not None:
+                elapsed = time.time() - loop_start_time
+                if elapsed >= budget_seconds:
+                    logger.info(f"Evolution budget exhausted: {elapsed:.0f}s / {budget_seconds}s")
+                    break
             if stop_event and stop_event.is_set():
                 logger.info("Stop signal received, ending evolution loop")
                 break
@@ -522,6 +530,7 @@ def run_evolution_loop(
             except Exception as e:
                 logger.error(f"Task failed: {e}")
                 import traceback
+
                 logger.error(traceback.format_exc())
                 failures.append(_build_task_failure_record(task, str(e)))
                 continue
@@ -529,24 +538,21 @@ def run_evolution_loop(
     state_path = Path(log_root) / "evolution_state.json"
     controller.save_state(state_path)
     best_trajs = controller.get_best_trajectories(top_n=5)
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info(f"Evolution complete. Top {len(best_trajs)} trajectories:")
     for i, t in enumerate(best_trajs):
         metric = t.get_primary_metric()
         metric_str = f"{metric:.4f}" if metric is not None else "N/A"
-        logger.info(f"  {i+1}. {t.trajectory_id}: phase={t.phase.value}, RankIC={metric_str}")
+        logger.info(f"  {i + 1}. {t.trajectory_id}: phase={t.phase.value}, RankIC={metric_str}")
     logger.info(f"Pool stats: {controller.pool.get_statistics()}")
-    logger.info("="*60)
+    logger.info("=" * 60)
     summary = _log_failure_summary(failures, total_tasks)
     if failure_threshold is not None and summary["failed_tasks"] >= failure_threshold:
         summary["status"] = "failed"
         if cleanup_on_finish:
             logger.info("Cleaning up trajectory pool file...")
             controller.pool.cleanup_file()
-        raise RuntimeError(
-            f"Evolution finished with {summary['failed_tasks']} failed tasks, "
-            f"meeting threshold {failure_threshold}."
-        )
+        raise RuntimeError(f"Evolution finished with {summary['failed_tasks']} failed tasks, meeting threshold {failure_threshold}.")
     if cleanup_on_finish:
         logger.info("Cleaning up trajectory pool file...")
         controller.pool.cleanup_file()
@@ -577,12 +583,13 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
     """
     try:
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
-        logger.info("="*60)
+
+        logger.info("=" * 60)
         logger.info("Experiment config")
         logger.info(f"  Workspace: {RD_AGENT_SETTINGS.workspace_path}")
         logger.info(f"  Cache dir: {RD_AGENT_SETTINGS.pickle_cache_folder_path_str}")
         logger.info(f"  Cache enabled: {RD_AGENT_SETTINGS.cache_with_pickle}")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         # Config file default: project_root/configs/
         _project_root = Path(__file__).resolve().parents[2]
@@ -612,14 +619,14 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
         if exec_cfg.get("use_local") is not None:
             use_local = bool(exec_cfg.get("use_local"))
         exec_cfg["use_local"] = use_local
-        
+
         logger.info(f"Use {'Local' if use_local else 'Docker container'} to execute factor backtest")
-        
+
         if use_evolution and path is None:
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info("Evolution mode: Original -> Mutation -> Crossover loop")
-            logger.info("="*60)
-            
+            logger.info("=" * 60)
+
             summary = run_evolution_loop(
                 initial_direction=direction,
                 evolution_cfg=evolution_cfg,
@@ -629,11 +636,8 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
                 quality_gate_cfg=quality_gate_cfg,
             )
             if summary.get("failed_tasks", 0) > 0:
-                logger.warning(
-                    f"Evolution run completed with degraded status: "
-                    f"{summary['failed_tasks']}/{summary['total_tasks']} tasks failed"
-                )
-        
+                logger.warning(f"Evolution run completed with degraded status: {summary['failed_tasks']}/{summary['total_tasks']} tasks failed")
+
         elif path is None:
             planning_enabled = bool(planning_cfg.get("enabled", False))
             n_dirs = int(planning_cfg.get("num_directions", 1))
@@ -698,6 +702,7 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
         raise
     finally:
         logger.info("Run finished or terminated")
+
 
 if __name__ == "__main__":
     fire.Fire(main)
