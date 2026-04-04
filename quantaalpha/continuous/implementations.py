@@ -186,9 +186,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self.days_threshold = days_threshold
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
-        self.library_path = library_path or os.environ.get(
-            "FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json"
-        )
+        self.library_path = library_path or os.environ.get("FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json")
         self._backtest_runner = backtest_runner
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {
@@ -262,10 +260,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             result.total_candidates = len(candidates)
             candidates_to_run = candidates[: self.max_per_run]
 
-            logger.info(
-                f"Revalidation: {len(candidates_to_run)} of {len(candidates)} "
-                f"candidates selected for revalidation"
-            )
+            logger.info(f"Revalidation: {len(candidates_to_run)} of {len(candidates)} candidates selected for revalidation")
 
             for factor_entry in candidates_to_run:
                 factor_id = factor_entry.get("factor_id", "")
@@ -290,12 +285,8 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                             },
                         }
 
-                    updated_entry = library.apply_validation_result(
-                        factor_entry, validation_result
-                    )
-                    new_status = updated_entry.get("evaluation", {}).get(
-                        "status", "unknown"
-                    )
+                    updated_entry = library.apply_validation_result(factor_entry, validation_result)
+                    new_status = updated_entry.get("evaluation", {}).get("status", "unknown")
                     result.status_changes[factor_id] = new_status
 
                 except Exception as e:
@@ -494,15 +485,17 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
         if self._data_bridge is None:
             logger.debug("No data bridge configured, using empty DataFrame")
-            self._execution_dataframe_cache = pl.DataFrame({
-                "datetime": pl.Series(dtype=pl.Date),
-                "vt_symbol": pl.Series(dtype=pl.String),
-                "open": pl.Series(dtype=pl.Float64),
-                "high": pl.Series(dtype=pl.Float64),
-                "low": pl.Series(dtype=pl.Float64),
-                "close": pl.Series(dtype=pl.Float64),
-                "volume": pl.Series(dtype=pl.Float64),
-            })
+            self._execution_dataframe_cache = pl.DataFrame(
+                {
+                    "datetime": pl.Series(dtype=pl.Date),
+                    "vt_symbol": pl.Series(dtype=pl.String),
+                    "open": pl.Series(dtype=pl.Float64),
+                    "high": pl.Series(dtype=pl.Float64),
+                    "low": pl.Series(dtype=pl.Float64),
+                    "close": pl.Series(dtype=pl.Float64),
+                    "volume": pl.Series(dtype=pl.Float64),
+                }
+            )
             return self._execution_dataframe_cache
 
         try:
@@ -538,15 +531,17 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 )
                 logger.warning("Bridge returned empty DataFrame")
                 # Return empty DataFrame with correct schema for backward compatibility
-                self._execution_dataframe_cache = pl.DataFrame({
-                    "datetime": pl.Series(dtype=pl.Date),
-                    "vt_symbol": pl.Series(dtype=pl.String),
-                    "open": pl.Series(dtype=pl.Float64),
-                    "high": pl.Series(dtype=pl.Float64),
-                    "low": pl.Series(dtype=pl.Float64),
-                    "close": pl.Series(dtype=pl.Float64),
-                    "volume": pl.Series(dtype=pl.Float64),
-                })
+                self._execution_dataframe_cache = pl.DataFrame(
+                    {
+                        "datetime": pl.Series(dtype=pl.Date),
+                        "vt_symbol": pl.Series(dtype=pl.String),
+                        "open": pl.Series(dtype=pl.Float64),
+                        "high": pl.Series(dtype=pl.Float64),
+                        "low": pl.Series(dtype=pl.Float64),
+                        "close": pl.Series(dtype=pl.Float64),
+                        "volume": pl.Series(dtype=pl.Float64),
+                    }
+                )
                 return self._execution_dataframe_cache
 
             logger.info(
@@ -560,15 +555,17 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
         except Exception as e:
             logger.error(f"Error loading data from bridge: {e}")
-            self._execution_dataframe_cache = pl.DataFrame({
-                "datetime": pl.Series(dtype=pl.Date),
-                "vt_symbol": pl.Series(dtype=pl.String),
-                "open": pl.Series(dtype=pl.Float64),
-                "high": pl.Series(dtype=pl.Float64),
-                "low": pl.Series(dtype=pl.Float64),
-                "close": pl.Series(dtype=pl.Float64),
-                "volume": pl.Series(dtype=pl.Float64),
-            })
+            self._execution_dataframe_cache = pl.DataFrame(
+                {
+                    "datetime": pl.Series(dtype=pl.Date),
+                    "vt_symbol": pl.Series(dtype=pl.String),
+                    "open": pl.Series(dtype=pl.Float64),
+                    "high": pl.Series(dtype=pl.Float64),
+                    "low": pl.Series(dtype=pl.Float64),
+                    "close": pl.Series(dtype=pl.Float64),
+                    "volume": pl.Series(dtype=pl.Float64),
+                }
+            )
             return self._execution_dataframe_cache
 
 
@@ -595,14 +592,16 @@ class DefaultMiningScheduler(MiningScheduler):
         min_rank_ic: float = 0.01,
         per_factor_timeout_seconds: int = 300,
         monitor_engine=None,
+        pipeline_mode: bool = False,
+        quality_gate_config: Optional[dict] = None,
+        evolution_cfg: Optional[dict] = None,
+        state_cfg: Optional[dict] = None,
     ):
         import os
 
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
-        self.library_path = library_path or os.environ.get(
-            "FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json"
-        )
+        self.library_path = library_path or os.environ.get("FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json")
         self._factor_validator = factor_validator
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {
@@ -619,6 +618,13 @@ class DefaultMiningScheduler(MiningScheduler):
         self._stop_event = Event()
         self._scheduler_thread: Optional[Thread] = None
         self._execution_dataframe_cache = None
+
+        # Pipeline mode settings
+        self._pipeline_mode = pipeline_mode
+        self._quality_gate_config = quality_gate_config or {}
+        self._evolution_cfg = evolution_cfg or {}
+        self._state_cfg = state_cfg or {}
+        self._state_manager = None
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -659,45 +665,43 @@ class DefaultMiningScheduler(MiningScheduler):
         result = MiningResult(timestamp=start_time)
 
         try:
-            context = self._retrieve_context()
-            generated = self._generate_factors(context)
+            if self._pipeline_mode:
+                # Pipeline mode: use AlphaAgentLoop or EvolutionController
+                budget = getattr(self, "_cycle_budget_seconds", None)
+                pipeline_result = self._run_pipeline_mining(budget_seconds=budget)
+                result.factors_generated = pipeline_result["factors_generated"]
+                result.factors_validated = pipeline_result.get("factors_validated", 0)
+                result.factors_added = pipeline_result.get("factors_added", 0)
+                result.factor_ids = pipeline_result.get("factor_ids", [])
+                result.errors.extend(pipeline_result.get("errors", []))
+            else:
+                # Legacy mode: use _generate_factors
+                context = self._retrieve_context()
+                generated = self._generate_factors(context)
 
-            result.factors_generated = len(generated)
+                result.factors_generated = len(generated)
 
-            for factor_entry in generated[: self.max_per_run]:
-                factor_id = factor_entry.get("factor_id", "")
-                try:
-                    validation_result = self._validate_factor(factor_id, factor_entry)
+                for factor_entry in generated[: self.max_per_run]:
+                    factor_id = factor_entry.get("factor_id", "")
+                    try:
+                        validation_result = self._validate_factor(factor_id, factor_entry)
 
-                    if (
-                        validation_result is not None
-                        and validation_result.get("status") == "success"
-                    ):
-                        result.factors_validated += 1
+                        if validation_result is not None and validation_result.get("status") == "success":
+                            result.factors_validated += 1
 
-                        # ===== NEW: Redundancy check =====
-                        redundancy = self._check_redundancy(factor_entry)
-                        if redundancy.get("is_redundant", False):
-                            logger.info(
-                                f"Factor {factor_id} is redundant with "
-                                f"{redundancy.get('most_similar_factor_id')} "
-                                f"(similarity={redundancy.get('max_similarity', 0):.3f}), "
-                                f"skipping admission"
-                            )
-                            result.errors.append(
-                                f"{factor_id}: redundant with "
-                                f"{redundancy.get('most_similar_factor_id')}"
-                            )
-                            continue  # Skip admission
-                        # =================================
+                            redundancy = self._check_redundancy(factor_entry)
+                            if redundancy.get("is_redundant", False):
+                                logger.info(f"Factor {factor_id} is redundant with {redundancy.get('most_similar_factor_id')} (similarity={redundancy.get('max_similarity', 0):.3f}), skipping admission")
+                                result.errors.append(f"{factor_id}: redundant with {redundancy.get('most_similar_factor_id')}")
+                                continue
 
-                        result.factor_ids.append(factor_id)
-                        self._add_factor_to_library(factor_entry)
-                        result.factors_added += 1
+                            result.factor_ids.append(factor_id)
+                            self._add_factor_to_library(factor_entry)
+                            result.factors_added += 1
 
-                except Exception as e:
-                    logger.error(f"Error validating factor {factor_id}: {e}")
-                    result.errors.append(f"{factor_id}: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"Error validating factor {factor_id}: {e}")
+                        result.errors.append(f"{factor_id}: {str(e)}")
 
         except Exception as e:
             logger.error(f"Error in mining cycle: {e}")
@@ -827,10 +831,10 @@ class DefaultMiningScheduler(MiningScheduler):
             for i, factor in enumerate(candidates[:10], 1):
                 lines.append(f"--- Factor {i} ---")
                 lines.append(f"Name: {factor.get('factor_name', 'Unknown')}")
-                expr = factor.get('factor_expression', '')
+                expr = factor.get("factor_expression", "")
                 if expr:
                     lines.append(f"Expression: {expr}")
-                tags = factor.get('tags', {})
+                tags = factor.get("tags", {})
                 if tags:
                     lines.append(f"Tags: {tags}")
                 lines.append("")
@@ -883,12 +887,12 @@ class DefaultMiningScheduler(MiningScheduler):
         seen_expressions = set()
         unique_factors = []
         for factor in generated_factors:
-            expr = factor.get('factor_expression', '')
+            expr = factor.get("factor_expression", "")
             if expr and expr not in seen_expressions:
                 seen_expressions.add(expr)
                 unique_factors.append(factor)
 
-        return unique_factors[:self.max_per_run]
+        return unique_factors[: self.max_per_run]
 
     def _generate_via_llm(self, context: str) -> list[dict]:
         """
@@ -937,7 +941,7 @@ class DefaultMiningScheduler(MiningScheduler):
             "3. Factors should be novel, not direct copies",
             "4. Return as JSON array of objects with keys: factor_name, factor_expression, tags",
             "",
-            "Example: {\"factor_name\": \"volume_strength\", \"factor_expression\": \"$volume/ts_mean($volume,20)\", \"tags\": {\"data_dependency\": [\"price_volume\"]}}",
+            'Example: {"factor_name": "volume_strength", "factor_expression": "$volume/ts_mean($volume,20)", "tags": {"data_dependency": ["price_volume"]}}',
         ]
         return "\n".join(prompt_parts)
 
@@ -951,19 +955,17 @@ class DefaultMiningScheduler(MiningScheduler):
         try:
             # Try direct JSON parsing
             # Find JSON array in response
-            json_match = re.search(r'\[.*\]', response, re.DOTALL)
+            json_match = re.search(r"\[.*\]", response, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group())
                 if isinstance(data, list):
                     for item in data:
-                        if isinstance(item, dict) and 'factor_expression' in item:
+                        if isinstance(item, dict) and "factor_expression" in item:
                             factor = self._normalize_factor_entry(item)
                             # Syntax validation — match mutation path behavior
-                            expr = factor.get('factor_expression', '')
+                            expr = factor.get("factor_expression", "")
                             if expr and not self._is_parsable(expr):
-                                logger.debug(
-                                    f"Skipping unparsable LLM factor: {expr[:80]}"
-                                )
+                                logger.debug(f"Skipping unparsable LLM factor: {expr[:80]}")
                                 continue
                             factors.append(factor)
         except (json.JSONDecodeError, ValueError) as e:
@@ -1003,7 +1005,7 @@ class DefaultMiningScheduler(MiningScheduler):
             import time
 
             for template in templates:
-                template_expr = template.get('factor_expression', '')
+                template_expr = template.get("factor_expression", "")
                 if not template_expr:
                     continue
 
@@ -1020,32 +1022,27 @@ class DefaultMiningScheduler(MiningScheduler):
                             logger.debug(f"Mutation unparsable, skipping: {mutated_expr[:80]}")
                             continue
                         # Create factor entry
-                        factor_id = self._generate_mutated_factor_id(
-                            template.get('factor_id', 'unknown'),
-                            mutated_expr
+                        factor_id = self._generate_mutated_factor_id(template.get("factor_id", "unknown"), mutated_expr)
+
+                        mutated.append(
+                            {
+                                "factor_id": factor_id,
+                                "factor_name": f"Mutated_{template.get('factor_name', 'Factor')}",
+                                "factor_expression": mutated_expr,
+                                "tags": template.get("tags", {}).copy(),
+                                "evaluation": {
+                                    "status": "pending_validation",
+                                    "last_validated": None,
+                                    "stability_score": None,
+                                },
+                                "metadata": {
+                                    "source": "mutation",
+                                    "template_factor_id": template.get("factor_id"),
+                                },
+                            }
                         )
 
-                        mutated.append({
-                            "factor_id": factor_id,
-                            "factor_name": f"Mutated_{template.get('factor_name', 'Factor')}",
-                            "factor_expression": mutated_expr,
-                            "tags": template.get('tags', {}).copy(),
-                            "evaluation": {
-                                "status": "pending_validation",
-                                "last_validated": None,
-                                "stability_score": None,
-                            },
-                            "metadata": {
-                                "source": "mutation",
-                                "template_factor_id": template.get('factor_id'),
-                            },
-                        })
-
-            logger.info(
-                f"Mutation stats: {len(templates)} templates → "
-                f"{len(mutated)} valid mutants "
-                f"(rejected {len(templates) * 2 - len(mutated)} unparsable/identical)"
-            )
+            logger.info(f"Mutation stats: {len(templates)} templates → {len(mutated)} valid mutants (rejected {len(templates) * 2 - len(mutated)} unparsable/identical)")
             return mutated
 
         except ImportError:
@@ -1060,10 +1057,10 @@ class DefaultMiningScheduler(MiningScheduler):
         import re
 
         replacement_map = {
-            '5': '10',
-            '10': '20',
-            '20': '60',
-            '60': '5',
+            "5": "10",
+            "10": "20",
+            "20": "60",
+            "60": "5",
         }
 
         def replace_match(match):
@@ -1071,7 +1068,7 @@ class DefaultMiningScheduler(MiningScheduler):
             suffix = match.group(2)
             return f", {replacement_map.get(window, window)}{suffix}"
 
-        return re.sub(r',\s*(5|10|20|60)(\s*\))', replace_match, expression, count=1)
+        return re.sub(r",\s*(5|10|20|60)(\s*\))", replace_match, expression, count=1)
 
     def _mutate_operators(self, expression: str) -> str:
         """Substitute one operator to create a variant expression.
@@ -1081,12 +1078,12 @@ class DefaultMiningScheduler(MiningScheduler):
         """
         # 替换候选列表: (source, target)
         substitutions = [
-            ('ts_mean(', 'ts_sum('),
-            ('ts_sum(', 'ts_mean('),
-            ('ts_std(', 'ts_var('),
-            ('ts_var(', 'ts_std('),
-            ('rank(', 'ZSCORE('),
-            ('ZSCORE(', 'rank('),
+            ("ts_mean(", "ts_sum("),
+            ("ts_sum(", "ts_mean("),
+            ("ts_std(", "ts_var("),
+            ("ts_var(", "ts_std("),
+            ("rank(", "ZSCORE("),
+            ("ZSCORE(", "rank("),
         ]
 
         for source, target in substitutions:
@@ -1099,6 +1096,7 @@ class DefaultMiningScheduler(MiningScheduler):
         """Check if expression can be parsed successfully."""
         try:
             from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
             regulator = FactorRegulator()
             return regulator.is_parsable(expression)
         except Exception:
@@ -1129,22 +1127,27 @@ class DefaultMiningScheduler(MiningScheduler):
             "factor_name": raw_entry.get("factor_name", "Generated Factor"),
             "factor_expression": raw_entry.get("factor_expression", ""),
             "tags": raw_entry.get("tags", {}),
-            "evaluation": raw_entry.get("evaluation", {
-                "status": "pending_validation",
-                "last_validated": None,
-                "stability_score": None,
-            }),
+            "evaluation": raw_entry.get(
+                "evaluation",
+                {
+                    "status": "pending_validation",
+                    "last_validated": None,
+                    "stability_score": None,
+                },
+            ),
             "metadata": raw_entry.get("metadata", {}),
         }
 
         # Ensure factor_id is set
         if not normalized["factor_id"]:
             import uuid
+
             normalized["factor_id"] = f"gen_{uuid.uuid4().hex[:12]}"
 
         # Infer tags from expression using shared inference engine
         # This is the "three-point convergence" for tag inference safety net
         from quantaalpha.factors.tag_inference import infer_tags_from_expression
+
         expr = normalized["factor_expression"]
         if expr:
             inferred = infer_tags_from_expression(expr)
@@ -1252,6 +1255,7 @@ class DefaultMiningScheduler(MiningScheduler):
         # Default validation path using FactorExecutor
         try:
             from third_party.glue.factor_executor import FactorExecutor
+
             factor_start = time.time()
             logger.info("profile.validation.factor.start factor=%s", factor_id)
 
@@ -1326,7 +1330,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 # Check rank IC if available and is a valid number
                 rank_ic_mean = None
                 passes_rank_ic = True
-                if ic_result and hasattr(ic_result, 'rank_ic_mean'):
+                if ic_result and hasattr(ic_result, "rank_ic_mean"):
                     raw_rank_ic = ic_result.rank_ic_mean
                     if raw_rank_ic is not None and isinstance(raw_rank_ic, (int, float)):
                         rank_ic_mean = raw_rank_ic
@@ -1518,15 +1522,17 @@ class DefaultMiningScheduler(MiningScheduler):
 
         if self._data_bridge is None:
             logger.debug("No data bridge configured, using empty DataFrame")
-            self._execution_dataframe_cache = pl.DataFrame({
-                "datetime": pl.Series(dtype=pl.Date),
-                "vt_symbol": pl.Series(dtype=pl.String),
-                "open": pl.Series(dtype=pl.Float64),
-                "high": pl.Series(dtype=pl.Float64),
-                "low": pl.Series(dtype=pl.Float64),
-                "close": pl.Series(dtype=pl.Float64),
-                "volume": pl.Series(dtype=pl.Float64),
-            })
+            self._execution_dataframe_cache = pl.DataFrame(
+                {
+                    "datetime": pl.Series(dtype=pl.Date),
+                    "vt_symbol": pl.Series(dtype=pl.String),
+                    "open": pl.Series(dtype=pl.Float64),
+                    "high": pl.Series(dtype=pl.Float64),
+                    "low": pl.Series(dtype=pl.Float64),
+                    "close": pl.Series(dtype=pl.Float64),
+                    "volume": pl.Series(dtype=pl.Float64),
+                }
+            )
             return self._execution_dataframe_cache
 
         try:
@@ -1575,16 +1581,183 @@ class DefaultMiningScheduler(MiningScheduler):
 
         except Exception as e:
             logger.error(f"Error loading data from bridge: {e}")
-            self._execution_dataframe_cache = pl.DataFrame({
-                "datetime": pl.Series(dtype=pl.Date),
-                "vt_symbol": pl.Series(dtype=pl.String),
-                "open": pl.Series(dtype=pl.Float64),
-                "high": pl.Series(dtype=pl.Float64),
-                "low": pl.Series(dtype=pl.Float64),
-                "close": pl.Series(dtype=pl.Float64),
-                "volume": pl.Series(dtype=pl.Float64),
-            })
+            self._execution_dataframe_cache = pl.DataFrame(
+                {
+                    "datetime": pl.Series(dtype=pl.Date),
+                    "vt_symbol": pl.Series(dtype=pl.String),
+                    "open": pl.Series(dtype=pl.Float64),
+                    "high": pl.Series(dtype=pl.Float64),
+                    "low": pl.Series(dtype=pl.Float64),
+                    "close": pl.Series(dtype=pl.Float64),
+                    "volume": pl.Series(dtype=pl.Float64),
+                }
+            )
             return self._execution_dataframe_cache
+
+    def _run_pipeline_mining(self, budget_seconds: Optional[int] = None) -> dict:
+        """
+        Run mining via AlphaAgentLoop or EvolutionController.
+
+        Args:
+            budget_seconds: Maximum seconds for this mining run.
+
+        Returns:
+            Dict with factors_generated, factors_validated, factors_added, factor_ids, errors.
+        """
+        from pathlib import Path
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+
+        result = {
+            "factors_generated": 0,
+            "factors_validated": 0,
+            "factors_added": 0,
+            "factor_ids": [],
+            "errors": [],
+        }
+
+        # Initialize state manager if not done
+        if self._state_manager is None:
+            self._init_state_manager()
+
+        # Set up workspace
+        workspace_root = Path(self._state_cfg.get("log_root", "log/continuous/mining"))
+        workspace_root.mkdir(parents=True, exist_ok=True)
+
+        # Get mining direction
+        direction = self._get_mining_direction()
+
+        evolution_enabled = self._evolution_cfg.get("enabled", False)
+
+        if evolution_enabled:
+            # Run evolution loop
+            try:
+                from quantaalpha.pipeline.factor_mining import run_evolution_loop
+
+                ev_cfg = {
+                    "max_rounds": self._evolution_cfg.get("max_rounds", 3),
+                    "mutation_enabled": self._evolution_cfg.get("mutation_enabled", True),
+                    "crossover_enabled": self._evolution_cfg.get("crossover_enabled", False),
+                    "crossover_size": self._evolution_cfg.get("crossover_size", 2),
+                    "crossover_n": self._evolution_cfg.get("crossover_n", 2),
+                    "parallel_enabled": self._evolution_cfg.get("parallel_enabled", False),
+                    "fresh_start": self._evolution_cfg.get("fresh_start", False),
+                }
+
+                summary = run_evolution_loop(
+                    initial_direction=direction,
+                    evolution_cfg=ev_cfg,
+                    exec_cfg={
+                        "steps_per_loop": self._state_cfg.get("steps_per_mining", 5),
+                        "use_local": True,
+                    },
+                    planning_cfg={"enabled": False},
+                    stop_event=self._stop_event,
+                    quality_gate_cfg=self._quality_gate_config,
+                    budget_seconds=budget_seconds,
+                )
+
+                factor_ids = self._extract_factors_from_evolution()
+                result["factor_ids"] = factor_ids
+                result["factors_generated"] = len(factor_ids)
+                result["factors_validated"] = len(factor_ids)
+                result["factors_added"] = len(factor_ids)
+
+            except Exception as e:
+                logger.error(f"Evolution mining failed: {e}")
+                result["errors"].append(f"evolution: {str(e)}")
+        else:
+            # Run single AlphaAgentLoop
+            try:
+                steps = self._state_cfg.get("steps_per_mining", 5)
+                loop = AlphaAgentLoop(
+                    ALPHA_AGENT_FACTOR_PROP_SETTING,
+                    potential_direction=direction,
+                    stop_event=self._stop_event,
+                    use_local=True,
+                    quality_gate_config=self._quality_gate_config,
+                )
+                loop.run(step_n=steps, stop_event=self._stop_event)
+
+                factor_ids = self._extract_factors_from_loop(loop)
+                result["factor_ids"] = factor_ids
+                result["factors_generated"] = len(factor_ids)
+                result["factors_validated"] = len(factor_ids)
+                result["factors_added"] = len(factor_ids)
+
+            except Exception as e:
+                logger.error(f"Pipeline mining failed: {e}")
+                result["errors"].append(f"pipeline: {str(e)}")
+
+        # Save state after mining
+        self._persist_state()
+
+        return result
+
+    def _init_state_manager(self) -> None:
+        """Initialize the ContinuousStateManager."""
+        from quantaalpha.continuous.state import ContinuousStateManager
+
+        self._state_manager = ContinuousStateManager(
+            pool_save_path=self._state_cfg.get("pool_save_path", "log/continuous/trajectory_pool.json"),
+            max_pool_size=self._state_cfg.get("max_pool_size", 500),
+        )
+
+    def _get_mining_direction(self) -> Optional[str]:
+        """Get mining direction from trajectory history or fallback."""
+        if self._state_manager is not None:
+            pool = self._state_manager.load_pool()
+            if pool.trajectories:
+                best = max(
+                    pool.trajectories,
+                    key=lambda t: t.get_primary_metric() or 0.0,
+                )
+                if best.hypothesis:
+                    return best.hypothesis[:200]
+        return None
+
+    def _extract_factors_from_loop(self, loop) -> list:
+        """Extract successful factor IDs from an AlphaAgentLoop instance."""
+        try:
+            return loop.get_successful_factor_ids()
+        except Exception as e:
+            logger.warning(f"Failed to extract factor IDs from loop: {e}")
+            return []
+
+    def _extract_factors_from_evolution(self) -> list:
+        """Extract successful factor IDs from the evolution controller's pool."""
+        if self._state_manager is None:
+            return []
+
+        try:
+            import hashlib
+
+            pool = self._state_manager.load_pool()
+            active_ids = []
+            for traj in pool.trajectories:
+                eval_info = traj.extra_info.get("evaluation", {})
+                if eval_info.get("status") == "active":
+                    for factor in traj.factors:
+                        factor_name = factor.get("factor_name", "")
+                        factor_expr = factor.get("factor_expression", "")
+                        if factor_name and factor_expr:
+                            fid = hashlib.md5(f"{factor_name}_{factor_expr}".encode()).hexdigest()[:16]
+                            active_ids.append(fid)
+            return active_ids
+        except Exception as e:
+            logger.warning(f"Failed to extract factor IDs from evolution: {e}")
+            return []
+
+    def _persist_state(self) -> None:
+        """Save state and purge if needed."""
+        if self._state_manager is None:
+            return
+
+        try:
+            self._state_manager.save_pool()
+            self._state_manager.purge_pool()
+        except Exception as e:
+            logger.error(f"Failed to persist state: {e}")
 
     def _add_factor_to_library(self, factor_entry: dict) -> None:
         """
