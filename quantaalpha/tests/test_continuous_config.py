@@ -926,3 +926,62 @@ mining:
         config = PipelineConfig.from_yaml(str(yaml_path))
         assert config.mining.provider_pool.enabled is True
         assert config.mining.provider_pool.routing == "least_latency"
+
+
+class TestDirectionPlannerConfig:
+    """Tests for DirectionPlannerConfig dataclass."""
+
+    def test_direction_planner_config_defaults(self):
+        from quantaalpha.continuous.scheduler import DirectionPlannerConfig
+
+        config = DirectionPlannerConfig()
+        assert config.enabled is False
+        assert config.diversity_window == 3
+        assert config.last_failed_within_hours == 48
+
+    def test_direction_planner_config_from_dict(self):
+        from quantaalpha.continuous.scheduler import DirectionPlannerConfig
+
+        config = DirectionPlannerConfig.from_dict(
+            {
+                "enabled": True,
+                "diversity_window": 5,
+                "last_failed_within_hours": 24,
+            }
+        )
+        assert config.enabled is True
+        assert config.diversity_window == 5
+        assert config.last_failed_within_hours == 24
+
+    def test_mining_config_has_direction_planner(self):
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        config = MiningConfig()
+        assert config.direction_planner is not None
+        assert config.direction_planner.enabled is False
+
+    def test_pipeline_config_parses_direction_planner(self, tmp_path):
+        import yaml
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+  cycle_budget_seconds: 7200
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  direction_planner:
+    enabled: true
+    diversity_window: 5
+"""
+        yaml_path = tmp_path / "test_dp.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.mining.direction_planner.enabled is True
+        assert config.mining.direction_planner.diversity_window == 5

@@ -276,6 +276,25 @@ class ProviderPoolConfig:
 
 
 @dataclass
+class DirectionPlannerConfig:
+    """Configuration for adaptive direction planning."""
+
+    enabled: bool = False
+    diversity_window: int = 3
+    last_failed_within_hours: int = 48
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DirectionPlannerConfig":
+        if not d:
+            return cls()
+        return cls(
+            enabled=d.get("enabled", False),
+            diversity_window=d.get("diversity_window", 3),
+            last_failed_within_hours=d.get("last_failed_within_hours", 48),
+        )
+
+
+@dataclass
 class MiningConfig:
     """Configuration for pipeline-based mining."""
 
@@ -290,6 +309,7 @@ class MiningConfig:
     agent_loop: AgentLoopConfig = field(default_factory=AgentLoopConfig)
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     provider_pool: ProviderPoolConfig = field(default_factory=ProviderPoolConfig)
+    direction_planner: DirectionPlannerConfig = field(default_factory=DirectionPlannerConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "MiningConfig":
@@ -307,6 +327,7 @@ class MiningConfig:
             agent_loop=AgentLoopConfig.from_dict(d.get("agent_loop", {})),
             ensemble=EnsembleConfig.from_dict(d.get("ensemble", {})),
             provider_pool=ProviderPoolConfig.from_dict(d.get("provider_pool", {})),
+            direction_planner=DirectionPlannerConfig.from_dict(d.get("direction_planner", {})),
         )
 
 
@@ -542,6 +563,11 @@ class PipelineConfig:
                         }
                         for p in self.mining.provider_pool.providers
                     ],
+                },
+                "direction_planner": {
+                    "enabled": self.mining.direction_planner.enabled,
+                    "diversity_window": self.mining.direction_planner.diversity_window,
+                    "last_failed_within_hours": self.mining.direction_planner.last_failed_within_hours,
                 },
             },
         }
