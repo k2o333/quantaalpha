@@ -452,6 +452,7 @@ class APIBackend:
         dump_chat_cache: bool | None = None,
         use_embedding_cache: bool | None = None,
         dump_embedding_cache: bool | None = None,
+        provider_pool: "ProviderPool | None" = None,
     ) -> None:
         if LLM_SETTINGS.use_llama2:
             self.generator = Llama.build(
@@ -596,6 +597,7 @@ class APIBackend:
         self.use_llama2 = LLM_SETTINGS.use_llama2
         self.use_gcr_endpoint = LLM_SETTINGS.use_gcr_endpoint
         self.retry_wait_seconds = LLM_SETTINGS.retry_wait_seconds
+        self._provider_pool = provider_pool
 
     def _get_encoder(self):
         """
