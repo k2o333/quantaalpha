@@ -1,8 +1,8 @@
-"""Tests for quantaalpha data_capability semantic block preference.
+"""Tests for quantaalpha data_capability semantic-only report reads.
 
 Covers:
 - load_from_report prefers interfaces.<name>.semantic when present
-- Falls back to flat layout when semantic block is absent
+- flat-only interface entries are no longer consumed
 - Falls back to DATA_CAPABILITIES when report is missing/invalid/empty
 """
 
@@ -105,8 +105,8 @@ class TestSemanticPreference:
             assert caps["daily"].get("layer") == "main_daily"
 
 
-class TestFlatFallback:
-    def test_falls_back_to_flat_layout_when_semantic_absent(self):
+class TestSemanticRequired:
+    def test_ignores_flat_only_interface_when_semantic_absent(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             report_path = Path(tmpdir) / "report.json"
             report = {
@@ -125,9 +125,7 @@ class TestFlatFallback:
             }
             report_path.write_text(json.dumps(report))
             caps = load_from_report(report_path)
-            assert "daily" in caps
-            assert caps["daily"]["fields"] == ["$open", "$close"]
-            assert caps["daily"]["freq"] == "daily"
+            assert caps == DATA_CAPABILITIES
 
 
 class TestDataCapabilitiesFallback:
