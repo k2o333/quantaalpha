@@ -246,9 +246,37 @@ class ProviderEntryConfig:
     def from_dict(cls, d: dict) -> "ProviderEntryConfig":
         if not d:
             return cls()
+            
+        import os
+        raw_keys = d.get("api_keys", [])
+        resolved_keys = []
+        
+        for k in raw_keys:
+            if isinstance(k, str) and k.startswith("${") and k.endswith("}"):
+                env_var = k[2:-1]
+                val = os.environ.get(env_var)
+                if val:
+                    resolved_keys.append(val)
+            elif isinstance(k, str) and k.startswith("$"):
+                env_var = k[1:]
+                val = os.environ.get(env_var)
+                if val:
+                    resolved_keys.append(val)
+            else:
+                resolved_keys.append(k)
+                
+        if not resolved_keys:
+            # Fallback to global .env setting if API key isn't provided in YAML
+            try:
+                from quantaalpha.llm.config import LLM_SETTINGS
+                if getattr(LLM_SETTINGS, "openai_api_key", None):
+                    resolved_keys = [LLM_SETTINGS.openai_api_key]
+            except Exception:
+                pass
+                
         return cls(
             name=d.get("name", ""),
-            api_keys=d.get("api_keys", []),
+            api_keys=resolved_keys,
             base_url=d.get("base_url"),
             model=d.get("model"),
             tags=d.get("tags", []),
