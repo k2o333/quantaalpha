@@ -13,7 +13,7 @@ from quantaalpha.core.proposal import (
     Trace,
 )
 from quantaalpha.log import logger
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured, call_structured
 from quantaalpha.utils import convert2bool
 
 # Max retries for JSON parsing
@@ -26,7 +26,7 @@ DIRNAME = Path(__file__).absolute().resolve().parent
 def process_results(current_result, sota_result):
     # Convert the results to dataframes
     current_df = pd.DataFrame(current_result)
-    
+
     # Handle case where sota_result might be None or empty
     if sota_result is None or (isinstance(sota_result, pd.DataFrame) and sota_result.empty):
         # If no SOTA result, return only current result
@@ -37,7 +37,7 @@ def process_results(current_result, sota_result):
             # Use first column if "0" doesn't exist
             first_col = current_df.columns[0]
             current_df.rename(columns={first_col: "Current Result"}, inplace=True)
-        
+
         # Select important metrics for comparison
         important_metrics = [
             "1day.excess_return_without_cost.max_drawdown",
@@ -45,16 +45,16 @@ def process_results(current_result, sota_result):
             "1day.excess_return_without_cost.annualized_return",
             "IC",
         ]
-        
+
         # Filter the DataFrame to retain only the important metrics that exist
         available_metrics = [m for m in important_metrics if m in current_df.index]
         if available_metrics:
             filtered_df = current_df.loc[available_metrics]
         else:
             filtered_df = current_df
-        
+
         return filtered_df.to_string()
-    
+
     sota_df = pd.DataFrame(sota_result)
 
     # Set the metric as the index
@@ -71,7 +71,7 @@ def process_results(current_result, sota_result):
     else:
         # If no columns, create a dummy column
         current_df["Current Result"] = 0
-    
+
     if "0" in sota_df.columns:
         sota_df.rename(columns={"0": "SOTA Result"}, inplace=True)
     elif len(sota_df.columns) > 0:
@@ -101,21 +101,15 @@ def process_results(current_result, sota_result):
 
     # Check if both columns exist before comparing
     if "Current Result" in filtered_combined_df.columns and "SOTA Result" in filtered_combined_df.columns:
-        filtered_combined_df[
-            "Bigger columns name (Didn't consider the direction of the metric, you should judge it by yourself that bigger is better or smaller is better)"
-        ] = filtered_combined_df.apply(
-                lambda row: "Current Result" if pd.notna(row["Current Result"]) and pd.notna(row["SOTA Result"]) and row["Current Result"] > row["SOTA Result"] else "SOTA Result", axis=1
+        filtered_combined_df["Bigger columns name (Didn't consider the direction of the metric, you should judge it by yourself that bigger is better or smaller is better)"] = filtered_combined_df.apply(
+            lambda row: "Current Result" if pd.notna(row["Current Result"]) and pd.notna(row["SOTA Result"]) and row["Current Result"] > row["SOTA Result"] else "SOTA Result", axis=1
         )
     elif "Current Result" in filtered_combined_df.columns:
         # Only current result available
-        filtered_combined_df[
-            "Bigger columns name (Didn't consider the direction of the metric, you should judge it by yourself that bigger is better or smaller is better)"
-        ] = "Current Result"
+        filtered_combined_df["Bigger columns name (Didn't consider the direction of the metric, you should judge it by yourself that bigger is better or smaller is better)"] = "Current Result"
     elif "SOTA Result" in filtered_combined_df.columns:
         # Only SOTA result available
-        filtered_combined_df[
-            "Bigger columns name (Didn't consider the direction of the metric, you should judge it by yourself that bigger is better or smaller is better)"
-        ] = "SOTA Result"
+        filtered_combined_df["Bigger columns name (Didn't consider the direction of the metric, you should judge it by yourself that bigger is better or smaller is better)"] = "SOTA Result"
 
     return filtered_combined_df.to_string()
 
@@ -146,11 +140,7 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         combined_result = process_results(current_result, sota_result)
 
         # Generate the system prompt
-        sys_prompt = (
-            Environment(undefined=StrictUndefined)
-            .from_string(base_feedback_prompts["factor_feedback_generation"]["system"])
-            .render(scenario=self.scen.get_scenario_all_desc())
-        )
+        sys_prompt = Environment(undefined=StrictUndefined).from_string(base_feedback_prompts["factor_feedback_generation"]["system"]).render(scenario=self.scen.get_scenario_all_desc())
 
         # Generate the user prompt
         usr_prompt = (
@@ -166,7 +156,7 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         # Call the APIBackend to generate the response for hypothesis feedback with retry
         response_json = None
         last_error = None
-        
+
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
                 response_json = APIBackend().build_messages_and_create_chat_completion_json(
@@ -181,7 +171,7 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
                 if attempt < MAX_JSON_PARSE_RETRIES - 1:
                     logger.info("[QuantaAlpha] Re-requesting LLM...")
                 continue
-        
+
         if response_json is None:
             logger.error(f"[QuantaAlpha] JSON parse still failed after {MAX_JSON_PARSE_RETRIES} attempts")
             return HypothesisFeedback(
@@ -208,8 +198,9 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         )
 
 
-
 qa_feedback_prompts = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
+
+
 class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
     def generate_feedback(self, exp: Experiment, hypothesis: Hypothesis, trace: Trace) -> HypothesisFeedback:
         """
@@ -235,11 +226,9 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         # Extract complexity information by directly calculating from factor expressions
         # Import complexity calculation functions
         try:
-            from quantaalpha.factors.coder.factor_ast import (
-                calculate_symbol_length, count_base_features
-            )
+            from quantaalpha.factors.coder.factor_ast import calculate_symbol_length, count_base_features
             from quantaalpha.factors.coder.config import FACTOR_COSTEER_SETTINGS
-            
+
             for idx, task_detail in enumerate(tasks_factors):
                 if idx < len(exp.sub_tasks):
                     task = exp.sub_tasks[idx]
@@ -248,22 +237,16 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
                         complexity_warnings = []
                         # Calculate symbol length
                         symbol_length = calculate_symbol_length(factor_expr)
-                        symbol_length_threshold = getattr(FACTOR_COSTEER_SETTINGS, 'symbol_length_threshold', 300)
+                        symbol_length_threshold = getattr(FACTOR_COSTEER_SETTINGS, "symbol_length_threshold", 300)
                         if symbol_length > symbol_length_threshold:
-                            complexity_warnings.append(
-                                f"Symbol Length (SL) Check Failed: Symbol length ({symbol_length}) exceeds threshold ({symbol_length_threshold}). "
-                                f"The factor expression is too complex and may lead to overfitting."
-                            )
-                        
+                            complexity_warnings.append(f"Symbol Length (SL) Check Failed: Symbol length ({symbol_length}) exceeds threshold ({symbol_length_threshold}). The factor expression is too complex and may lead to overfitting.")
+
                         # Calculate base features count
                         num_base_features = count_base_features(factor_expr)
-                        base_features_threshold = getattr(FACTOR_COSTEER_SETTINGS, 'base_features_threshold', 6)
+                        base_features_threshold = getattr(FACTOR_COSTEER_SETTINGS, "base_features_threshold", 6)
                         if num_base_features > base_features_threshold:
-                            complexity_warnings.append(
-                                f"Base Features Count (ER) Check Failed: Number of base features ({num_base_features}) exceeds threshold ({base_features_threshold}). "
-                                f"The factor uses too many raw features, which may indicate over-engineering."
-                            )
-                        
+                            complexity_warnings.append(f"Base Features Count (ER) Check Failed: Number of base features ({num_base_features}) exceeds threshold ({base_features_threshold}). The factor uses too many raw features, which may indicate over-engineering.")
+
                         if complexity_warnings:
                             task_detail["complexity_feedback"] = "\n".join(complexity_warnings)
         except Exception as e:
@@ -273,11 +256,7 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         combined_result = process_results(current_result, sota_result)
 
         # Generate the system prompt
-        sys_prompt = (
-            Environment(undefined=StrictUndefined)
-            .from_string(qa_feedback_prompts["factor_feedback_generation"]["system"])
-            .render(scenario=self.scen.get_scenario_all_desc())
-        )
+        sys_prompt = Environment(undefined=StrictUndefined).from_string(qa_feedback_prompts["factor_feedback_generation"]["system"]).render(scenario=self.scen.get_scenario_all_desc())
 
         # Generate the user prompt
         usr_prompt = (
@@ -293,7 +272,7 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         # Call the APIBackend to generate the response for hypothesis feedback with retry
         response_json = None
         last_error = None
-        
+
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
                 response_json = APIBackend().build_messages_and_create_chat_completion_json(
@@ -307,7 +286,7 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
                 if attempt < MAX_JSON_PARSE_RETRIES - 1:
                     logger.info("[AlphaAgent] Re-requesting LLM...")
                 continue
-        
+
         if response_json is None:
             logger.error(f"[AlphaAgent] JSON parse still failed after {MAX_JSON_PARSE_RETRIES} attempts")
             return HypothesisFeedback(
@@ -368,7 +347,7 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         # Call the APIBackend to generate the response for hypothesis feedback with retry
         response_json_hypothesis = None
         last_error = None
-        
+
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
                 response_json_hypothesis = APIBackend().build_messages_and_create_chat_completion_json(
@@ -382,7 +361,7 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
                 if attempt < MAX_JSON_PARSE_RETRIES - 1:
                     logger.info("[Model] Re-requesting LLM...")
                 continue
-        
+
         if response_json_hypothesis is None:
             logger.error(f"[Model] JSON parse still failed after {MAX_JSON_PARSE_RETRIES} attempts")
             return HypothesisFeedback(
@@ -392,7 +371,7 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
                 reason=f"JSON parse error: {last_error}",
                 decision=False,
             )
-        
+
         return HypothesisFeedback(
             observations=response_json_hypothesis.get("Observations", "No observations provided"),
             hypothesis_evaluation=response_json_hypothesis.get("Feedback for Hypothesis", "No feedback provided"),

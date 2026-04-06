@@ -23,7 +23,7 @@ from quantaalpha.factors.workspace import QlibFBWorkspace
 from rdagent.scenarios.qlib.experiment.factor_experiment import (
     QlibFactorExperiment as _OrigQlibFactorExperiment,
 )
-from quantaalpha.factors.data_capability import render_data_capabilities
+from quantaalpha.factors.data_capability import render_data_capabilities, render_financial_pit_panel_preview
 from quantaalpha.log import logger
 
 
@@ -100,7 +100,18 @@ def _build_source_data_description(
         return base_source_data
 
     registry_text = render_data_capabilities(capabilities)
-    return _merge_source_data_with_registry(base_source_data, registry_text)
+    merged = _merge_source_data_with_registry(base_source_data, registry_text)
+
+    if capabilities:
+        for name, spec in capabilities.items():
+            if spec.get("layer") != "financial_pit":
+                continue
+            preview = render_financial_pit_panel_preview(name, spec)
+            if preview:
+                merged = f"{merged}\n\n{preview}"
+                break
+
+    return merged
 
 
 class QlibFactorExperiment(_OrigQlibFactorExperiment):

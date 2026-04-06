@@ -10,15 +10,52 @@ from quantaalpha.core.prompts import Prompts
 from quantaalpha.core.proposal import Hypothesis, Scenario, Trace
 from quantaalpha.core.experiment import Experiment
 from quantaalpha.factors.experiment import QlibFactorExperiment
-from quantaalpha.llm.client import APIBackend, robust_json_parse
+from quantaalpha.llm.client import APIBackend, call_structured, robust_json_parse
 import os
 import pandas as pd
 from quantaalpha.log import logger
 from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
-from quantaalpha.factors.data_capability import get_data_capabilities
+from quantaalpha.factors.data_capability import get_data_capabilities, render_financial_pit_panel_preview
 
+PROPOSE_FACTORS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "propose_hypothesis",
+        "description": "Propose a new factor hypothesis with observation, knowledge, justification, and specification.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hypothesis": {"type": "string"},
+                "concise_observation": {"type": "string"},
+                "concise_knowledge": {"type": "string"},
+                "concise_justification": {"type": "string"},
+                "concise_specification": {"type": "string"},
+            },
+            "required": ["hypothesis"],
+        },
+    },
+}
 DEFAULT_HISTORY_LIMIT = 6
 MIN_HISTORY_LIMIT = 1
+
+
+def build_financial_pit_context_hint(capabilities: dict | None) -> str:
+    """Build a compact financial PIT usage hint for proposal-level context."""
+    if not capabilities:
+        return ""
+
+    registry = get_data_capabilities(capabilities)
+    hints: list[str] = []
+    for name, spec in registry.items():
+        if spec.get("layer") != "financial_pit":
+            continue
+        fields = ", ".join(spec.get("fields", [])) or "(unspecified)"
+        preview = render_financial_pit_panel_preview(name, spec, aliases=list(spec.get("fields", []))[:2] or None)
+        hint = f"Financial PIT capability available: {name}; use disclosure-date as-of semantics; fields={fields}."
+        if preview:
+            hint = f"{hint}\n{preview}"
+        hints.append(hint)
+    return "\n\n".join(hints)
 
 
 def normalize_corrected_expression(expression) -> str:
@@ -77,14 +114,14 @@ def normalize_corrected_expression(expression) -> str:
 
         # Strip // comments (must be on the same line)
         if "//" in line:
-            line = line[:line.index("//")]
+            line = line[: line.index("//")]
             line = line.strip()
             if not line:
                 continue
 
         # Strip # comments
         if "#" in line:
-            line = line[:line.index("#")]
+            line = line[: line.index("#")]
             line = line.strip()
             if not line:
                 continue
@@ -131,32 +168,20 @@ def render_hypothesis_and_feedback(prompt_dict, trace: Trace, history_limit: int
     if len(trace.hist) > 0:
         limited_trace = Trace(scen=trace.scen)
         limited_trace.hist = trace.hist[-history_limit:] if history_limit > 0 else trace.hist
-        return (
-            Environment(undefined=StrictUndefined)
-            .from_string(prompt_dict["hypothesis_and_feedback"])
-            .render(trace=limited_trace)
-        )
+        return Environment(undefined=StrictUndefined).from_string(prompt_dict["hypothesis_and_feedback"]).render(trace=limited_trace)
     else:
         return "No previous hypothesis and feedback available since it's the first round."
 
 
 def is_input_length_error(error_msg: str) -> bool:
     """Check if error is due to input length limit."""
-    error_indicators = [
-        "input length",
-        "context length",
-        "maximum context",
-        "token limit",
-        "InvalidParameter",
-        "Range of input length",
-        "max_tokens",
-        "too long"
-    ]
+    error_indicators = ["input length", "context length", "maximum context", "token limit", "InvalidParameter", "Range of input length", "max_tokens", "too long"]
     error_str = str(error_msg).lower()
     return any(indicator.lower() in error_str for indicator in error_indicators)
 
 
 QlibFactorHypothesis = Hypothesis
+
 
 class AlphaAgentHypothesis(Hypothesis):
     """
@@ -164,14 +189,7 @@ class AlphaAgentHypothesis(Hypothesis):
     which represents the initial idea or starting point for the hypothesis.
     """
 
-    def __init__(
-        self,
-        hypothesis: str,
-        concise_observation: str,
-        concise_justification: str,
-        concise_knowledge: str,
-        concise_specification: str
-    ) -> None:
+    def __init__(self, hypothesis: str, concise_observation: str, concise_justification: str, concise_knowledge: str, concise_specification: str) -> None:
         super().__init__(
             hypothesis,
             "",
@@ -190,22 +208,16 @@ class AlphaAgentHypothesis(Hypothesis):
                 concise Specification: {self.concise_specification}
                 """
 
+
 base_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
+
 
 class QlibFactorHypothesisGen(FactorHypothesisGen):
     def __init__(self, scen: Scenario) -> Tuple[dict, bool]:
         super().__init__(scen)
 
     def prepare_context(self, trace: Trace) -> Tuple[dict, bool]:
-        hypothesis_and_feedback = (
-            (
-                Environment(undefined=StrictUndefined)
-                .from_string(base_prompt_dict["hypothesis_and_feedback"])
-                .render(trace=trace)
-            )
-            if len(trace.hist) > 0
-            else "No previous hypothesis and feedback available since it's the first round."
-        )
+        hypothesis_and_feedback = (Environment(undefined=StrictUndefined).from_string(base_prompt_dict["hypothesis_and_feedback"]).render(trace=trace)) if len(trace.hist) > 0 else "No previous hypothesis and feedback available since it's the first round."
         context_dict = {
             "hypothesis_and_feedback": hypothesis_and_feedback,
             "RAG": None,
@@ -233,15 +245,7 @@ class QlibFactorHypothesis2Experiment(FactorHypothesis2Experiment):
         scenario = trace.scen.get_scenario_all_desc()
         experiment_output_format = base_prompt_dict["factor_experiment_output_format"]
 
-        hypothesis_and_feedback = (
-            (
-                Environment(undefined=StrictUndefined)
-                .from_string(base_prompt_dict["hypothesis_and_feedback"])
-                .render(trace=trace)
-            )
-            if len(trace.hist) > 0
-            else "No previous hypothesis and feedback available since it's the first round."
-        )
+        hypothesis_and_feedback = (Environment(undefined=StrictUndefined).from_string(base_prompt_dict["hypothesis_and_feedback"]).render(trace=trace)) if len(trace.hist) > 0 else "No previous hypothesis and feedback available since it's the first round."
 
         experiment_list: List[FactorExperiment] = [t[1] for t in trace.hist]
 
@@ -301,43 +305,29 @@ class QlibFactorHypothesis2Experiment(FactorHypothesis2Experiment):
         return exp
 
 
-
 qa_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
+
 
 # prompt_dict not as attribute: class instance is pickled later, prompt_dict cannot be pickled
 class AlphaAgentHypothesisGen(FactorHypothesisGen):
-    def __init__(self, scen: Scenario, potential_direction: str=None) -> Tuple[dict, bool]:
+    def __init__(self, scen: Scenario, potential_direction: str = None) -> Tuple[dict, bool]:
         super().__init__(scen)
         self.potential_direction = potential_direction
 
     def _build_fallback_hypothesis(self) -> AlphaAgentHypothesis:
         direction = (self.potential_direction or "daily price-volume relationship").strip()
         return AlphaAgentHypothesis(
-            hypothesis=(
-                f"Construct a daily factor from {direction}, using only daily price and volume fields "
-                f"with short rolling windows and cross-sectional normalization."
-            ),
-            concise_observation=(
-                "The current LLM response was empty or unparsable, so a conservative daily price-volume hypothesis is used."
-            ),
-            concise_knowledge=(
-                "If intraday or microstructure data is unavailable, daily price-volume proxies with rolling normalization "
-                "can still express short-horizon trading pressure."
-            ),
-            concise_justification=(
-                "A constrained daily hypothesis keeps the pipeline executable while remaining aligned with the requested direction."
-            ),
-            concise_specification=(
-                "Use only daily OHLCV-style inputs, avoid intraday or order-book assumptions, and keep the hypothesis testable."
-            ),
+            hypothesis=(f"Construct a daily factor from {direction}, using only daily price and volume fields with short rolling windows and cross-sectional normalization."),
+            concise_observation=("The current LLM response was empty or unparsable, so a conservative daily price-volume hypothesis is used."),
+            concise_knowledge=("If intraday or microstructure data is unavailable, daily price-volume proxies with rolling normalization can still express short-horizon trading pressure."),
+            concise_justification=("A constrained daily hypothesis keeps the pipeline executable while remaining aligned with the requested direction."),
+            concise_specification=("Use only daily OHLCV-style inputs, avoid intraday or order-book assumptions, and keep the hypothesis testable."),
         )
 
     def prepare_context(self, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict, bool]:
 
         if len(trace.hist) > 0:
-            hypothesis_and_feedback = render_hypothesis_and_feedback(
-                qa_prompt_dict, trace, history_limit
-            )
+            hypothesis_and_feedback = render_hypothesis_and_feedback(qa_prompt_dict, trace, history_limit)
 
         elif self.potential_direction is not None:
             hypothesis_and_feedback = (
@@ -347,7 +337,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                     potential_direction=self.potential_direction,
                     function_lib_description=qa_prompt_dict["function_lib_description"],
                 )
-            ) #
+            )  #
         else:
             hypothesis_and_feedback = "No previous hypothesis and feedback available since it's the first round. You are encouraged to propose an innovative hypothesis that diverges significantly from existing perspectives."
 
@@ -395,26 +385,21 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                         function_lib_description=context_dict["function_lib_description"],
                     )
                 )
-                user_prompt = (
-                    Environment(undefined=StrictUndefined)
-                    .from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"])
-                    .render(
-                        targets=self.targets,
-                        hypothesis_and_feedback=context_dict["hypothesis_and_feedback"],
-                        RAG=context_dict["RAG"],
-                        round=len(trace.hist)
-                    )
-                )
+                user_prompt = Environment(undefined=StrictUndefined).from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"]).render(targets=self.targets, hypothesis_and_feedback=context_dict["hypothesis_and_feedback"], RAG=context_dict["RAG"], round=len(trace.hist))
 
                 resp = ""
                 for attempt in range(3):
                     api = APIBackend() if attempt == 0 else APIBackend(use_chat_cache=False)
-                    resp = api.build_messages_and_create_chat_completion(
-                        user_prompt,
-                        system_prompt,
+                    messages = api.build_messages(user_prompt, system_prompt)
+                    resp_dict = call_structured(
+                        api,
+                        messages,
+                        tools=[PROPOSE_FACTORS_TOOL],
+                        tool_choice="required",
                         json_mode=json_flag,
                         task_type="hypothesis_generation",
                     )
+                    resp = json.dumps(resp_dict) if resp_dict else ""
                     if resp and resp.strip():
                         break
                     logger.warning(f"Empty hypothesis response, retrying... attempt={attempt + 1}")
@@ -442,29 +427,24 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                 function_lib_description=context_dict["function_lib_description"],
             )
         )
-        user_prompt = (
-            Environment(undefined=StrictUndefined)
-            .from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"])
-            .render(
-                targets=self.targets,
-                hypothesis_and_feedback=context_dict["hypothesis_and_feedback"],
-                RAG=context_dict["RAG"],
-                round=len(trace.hist)
-            )
-        )
-        resp = APIBackend().build_messages_and_create_chat_completion(
-            user_prompt,
-            system_prompt,
+        user_prompt = Environment(undefined=StrictUndefined).from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"]).render(targets=self.targets, hypothesis_and_feedback=context_dict["hypothesis_and_feedback"], RAG=context_dict["RAG"], round=len(trace.hist))
+        api = APIBackend()
+        messages = api.build_messages(user_prompt, system_prompt)
+        resp_dict = call_structured(
+            api,
+            messages,
+            tools=[PROPOSE_FACTORS_TOOL],
+            tool_choice="required",
             json_mode=json_flag,
             task_type="hypothesis_generation",
         )
+        resp = json.dumps(resp_dict) if resp_dict else ""
         try:
             hypothesis = self.convert_response(resp)
             return hypothesis
         except Exception as e:
             logger.warning(f"Final hypothesis generation attempt failed, using fallback hypothesis: {e}")
             return self._build_fallback_hypothesis()
-
 
 
 class EmptyHypothesisGen(FactorHypothesisGen):
@@ -479,17 +459,9 @@ class EmptyHypothesisGen(FactorHypothesisGen):
 
     def gen(self, trace: Trace) -> AlphaAgentHypothesis:
 
-        hypothesis = AlphaAgentHypothesis(
-            hypothesis="",
-            concise_observation="",
-            concise_justification="",
-            concise_knowledge="",
-            concise_specification=""
-        )
+        hypothesis = AlphaAgentHypothesis(hypothesis="", concise_observation="", concise_justification="", concise_knowledge="", concise_specification="")
 
         return hypothesis
-
-
 
 
 class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
@@ -509,10 +481,8 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         super().__init__(*args, **kwargs)
         # Initialize FactorRegulator with config settings
         from quantaalpha.factors.coder.config import FACTOR_COSTEER_SETTINGS
-        self.factor_regulator = FactorRegulator(
-            factor_zoo_path=FACTOR_COSTEER_SETTINGS.factor_zoo_path,
-            duplication_threshold=FACTOR_COSTEER_SETTINGS.duplication_threshold
-        )
+
+        self.factor_regulator = FactorRegulator(factor_zoo_path=FACTOR_COSTEER_SETTINGS.factor_zoo_path, duplication_threshold=FACTOR_COSTEER_SETTINGS.duplication_threshold)
 
         # Initialize consistency checker if enabled
         self.consistency_enabled = consistency_enabled
@@ -534,6 +504,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                     FactorConsistencyChecker,
                     FactorQualityGate,
                 )
+
                 self._quality_gate = FactorQualityGate(
                     consistency_checker=FactorConsistencyChecker(
                         enabled=self.consistency_enabled,
@@ -578,18 +549,14 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         allowed_preview = ", ".join(sorted(allowed_fields))
         return (
             False,
-            "Unsupported fields in expression: "
-            + ", ".join(unknown_fields)
-            + f". Allowed fields: {allowed_preview}",
+            "Unsupported fields in expression: " + ", ".join(unknown_fields) + f". Allowed fields: {allowed_preview}",
         )
 
     def prepare_context(self, hypothesis: Hypothesis, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict | bool]:
         scenario = trace.scen.get_scenario_all_desc()
         experiment_output_format = qa_prompt_dict["factor_experiment_output_format"]
-        function_lib_description = qa_prompt_dict['function_lib_description']
-        hypothesis_and_feedback = render_hypothesis_and_feedback(
-            qa_prompt_dict, trace, history_limit
-        )
+        function_lib_description = qa_prompt_dict["function_lib_description"]
+        hypothesis_and_feedback = render_hypothesis_and_feedback(qa_prompt_dict, trace, history_limit)
 
         experiment_list: List[FactorExperiment] = [t[1] for t in trace.hist]
 
@@ -602,6 +569,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             "scenario": scenario,
             "hypothesis_and_feedback": hypothesis_and_feedback,
             "function_lib_description": function_lib_description,
+            "financial_pit_context_hint": build_financial_pit_context_hint(getattr(trace.scen, "data_capabilities", None)),
             "experiment_output_format": experiment_output_format,
             "target_list": factor_list,
             "RAG": None,
@@ -632,44 +600,43 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             .from_string(qa_prompt_dict["hypothesis2experiment"]["system_prompt"])
             .render(
                 targets=self.targets,
-                scenario=trace.scen.background, # get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
+                scenario=trace.scen.background,  # get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
                 experiment_output_format=context["experiment_output_format"],
             )
         )
         user_prompt = (
             Environment(undefined=StrictUndefined)
             .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
-            .render(
-                targets=self.targets,
-                target_hypothesis=context["target_hypothesis"],
-                hypothesis_and_feedback=context["hypothesis_and_feedback"],
-                function_lib_description=context["function_lib_description"],
-                target_list=context["target_list"],
-                RAG=context["RAG"],
-                expression_duplication=None
-            )
+            .render(targets=self.targets, target_hypothesis=context["target_hypothesis"], hypothesis_and_feedback=context["hypothesis_and_feedback"], function_lib_description=context["function_lib_description"], target_list=context["target_list"], RAG=context["RAG"], expression_duplication=None)
         )
 
         # Detect duplicated sub-expressions
         flag = False
         expression_duplication_prompt = None
         MAX_RETRIES = 10
+        api = APIBackend()
+        final_response_dict = None
         for attempt in range(MAX_RETRIES):
             if flag:
                 break
-            
-            resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag, reasoning_flag=False)
-            
+
+            messages = api.build_messages(user_prompt, system_prompt)
+            response_dict = call_structured(
+                api,
+                messages,
+                tools=[CONSTRUCT_FACTORS_TOOL],
+                tool_choice="required",
+                json_mode=json_flag,
+                task_type="factor_construction",
+                allow_text_fallback=True,
+            )
+
             # Check for empty response before JSON parsing
-            if not resp or not resp.strip():
-                logger.warning(f"Empty LLM response at attempt {attempt+1}/{MAX_RETRIES}, retrying...")
+            if not response_dict:
+                logger.warning(f"Empty LLM response at attempt {attempt + 1}/{MAX_RETRIES}, retrying...")
                 continue
-            
-            try:
-                response_dict = robust_json_parse(resp)
-            except json.JSONDecodeError as e:
-                logger.warning(f"JSON parse failed at attempt {attempt+1}/{MAX_RETRIES}: {e}, retrying...")
-                continue
+            final_response_dict = response_dict
+            final_response_dict = response_dict
             proposed_names = []
             proposed_exprs = []
 
@@ -691,9 +658,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 if not capability_valid:
                     logger.warning(f"{factor_name}: {capability_feedback}")
                     if expression_duplication_prompt is not None:
-                        expression_duplication_prompt = "\n\n".join(
-                            [expression_duplication_prompt, capability_feedback]
-                        )
+                        expression_duplication_prompt = "\n\n".join([expression_duplication_prompt, capability_feedback])
                     else:
                         expression_duplication_prompt = capability_feedback
                     user_prompt = (
@@ -718,14 +683,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 # Consistency check (if enabled)
                 if self.consistency_enabled and self.quality_gate is not None:
                     try:
-                        passed, feedback, results = self.quality_gate.evaluate(
-                            hypothesis=str(hypothesis),
-                            factor_name=factor_name,
-                            factor_description=description,
-                            factor_formulation=formulation,
-                            factor_expression=expr,
-                            variables=variables
-                        )
+                        passed, feedback, results = self.quality_gate.evaluate(hypothesis=str(hypothesis), factor_name=factor_name, factor_description=description, factor_formulation=formulation, factor_expression=expr, variables=variables)
 
                         # Use corrected expression from consistency check if provided
                         if results.get("corrected_expression") and results["corrected_expression"] != expr:
@@ -735,9 +693,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
                             # Re-check corrected expression
                             if not self.factor_regulator.is_parsable(corrected_expr):
-                                logger.warning(
-                                    f"Corrected expression could not be parsed, keeping original: {corrected_expr}"
-                                )
+                                logger.warning(f"Corrected expression could not be parsed, keeping original: {corrected_expr}")
                                 expr = original_expr
                             else:
                                 success, corrected_eval_dict = self.factor_regulator.evaluate(corrected_expr)
@@ -747,9 +703,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                                     factor_data["expression"] = expr
                                     response_dict[factor_name] = factor_data
                                 else:
-                                    logger.warning(
-                                        f"Corrected expression evaluation failed, keeping original: {corrected_expr}"
-                                    )
+                                    logger.warning(f"Corrected expression evaluation failed, keeping original: {corrected_expr}")
                                     expr = original_expr
 
                         if not passed:
@@ -760,39 +714,39 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 # If expression has problems, regenerate with feedback
                 if not self.factor_regulator.is_expression_acceptable(eval_dict):
                     # Calculate ratios for feedback
-                    num_all_nodes = eval_dict['num_all_nodes']
-                    free_args_ratio = float(eval_dict['num_free_args']) / float(num_all_nodes) if num_all_nodes > 0 else 0.0
-                    unique_vars_ratio = float(eval_dict['num_unique_vars']) / float(num_all_nodes) if num_all_nodes > 0 else 0.0
+                    num_all_nodes = eval_dict["num_all_nodes"]
+                    free_args_ratio = float(eval_dict["num_free_args"]) / float(num_all_nodes) if num_all_nodes > 0 else 0.0
+                    unique_vars_ratio = float(eval_dict["num_unique_vars"]) / float(num_all_nodes) if num_all_nodes > 0 else 0.0
 
                     # Get symbol length and base features count for complexity feedback
-                    symbol_length = eval_dict.get('symbol_length', 0)
-                    num_base_features = eval_dict.get('num_base_features', 0)
+                    symbol_length = eval_dict.get("symbol_length", 0)
+                    num_base_features = eval_dict.get("num_base_features", 0)
                     symbol_length_threshold = self.factor_regulator.symbol_length_threshold
                     base_features_threshold = self.factor_regulator.base_features_threshold
 
                     feedback_item = (
-                            Environment(undefined=StrictUndefined)
-                            .from_string(qa_prompt_dict["expression_duplication"])
-                            .render(
-                                prev_expression=expr,
-                                duplicated_subtree_size=eval_dict['duplicated_subtree_size'],
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["expression_duplication"])
+                        .render(
+                            prev_expression=expr,
+                            duplicated_subtree_size=eval_dict["duplicated_subtree_size"],
                             duplication_threshold=self.factor_regulator.duplication_threshold,
-                            duplicated_subtree=eval_dict.get('duplicated_subtree', ''),
-                            matched_alpha=eval_dict.get('matched_alpha', ''),
+                            duplicated_subtree=eval_dict.get("duplicated_subtree", ""),
+                            matched_alpha=eval_dict.get("matched_alpha", ""),
                             free_args_ratio=free_args_ratio,
-                            num_free_args=eval_dict['num_free_args'],
+                            num_free_args=eval_dict["num_free_args"],
                             unique_vars_ratio=unique_vars_ratio,
-                            num_unique_vars=eval_dict['num_unique_vars'],
+                            num_unique_vars=eval_dict["num_unique_vars"],
                             num_all_nodes=num_all_nodes,
                             symbol_length=symbol_length,
                             symbol_length_threshold=symbol_length_threshold,
                             num_base_features=num_base_features,
-                            base_features_threshold=base_features_threshold
-                            )
+                            base_features_threshold=base_features_threshold,
                         )
+                    )
 
                     if expression_duplication_prompt is not None:
-                        expression_duplication_prompt = '\n\n'.join([expression_duplication_prompt, feedback_item])
+                        expression_duplication_prompt = "\n\n".join([expression_duplication_prompt, feedback_item])
                     else:
                         expression_duplication_prompt = feedback_item
 
@@ -806,7 +760,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                             function_lib_description=context["function_lib_description"],
                             target_list=context["target_list"],
                             RAG=context["RAG"],
-                            expression_duplication=expression_duplication_prompt
+                            expression_duplication=expression_duplication_prompt,
                         )
                     )
                     break
@@ -824,12 +778,9 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         # Add valid factors to the factor regulator
         self.factor_regulator.add_factor(proposed_names, proposed_exprs)
 
+        return self._build_experiment_from_dict(final_response_dict, trace)
 
-        return self.convert_response(resp, trace)
-
-
-    def convert_response(self, response: str, trace: Trace) -> FactorExperiment:
-        response_dict = robust_json_parse(response)
+    def _build_experiment_from_dict(self, response_dict: dict, trace: Trace) -> FactorExperiment:
         tasks = []
 
         for factor_name in response_dict:
@@ -869,7 +820,6 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
         exp.tasks = unique_tasks
         return exp
-
 
 
 class BacktestHypothesis2FactorExpression(FactorHypothesis2Experiment):

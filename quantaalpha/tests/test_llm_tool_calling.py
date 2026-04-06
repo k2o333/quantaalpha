@@ -334,3 +334,99 @@ class TestAutoContinueToolCalls:
         # No tool_calls — should return str as before
         assert isinstance(result, str)
         assert result == "Hello world"
+
+
+class TestJsonModeToolCallPriority:
+    """Tests for JSON parsing priority when tool calls are available."""
+
+    def _make_backend(self):
+        from quantaalpha.llm.client import APIBackend
+
+        backend = object.__new__(APIBackend)
+        backend.use_azure = False
+        backend.use_llama2 = False
+        backend.use_gcr_endpoint = False
+        backend.chat_stream = False
+        backend.use_chat_cache = False
+        backend.chat_model = "gpt-4-turbo"
+        backend.reasoning_model = ""
+        backend.chat_client = MagicMock()
+        backend.cache = MagicMock()
+        backend.cache.chat_get.return_value = None
+        backend.task_model_map = {}
+        backend.routing_default = ""
+        backend.chat_model_map = {}
+        backend.chat_api_key = "test"
+        backend.base_url = None
+        backend.embedding_api_key = ""
+        backend.embedding_base_url = None
+        backend.encoder = None
+        backend.chat_seed = None
+        backend.retry_wait_seconds = 1
+        backend.dump_chat_cache = False
+        return backend
+
+    def test_json_mode_prefers_tool_call_arguments_before_text_json(self):
+        """When tool_calls exist, parse function.arguments before text response JSON."""
+        backend = self._make_backend()
+        backend._try_create_chat_completion_or_embedding = MagicMock(
+            return_value={
+                "content": '{"source": "text", "value": 1}',
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "emit_json",
+                            "arguments": '{"source": "tool", "value": 2}',
+                        },
+                    }
+                ],
+            }
+        )
+
+        result = backend.build_messages_and_create_chat_completion_json(
+            user_prompt="return structured data",
+            tools=[{"type": "function", "function": {"name": "emit_json"}}],
+        )
+
+        assert result == {"source": "tool", "value": 2}
+
+    def test_json_mode_falls_back_to_text_when_tool_call_arguments_invalid(self):
+        """Invalid tool call JSON should fall back to text JSON content."""
+        backend = self._make_backend()
+        backend._try_create_chat_completion_or_embedding = MagicMock(
+            return_value={
+                "content": '{"source": "text", "value": 1}',
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "emit_json",
+                            "arguments": "definitely not json",
+                        },
+                    }
+                ],
+            }
+        )
+
+        result = backend.build_messages_and_create_chat_completion_json(
+            user_prompt="return structured data",
+            tools=[{"type": "function", "function": {"name": "emit_json"}}],
+        )
+
+        assert result == {"source": "text", "value": 1}
+
+    def test_json_mode_keeps_text_parsing_when_no_tool_calls_present(self):
+        """Plain JSON text path stays backward compatible when no tool_calls exist."""
+        backend = self._make_backend()
+        backend._try_create_chat_completion_or_embedding = MagicMock(return_value='{"source": "text", "value": 1}')
+
+        result = backend.build_messages_and_create_chat_completion_json(
+            user_prompt="return structured data",
+        )
+
+        assert result == {"source": "text", "value": 1}

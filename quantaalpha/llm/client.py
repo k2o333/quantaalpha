@@ -221,6 +221,99 @@ def robust_json_parse(text: str, max_retries: int = 3) -> dict:
     )
 
 
+def call_structured(
+    api: "APIBackend",
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    json_mode: bool = False,
+    reasoning_flag: bool = False,
+    task_type: str | None = None,
+    chat_cache_prefix: str = "",
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    frequency_penalty: float | None = None,
+    presence_penalty: float | None = None,
+    seed: int | None = None,
+    add_json_in_prompt: bool = False,
+    allow_text_fallback: bool = True,
+) -> dict[str, Any]:
+    """Unified structured-completion entry for the once mining path.
+
+    Phase-1 contract:
+    - When ``tools`` is provided, the call uses ``tools + tool_choice`` to
+      request a tool-call response.  Tool-call arguments are parsed first.
+    - When ``json_mode`` is True without tools, the call uses ``json_object``
+      response format with text-based JSON parsing fallback.
+    - ``allow_text_fallback`` controls whether non-tool-call text JSON parsing
+      is permitted when tool calls are requested but not returned.
+    - Dynamic-key ``factor_construct`` callers may still rely on text fallback
+      internally; this function unifies the entry point.
+
+    Returns a dict parsed from tool-call arguments or text JSON content.
+    Raises ``json.JSONDecodeError`` when all parsing strategies fail.
+    """
+    raw = api._try_create_chat_completion_or_embedding(
+        messages=messages,
+        chat_completion=True,
+        chat_cache_prefix=chat_cache_prefix,
+        json_mode=json_mode,
+        reasoning_flag=reasoning_flag,
+        task_type=task_type,
+        tools=tools,
+        tool_choice=tool_choice,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        frequency_penalty=frequency_penalty,
+        presence_penalty=presence_penalty,
+        seed=seed,
+        add_json_in_prompt=add_json_in_prompt,
+    )
+
+    return parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
+
+
+def parse_chat_completion_json_response(
+    response: str | dict[str, Any],
+    *,
+    allow_text_fallback: bool = True,
+) -> dict[str, Any]:
+    """Parse chat-completion JSON with tool-call arguments taking priority."""
+    if isinstance(response, dict):
+        tool_calls = response.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    continue
+                function_payload = tool_call.get("function")
+                if not isinstance(function_payload, dict):
+                    continue
+                arguments = function_payload.get("arguments")
+                if not isinstance(arguments, str) or not arguments.strip():
+                    continue
+                try:
+                    return robust_json_parse(arguments)
+                except json.JSONDecodeError as exc:
+                    tool_name = function_payload.get("name", "<unknown>")
+                    logger.warning(f"Failed to parse tool call arguments for {tool_name}: {exc}; falling back to text content")
+            if not allow_text_fallback:
+                raise json.JSONDecodeError(
+                    "Tool-call arguments parse failed and text fallback is disabled",
+                    "",
+                    0,
+                )
+
+        content = response.get("content")
+        if isinstance(content, str):
+            return robust_json_parse(content)
+        raise TypeError(f"Unsupported chat completion response content type: {type(content).__name__}")
+
+    if not allow_text_fallback:
+        raise json.JSONDecodeError("Text fallback disabled but response is not a dict", "", 0)
+    return robust_json_parse(response)
+
+
 try:
     from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 except ImportError:
@@ -416,7 +509,7 @@ class ChatSession:
     def build_chat_completion_json(self, user_prompt: str, **kwargs: Any) -> dict[str, Any]:
         kwargs["json_mode"] = True
         response = self.build_chat_completion(user_prompt, **kwargs)
-        return robust_json_parse(response)
+        return parse_chat_completion_json_response(response)
 
     def get_conversation_id(self) -> str:
         return self.conversation_id
@@ -777,7 +870,7 @@ class APIBackend:
             shrink_multiple_break=shrink_multiple_break,
             **kwargs,
         )
-        return robust_json_parse(response)
+        return parse_chat_completion_json_response(response)
 
     def create_embedding(self, input_content: str | list[str], **kwargs: Any) -> list[Any] | Any:
         input_content_list = [input_content] if isinstance(input_content, str) else input_content

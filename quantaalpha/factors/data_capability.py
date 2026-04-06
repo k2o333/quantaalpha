@@ -321,6 +321,26 @@ def render_data_capabilities(capabilities: Mapping[str, Mapping[str, Any]] | Non
     return "Available data capabilities:\n" + "\n".join(sections)
 
 
+def _load_financial_pit_frame_from_spec(interface_name: str, capability: Mapping[str, Any] | None):
+    import polars as pl
+
+    if not capability:
+        raise ValueError(f"Unknown financial PIT interface: {interface_name}")
+
+    if capability.get("layer") != "financial_pit":
+        raise ValueError(f"Interface {interface_name} is not a financial_pit capability")
+
+    storage_kind = capability.get("storage_kind")
+    if storage_kind != "financial_pit_parquet":
+        raise ValueError(f"Interface {interface_name} does not use supported storage_kind")
+
+    storage_path = capability.get("storage_path")
+    if not storage_path:
+        raise ValueError(f"Interface {interface_name} has no financial PIT storage_path")
+
+    return pl.read_parquet(str(storage_path))
+
+
 def load_financial_pit_frame(
     interface_name: str,
     report_path: str | Path | None = None,
@@ -339,21 +359,7 @@ def load_financial_pit_frame(
 
     capabilities = load_from_report(report_path)
     capability = capabilities.get(interface_name)
-    if not capability:
-        raise ValueError(f"Unknown financial PIT interface: {interface_name}")
-
-    if capability.get("layer") != "financial_pit":
-        raise ValueError(f"Interface {interface_name} is not a financial_pit capability")
-
-    storage_kind = capability.get("storage_kind")
-    if storage_kind != "financial_pit_parquet":
-        raise ValueError(f"Interface {interface_name} does not use supported storage_kind")
-
-    storage_path = capability.get("storage_path")
-    if not storage_path:
-        raise ValueError(f"Interface {interface_name} has no financial PIT storage_path")
-
-    df = pl.read_parquet(str(storage_path))
+    df = _load_financial_pit_frame_from_spec(interface_name, capability)
     if latest_only:
         df = df.filter(pl.col("is_latest") == True)
     return df
@@ -376,24 +382,9 @@ def query_financial_pit_asof(
     """
     import polars as pl
 
-    normalized_asof_date = str(asof_date).replace("-", "")
-
-    df = load_financial_pit_frame(interface_name, report_path=report_path, latest_only=False)
-    df = df.with_columns(pl.col("disclosure_date").cast(pl.String).str.replace_all("-", "").alias("_cmp_disclosure_date"))
-    df = df.filter(pl.col("_cmp_disclosure_date") <= normalized_asof_date)
-
-    if aliases is not None:
-        df = df.filter(pl.col("alias").is_in(list(aliases)))
-
-    if df.is_empty():
-        return df
-
-    df = df.sort(["instrument", "report_period", "alias", "disclosure_date"])
-    return (
-        df.unique(subset=["instrument", "report_period", "alias"], keep="last")
-        .drop("_cmp_disclosure_date")
-        .sort(["instrument", "report_period", "alias"])
-    )
+    capabilities = load_from_report(report_path)
+    capability = capabilities.get(interface_name)
+    return _query_financial_pit_asof_from_spec(interface_name, capability, asof_date, aliases=aliases)
 
 
 def query_financial_pit_panel_asof(
@@ -415,6 +406,90 @@ def query_financial_pit_panel_asof(
         report_path=report_path,
         aliases=aliases,
     )
+    if df.is_empty():
+        return df.select(["instrument"]).unique()
+    return (
+        df.select(["instrument", "alias", "value"])
+        .pivot(on="alias", index="instrument", values="value", aggregate_function="first")
+        .sort("instrument")
+    )
+
+
+def _query_financial_pit_asof_from_spec(
+    interface_name: str,
+    capability_spec: Mapping[str, Any] | None,
+    asof_date: str,
+    aliases: list[str] | None = None,
+):
+    import polars as pl
+
+    normalized_asof_date = str(asof_date).replace("-", "")
+
+    df = _load_financial_pit_frame_from_spec(interface_name, capability_spec)
+    df = df.with_columns(pl.col("disclosure_date").cast(pl.String).str.replace_all("-", "").alias("_cmp_disclosure_date"))
+    df = df.filter(pl.col("_cmp_disclosure_date") <= normalized_asof_date)
+
+    if aliases is not None:
+        df = df.filter(pl.col("alias").is_in(list(aliases)))
+
+    if df.is_empty():
+        return df
+
+    df = df.sort(["instrument", "report_period", "alias", "disclosure_date"])
+    return (
+        df.unique(subset=["instrument", "report_period", "alias"], keep="last")
+        .drop("_cmp_disclosure_date")
+        .sort(["instrument", "report_period", "alias"])
+    )
+
+
+def render_financial_pit_panel_preview(
+    interface_name: str,
+    capability_spec: Mapping[str, Any],
+    asof_date: str | None = None,
+    aliases: list[str] | None = None,
+    max_rows: int = 5,
+) -> str | None:
+    """
+    Render a compact financial PIT panel preview for upper-layer consumers.
+    """
+    import polars as pl
+
+    try:
+        df = _load_financial_pit_frame_from_spec(interface_name, capability_spec)
+    except Exception:
+        return None
+
+    if df.is_empty():
+        return None
+
+    if asof_date is None:
+        max_disclosure = df.select(pl.col("disclosure_date").cast(pl.String).str.replace_all("-", "").max()).item()
+        asof_date = str(max_disclosure)
+
+    panel = query_financial_pit_panel_from_spec(
+        interface_name,
+        capability_spec,
+        asof_date=asof_date,
+        aliases=aliases,
+    )
+    if panel.is_empty():
+        return None
+
+    preview = panel.head(max_rows)
+    return (
+        f"Financial PIT panel preview ({interface_name}, asof={asof_date}):\n"
+        f"{preview}"
+    )
+
+
+def query_financial_pit_panel_from_spec(
+    interface_name: str,
+    capability_spec: Mapping[str, Any],
+    asof_date: str,
+    aliases: list[str] | None = None,
+):
+    df = _query_financial_pit_asof_from_spec(interface_name, capability_spec, asof_date, aliases=aliases)
     if df.is_empty():
         return df.select(["instrument"]).unique()
     return (
