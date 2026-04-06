@@ -35,6 +35,43 @@ PROPOSE_FACTORS_TOOL = {
         },
     },
 }
+
+CONSTRUCT_FACTORS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "construct_factors",
+        "description": "Construct factor experiments from a hypothesis. Keys are factor names.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "factors": {
+                    "type": "object",
+                    "description": "Dynamic keys: each key is a factor name, value has description, formulation, expression, variables.",
+                },
+            },
+            "required": ["factors"],
+        },
+    },
+}
+
+FEEDBACK_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "provide_feedback",
+        "description": "Provide feedback on hypothesis and experiment results.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "Observations": {"type": "string"},
+                "Feedback for Hypothesis": {"type": "string"},
+                "New Hypothesis": {"type": "string"},
+                "Reasoning": {"type": "string"},
+                "Replace Best Result": {"type": "string"},
+            },
+            "required": ["Observations"],
+        },
+    },
+}
 DEFAULT_HISTORY_LIMIT = 6
 MIN_HISTORY_LIMIT = 1
 
@@ -575,6 +612,30 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             "RAG": None,
         }, True
 
+    def convert_response(self, response: str, trace: Trace) -> Experiment:
+        """Convert LLM response string to FactorExperiment.
+
+        This satisfies the abstract method contract from LLMHypothesis2Experiment.
+        It parses the tool-call/JSON response and builds the experiment via
+        _build_experiment_from_dict after validation.
+        """
+        # The response is already parsed by call_structured inside _convert_with_history_limit.
+        # When convert_response is called directly (e.g. by parent's convert()),
+        # we need to replicate that flow. For backward compatibility with the
+        # overridden convert() path, this method parses response_dict from the
+        # LLM string and builds the experiment.
+        response_dict = robust_json_parse(response)
+        if not isinstance(response_dict, dict):
+            raise ValueError(f"Expected dict from LLM response, got {type(response_dict).__name__}")
+        return self._build_experiment_from_dict(response_dict, trace)
+
+    def _unwrap_construct_response(self, response_dict: dict[str, object]) -> dict[str, dict]:
+        """Normalize construct responses to a factor-name keyed mapping."""
+        factors_dict = response_dict.get("factors", response_dict)
+        if not isinstance(factors_dict, dict):
+            return {}
+        return {str(name): payload for name, payload in factors_dict.items() if isinstance(payload, dict)}
+
     def convert(self, hypothesis: Hypothesis, trace: Trace) -> Experiment:
         """Convert hypothesis to factor expressions; supports dynamic history limit."""
         history_limit = DEFAULT_HISTORY_LIMIT
@@ -636,12 +697,13 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 logger.warning(f"Empty LLM response at attempt {attempt + 1}/{MAX_RETRIES}, retrying...")
                 continue
             final_response_dict = response_dict
-            final_response_dict = response_dict
             proposed_names = []
             proposed_exprs = []
 
-            for i, factor_name in enumerate(response_dict):
-                factor_data = response_dict.get(factor_name, {})
+            factors_dict = self._unwrap_construct_response(response_dict)
+
+            for i, factor_name in enumerate(factors_dict):
+                factor_data = factors_dict.get(factor_name, {})
                 if not isinstance(factor_data, dict):
                     continue
                 expr = factor_data.get("expression", "")
@@ -701,7 +763,11 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                                     expr = corrected_expr
                                     eval_dict = corrected_eval_dict
                                     factor_data["expression"] = expr
-                                    response_dict[factor_name] = factor_data
+                                    factors_dict[factor_name] = factor_data
+                                    if isinstance(response_dict.get("factors"), dict):
+                                        response_dict["factors"][factor_name] = factor_data
+                                    else:
+                                        response_dict[factor_name] = factor_data
                                 else:
                                     logger.warning(f"Corrected expression evaluation failed, keeping original: {corrected_expr}")
                                     expr = original_expr
@@ -767,7 +833,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 else:
                     proposed_names.append(factor_name)
                     proposed_exprs.append(expr)
-                    if i == len(response_dict) - 1:
+                    if i == len(factors_dict) - 1:
                         flag = True
                     else:
                         continue
@@ -781,10 +847,18 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         return self._build_experiment_from_dict(final_response_dict, trace)
 
     def _build_experiment_from_dict(self, response_dict: dict, trace: Trace) -> FactorExperiment:
+        """Build a FactorExperiment from a parsed LLM response dict.
+
+        Handles two possible input shapes:
+        1. Tool-call shape: {"factors": {"factor_A": {...}, "factor_B": {...}}}
+        2. Direct shape: {"factor_A": {...}, "factor_B": {...}}
+        """
+        factors_dict = self._unwrap_construct_response(response_dict)
+
         tasks = []
 
-        for factor_name in response_dict:
-            factor_data = response_dict.get(factor_name, {})
+        for factor_name in factors_dict:
+            factor_data = factors_dict.get(factor_name, {})
             if not isinstance(factor_data, dict):
                 continue
             description = factor_data.get("description", "")

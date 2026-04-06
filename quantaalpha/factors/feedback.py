@@ -13,7 +13,7 @@ from quantaalpha.core.proposal import (
     Trace,
 )
 from quantaalpha.log import logger
-from quantaalpha.llm.client import APIBackend, call_structured, call_structured
+from quantaalpha.llm.client import APIBackend
 from quantaalpha.utils import convert2bool
 
 # Max retries for JSON parsing

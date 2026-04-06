@@ -5,6 +5,8 @@ These tests verify that:
 2. proposal.py uses call_structured (not ad hoc robust_json_parse) in its main route
 3. factor_construct is routed through call_structured
 4. Fixed-object structured callers use tools + tool_choice
+5. AlphaAgentHypothesis2FactorExpression is instantiable (not abstract) at runtime
+6. CONSTRUCT_FACTORS_TOOL payload shape matches what _build_experiment_from_dict consumes
 """
 
 import json
@@ -184,3 +186,160 @@ class TestLoopEnsembleUsesCallStructured(unittest.TestCase):
             source,
             "AlphaAgentLoop._propose_with_ensemble must use call_structured, not ad hoc build_messages_and_create_chat_completion",
         )
+
+
+class TestAlphaAgentHypothesis2FactorExpressionInstantiable(unittest.TestCase):
+    """Proof that AlphaAgentHypothesis2FactorExpression is NOT abstract at runtime.
+
+    This is the critical runtime instantiation test: the class must be
+    instantiable without TypeError about missing abstract methods.
+    """
+
+    def test_class_is_instantiable_not_abstract(self):
+        """AlphaAgentHypothesis2FactorExpression must be instantiable.
+
+        Before the fix, this raises:
+        TypeError: Can't instantiate abstract class AlphaAgentHypothesis2FactorExpression
+        without an implementation for abstract method 'convert_response'
+        """
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        # Should not raise TypeError about abstract methods
+        instance = AlphaAgentHypothesis2FactorExpression()
+        self.assertIsNotNone(instance)
+
+    def test_convert_response_method_exists(self):
+        """AlphaAgentHypothesis2FactorExpression must have convert_response method.
+
+        The parent class LLMHypothesis2Experiment declares convert_response as
+        @abstractmethod. If this method is not overridden, the class is abstract
+        and cannot be instantiated.
+        """
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+        import inspect
+
+        # convert_response must be defined on the subclass itself, not inherited as abstract
+        self.assertTrue(
+            hasattr(AlphaAgentHypothesis2FactorExpression, "convert_response"),
+            "AlphaAgentHypothesis2FactorExpression must implement convert_response",
+        )
+
+        # The method should be callable (not abstract)
+        method = getattr(AlphaAgentHypothesis2FactorExpression, "convert_response")
+        # It should be a regular function, not an abstract method
+        self.assertFalse(
+            getattr(method, "__isabstractmethod__", False),
+            "convert_response must not be abstract",
+        )
+
+
+class TestConstructPayloadShape(unittest.TestCase):
+    """Proof that CONSTRUCT_FACTORS_TOOL payload shape matches consumer path.
+
+    The tool schema defines factors as dynamic keys:
+      {"factors": {"factor_name_A": {"description": ..., "expression": ..., ...}, ...}}
+
+    The consumer (_build_experiment_from_dict) iterates response_dict directly:
+      for factor_name in response_dict:
+          factor_data = response_dict.get(factor_name, {})
+
+    These must agree on one concrete shape end-to-end.
+    """
+
+    def test_construct_factors_tool_schema_has_factors_object(self):
+        """CONSTRUCT_FACTORS_TOOL schema must have 'factors' as a dynamic-key object."""
+        from quantaalpha.factors.proposal import CONSTRUCT_FACTORS_TOOL
+
+        params = CONSTRUCT_FACTORS_TOOL["function"]["parameters"]
+        self.assertIn("factors", params["properties"])
+        # The factors property should be an object type
+        factors_prop = params["properties"]["factors"]
+        self.assertEqual(factors_prop.get("type"), "object")
+        # "factors" should be in required
+        self.assertIn("factors", params.get("required", []))
+
+    def test_build_experiment_from_dict_consumes_same_shape(self):
+        """_build_experiment_from_dict must consume the wrapped tool-call shape."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+        from quantaalpha.factors.coder.factor import FactorTask
+
+        instance = AlphaAgentHypothesis2FactorExpression()
+
+        response_dict = {
+            "factors": {
+                "test_factor_alpha": {
+                    "description": "A test factor",
+                    "formulation": "Mean reversion over N days",
+                    "expression": "ts_mean($close, 5)",
+                    "variables": {},
+                }
+            }
+        }
+
+        exp = instance._build_experiment_from_dict(response_dict, MagicMock())
+
+        self.assertEqual(len(exp.tasks), 1)
+        task = exp.tasks[0]
+        self.assertIsInstance(task, FactorTask)
+        self.assertEqual(task.factor_name, "test_factor_alpha")
+        self.assertEqual(task.factor_description, "A test factor")
+        self.assertEqual(task.factor_expression, "ts_mean($close, 5)")
+
+    def test_construct_payload_end_to_end_shape(self):
+        """End-to-end: tool schema -> LLM response -> consumer must agree on shape.
+
+        This proves the runtime contract is one shape end-to-end.
+        """
+        from quantaalpha.factors.proposal import (
+            CONSTRUCT_FACTORS_TOOL,
+            AlphaAgentHypothesis2FactorExpression,
+        )
+
+        # Tool schema expects: {"factors": {dynamic_key: {description, formulation, expression, variables}}}
+        factors_schema = CONSTRUCT_FACTORS_TOOL["function"]["parameters"]["properties"]["factors"]
+        self.assertEqual(factors_schema["type"], "object")
+
+        simulated_llm_response = {
+            "factors": {
+                "my_factor_001": {
+                    "description": "Volatility-adjusted momentum",
+                    "formulation": "std(high-low, 20) / (std(abs(delta(open,1)), 20) + 1e-8)",
+                    "expression": "ts_std($high - $low, 20) / (ts_std(abs(ts_delta($open, 1)), 20) + 1e-8)",
+                    "variables": {"high": "daily.high", "low": "daily.low", "open": "daily.open"},
+                }
+            }
+        }
+
+        instance = AlphaAgentHypothesis2FactorExpression()
+        exp = instance._build_experiment_from_dict(simulated_llm_response, MagicMock())
+
+        self.assertEqual(len(exp.tasks), 1)
+        self.assertEqual(exp.tasks[0].factor_name, "my_factor_001")
+        self.assertEqual(
+            exp.tasks[0].factor_expression,
+            "ts_std($high - $low, 20) / (ts_std(abs(ts_delta($open, 1)), 20) + 1e-8)",
+        )
+
+    def test_convert_response_handles_wrapped_tool_payload(self):
+        """convert_response must parse wrapped tool-call JSON into an experiment."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        instance = AlphaAgentHypothesis2FactorExpression()
+        response = json.dumps(
+            {
+                "factors": {
+                    "wrapped_factor": {
+                        "description": "Wrapped payload",
+                        "formulation": "Example",
+                        "expression": "ts_mean($close, 3)",
+                        "variables": {},
+                    }
+                }
+            }
+        )
+
+        exp = instance.convert_response(response, MagicMock())
+
+        self.assertEqual(len(exp.tasks), 1)
+        self.assertEqual(exp.tasks[0].factor_name, "wrapped_factor")
+        self.assertEqual(exp.tasks[0].factor_expression, "ts_mean($close, 3)")

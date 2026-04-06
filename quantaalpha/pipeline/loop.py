@@ -24,7 +24,8 @@ from quantaalpha.log.time import measure_time
 from quantaalpha.utils.workflow import LoopBase, LoopMeta
 from quantaalpha.core.exception import FactorEmptyError
 from quantaalpha.factors.failure_tracker import FactorFailureTracker
-from quantaalpha.factors.proposal import AlphaAgentHypothesis
+from quantaalpha.factors.proposal import AlphaAgentHypothesis, PROPOSE_FACTORS_TOOL
+from quantaalpha.llm.client import APIBackend, call_structured
 import threading
 
 
@@ -258,7 +259,6 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
         Calls each model in the ensemble config separately and aggregates results.
         """
-        from quantaalpha.llm.client import APIBackend
         from quantaalpha.llm.ensemble import EnsembleAggregator, ModelResponse
 
         models = self._ensemble_config.get("models", [])
@@ -279,11 +279,19 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 real_model = self._provider_name_to_model.get(model_name, model_name)
                 backend = APIBackend(chat_model=real_model)
                 start_time = time.time()
-                output = backend.build_messages_and_create_chat_completion(
+                messages = backend.build_messages(
                     user_prompt=prompt_text,
                     system_prompt="You are an expert quantitative factor researcher. Generate innovative alpha factor hypotheses.",
-                    reasoning_flag=False,
                 )
+                output_dict = call_structured(
+                    backend,
+                    messages,
+                    tools=[PROPOSE_FACTORS_TOOL],
+                    tool_choice="required",
+                    json_mode=True,
+                    allow_text_fallback=True,
+                )
+                output = json.dumps(output_dict) if output_dict else ""
                 latency_ms = (time.time() - start_time) * 1000
 
                 responses.append(
