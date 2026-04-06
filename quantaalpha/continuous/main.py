@@ -162,7 +162,7 @@ def start(
             _run_once_cycle(orchestrator, pipeline_config, skip_update=skip_update)
         else:
             logger.info("Running in continuous loop mode")
-            _run_continuous_loop(orchestrator, pipeline_config)
+            _run_continuous_loop(orchestrator, pipeline_config, skip_update=skip_update)
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
     finally:
@@ -261,7 +261,7 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
     logger.info(f"  Mining: {summary.mining_summary.generated} generated, {summary.mining_summary.added} added")
 
 
-def _run_continuous_loop(orchestrator, pipeline_config) -> None:
+def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = False) -> None:
     """Run the continuous foreground loop."""
     from quantaalpha.continuous.run_store import DataUpdateSummary, MiningSummary, RunSummary, ValidationSummary
 
@@ -294,7 +294,7 @@ def _run_continuous_loop(orchestrator, pipeline_config) -> None:
         )
 
         try:
-            cycle_result = orchestrator.run_once_cycle()
+            cycle_result = orchestrator.run_once_cycle(skip_update=skip_update)
 
             # Populate from cycle result
             if cycle_result.get("data_update"):
@@ -862,7 +862,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "start":
-        start(config=args.config, verbose=args.verbose)
+        start(config=args.config, verbose=args.verbose, skip_update=args.skip_update)
     elif args.command == "once":
         once(config=args.config, verbose=args.verbose, skip_update=args.skip_update)
 
