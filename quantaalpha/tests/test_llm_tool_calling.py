@@ -335,6 +335,31 @@ class TestAutoContinueToolCalls:
         assert isinstance(result, str)
         assert result == "Hello world"
 
+    def test_auto_continue_does_not_continue_text_when_tools_requested_but_no_tool_calls(self):
+        """Tools requests must not use text auto-continue when the provider omits tool_calls."""
+        backend = self._make_backend()
+
+        first_result = ("", "length")
+
+        with (
+            patch.object(backend, "_create_chat_completion_inner_function", side_effect=[first_result]) as mock_inner,
+            patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings,
+        ):
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_auto_chat_cache_seed_gen = False
+            result = backend._create_chat_completion_auto_continue(
+                messages=[{"role": "user", "content": "return structured data"}],
+                tools=[{"type": "function", "function": {"name": "emit_json"}}],
+                tool_choice="required",
+                reasoning_flag=False,
+            )
+
+        assert isinstance(result, dict), "Structured tool requests should return a dict wrapper even when tool_calls are missing"
+        assert result["content"] == ""
+        assert result["finish_reason"] == "length"
+        assert result["tool_calls"] is None
+        assert mock_inner.call_count == 1, "Tool requests must not append a text-only 'continue the former output' turn"
+
 
 class TestJsonModeToolCallPriority:
     """Tests for JSON parsing priority when tool calls are available."""
@@ -430,3 +455,42 @@ class TestJsonModeToolCallPriority:
         )
 
         assert result == {"source": "text", "value": 1}
+
+    def test_call_structured_disables_streaming_when_tools_are_used(self):
+        """Structured tool calls must force non-streaming to preserve tool_calls payloads."""
+        from quantaalpha.llm.client import call_structured
+
+        backend = self._make_backend()
+        backend.chat_stream = True
+
+        def _fake_call(**kwargs):
+            assert backend.chat_stream is False
+            return {
+                "content": None,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "emit_json",
+                            "arguments": '{"source": "tool", "value": 2}',
+                        },
+                    }
+                ],
+            }
+
+        backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_fake_call)
+
+        result = call_structured(
+            backend,
+            [{"role": "user", "content": "return structured data"}],
+            tools=[{"type": "function", "function": {"name": "emit_json"}}],
+            tool_choice="required",
+            json_mode=True,
+        )
+
+        assert result == {"source": "tool", "value": 2}
+        assert backend.chat_stream is True
+        call_kwargs = backend._try_create_chat_completion_or_embedding.call_args.kwargs
+        assert call_kwargs["json_mode"] is False

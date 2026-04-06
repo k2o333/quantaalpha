@@ -404,25 +404,39 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
         )
         return hypothesis
 
+    def render_generation_prompts(self, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> tuple[str, str, bool]:
+        """Render the structured prompt pair used for hypothesis generation."""
+        context_dict, json_flag = self.prepare_context(trace, history_limit)
+        system_prompt = (
+            Environment(undefined=StrictUndefined)
+            .from_string(qa_prompt_dict["hypothesis_gen"]["system_prompt"])
+            .render(
+                targets=self.targets,
+                scenario=self.scen.get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
+                hypothesis_output_format=context_dict["hypothesis_output_format"],
+                hypothesis_specification=context_dict["hypothesis_specification"],
+                function_lib_description=context_dict["function_lib_description"],
+            )
+        )
+        user_prompt = (
+            Environment(undefined=StrictUndefined)
+            .from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"])
+            .render(
+                targets=self.targets,
+                hypothesis_and_feedback=context_dict["hypothesis_and_feedback"],
+                RAG=context_dict["RAG"],
+                round=len(trace.hist),
+            )
+        )
+        return system_prompt, user_prompt, json_flag
+
     def gen(self, trace: Trace) -> AlphaAgentHypothesis:
         """Generate hypothesis; supports dynamic history limit for input length."""
         history_limit = DEFAULT_HISTORY_LIMIT
 
         while history_limit >= MIN_HISTORY_LIMIT:
             try:
-                context_dict, json_flag = self.prepare_context(trace, history_limit)
-                system_prompt = (
-                    Environment(undefined=StrictUndefined)
-                    .from_string(qa_prompt_dict["hypothesis_gen"]["system_prompt"])
-                    .render(
-                        targets=self.targets,
-                        scenario=self.scen.get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
-                        hypothesis_output_format=context_dict["hypothesis_output_format"],
-                        hypothesis_specification=context_dict["hypothesis_specification"],
-                        function_lib_description=context_dict["function_lib_description"],
-                    )
-                )
-                user_prompt = Environment(undefined=StrictUndefined).from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"]).render(targets=self.targets, hypothesis_and_feedback=context_dict["hypothesis_and_feedback"], RAG=context_dict["RAG"], round=len(trace.hist))
+                system_prompt, user_prompt, json_flag = self.render_generation_prompts(trace, history_limit)
 
                 resp = ""
                 for attempt in range(3):
@@ -452,19 +466,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                     return self._build_fallback_hypothesis()
 
         # Last attempt with minimum history limit
-        context_dict, json_flag = self.prepare_context(trace, MIN_HISTORY_LIMIT)
-        system_prompt = (
-            Environment(undefined=StrictUndefined)
-            .from_string(qa_prompt_dict["hypothesis_gen"]["system_prompt"])
-            .render(
-                targets=self.targets,
-                scenario=self.scen.get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
-                hypothesis_output_format=context_dict["hypothesis_output_format"],
-                hypothesis_specification=context_dict["hypothesis_specification"],
-                function_lib_description=context_dict["function_lib_description"],
-            )
-        )
-        user_prompt = Environment(undefined=StrictUndefined).from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"]).render(targets=self.targets, hypothesis_and_feedback=context_dict["hypothesis_and_feedback"], RAG=context_dict["RAG"], round=len(trace.hist))
+        system_prompt, user_prompt, json_flag = self.render_generation_prompts(trace, MIN_HISTORY_LIMIT)
         api = APIBackend()
         messages = api.build_messages(user_prompt, system_prompt)
         resp_dict = call_structured(

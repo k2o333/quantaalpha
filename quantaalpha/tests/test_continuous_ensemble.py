@@ -183,3 +183,49 @@ class TestEnsembleProposeStep:
 
             loop.hypothesis_generator.gen.assert_called_once_with(loop.trace)
             assert result is fallback
+
+    def test_propose_with_ensemble_uses_rendered_prompt_not_trace_repr(self):
+        """Ensemble propose must use the hypothesis generator's rendered prompt."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+
+        captured_prompts = {}
+
+        class FakeBackend:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_messages(self, user_prompt, system_prompt):
+                captured_prompts["user_prompt"] = user_prompt
+                captured_prompts["system_prompt"] = system_prompt
+                return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="price-volume divergence",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "models": [{"name": "m1"}]},
+            )
+            loop._provider_name_to_model = {"m1": "glm-4.7-flash"}
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.render_generation_prompts.return_value = (
+                "system prompt",
+                "rendered prompt with price-volume divergence",
+                True,
+            )
+
+            mock_result = MagicMock()
+            mock_result.output = [{"hypothesis": "h"}]
+
+            with (
+                patch("quantaalpha.pipeline.loop.APIBackend", FakeBackend),
+                patch("quantaalpha.pipeline.loop.call_structured", return_value={"hypothesis": "h"}),
+                patch("quantaalpha.llm.ensemble.EnsembleAggregator.aggregate", return_value=mock_result),
+            ):
+                loop._propose_with_ensemble()
+
+        assert captured_prompts["user_prompt"], "Expected ensemble propose to render a non-empty user prompt"
+        assert "Trace object" not in captured_prompts["user_prompt"]
+        assert "<quantaalpha.core.proposal.Trace object" not in captured_prompts["user_prompt"]
+        assert "price-volume divergence" in captured_prompts["user_prompt"]

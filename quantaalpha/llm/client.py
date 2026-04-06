@@ -254,22 +254,30 @@ def call_structured(
     Returns a dict parsed from tool-call arguments or text JSON content.
     Raises ``json.JSONDecodeError`` when all parsing strategies fail.
     """
-    raw = api._try_create_chat_completion_or_embedding(
-        messages=messages,
-        chat_completion=True,
-        chat_cache_prefix=chat_cache_prefix,
-        json_mode=json_mode,
-        reasoning_flag=reasoning_flag,
-        task_type=task_type,
-        tools=tools,
-        tool_choice=tool_choice,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        frequency_penalty=frequency_penalty,
-        presence_penalty=presence_penalty,
-        seed=seed,
-        add_json_in_prompt=add_json_in_prompt,
-    )
+    effective_json_mode = json_mode if tools is None else False
+    original_chat_stream = getattr(api, "chat_stream", None)
+    if tools is not None and original_chat_stream is not None:
+        api.chat_stream = False
+    try:
+        raw = api._try_create_chat_completion_or_embedding(
+            messages=messages,
+            chat_completion=True,
+            chat_cache_prefix=chat_cache_prefix,
+            json_mode=effective_json_mode,
+            reasoning_flag=reasoning_flag,
+            task_type=task_type,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            seed=seed,
+            add_json_in_prompt=add_json_in_prompt,
+        )
+    finally:
+        if tools is not None and original_chat_stream is not None:
+            api.chat_stream = original_chat_stream
 
     return parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
 
@@ -891,10 +899,18 @@ class APIBackend:
         result = self._create_chat_completion_inner_function(messages=messages, **kwargs)
         response = result[0]
         finish_reason = result[1]
+        structured_tools_requested = kwargs.get("tools") is not None
 
         # Tool calls: return structured result immediately (don't discard tool_calls)
         if len(result) >= 3 and result[2] is not None:
             return {"content": response, "finish_reason": finish_reason, "tool_calls": result[2]}
+
+        # Structured tool requests must not fall into text auto-continue.
+        # Some providers incorrectly return empty/truncated assistant text instead
+        # of tool_calls; preserving the first response lets the structured parser
+        # fail fast or fall back deterministically at the caller.
+        if structured_tools_requested:
+            return {"content": response, "finish_reason": finish_reason, "tool_calls": None}
 
         if finish_reason == "length":
             new_message = deepcopy(messages)

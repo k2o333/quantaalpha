@@ -267,8 +267,6 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         aggregator = EnsembleAggregator(strategy=strategy)
         responses = []
 
-        prompt_text = str(self.trace)
-
         for model_cfg in models:
             model_name = model_cfg.get("name", "")
             if not model_name:
@@ -279,16 +277,17 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 real_model = self._provider_name_to_model.get(model_name, model_name)
                 backend = APIBackend(chat_model=real_model)
                 start_time = time.time()
+                system_prompt, user_prompt, json_flag = self.hypothesis_generator.render_generation_prompts(self.trace)
                 messages = backend.build_messages(
-                    user_prompt=prompt_text,
-                    system_prompt="You are an expert quantitative factor researcher. Generate innovative alpha factor hypotheses.",
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
                 )
                 output_dict = call_structured(
                     backend,
                     messages,
                     tools=[PROPOSE_FACTORS_TOOL],
                     tool_choice="required",
-                    json_mode=True,
+                    json_mode=json_flag,
                     allow_text_fallback=True,
                 )
                 output = json.dumps(output_dict) if output_dict else ""
