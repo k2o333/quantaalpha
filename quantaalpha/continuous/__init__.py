@@ -8,18 +8,17 @@ Provides 24H autonomous scheduling for:
 """
 
 from .orchestrator import MiningOrchestrator
+from .run_store import RunStore, RunSummary
 from .scheduler import (
     DataMonitorTrigger,
-    RevalidationScheduler,
-    MiningScheduler,
-    SchedulerConfig,
-    SchedulerEvent,
-    SchedulerContext,
-    RevalidationResult,
     MiningResult,
+    MiningScheduler,
+    RevalidationResult,
+    RevalidationScheduler,
+    SchedulerConfig,
+    SchedulerContext,
+    SchedulerEvent,
 )
-from .run_store import RunStore, RunSummary
-from .main import ContinuousOrchestrator, start, once
 
 __all__ = [
     "MiningOrchestrator",
@@ -37,3 +36,16 @@ __all__ = [
     "start",
     "once",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"ContinuousOrchestrator", "start", "once"}:
+        from .main import ContinuousOrchestrator, once, start
+
+        exports = {
+            "ContinuousOrchestrator": ContinuousOrchestrator,
+            "start": start,
+            "once": once,
+        }
+        return exports[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

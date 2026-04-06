@@ -9,6 +9,8 @@ Tests cover:
 - Default implementations
 """
 
+import importlib
+import sys
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -52,6 +54,16 @@ class TestSchedulerConfig:
 
         config = SchedulerConfig()
         assert config.data_dirs == []
+
+    def test_package_import_does_not_eagerly_import_main(self):
+        """Importing quantaalpha.continuous should not preload main.py."""
+        sys.modules.pop("quantaalpha.continuous.main", None)
+        sys.modules.pop("quantaalpha.continuous", None)
+
+        module = importlib.import_module("quantaalpha.continuous")
+
+        assert "quantaalpha.continuous.main" not in sys.modules
+        assert module.SchedulerConfig is not None
 
 
 class TestSchedulerEvent:

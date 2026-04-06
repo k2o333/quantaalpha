@@ -106,6 +106,8 @@ class TestMaxLoopsPerCycle:
         Bug 5: Previously only ran a single AlphaAgentLoop regardless of max_loops_per_cycle config.
         """
         from unittest.mock import patch, MagicMock
+        import sys
+        import types
 
         from quantaalpha.continuous.implementations import DefaultMiningScheduler
 
@@ -122,27 +124,35 @@ class TestMaxLoopsPerCycle:
 
         loop_run_count = []
 
-        def mock_loop_init(self, *args, **kwargs):
-            pass
+        class MockLoop:
+            def __init__(self, *args, **kwargs):
+                pass
 
-        def mock_loop_run(self, step_n=None, stop_event=None):
-            loop_run_count.append(1)
+            def run(self, step_n=None, stop_event=None):
+                loop_run_count.append(1)
 
-        with (
-            patch.object(scheduler, "_get_mining_direction", return_value=None),
-            patch.object(scheduler, "_state_manager", None),
-            patch.object(scheduler, "_extract_factors_from_loop", return_value=[]),
-            patch.object(scheduler, "_persist_state"),
-            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.__init__", mock_loop_init),
-            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.run", mock_loop_run),
-        ):
-            scheduler._run_pipeline_mining()
+        fake_loop_mod = types.ModuleType("quantaalpha.pipeline.loop")
+        fake_loop_mod.AlphaAgentLoop = MockLoop
+        sys.modules["quantaalpha.pipeline.loop"] = fake_loop_mod
+
+        try:
+            with (
+                patch.object(scheduler, "_get_mining_direction", return_value=None),
+                patch.object(scheduler, "_state_manager", None),
+                patch.object(scheduler, "_extract_factors_from_loop", return_value=[]),
+                patch.object(scheduler, "_persist_state"),
+            ):
+                scheduler._run_pipeline_mining()
+        finally:
+            del sys.modules["quantaalpha.pipeline.loop"]
 
         assert len(loop_run_count) == 3, f"Expected AlphaAgentLoop to run 3 times (max_loops_per_cycle=3), but it ran {len(loop_run_count)} time(s). max_loops_per_cycle config is not being used."
 
     def test_max_loops_per_cycle_stops_early_on_success(self):
         """_run_pipeline_mining stops looping when factors are found."""
         from unittest.mock import patch, MagicMock
+        import sys
+        import types
 
         from quantaalpha.continuous.implementations import DefaultMiningScheduler
 
@@ -160,27 +170,56 @@ class TestMaxLoopsPerCycle:
         loop_run_count = []
         call_num = [0]
 
-        def mock_loop_init(self, *args, **kwargs):
-            pass
+        class MockLoop:
+            def __init__(self, *args, **kwargs):
+                pass
 
-        def mock_loop_run(self, step_n=None, stop_event=None):
-            loop_run_count.append(1)
-            call_num[0] += 1
+            def run(self, step_n=None, stop_event=None):
+                loop_run_count.append(1)
+                call_num[0] += 1
 
-        # First call returns factors (success), so loop should stop after 1 iteration
-        def mock_extract(loop):
-            if call_num[0] == 1:
-                return ["factor_1"]
-            return []
+        fake_loop_mod = types.ModuleType("quantaalpha.pipeline.loop")
+        fake_loop_mod.AlphaAgentLoop = MockLoop
+        sys.modules["quantaalpha.pipeline.loop"] = fake_loop_mod
 
-        with (
-            patch.object(scheduler, "_get_mining_direction", return_value=None),
-            patch.object(scheduler, "_state_manager", None),
-            patch.object(scheduler, "_extract_factors_from_loop", side_effect=mock_extract),
-            patch.object(scheduler, "_persist_state"),
-            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.__init__", mock_loop_init),
-            patch("quantaalpha.pipeline.loop.AlphaAgentLoop.run", mock_loop_run),
-        ):
-            scheduler._run_pipeline_mining()
+        try:
+            # First call returns factors (success), so loop should stop after 1 iteration
+            def mock_extract(loop):
+                if call_num[0] == 1:
+                    return ["factor_1"]
+                return []
+
+            with (
+                patch.object(scheduler, "_get_mining_direction", return_value=None),
+                patch.object(scheduler, "_state_manager", None),
+                patch.object(scheduler, "_extract_factors_from_loop", side_effect=mock_extract),
+                patch.object(scheduler, "_persist_state"),
+            ):
+                scheduler._run_pipeline_mining()
+        finally:
+            del sys.modules["quantaalpha.pipeline.loop"]
 
         assert len(loop_run_count) == 1, f"Expected loop to stop after 1 iteration (factors found), but it ran {len(loop_run_count)} time(s)."
+
+
+class TestExtractFactorsFromLoop:
+    """Tests for _extract_factors_from_loop method name matching."""
+
+    def test_extract_factors_from_loop_uses_underscore_method(self):
+        """_extract_factors_from_loop must call _get_successful_factor_ids (underscore-prefixed).
+
+        Bug: implementations.py calls loop.get_successful_factor_ids() but the actual
+        method on AlphaAgentLoop is _get_successful_factor_ids().
+        """
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        class MockLoop:
+            def _get_successful_factor_ids(self):
+                return ["factor_a", "factor_b"]
+
+        mock_loop = MockLoop()
+        factor_ids = scheduler._extract_factors_from_loop(mock_loop)
+
+        assert factor_ids == ["factor_a", "factor_b"], f"Expected ['factor_a', 'factor_b'], got {factor_ids}. _extract_factors_from_loop should call _get_successful_factor_ids()"

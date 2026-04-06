@@ -658,7 +658,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             if flag:
                 break
             
-            resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag)
+            resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag, reasoning_flag=False)
             
             # Check for empty response before JSON parsing
             if not resp or not resp.strip():

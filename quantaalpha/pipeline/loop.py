@@ -4,7 +4,9 @@ Model workflow with session control.
 
 import time
 import hashlib
+import json
 import pandas as pd
+from contextlib import contextmanager
 from typing import Any, List
 
 from quantaalpha.pipeline.settings import BaseFacSetting
@@ -22,6 +24,7 @@ from quantaalpha.log.time import measure_time
 from quantaalpha.utils.workflow import LoopBase, LoopMeta
 from quantaalpha.core.exception import FactorEmptyError
 from quantaalpha.factors.failure_tracker import FactorFailureTracker
+from quantaalpha.factors.proposal import AlphaAgentHypothesis
 import threading
 
 
@@ -70,6 +73,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         quality_gate_config: dict = None,
         step_model_routing: dict | None = None,
         ensemble_config: dict | None = None,
+        provider_pool_cfg: dict | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
@@ -89,6 +93,16 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
             # Step-level model routing
             self._step_model_routing = step_model_routing or {}
+
+            # Build provider name → real model name mapping from provider_pool_cfg
+            self._provider_name_to_model: dict[str, str] = {}
+            if provider_pool_cfg:
+                for p in provider_pool_cfg.get("providers", []):
+                    name = p.get("name", "")
+                    model = p.get("model", "")
+                    if name and model:
+                        self._provider_name_to_model[name] = model
+                logger.info(f"Provider name→model mapping: {self._provider_name_to_model}")
 
             # Ensemble configuration
             self._ensemble_config = ensemble_config or {}
@@ -156,27 +170,64 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             STOP_EVENT = stop_event
             super().__init__()
 
-    def get_model_for_step(self, step_name: str) -> str | None:
+    def _get_model_for_step(self, step_name: str) -> str | None:
         """
-        Get the model for a specific step based on step_model_routing.
+        Get the real model name for a specific pipeline step.
+
+        Looks up the provider alias in step_model_routing, then resolves it
+        to a real model name via the provider_pool_cfg mapping.
 
         Args:
-            step_name: Step name (e.g. "propose", "feedback")
+            step_name: Step name (e.g. "propose", "construct", "feedback")
 
         Returns:
-            Model name string, or None if no routing config for this step.
+            Real model name string (e.g. "mistral-large-2407"), or None.
         """
         if step_name not in self._step_model_routing:
             return None
 
-        routing = self._step_model_routing[step_name]
-        if not hasattr(self, "_api_backend") or self._api_backend is None:
+        provider_alias = self._step_model_routing[step_name]
+        if not isinstance(provider_alias, str):
+            logger.warning(f"step_model_routing[{step_name}] is not a string: {provider_alias}")
             return None
 
-        return self._api_backend.get_model_for_task(
-            required_capabilities=routing.get("require_capabilities"),
-            max_tier=routing.get("max_tier", 3),
-        )
+        # Resolve provider alias → real model name
+        real_model = self._provider_name_to_model.get(provider_alias)
+        if real_model:
+            logger.info(f"Step '{step_name}' routed to model '{real_model}' (via provider '{provider_alias}')")
+            return real_model
+
+        # If alias not in mapping, treat it as a raw model name
+        logger.info(f"Step '{step_name}' using model '{provider_alias}' directly (no provider mapping found)")
+        return provider_alias
+
+    @contextmanager
+    def _with_step_model(self, step_name: str):
+        """
+        Context manager: temporarily override LLM_SETTINGS for a step.
+
+        Overrides BOTH chat_model and reasoning_model, because the framework's
+        _create_chat_completion_inner_function defaults reasoning_flag=True
+        and reads reasoning_model instead of chat_model in that case.
+        """
+        model = self._get_model_for_step(step_name)
+        if model is None:
+            yield
+            return
+
+        from quantaalpha.llm.config import LLM_SETTINGS
+
+        original_chat = LLM_SETTINGS.chat_model
+        original_reasoning = LLM_SETTINGS.reasoning_model
+        LLM_SETTINGS.chat_model = model
+        LLM_SETTINGS.reasoning_model = model
+        logger.info(f"[model-routing] Step '{step_name}': chat_model='{model}', reasoning_model='{model}' (was: chat='{original_chat}', reasoning='{original_reasoning}')")
+        try:
+            yield
+        finally:
+            LLM_SETTINGS.chat_model = original_chat
+            LLM_SETTINGS.reasoning_model = original_reasoning
+            logger.info(f"[model-routing] Restored: chat_model='{original_chat}', reasoning_model='{original_reasoning}'")
 
     @classmethod
     def load(cls, path, use_local: bool = True):
@@ -194,20 +245,9 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             if self._ensemble_config.get("enabled"):
                 idea = self._propose_with_ensemble()
             else:
-                # Check for step-specific model routing
-                model = self.get_model_for_step("propose")
-                original_model = None
-                if model:
-                    if hasattr(self.hypothesis_generator, "_api_backend") and self.hypothesis_generator._api_backend:
-                        original_model = self.hypothesis_generator._api_backend.chat_model
-                        self.hypothesis_generator._api_backend.chat_model = model
-
-                idea = self.hypothesis_generator.gen(self.trace)
-
-                # Restore original model if it was switched
-                if model and original_model is not None:
-                    if hasattr(self.hypothesis_generator, "_api_backend") and self.hypothesis_generator._api_backend:
-                        self.hypothesis_generator._api_backend.chat_model = original_model
+                with self._with_step_model("propose"):
+                    idea = self.hypothesis_generator.gen(self.trace)
+            idea = self._normalize_hypothesis_output(idea)
             logger.log_object(idea, tag="hypothesis generation")
             self._last_hypothesis = idea
         return idea
@@ -235,11 +275,14 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 continue
 
             try:
-                backend = APIBackend(chat_model=model_name)
+                # Resolve provider alias to real model name
+                real_model = self._provider_name_to_model.get(model_name, model_name)
+                backend = APIBackend(chat_model=real_model)
                 start_time = time.time()
                 output = backend.build_messages_and_create_chat_completion(
                     user_prompt=prompt_text,
                     system_prompt="You are an expert quantitative factor researcher. Generate innovative alpha factor hypotheses.",
+                    reasoning_flag=False,
                 )
                 latency_ms = (time.time() - start_time) * 1000
 
@@ -257,13 +300,36 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             return self.hypothesis_generator.gen(self.trace)
 
         result = aggregator.aggregate(responses)
-        return result.output[0] if result.output else "No hypothesis generated"
+        raw_output = result.output[0] if result.output else None
+        if raw_output is None:
+            logger.warning("Ensemble produced no output, falling back to single-model generation")
+            return self.hypothesis_generator.gen(self.trace)
+
+        try:
+            return self._normalize_hypothesis_output(raw_output)
+        except Exception as e:
+            logger.error(f"Failed to normalize ensemble output: {e}")
+            logger.warning("Falling back to single-model hypothesis generation")
+            return self.hypothesis_generator.gen(self.trace)
+
+    def _normalize_hypothesis_output(self, idea: Any) -> AlphaAgentHypothesis:
+        """Normalize propose outputs so all paths return AlphaAgentHypothesis."""
+        if isinstance(idea, AlphaAgentHypothesis):
+            return idea
+
+        if isinstance(idea, str):
+            return self.hypothesis_generator.convert_response(idea)
+        if isinstance(idea, dict):
+            return self.hypothesis_generator.convert_response(json.dumps(idea))
+
+        logger.warning(f"Unexpected hypothesis output type: {type(idea)}")
+        return self.hypothesis_generator.convert_response(str(idea))
 
     @measure_time
     @stop_event_check
     def factor_construct(self, prev_out: dict[str, Any]):
         """Construct multiple factors from the hypothesis."""
-        with logger.tag("r"):
+        with logger.tag("r"), self._with_step_model("construct"):
             factor = self.factor_constructor.convert(prev_out["factor_propose"], self.trace)
             logger.log_object(factor.sub_tasks, tag="experiment generation")
 
@@ -300,7 +366,8 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     @measure_time
     @stop_event_check
     def feedback(self, prev_out: dict[str, Any]):
-        feedback = self.summarizer.generate_feedback(prev_out["factor_backtest"], prev_out["factor_propose"], self.trace)
+        with self._with_step_model("feedback"):
+            feedback = self.summarizer.generate_feedback(prev_out["factor_backtest"], prev_out["factor_propose"], self.trace)
         with logger.tag("ef"):  # evaluate and feedback
             logger.log_object(feedback, tag="feedback")
         self.trace.hist.append((prev_out["factor_propose"], prev_out["factor_backtest"], feedback))
@@ -313,10 +380,10 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
         if round_summary["all_succeeded"]:
             logger.info("All factors succeeded - debug completed early")
-        elif not self.should_continue_debug():
+        elif not self._should_continue_debug():
             logger.info("Maximum debug rounds reached or all factors failed")
         else:
-            retry_factors = self.get_factors_for_retry()
+            retry_factors = self._get_factors_for_retry()
             logger.info(f"Next round will retry {len(retry_factors)} failed factors")
 
         # Auto-save factors to unified factor library
@@ -447,8 +514,23 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                                 detail="Empty backtest result",
                             )
                         break
+        elif hasattr(experiment, "result") and experiment.result is not None:
+            # QlibFactorRunner.develop() sets exp.result to a DataFrame.
+            # A non-None result means the backtest completed successfully for all factors.
+            import pandas as pd
+
+            if isinstance(experiment.result, pd.DataFrame) and not experiment.result.empty:
+                for factor_id in self._current_round_factors:
+                    self._failure_tracker.mark_backtest_success(factor_id, {"result": "backtest_completed"})
+            else:
+                for factor_id in self._current_round_factors:
+                    self._failure_tracker.mark_backtest_failure(
+                        factor_id,
+                        reason=FailureReason.BACKTEST_EMPTY_RESULT,
+                        detail="Backtest result DataFrame is empty",
+                    )
         else:
-            # If no sub_results, mark all as failed
+            # If no sub_results and no result, mark all as failed
             for factor_id in self._current_round_factors:
                 self._failure_tracker.mark_backtest_failure(
                     factor_id,
@@ -469,19 +551,19 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             "all_failed": summary.all_failed,
         }
 
-    def get_successful_factor_ids(self) -> List[str]:
+    def _get_successful_factor_ids(self) -> List[str]:
         """Get IDs of successfully completed factors."""
         return self._failure_tracker.successful_factor_ids
 
-    def get_failed_factor_ids(self) -> List[str]:
+    def _get_failed_factor_ids(self) -> List[str]:
         """Get IDs of failed factors."""
         return self._failure_tracker.failed_factor_ids
 
-    def get_factors_for_retry(self) -> List[str]:
+    def _get_factors_for_retry(self) -> List[str]:
         """Get factor IDs that should be retried in next round."""
         return self._failure_tracker.get_factors_for_retry()
 
-    def should_continue_debug(self) -> bool:
+    def _should_continue_debug(self) -> bool:
         """Determine if debug should continue to next round."""
         return self._failure_tracker.should_continue_debug()
 

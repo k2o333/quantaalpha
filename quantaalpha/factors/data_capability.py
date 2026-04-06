@@ -153,6 +153,17 @@ def normalize_capability_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         "available_from": str(available_from) if available_from is not None else None,
         "factor_hints": [str(hint) for hint in factor_hints],
     }
+
+    # Pass through semantic keys
+    for key in ("mode", "layer", "is_auxiliary"):
+        if key in spec:
+            normalized[key] = spec[key]
+
+    # Pass through financial PIT consumer-entry keys
+    for key in ("storage_kind", "storage_path", "versioned", "disclosure_field", "revision_field", "next_revision_field"):
+        if key in spec:
+            normalized[key] = spec[key]
+
     return normalized
 
 
@@ -198,6 +209,8 @@ def load_from_report(
 
     capabilities: dict[str, dict[str, Any]] = {}
 
+    storage_root = raw_report.get("_meta", {}).get("storage_root", "")
+
     for name, info in interfaces.items():
         # Require semantic block after flat-compat removal.
         semantic = info.get("semantic")
@@ -221,7 +234,9 @@ def load_from_report(
         mode = semantic.get("mode")
         freq = semantic.get("freq", "daily")
         lag_days = semantic.get("lag_days", 0)
-        join_mode = semantic.get("join_mode") or _FREQ_TO_JOIN_MODE.get(str(freq), "same_day")
+        join_mode = semantic.get("join_mode")
+        if join_mode is None:
+            join_mode = _FREQ_TO_JOIN_MODE.get(str(freq), "same_day")
         factor_hints = semantic.get("factor_hints", [])
         layer = semantic.get("layer")
         is_auxiliary = semantic.get("is_auxiliary")
@@ -240,6 +255,24 @@ def load_from_report(
             capabilities[name]["layer"] = layer
         if is_auxiliary is not None:
             capabilities[name]["is_auxiliary"] = is_auxiliary
+
+        # Financial PIT consumer-entry metadata derivation
+        if layer == "financial_pit":
+            runtime_block = info.get("runtime", {}) or {}
+            runtime_pit_path = runtime_block.get("financial_pit_path")
+            if runtime_pit_path:
+                storage_path = runtime_pit_path
+            elif storage_root:
+                storage_path = f"{storage_root}/.financial_pit/{name}.parquet"
+            else:
+                storage_path = f"/home/quan/testdata/aspipe_v4/data/.financial_pit/{name}.parquet"
+
+            capabilities[name]["storage_kind"] = "financial_pit_parquet"
+            capabilities[name]["storage_path"] = storage_path
+            capabilities[name]["versioned"] = True
+            capabilities[name]["disclosure_field"] = "disclosure_date"
+            capabilities[name]["revision_field"] = "revision_seq"
+            capabilities[name]["next_revision_field"] = "next_disclosure_date"
 
     # If no capabilities loaded, fallback to DATA_CAPABILITIES
     if not capabilities:
@@ -268,8 +301,127 @@ def render_data_capabilities(capabilities: Mapping[str, Mapping[str, Any]] | Non
         available_from = spec.get("available_from") or "(unknown)"
         join_mode = spec.get("join_mode", DEFAULT_CAPABILITY_SPEC["join_mode"])
         hints = ", ".join(spec.get("factor_hints", [])) or "general research"
-        sections.append(f"- {name}: fields={fields}; freq={freq}; lag_days={lag_days}; available_from={available_from}; join_mode={join_mode}; typical_uses={hints}")
+        layer = spec.get("layer")
+        storage_kind = spec.get("storage_kind")
+        storage_path = spec.get("storage_path")
+        versioned = spec.get("versioned")
+
+        parts = [
+            f"- {name}: fields={fields}; freq={freq}; lag_days={lag_days}; available_from={available_from}; join_mode={join_mode}; typical_uses={hints}",
+        ]
+        if layer is not None:
+            parts.append(f"  layer={layer}")
+        if storage_kind is not None:
+            parts.append(f"  storage_kind={storage_kind}")
+        if storage_path is not None:
+            parts.append(f"  storage_path={storage_path}")
+        if versioned is not None:
+            parts.append(f"  versioned={versioned}")
+        sections.append("; ".join(parts))
     return "Available data capabilities:\n" + "\n".join(sections)
+
+
+def load_financial_pit_frame(
+    interface_name: str,
+    report_path: str | Path | None = None,
+    latest_only: bool = True,
+):
+    """
+    Load a minimal financial PIT frame for one interface.
+
+    This is a first-round reader contract:
+    - report-driven capability lookup
+    - financial_pit interfaces only
+    - disclosure_date versioned parquet only
+    - optional latest_only filtering
+    """
+    import polars as pl
+
+    capabilities = load_from_report(report_path)
+    capability = capabilities.get(interface_name)
+    if not capability:
+        raise ValueError(f"Unknown financial PIT interface: {interface_name}")
+
+    if capability.get("layer") != "financial_pit":
+        raise ValueError(f"Interface {interface_name} is not a financial_pit capability")
+
+    storage_kind = capability.get("storage_kind")
+    if storage_kind != "financial_pit_parquet":
+        raise ValueError(f"Interface {interface_name} does not use supported storage_kind")
+
+    storage_path = capability.get("storage_path")
+    if not storage_path:
+        raise ValueError(f"Interface {interface_name} has no financial PIT storage_path")
+
+    df = pl.read_parquet(str(storage_path))
+    if latest_only:
+        df = df.filter(pl.col("is_latest") == True)
+    return df
+
+
+def query_financial_pit_asof(
+    interface_name: str,
+    asof_date: str,
+    report_path: str | Path | None = None,
+    aliases: list[str] | None = None,
+):
+    """
+    Query a financial PIT frame as of one disclosure-date cut.
+
+    Semantics for this first round:
+    - keep rows with disclosure_date <= asof_date
+    - within each (instrument, report_period, alias) chain, keep the latest
+      visible disclosure version as of that date
+    - optional alias filtering
+    """
+    import polars as pl
+
+    normalized_asof_date = str(asof_date).replace("-", "")
+
+    df = load_financial_pit_frame(interface_name, report_path=report_path, latest_only=False)
+    df = df.with_columns(pl.col("disclosure_date").cast(pl.String).str.replace_all("-", "").alias("_cmp_disclosure_date"))
+    df = df.filter(pl.col("_cmp_disclosure_date") <= normalized_asof_date)
+
+    if aliases is not None:
+        df = df.filter(pl.col("alias").is_in(list(aliases)))
+
+    if df.is_empty():
+        return df
+
+    df = df.sort(["instrument", "report_period", "alias", "disclosure_date"])
+    return (
+        df.unique(subset=["instrument", "report_period", "alias"], keep="last")
+        .drop("_cmp_disclosure_date")
+        .sort(["instrument", "report_period", "alias"])
+    )
+
+
+def query_financial_pit_panel_asof(
+    interface_name: str,
+    asof_date: str,
+    report_path: str | Path | None = None,
+    aliases: list[str] | None = None,
+):
+    """
+    Convert financial PIT as-of rows into a single-day wide panel.
+
+    Output shape:
+    - index-like column: instrument
+    - one value column per alias
+    """
+    df = query_financial_pit_asof(
+        interface_name,
+        asof_date,
+        report_path=report_path,
+        aliases=aliases,
+    )
+    if df.is_empty():
+        return df.select(["instrument"]).unique()
+    return (
+        df.select(["instrument", "alias", "value"])
+        .pivot(on="alias", index="instrument", values="value", aggregate_function="first")
+        .sort("instrument")
+    )
 
 
 def infer_available_from_from_parquet(parquet_path: str | Path) -> str | None:

@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
+import os
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -286,6 +287,43 @@ def test_scenario_falls_back_to_base_source_data_on_registry_failure():
     args, kwargs = log_mod.warning_calls[0]
     assert "Failed to inject data capability registry" in args[0]
     assert kwargs["exc_info"] is True
+
+
+def test_ensure_conda_default_env_infers_name_from_sys_prefix(monkeypatch):
+    _ensure_experiment_stubs()
+    experiment = _load_module(
+        "quantaalpha.factors.experiment",
+        PKG_ROOT / "factors" / "experiment.py",
+    )
+
+    monkeypatch.delenv("CONDA_DEFAULT_ENV", raising=False)
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
+    monkeypatch.setattr(experiment.sys, "prefix", "/root/miniforge3/envs/mining")
+    monkeypatch.setattr(experiment.sys, "base_prefix", "/root/miniforge3")
+    monkeypatch.setattr(experiment.sys, "executable", "/root/miniforge3/envs/mining/bin/python")
+
+    resolved = experiment._ensure_conda_default_env()
+
+    assert resolved == "mining"
+    assert os.environ["CONDA_DEFAULT_ENV"] == "mining"
+
+
+def test_ensure_conda_default_env_preserves_existing_env(monkeypatch):
+    _ensure_experiment_stubs()
+    experiment = _load_module(
+        "quantaalpha.factors.experiment",
+        PKG_ROOT / "factors" / "experiment.py",
+    )
+
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "already-set")
+    monkeypatch.setattr(experiment.sys, "prefix", "/root/miniforge3/envs/mining")
+    monkeypatch.setattr(experiment.sys, "base_prefix", "/root/miniforge3")
+    monkeypatch.setattr(experiment.sys, "executable", "/root/miniforge3/envs/mining/bin/python")
+
+    resolved = experiment._ensure_conda_default_env()
+
+    assert resolved == "already-set"
+    assert os.environ["CONDA_DEFAULT_ENV"] == "already-set"
 
 
 # =============================================================================

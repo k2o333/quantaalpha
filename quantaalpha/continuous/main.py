@@ -25,6 +25,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+try:
+    from dotenv import load_dotenv
+    # Explicitly load from third_party/quantaalpha/.env if it exists
+    env_path = Path("/home/quan/testdata/aspipe_v4/third_party/quantaalpha/.env")
+    if env_path.exists():
+        load_dotenv(env_path)
+    else:
+        load_dotenv()
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 # Global stop event for graceful shutdown
@@ -72,7 +83,6 @@ def _create_orchestrator(config, run_store):
     Returns:
         ContinuousOrchestrator instance.
     """
-    from quantaalpha.continuous.main import ContinuousOrchestrator
     from quantaalpha.continuous.alerting import AlertDispatcher
 
     alert_dispatcher = AlertDispatcher()

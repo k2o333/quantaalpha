@@ -68,6 +68,7 @@ class TestEnsembleProposeStep:
         """When ensemble disabled, uses hypothesis_generator.gen()."""
         from quantaalpha.pipeline.loop import AlphaAgentLoop
         from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis
 
         with mock_loop_dependencies():
             loop = AlphaAgentLoop(
@@ -77,17 +78,24 @@ class TestEnsembleProposeStep:
                 ensemble_config={"enabled": False},
             )
             loop.hypothesis_generator = MagicMock()
-            loop.hypothesis_generator.gen.return_value = "test hypothesis"
+            loop.hypothesis_generator.gen.return_value = AlphaAgentHypothesis(
+                hypothesis="test hypothesis",
+                concise_observation="obs",
+                concise_knowledge="knowledge",
+                concise_justification="justification",
+                concise_specification="spec",
+            )
             loop.trace = MagicMock()
 
             result = loop.factor_propose({})
             loop.hypothesis_generator.gen.assert_called_once()
-            assert result == "test hypothesis"
+            assert isinstance(result, AlphaAgentHypothesis)
 
     def test_propose_with_ensemble_enabled_fallback(self):
         """When ensemble enabled but no models, falls back to single model."""
         from quantaalpha.pipeline.loop import AlphaAgentLoop
         from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis
 
         with mock_loop_dependencies():
             loop = AlphaAgentLoop(
@@ -97,9 +105,81 @@ class TestEnsembleProposeStep:
                 ensemble_config={"enabled": True, "models": []},
             )
             loop.hypothesis_generator = MagicMock()
-            loop.hypothesis_generator.gen.return_value = "fallback hypothesis"
+            loop.hypothesis_generator.gen.return_value = AlphaAgentHypothesis(
+                hypothesis="fallback hypothesis",
+                concise_observation="obs",
+                concise_knowledge="knowledge",
+                concise_justification="justification",
+                concise_specification="spec",
+            )
             loop.trace = MagicMock()
 
             result = loop.factor_propose({})
             loop.hypothesis_generator.gen.assert_called_once()
-            assert result == "fallback hypothesis"
+            assert isinstance(result, AlphaAgentHypothesis)
+
+    def test_propose_normalizes_dict_output_to_alpha_agent_hypothesis(self):
+        """factor_propose normalizes dict outputs before returning."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis
+
+        normalized = AlphaAgentHypothesis(
+            hypothesis="normalized hypothesis",
+            concise_observation="obs",
+            concise_knowledge="knowledge",
+            concise_justification="justification",
+            concise_specification="spec",
+        )
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "models": [{"name": "m1"}]},
+            )
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.convert_response.return_value = normalized
+            loop.trace = MagicMock()
+            loop._propose_with_ensemble = MagicMock(return_value={"hypothesis": "raw"})
+
+            result = loop.factor_propose({})
+
+            loop.hypothesis_generator.convert_response.assert_called_once()
+            assert result is normalized
+
+    def test_propose_with_ensemble_empty_output_falls_back_to_single_model(self):
+        """_propose_with_ensemble falls back to single model when aggregation is empty."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis
+
+        fallback = AlphaAgentHypothesis(
+            hypothesis="fallback hypothesis",
+            concise_observation="obs",
+            concise_knowledge="knowledge",
+            concise_justification="justification",
+            concise_specification="spec",
+        )
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "models": [{"name": "m1"}]},
+            )
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.gen.return_value = fallback
+            loop.trace = MagicMock()
+
+            mock_result = MagicMock()
+            mock_result.output = []
+
+            with patch("quantaalpha.llm.client.APIBackend.build_messages_and_create_chat_completion", return_value="raw"), \
+                 patch("quantaalpha.llm.ensemble.EnsembleAggregator.aggregate", return_value=mock_result):
+                result = loop._propose_with_ensemble()
+
+            loop.hypothesis_generator.gen.assert_called_once_with(loop.trace)
+            assert result is fallback

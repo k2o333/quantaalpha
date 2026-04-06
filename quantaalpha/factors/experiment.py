@@ -4,7 +4,9 @@ Uses project QlibFBWorkspace (no ProcessInf / pandas 1.5.x issues).
 """
 
 from copy import deepcopy
+import os
 from pathlib import Path
+import sys
 from typing import Any
 
 import yaml
@@ -27,6 +29,37 @@ from quantaalpha.log import logger
 
 EXPERIMENT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "experiment.yaml"
 DEFAULT_REGISTRY_ENABLED = True
+
+
+def _infer_conda_env_name() -> str | None:
+    candidates = [
+        os.environ.get("CONDA_PREFIX"),
+        sys.prefix,
+        Path(sys.executable).resolve().parent.parent.as_posix(),
+    ]
+    for raw_path in candidates:
+        if not raw_path:
+            continue
+        path = Path(raw_path)
+        parts = path.parts
+        try:
+            envs_index = parts.index("envs")
+        except ValueError:
+            continue
+        if envs_index + 1 < len(parts):
+            return parts[envs_index + 1]
+    return None
+
+
+def _ensure_conda_default_env() -> str | None:
+    env_name = os.environ.get("CONDA_DEFAULT_ENV")
+    if env_name:
+        return env_name
+
+    inferred = _infer_conda_env_name()
+    if inferred:
+        os.environ["CONDA_DEFAULT_ENV"] = inferred
+    return inferred
 
 
 def _load_experiment_config(config_path: Path = EXPERIMENT_CONFIG_PATH) -> dict[str, Any]:
@@ -88,6 +121,8 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
 
     def __init__(self, use_local: bool = True, *args, **kwargs):
         from rdagent.core.scenario import Scenario
+
+        _ensure_conda_default_env()
 
         registry_enabled = kwargs.pop("data_capability_registry_enabled", None)
         capabilities = kwargs.pop("data_capabilities", None)

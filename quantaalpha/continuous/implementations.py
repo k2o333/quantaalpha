@@ -1709,6 +1709,7 @@ class DefaultMiningScheduler(MiningScheduler):
                         quality_gate_config=self._quality_gate_config,
                         step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
                         ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
+                        provider_pool_cfg=self._provider_pool_cfg,
                     )
                     loop.run(step_n=steps, stop_event=self._stop_event)
 
@@ -1734,6 +1735,9 @@ class DefaultMiningScheduler(MiningScheduler):
                             logger.info(f"Escalation triggered: tier={escalation_state.current_tier}")
 
                 except Exception as e:
+                    import traceback
+
+                    traceback.print_exc()
                     logger.error(f"Pipeline mining failed (loop {loop_idx + 1}/{max_loops}): {e}")
                     result["errors"].append(f"pipeline: {str(e)}")
                     escalation_state.record_failure(
@@ -1802,7 +1806,7 @@ class DefaultMiningScheduler(MiningScheduler):
     def _extract_factors_from_loop(self, loop) -> list:
         """Extract successful factor IDs from an AlphaAgentLoop instance."""
         try:
-            return loop.get_successful_factor_ids()
+            return loop._get_successful_factor_ids()
         except Exception as e:
             logger.warning(f"Failed to extract factor IDs from loop: {e}")
             return []
