@@ -195,7 +195,13 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         
         # Unpack tuple; take first element (DataFrame)
         result = result_tuple[0] if isinstance(result_tuple, tuple) else result_tuple
-        
+
+        # rdagent QlibFBWorkspace.execute() returns pd.Series (via .iloc[:, 0]).
+        # Normalize to DataFrame for consistent downstream consumption.
+        if isinstance(result, pd.Series):
+            logger.info(f"Normalizing backtest result from Series to DataFrame (len={len(result)})")
+            result = result.to_frame(name="value")
+
         if result is not None:
             logger.info(f"Backtesting results: \n{result.iloc[2:] if hasattr(result, 'iloc') else result}")
         else:

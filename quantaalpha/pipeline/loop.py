@@ -522,11 +522,20 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                             )
                         break
         elif hasattr(experiment, "result") and experiment.result is not None:
-            # QlibFactorRunner.develop() sets exp.result to a DataFrame.
+            # QlibFactorRunner.develop() sets exp.result to a DataFrame or Series.
             # A non-None result means the backtest completed successfully for all factors.
+            # Note: rdagent QlibFBWorkspace.execute() returns pd.Series (via .iloc[:, 0]),
+            # so we must accept both Series and DataFrame.
             import pandas as pd
 
-            if isinstance(experiment.result, pd.DataFrame) and not experiment.result.empty:
+            result = experiment.result
+            is_valid_result = False
+            if isinstance(result, pd.DataFrame) and not result.empty:
+                is_valid_result = True
+            elif isinstance(result, pd.Series) and not result.empty:
+                is_valid_result = True
+
+            if is_valid_result:
                 for factor_id in self._current_round_factors:
                     self._failure_tracker.mark_backtest_success(factor_id, {"result": "backtest_completed"})
             else:
@@ -534,7 +543,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                     self._failure_tracker.mark_backtest_failure(
                         factor_id,
                         reason=FailureReason.BACKTEST_EMPTY_RESULT,
-                        detail="Backtest result DataFrame is empty",
+                        detail="Backtest result is empty",
                     )
         else:
             # If no sub_results and no result, mark all as failed
