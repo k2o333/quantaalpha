@@ -1651,7 +1651,11 @@ class DefaultMiningScheduler(MiningScheduler):
 
         # Set up workspace
         workspace_root = Path(self._state_cfg.get("log_root", "log/continuous/mining"))
+        # 确保使用绝对路径
+        if not workspace_root.is_absolute():
+            workspace_root = workspace_root.resolve()
         workspace_root.mkdir(parents=True, exist_ok=True)
+        logger.set_storages_path(workspace_root)
 
         # Get mining direction
         direction = self._get_mining_direction()
@@ -1684,6 +1688,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     stop_event=self._stop_event,
                     quality_gate_cfg=self._quality_gate_config,
                     budget_seconds=budget_seconds,
+                    log_root=str(workspace_root),  # ★ 显式传入绝对路径
                 )
 
                 factor_ids = self._extract_factors_from_evolution()

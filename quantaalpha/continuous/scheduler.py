@@ -246,11 +246,12 @@ class ProviderEntryConfig:
     def from_dict(cls, d: dict) -> "ProviderEntryConfig":
         if not d:
             return cls()
-            
+
         import os
+
         raw_keys = d.get("api_keys", [])
         resolved_keys = []
-        
+
         for k in raw_keys:
             if isinstance(k, str) and k.startswith("${") and k.endswith("}"):
                 env_var = k[2:-1]
@@ -264,16 +265,17 @@ class ProviderEntryConfig:
                     resolved_keys.append(val)
             else:
                 resolved_keys.append(k)
-                
+
         if not resolved_keys:
             # Fallback to global .env setting if API key isn't provided in YAML
             try:
                 from quantaalpha.llm.config import LLM_SETTINGS
+
                 if getattr(LLM_SETTINGS, "openai_api_key", None):
                     resolved_keys = [LLM_SETTINGS.openai_api_key]
             except Exception:
                 pass
-                
+
         return cls(
             name=d.get("name", ""),
             api_keys=resolved_keys,
@@ -410,6 +412,11 @@ class PipelineConfig:
         with open(yaml_path, "r") as f:
             data = yaml.safe_load(f)
 
+        return cls._from_dict(data)
+
+    @classmethod
+    def _from_dict(cls, data: dict | None) -> "PipelineConfig":
+        """Internal: construct PipelineConfig from a dict (no file I/O)."""
         if data is None:
             return cls()
 
@@ -496,6 +503,11 @@ class PipelineConfig:
             circuit_breaker=cb_config,
             mining=mining,
         )
+
+    @classmethod
+    def from_yaml_dict(cls, data: dict | None) -> "PipelineConfig":
+        """Public: construct PipelineConfig from a dict (paths already resolved to absolute)."""
+        return cls._from_dict(data)
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""

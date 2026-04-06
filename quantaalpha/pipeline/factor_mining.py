@@ -336,6 +336,7 @@ def run_evolution_loop(
     stop_event: threading.Event | None = None,
     quality_gate_cfg: dict[str, Any] | None = None,
     budget_seconds: Optional[int] = None,
+    log_root: str | None = None,
 ):
     """
     Run evolution loop: Original -> Mutation -> Crossover -> Mutation -> ...
@@ -360,7 +361,9 @@ def run_evolution_loop(
     crossover_enabled = bool(evolution_cfg.get("crossover_enabled", True))
     parent_selection_strategy = str(evolution_cfg.get("parent_selection_strategy", "best"))
     top_percent_threshold = float(evolution_cfg.get("top_percent_threshold", 0.3))
-    log_root = str(logger.storage.path)
+    # 优先使用显式参数,fallback 到 logger 状态(向后兼容)
+    if log_root is None:
+        log_root = str(logger.storage.path)
     parallel_enabled = bool(evolution_cfg.get("parallel_enabled", False))
     fresh_start = bool(evolution_cfg.get("fresh_start", True))
     cleanup_on_finish = bool(evolution_cfg.get("cleanup_on_finish", False))

@@ -27,6 +27,7 @@ from typing import Optional
 
 try:
     from dotenv import load_dotenv
+
     # Explicitly load from third_party/quantaalpha/.env if it exists
     env_path = Path("/home/quan/testdata/aspipe_v4/third_party/quantaalpha/.env")
     if env_path.exists():
@@ -52,16 +53,20 @@ def _setup_logging(verbose: bool = False) -> None:
     )
 
 
-def _load_config(config_path: str):
+def _load_config_and_paths(config_path: str):
     """
-    Load pipeline configuration.
+    Load pipeline configuration and resolve all paths to absolute paths.
 
     Args:
         config_path: Path to pipeline.yaml file.
 
     Returns:
-        PipelineConfig instance.
+        Tuple of (PipelineConfig instance, resolved_paths_dict).
     """
+    import copy
+    import yaml
+
+    from quantaalpha.continuous.paths import resolve_workspace_paths
     from quantaalpha.continuous.scheduler import PipelineConfig
 
     path = Path(config_path)
@@ -69,7 +74,44 @@ def _load_config(config_path: str):
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     logger.info(f"Loading configuration from {config_path}")
-    return PipelineConfig.from_yaml(str(path))
+
+    # Step 1: Parse raw YAML dict
+    with open(path, "r") as f:
+        raw_config = yaml.safe_load(f) or {}
+
+    # Step 2: Resolve all paths to absolute
+    resolved = resolve_workspace_paths(raw_config)
+
+    # Step 3: Deep copy and backfill absolute paths into config dict
+    config_for_pipeline = copy.deepcopy(raw_config)
+
+    if "mining" not in config_for_pipeline:
+        config_for_pipeline["mining"] = {}
+    config_for_pipeline["mining"]["log_root"] = resolved["mining_log_root"]
+
+    if "state" not in config_for_pipeline["mining"]:
+        config_for_pipeline["mining"]["state"] = {}
+    config_for_pipeline["mining"]["state"]["pool_save_path"] = resolved["pool_save_path"]
+
+    if "factor" not in config_for_pipeline:
+        config_for_pipeline["factor"] = {}
+    config_for_pipeline["factor"]["library_path"] = resolved["factor_library_path"]
+    config_for_pipeline["factor"]["monitoring_output_path"] = resolved["monitoring_output_path"]
+
+    pipeline_config = PipelineConfig.from_yaml_dict(config_for_pipeline)
+
+    logger.info(
+        "[PATH-INIT] all paths resolved: project_root=%s log_root=%s mining_log_root=%s runs_dir=%s pool_save_path=%s factor_library=%s monitoring=%s",
+        resolved["project_root"],
+        resolved["log_root"],
+        resolved["mining_log_root"],
+        resolved["runs_dir"],
+        resolved["pool_save_path"],
+        resolved["factor_library_path"],
+        resolved["monitoring_output_path"],
+    )
+
+    return pipeline_config, resolved
 
 
 def _create_orchestrator(config, run_store):
@@ -125,20 +167,25 @@ def start(
     logger.info("24H Continuous Factor Runtime - Starting")
     logger.info("=" * 60)
 
-    # Load configuration
+    # Load configuration + resolve paths
     try:
-        pipeline_config = _load_config(config)
+        pipeline_config, resolved = _load_config_and_paths(config)
         logger.info(f"Configuration loaded: data_check_interval={pipeline_config.data_check_interval_seconds}s")
     except Exception as e:
         logger.error(f"Failed to load configuration: {e}")
         sys.exit(1)
 
-    # Initialize run store
+    # Initialize run store with resolved absolute path
     from quantaalpha.continuous.run_store import RunStore
 
-    runs_dir = Path("log/continuous/runs")
+    runs_dir = Path(resolved["runs_dir"])
     run_store = RunStore(str(runs_dir))
     logger.info(f"Run store initialized at {runs_dir}")
+
+    # Set logger storage path early (before any mining/evolution code runs)
+    from quantaalpha.log import logger as qa_logger
+
+    qa_logger.set_storages_path(resolved["mining_log_root"])
 
     # Create orchestrator
     try:
@@ -245,12 +292,9 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
     summary.budget_exhausted = summary.duration_seconds >= budget
     summary.budget_remaining_seconds = max(0.0, budget - summary.duration_seconds)
 
-    # Persist
+    # Persist - use orchestrator's run_store instead of creating a new one
     try:
-        from quantaalpha.continuous.run_store import RunStore
-        runs_dir = Path("log/continuous/runs")
-        store = RunStore(str(runs_dir))
-        store.save(summary)
+        orchestrator.run_store.save(summary)
         logger.info(f"Run summary persisted: {summary.cycle_timestamp}")
     except Exception as e:
         logger.error(f"Failed to persist run summary: {e}")
@@ -353,7 +397,7 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
         validation_passed = summary.validation_summary.passed
         mining_added = summary.mining_summary.added
 
-        cycle_has_success = (validation_passed > 0 or mining_added > 0)
+        cycle_has_success = validation_passed > 0 or mining_added > 0
 
         if cb_config:
             if cycle_has_success:
@@ -365,18 +409,12 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
                         circuit_breaker_active = False
             else:
                 consecutive_zero_pass += 1
-                logger.info(
-                    f"Circuit breaker: consecutive zero-pass cycles = {consecutive_zero_pass}"
-                    f"/{cb_config.max_consecutive_zero_pass_cycles}"
-                )
+                logger.info(f"Circuit breaker: consecutive zero-pass cycles = {consecutive_zero_pass}/{cb_config.max_consecutive_zero_pass_cycles}")
 
                 if consecutive_zero_pass >= cb_config.max_consecutive_zero_pass_cycles:
                     circuit_breaker_active = True
                     cooldown_count += 1
-                    logger.warning(
-                        f"Circuit breaker TRIGGERED: {consecutive_zero_pass} consecutive "
-                        f"zero-pass cycles (cooldown #{cooldown_count})"
-                    )
+                    logger.warning(f"Circuit breaker TRIGGERED: {consecutive_zero_pass} consecutive zero-pass cycles (cooldown #{cooldown_count})")
 
                     # Dispatch alert via AlertDispatcher if wired
                     if orchestrator._alert_dispatcher is not None:
@@ -388,10 +426,7 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
                         )
 
                     if cooldown_count >= cb_config.max_cooldown_count:
-                        logger.critical(
-                            f"Circuit breaker CRITICAL: {cooldown_count} consecutive "
-                            f"cooldowns without recovery. System may need manual inspection."
-                        )
+                        logger.critical(f"Circuit breaker CRITICAL: {cooldown_count} consecutive cooldowns without recovery. System may need manual inspection.")
 
         # Write circuit breaker state into summary
         summary.circuit_breaker = {
@@ -401,12 +436,9 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
         }
         # ====================================
 
-        # Persist cycle summary
+        # Persist cycle summary - use orchestrator's run_store
         try:
-            from quantaalpha.continuous.run_store import RunStore
-            runs_dir = Path("log/continuous/runs")
-            store = RunStore(str(runs_dir))
-            store.save(summary)
+            orchestrator.run_store.save(summary)
         except Exception as e:
             logger.error(f"Failed to persist run summary: {e}")
 
@@ -418,10 +450,7 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
 
         if circuit_breaker_active and cb_config:
             actual_sleep = check_interval * cb_config.cooldown_multiplier
-            logger.warning(
-                f"Circuit breaker cooldown: sleeping {actual_sleep:.0f}s "
-                f"(normal: {check_interval}s × {cb_config.cooldown_multiplier})"
-            )
+            logger.warning(f"Circuit breaker cooldown: sleeping {actual_sleep:.0f}s (normal: {check_interval}s × {cb_config.cooldown_multiplier})")
 
         logger.info(f"--- Adaptive sleep: {actual_sleep:.2f}s (interval={check_interval}s, cycle={summary.duration_seconds:.2f}s) ---")
         _stop_event.wait(timeout=actual_sleep)
@@ -496,15 +525,14 @@ class ContinuousOrchestrator:
 
         # Initialize optional MonitorEngine from factor.monitoring_output_path
         self._monitor_engine = None
-        if getattr(config, 'factor', None) and getattr(config.factor, 'monitoring_output_path', None):
+        if getattr(config, "factor", None) and getattr(config.factor, "monitoring_output_path", None):
             try:
                 from factor_monitor.core import FactorMonitorEngine
+
                 self._monitor_engine = FactorMonitorEngine(
                     storage_dir=config.factor.monitoring_output_path,
                 )
-                logger.info(
-                    f"MonitorEngine wired, output_dir={config.factor.monitoring_output_path}"
-                )
+                logger.info(f"MonitorEngine wired, output_dir={config.factor.monitoring_output_path}")
             except ImportError as e:
                 logger.warning(f"factor_monitor not available, monitor hook disabled: {e}")
             except Exception as e:
@@ -526,6 +554,7 @@ class ContinuousOrchestrator:
         self._impact_classifier = None
         if config.enable_revalidation or config.enable_mining:
             from quantaalpha.continuous.impact import ImpactClassifier
+
             self._impact_classifier = ImpactClassifier(
                 default_limit=config.validation.max_revalidation_per_run,
                 fallback_limit=config.validation.max_mining_per_run,
@@ -693,16 +722,11 @@ class ContinuousOrchestrator:
                         # Only invalidate cache when data actually advanced (new dates written)
                         advanced = update_result.get("advanced_interfaces", [])
                         if advanced:
-                            logger.info(
-                                f"Data advanced for {advanced}, invalidating DataFrame cache"
-                            )
+                            logger.info(f"Data advanced for {advanced}, invalidating DataFrame cache")
                             self._clear_runtime_caches()
                             cache_invalidated = True
                         else:
-                            logger.info(
-                                "Data update completed but no freshness advancement, "
-                                "keeping DataFrame cache"
-                            )
+                            logger.info("Data update completed but no freshness advancement, keeping DataFrame cache")
                         if update_result.get("errors"):
                             result["errors"].extend(update_result["errors"])
 
@@ -719,10 +743,7 @@ class ContinuousOrchestrator:
                 revalidation_result = self._run_revalidation()
                 result["validation"]["total"] = revalidation_result.get("total_candidates", 0)
                 result["validation"]["passed"] = revalidation_result.get("revalidated_count", 0)
-                result["validation"]["failed"] = (
-                    revalidation_result.get("total_candidates", 0)
-                    - revalidation_result.get("revalidated_count", 0)
-                )
+                result["validation"]["failed"] = revalidation_result.get("total_candidates", 0) - revalidation_result.get("revalidated_count", 0)
                 if revalidation_result.get("errors"):
                     result["validation"]["errors"] = revalidation_result["errors"]
                 # Pass through impact and candidate info
@@ -787,6 +808,7 @@ class ContinuousOrchestrator:
         if self._impact_classifier:
             try:
                 from quantaalpha.factors.library import FactorLibraryManager
+
                 library_manager = FactorLibraryManager(self.config.factor.library_path)
                 candidates = self._impact_classifier.select_factor_candidates(
                     library_manager,
