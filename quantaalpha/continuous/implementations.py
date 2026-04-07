@@ -651,6 +651,8 @@ class DefaultMiningScheduler(MiningScheduler):
             except Exception as e:
                 logger.warning(f"Failed to initialize SimilarityEngine: {e}, falling back to legacy redundancy check")
 
+        self._escalation_state = None
+
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
         if self._scheduler_thread and self._scheduler_thread.is_alive():
@@ -782,7 +784,7 @@ class DefaultMiningScheduler(MiningScheduler):
                         "most_similar_factor_id": most_similar_factor_id,
                         "max_similarity": result.final_score,
                         "method": "ensemble",
-                        "comparisons_made": 50,  # 使用默认值
+                        "comparisons_made": result.comparisons_made,
                     }
                 except Exception as e:
                     logger.warning(f"SimilarityEngine check failed: {e}, falling back to legacy check")

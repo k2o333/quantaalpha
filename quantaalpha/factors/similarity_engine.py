@@ -62,6 +62,7 @@ class EnsembleResult:
         dimension_results: 各维度的原始计算结果.
         triggered_by: 触发拒绝的维度名称 (仅 veto 模式有效).
         active_dimensions: 实际参与融合的维度列表.
+        comparisons_made: 实际比较的因子数量 (用于监控).
     """
 
     is_redundant: bool
@@ -69,6 +70,7 @@ class EnsembleResult:
     dimension_results: List[SimilarityResult] = field(default_factory=list)
     triggered_by: Optional[str] = None
     active_dimensions: List[str] = field(default_factory=list)
+    comparisons_made: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -170,8 +172,10 @@ class SimilarityEngine:
             results.append(self._compute_jaccard_score(expr_a, expr_b))
 
         # --- RAG ---
-        if self._rag_cfg.get("enabled", False) and (desc_a or desc_b):
-            results.append(self._compute_rag_score(desc_a, desc_b))
+        if self._rag_cfg.get("enabled", False):
+            desc_a_effective = desc_a if desc_a else expr_a
+            desc_b_effective = desc_b if desc_b else expr_b
+            results.append(self._compute_rag_score(desc_a_effective, desc_b_effective))
 
         return self._compute_ensemble(results)
 
@@ -252,8 +256,10 @@ class SimilarityEngine:
                 is_redundant=False,
                 final_score=0.0,
                 active_dimensions=[],
+                comparisons_made=0,
             )
 
+        best_result.comparisons_made = comparisons_made
         logger.info(
             f"check_against_library: {comparisons_made} comparisons, "
             f"best_score={best_score:.4f}, is_redundant={best_result.is_redundant}"
