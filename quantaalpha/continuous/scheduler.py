@@ -325,6 +325,125 @@ class DirectionPlannerConfig:
 
 
 @dataclass
+class OrchestrationTransitionConfig:
+    """Configuration for a single transition in an orchestration node."""
+
+    condition: str | None = None
+    goto: str = "stop"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OrchestrationTransitionConfig":
+        if not d:
+            return cls()
+        return cls(
+            condition=d.get("if"),
+            goto=d.get("goto", "stop"),
+        )
+
+
+@dataclass
+class OrchestrationNodeConfig:
+    """Configuration for a single orchestration node."""
+
+    id: str = ""
+    kind: str = "action"
+    action: str | None = None
+    decision_mode: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+    next: list[OrchestrationTransitionConfig] = field(default_factory=list)
+    allowed_next: list[str] = field(default_factory=list)
+    fallback_next: str | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OrchestrationNodeConfig":
+        if not d:
+            return cls()
+        return cls(
+            id=d.get("id", ""),
+            kind=d.get("kind", "action"),
+            action=d.get("action"),
+            decision_mode=d.get("decision_mode"),
+            params=d.get("params", {}),
+            next=[OrchestrationTransitionConfig.from_dict(t) for t in d.get("next", [])],
+            allowed_next=d.get("allowed_next", []),
+            fallback_next=d.get("fallback_next"),
+        )
+
+
+@dataclass
+class OrchestrationConditionConfig:
+    """Configuration for a single orchestration condition."""
+
+    name: str = ""
+    type: str = "threshold"
+    metric: str = ""
+    operator: str = "gte"
+    value: float = 0.0
+    conditions: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OrchestrationConditionConfig":
+        if not d:
+            return cls()
+        return cls(
+            name=d.get("name", ""),
+            type=d.get("type", "threshold"),
+            metric=d.get("metric", ""),
+            operator=d.get("operator", "gte"),
+            value=d.get("value", 0.0),
+            conditions=d.get("conditions", []),
+        )
+
+
+@dataclass
+class OrchestrationMetricsConfig:
+    """Configuration for orchestration metrics thresholds."""
+
+    min_pass_rate_for_crossover: float = 0.20
+    min_active_parents_for_crossover: int = 2
+    min_diversity_score: float = 0.10
+    max_consecutive_failures: int = 2
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OrchestrationMetricsConfig":
+        if not d:
+            return cls()
+        return cls(
+            min_pass_rate_for_crossover=d.get("min_pass_rate_for_crossover", 0.20),
+            min_active_parents_for_crossover=d.get("min_active_parents_for_crossover", 2),
+            min_diversity_score=d.get("min_diversity_score", 0.10),
+            max_consecutive_failures=d.get("max_consecutive_failures", 2),
+        )
+
+
+@dataclass
+class OrchestrationConfig:
+    """Configuration for single-cycle mining orchestration."""
+
+    enabled: bool = False
+    mode: str = "conditional_flow"
+    max_steps_per_cycle: int = 6
+    start_node: str = "original"
+    metrics: OrchestrationMetricsConfig = field(default_factory=OrchestrationMetricsConfig)
+    conditions: list[OrchestrationConditionConfig] = field(default_factory=list)
+    nodes: list[OrchestrationNodeConfig] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OrchestrationConfig":
+        if not d:
+            return cls()
+        return cls(
+            enabled=d.get("enabled", False),
+            mode=d.get("mode", "conditional_flow"),
+            max_steps_per_cycle=d.get("max_steps_per_cycle", 6),
+            start_node=d.get("start_node", "original"),
+            metrics=OrchestrationMetricsConfig.from_dict(d.get("metrics", {})),
+            conditions=[OrchestrationConditionConfig.from_dict(c) for c in d.get("conditions", [])],
+            nodes=[OrchestrationNodeConfig.from_dict(n) for n in d.get("nodes", [])],
+        )
+
+
+@dataclass
 class MiningConfig:
     """Configuration for pipeline-based mining."""
 
@@ -340,6 +459,7 @@ class MiningConfig:
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     provider_pool: ProviderPoolConfig = field(default_factory=ProviderPoolConfig)
     direction_planner: DirectionPlannerConfig = field(default_factory=DirectionPlannerConfig)
+    orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "MiningConfig":
@@ -358,6 +478,7 @@ class MiningConfig:
             ensemble=EnsembleConfig.from_dict(d.get("ensemble", {})),
             provider_pool=ProviderPoolConfig.from_dict(d.get("provider_pool", {})),
             direction_planner=DirectionPlannerConfig.from_dict(d.get("direction_planner", {})),
+            orchestration=OrchestrationConfig.from_dict(d.get("orchestration", {})),
         )
 
 

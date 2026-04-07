@@ -613,6 +613,149 @@ class TestConfigContract:
         assert config.execution.test.start == "2024-01-01"
 
 
+class TestOrchestrationConfig:
+    """Tests for OrchestrationConfig dataclass and YAML parsing."""
+
+    def test_orchestration_config_defaults(self):
+        """OrchestrationConfig uses safe defaults."""
+        from quantaalpha.continuous.scheduler import OrchestrationConfig
+
+        config = OrchestrationConfig()
+        assert config.enabled is False
+        assert config.mode == "conditional_flow"
+        assert config.max_steps_per_cycle == 6
+        assert config.start_node == "original"
+        assert config.conditions == []
+        assert config.nodes == []
+
+    def test_orchestration_config_from_dict(self):
+        """OrchestrationConfig can be created from dict."""
+        from quantaalpha.continuous.scheduler import OrchestrationConfig
+
+        data = {
+            "enabled": True,
+            "mode": "conditional_flow",
+            "max_steps_per_cycle": 8,
+            "start_node": "original",
+            "metrics": {
+                "min_pass_rate_for_crossover": 0.25,
+                "min_active_parents_for_crossover": 3,
+                "min_diversity_score": 0.15,
+                "max_consecutive_failures": 3,
+            },
+            "conditions": [
+                {"name": "enough_parents", "type": "threshold", "metric": "active_parents", "operator": "gte", "value": 2},
+            ],
+            "nodes": [
+                {"id": "original", "kind": "action", "action": "original", "next": [{"goto": "stop"}]},
+            ],
+        }
+        config = OrchestrationConfig.from_dict(data)
+
+        assert config.enabled is True
+        assert config.mode == "conditional_flow"
+        assert config.max_steps_per_cycle == 8
+        assert config.start_node == "original"
+        assert len(config.conditions) == 1
+        assert config.conditions[0].name == "enough_parents"
+        assert len(config.nodes) == 1
+        assert config.nodes[0].id == "original"
+        assert config.nodes[0].kind == "action"
+        assert config.nodes[0].action == "original"
+
+    def test_mining_config_has_orchestration_field(self):
+        """MiningConfig has orchestration field with defaults."""
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        config = MiningConfig()
+        assert hasattr(config, "orchestration")
+        assert config.orchestration.enabled is False
+
+    def test_mining_config_parses_orchestration_from_dict(self):
+        """MiningConfig.from_dict parses orchestration section."""
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        data = {
+            "pipeline_mode": True,
+            "orchestration": {
+                "enabled": True,
+                "mode": "conditional_flow",
+                "max_steps_per_cycle": 8,
+                "start_node": "original",
+                "conditions": [
+                    {"name": "enough_parents", "type": "threshold", "metric": "active_parents", "operator": "gte", "value": 2},
+                ],
+                "nodes": [
+                    {"id": "original", "kind": "action", "action": "original", "next": [{"goto": "stop"}]},
+                    {"id": "mutation", "kind": "action", "action": "mutation", "next": [{"goto": "stop"}]},
+                ],
+            },
+        }
+        config = MiningConfig.from_dict(data)
+
+        assert config.orchestration.enabled is True
+        assert config.orchestration.mode == "conditional_flow"
+        assert config.orchestration.max_steps_per_cycle == 8
+        assert config.orchestration.start_node == "original"
+        assert len(config.orchestration.conditions) == 1
+        assert config.orchestration.conditions[0].name == "enough_parents"
+        assert len(config.orchestration.nodes) == 2
+        assert config.orchestration.nodes[0].id == "original"
+        assert config.orchestration.nodes[1].id == "mutation"
+
+    def test_pipeline_config_parses_orchestration_from_yaml(self, tmp_path):
+        """PipelineConfig parses orchestration section from YAML."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  orchestration:
+    enabled: true
+    mode: conditional_flow
+    max_steps_per_cycle: 8
+    start_node: original
+    conditions:
+      - name: enough_parents
+        type: threshold
+        metric: active_parents
+        operator: gte
+        value: 2
+    nodes:
+      - id: original
+        kind: action
+        action: original
+        next:
+          - goto: stop
+      - id: mutation
+        kind: action
+        action: mutation
+        next:
+          - goto: stop
+"""
+        yaml_path = tmp_path / "test_orchestration.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+
+        assert config.mining.orchestration.enabled is True
+        assert config.mining.orchestration.mode == "conditional_flow"
+        assert config.mining.orchestration.max_steps_per_cycle == 8
+        assert config.mining.orchestration.start_node == "original"
+        assert len(config.mining.orchestration.conditions) == 1
+        assert config.mining.orchestration.conditions[0].name == "enough_parents"
+        assert len(config.mining.orchestration.nodes) == 2
+        assert config.mining.orchestration.nodes[0].id == "original"
+        assert config.mining.orchestration.nodes[1].id == "mutation"
+
+
 class TestMiningConfig:
     """Tests for MiningConfig dataclasses and YAML parsing."""
 
@@ -985,3 +1128,199 @@ mining:
         config = PipelineConfig.from_yaml(str(yaml_path))
         assert config.mining.direction_planner.enabled is True
         assert config.mining.direction_planner.diversity_window == 5
+
+
+class TestOrchestrationConfigPhase1TargetShape:
+    """Tests for Phase 1 exact target shape: enabled, mode, max_steps_per_cycle, start_node, metrics, conditions, nodes."""
+
+    def test_orchestration_config_phase1_target_shape_fields(self):
+        """OrchestrationConfig has exact Phase 1 target shape fields."""
+        from quantaalpha.continuous.scheduler import OrchestrationConfig
+
+        config = OrchestrationConfig()
+        # Verify all Phase 1 target shape fields exist
+        assert hasattr(config, "enabled")
+        assert hasattr(config, "mode")
+        assert hasattr(config, "max_steps_per_cycle")
+        assert hasattr(config, "start_node")
+        assert hasattr(config, "metrics")
+        assert hasattr(config, "conditions")
+        assert hasattr(config, "nodes")
+
+    def test_orchestration_config_phase1_defaults(self):
+        """OrchestrationConfig uses Phase 1 safe defaults."""
+        from quantaalpha.continuous.scheduler import OrchestrationConfig
+
+        config = OrchestrationConfig()
+        assert config.enabled is False
+        assert config.mode == "conditional_flow"
+        assert config.max_steps_per_cycle == 6
+        assert config.start_node == "original"
+        assert isinstance(config.metrics, dict) or hasattr(config.metrics, "min_pass_rate_for_crossover")
+        assert config.conditions == []
+        assert config.nodes == []
+
+    def test_orchestration_config_from_dict_phase1_shape(self):
+        """OrchestrationConfig.from_dict parses Phase 1 target shape."""
+        from quantaalpha.continuous.scheduler import OrchestrationConfig
+
+        data = {
+            "enabled": True,
+            "mode": "conditional_flow",
+            "max_steps_per_cycle": 8,
+            "start_node": "original",
+            "metrics": {
+                "min_pass_rate_for_crossover": 0.25,
+                "min_active_parents_for_crossover": 3,
+                "min_diversity_score": 0.15,
+                "max_consecutive_failures": 3,
+            },
+            "conditions": [
+                {
+                    "name": "enough_parents",
+                    "type": "threshold",
+                    "metric": "active_parents",
+                    "operator": "gte",
+                    "value": 2,
+                }
+            ],
+            "nodes": [
+                {
+                    "id": "original",
+                    "kind": "action",
+                    "action": "original",
+                    "next": [{"goto": "stop"}],
+                }
+            ],
+        }
+        config = OrchestrationConfig.from_dict(data)
+
+        assert config.enabled is True
+        assert config.mode == "conditional_flow"
+        assert config.max_steps_per_cycle == 8
+        assert config.start_node == "original"
+        assert config.metrics.min_pass_rate_for_crossover == 0.25
+        assert config.metrics.min_active_parents_for_crossover == 3
+        assert len(config.conditions) == 1
+        assert config.conditions[0].name == "enough_parents"
+        assert len(config.nodes) == 1
+        assert config.nodes[0].id == "original"
+        assert config.nodes[0].kind == "action"
+        assert config.nodes[0].action == "original"
+
+    def test_mining_config_parses_orchestration_phase1_shape(self):
+        """MiningConfig.from_dict parses Phase 1 orchestration shape."""
+        from quantaalpha.continuous.scheduler import MiningConfig
+
+        data = {
+            "pipeline_mode": True,
+            "orchestration": {
+                "enabled": True,
+                "mode": "conditional_flow",
+                "max_steps_per_cycle": 10,
+                "start_node": "mutation",
+                "metrics": {
+                    "min_pass_rate_for_crossover": 0.30,
+                    "min_active_parents_for_crossover": 4,
+                    "min_diversity_score": 0.20,
+                    "max_consecutive_failures": 4,
+                },
+                "conditions": [
+                    {
+                        "name": "crossover_ready",
+                        "type": "all_of",
+                        "conditions": ["enough_parents", "pass_rate_good"],
+                    }
+                ],
+                "nodes": [
+                    {
+                        "id": "mutation",
+                        "kind": "action",
+                        "action": "mutation",
+                        "params": {"source": "pipeline_evolution"},
+                        "next": [{"goto": "stop"}],
+                    }
+                ],
+            },
+        }
+        config = MiningConfig.from_dict(data)
+
+        assert config.orchestration.enabled is True
+        assert config.orchestration.mode == "conditional_flow"
+        assert config.orchestration.max_steps_per_cycle == 10
+        assert config.orchestration.start_node == "mutation"
+        assert config.orchestration.metrics.min_pass_rate_for_crossover == 0.30
+        assert len(config.orchestration.conditions) == 1
+        assert config.orchestration.conditions[0].name == "crossover_ready"
+        assert len(config.orchestration.nodes) == 1
+        assert config.orchestration.nodes[0].id == "mutation"
+
+    def test_pipeline_config_parses_orchestration_phase1_from_yaml(self, tmp_path):
+        """PipelineConfig parses Phase 1 orchestration shape from YAML."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  orchestration:
+    enabled: true
+    mode: conditional_flow
+    max_steps_per_cycle: 6
+    start_node: original
+
+    metrics:
+      min_pass_rate_for_crossover: 0.20
+      min_active_parents_for_crossover: 2
+      min_diversity_score: 0.10
+      max_consecutive_failures: 2
+
+    conditions:
+      - name: enough_parents
+        type: threshold
+        metric: active_parents
+        operator: gte
+        value: 2
+
+      - name: crossover_ready
+        type: all_of
+        conditions:
+          - enough_parents
+
+    nodes:
+      - id: original
+        kind: action
+        action: original
+        next:
+          - goto: stop
+
+      - id: mutation
+        kind: action
+        action: mutation
+        params:
+          source: pipeline_evolution
+        next:
+          - goto: stop
+"""
+        yaml_path = tmp_path / "test_orchestration_phase1.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+
+        assert config.mining.orchestration.enabled is True
+        assert config.mining.orchestration.mode == "conditional_flow"
+        assert config.mining.orchestration.max_steps_per_cycle == 6
+        assert config.mining.orchestration.start_node == "original"
+        assert config.mining.orchestration.metrics.min_pass_rate_for_crossover == 0.20
+        assert len(config.mining.orchestration.conditions) == 2
+        assert config.mining.orchestration.conditions[0].name == "enough_parents"
+        assert config.mining.orchestration.conditions[1].name == "crossover_ready"
+        assert len(config.mining.orchestration.nodes) == 2
+        assert config.mining.orchestration.nodes[0].id == "original"
+        assert config.mining.orchestration.nodes[1].id == "mutation"

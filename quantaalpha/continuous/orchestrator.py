@@ -219,6 +219,48 @@ class MiningOrchestrator:
                         for p in self.config.mining.provider_pool.providers
                     ],
                 },
+                orchestration_cfg={
+                    "enabled": self.config.mining.orchestration.enabled,
+                    "mode": self.config.mining.orchestration.mode,
+                    "max_steps_per_cycle": self.config.mining.orchestration.max_steps_per_cycle,
+                    "start_node": self.config.mining.orchestration.start_node,
+                    "metrics": {
+                        "min_pass_rate_for_crossover": self.config.mining.orchestration.metrics.min_pass_rate_for_crossover,
+                        "min_active_parents_for_crossover": self.config.mining.orchestration.metrics.min_active_parents_for_crossover,
+                        "min_diversity_score": self.config.mining.orchestration.metrics.min_diversity_score,
+                        "max_consecutive_failures": self.config.mining.orchestration.metrics.max_consecutive_failures,
+                    },
+                    "conditions": [
+                        {
+                            "name": c.name,
+                            "type": c.type,
+                            "metric": c.metric,
+                            "operator": c.operator,
+                            "value": c.value,
+                            "conditions": c.conditions,
+                        }
+                        for c in self.config.mining.orchestration.conditions
+                    ],
+                    "nodes": [
+                        {
+                            "id": n.id,
+                            "kind": n.kind,
+                            "action": n.action,
+                            "decision_mode": n.decision_mode,
+                            "params": n.params,
+                            "next": [
+                                {
+                                    "if": t.condition,
+                                    "goto": t.goto,
+                                }
+                                for t in n.next
+                            ],
+                            "allowed_next": n.allowed_next,
+                            "fallback_next": n.fallback_next,
+                        }
+                        for n in self.config.mining.orchestration.nodes
+                    ],
+                },
             )
         return self._mining_scheduler
 

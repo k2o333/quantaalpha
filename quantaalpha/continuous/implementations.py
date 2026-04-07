@@ -603,6 +603,7 @@ class DefaultMiningScheduler(MiningScheduler):
         degraded_mode: bool = False,
         direction_planner_cfg: Optional[dict] = None,
         similarity_engine_cfg: Optional[dict] = None,
+        orchestration_cfg: Optional[dict] = None,
     ):
         import os
 
@@ -640,6 +641,7 @@ class DefaultMiningScheduler(MiningScheduler):
         self._direction_planner_cfg = direction_planner_cfg or {}
         self._direction_planner = None
         self._similarity_engine_cfg = similarity_engine_cfg or {}
+        self._orchestration_cfg = orchestration_cfg or {}
 
         # 初始化统一相似度引擎
         self._similarity_engine = None

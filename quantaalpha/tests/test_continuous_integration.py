@@ -225,3 +225,183 @@ mining:
         scheduler = orchestrator.mining_scheduler
         assert scheduler._direction_planner_cfg["enabled"] is True
         assert scheduler._direction_planner_cfg["diversity_window"] == 5
+
+    def test_orchestrator_passes_orchestration_config(self):
+        """MiningOrchestrator passes orchestration config to DefaultMiningScheduler."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.scheduler import (
+            SchedulerConfig,
+            MiningConfig,
+            OrchestrationConfig,
+            OrchestrationConditionConfig,
+            OrchestrationNodeConfig,
+            OrchestrationTransitionConfig,
+        )
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        config = SchedulerConfig(
+            mining=MiningConfig(
+                pipeline_mode=True,
+                orchestration=OrchestrationConfig(
+                    enabled=True,
+                    mode="conditional_flow",
+                    max_steps_per_cycle=8,
+                    start_node="original",
+                    conditions=[
+                        OrchestrationConditionConfig(
+                            name="enough_parents",
+                            type="threshold",
+                            metric="active_parents",
+                            operator="gte",
+                            value=2,
+                        ),
+                    ],
+                    nodes=[
+                        OrchestrationNodeConfig(
+                            id="original",
+                            kind="action",
+                            action="original",
+                            next=[OrchestrationTransitionConfig(goto="stop")],
+                        ),
+                        OrchestrationNodeConfig(
+                            id="mutation",
+                            kind="action",
+                            action="mutation",
+                            next=[OrchestrationTransitionConfig(goto="stop")],
+                        ),
+                    ],
+                ),
+            ),
+        )
+
+        # Mock DefaultMiningScheduler to capture the init arguments
+        with patch("quantaalpha.continuous.implementations.DefaultMiningScheduler") as mock_scheduler:
+            mock_instance = mock_scheduler.return_value
+            orchestrator = MiningOrchestrator(config=config)
+            scheduler = orchestrator.mining_scheduler
+
+            # Verify DefaultMiningScheduler was called with orchestration_cfg
+            mock_scheduler.assert_called_once()
+            call_kwargs = mock_scheduler.call_args[1]
+
+            assert "orchestration_cfg" in call_kwargs
+            orch_cfg = call_kwargs["orchestration_cfg"]
+            assert orch_cfg["enabled"] is True
+            assert orch_cfg["mode"] == "conditional_flow"
+            assert orch_cfg["max_steps_per_cycle"] == 8
+            assert orch_cfg["start_node"] == "original"
+            assert len(orch_cfg["conditions"]) == 1
+            assert orch_cfg["conditions"][0]["name"] == "enough_parents"
+            assert len(orch_cfg["nodes"]) == 2
+            assert orch_cfg["nodes"][0]["id"] == "original"
+            assert orch_cfg["nodes"][1]["id"] == "mutation"
+
+
+class TestOrchestrationPhase1Forwarding:
+    """Tests for Phase 1 exact config shape forwarding through orchestrator to scheduler."""
+
+    def test_orchestrator_forwards_phase1_orchestration_shape(self):
+        """MiningOrchestrator forwards Phase 1 orchestration config shape to DefaultMiningScheduler."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.scheduler import (
+            SchedulerConfig,
+            MiningConfig,
+            OrchestrationConfig,
+            OrchestrationMetricsConfig,
+            OrchestrationConditionConfig,
+            OrchestrationNodeConfig,
+            OrchestrationTransitionConfig,
+        )
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        config = SchedulerConfig(
+            mining=MiningConfig(
+                pipeline_mode=True,
+                orchestration=OrchestrationConfig(
+                    enabled=True,
+                    mode="conditional_flow",
+                    max_steps_per_cycle=8,
+                    start_node="original",
+                    metrics=OrchestrationMetricsConfig(
+                        min_pass_rate_for_crossover=0.25,
+                        min_active_parents_for_crossover=3,
+                        min_diversity_score=0.15,
+                        max_consecutive_failures=3,
+                    ),
+                    conditions=[
+                        OrchestrationConditionConfig(
+                            name="enough_parents",
+                            type="threshold",
+                            metric="active_parents",
+                            operator="gte",
+                            value=2,
+                        )
+                    ],
+                    nodes=[
+                        OrchestrationNodeConfig(
+                            id="original",
+                            kind="action",
+                            action="original",
+                            next=[OrchestrationTransitionConfig(condition="enough_parents", goto="stop")],
+                        )
+                    ],
+                ),
+            ),
+        )
+
+        # Mock DefaultMiningScheduler to capture the init arguments
+        with patch("quantaalpha.continuous.implementations.DefaultMiningScheduler") as mock_scheduler:
+            mock_instance = mock_scheduler.return_value
+            orchestrator = MiningOrchestrator(config=config)
+            scheduler = orchestrator.mining_scheduler
+
+            # Verify DefaultMiningScheduler was called with orchestration_cfg
+            mock_scheduler.assert_called_once()
+            call_kwargs = mock_scheduler.call_args[1]
+
+            assert "orchestration_cfg" in call_kwargs
+            orch_cfg = call_kwargs["orchestration_cfg"]
+            # Phase 1 target shape fields
+            assert orch_cfg["enabled"] is True
+            assert orch_cfg["mode"] == "conditional_flow"
+            assert orch_cfg["max_steps_per_cycle"] == 8
+            assert orch_cfg["start_node"] == "original"
+            assert orch_cfg["metrics"]["min_pass_rate_for_crossover"] == 0.25
+            assert len(orch_cfg["conditions"]) == 1
+            assert orch_cfg["conditions"][0]["name"] == "enough_parents"
+            assert len(orch_cfg["nodes"]) == 1
+            assert orch_cfg["nodes"][0]["id"] == "original"
+            assert orch_cfg["nodes"][0]["kind"] == "action"
+            assert len(orch_cfg["nodes"][0]["next"]) == 1
+            assert orch_cfg["nodes"][0]["next"][0]["if"] == "enough_parents"
+            assert orch_cfg["nodes"][0]["next"][0]["goto"] == "stop"
+
+    def test_real_scheduler_init_accepts_phase1_orchestration_cfg(self):
+        """Real DefaultMiningScheduler.__init__ accepts Phase 1 orchestration_cfg without raising."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        orchestration_cfg = {
+            "enabled": True,
+            "mode": "conditional_flow",
+            "max_steps_per_cycle": 6,
+            "start_node": "original",
+            "metrics": {
+                "min_pass_rate_for_crossover": 0.20,
+                "min_active_parents_for_crossover": 2,
+                "min_diversity_score": 0.10,
+                "max_consecutive_failures": 2,
+            },
+            "conditions": [],
+            "nodes": [],
+        }
+
+        # This should not raise
+        scheduler = DefaultMiningScheduler(
+            pipeline_mode=True,
+            orchestration_cfg=orchestration_cfg,
+        )
+
+        assert scheduler._orchestration_cfg["enabled"] is True
+        assert scheduler._orchestration_cfg["mode"] == "conditional_flow"
+        assert scheduler._orchestration_cfg["max_steps_per_cycle"] == 6
+        assert scheduler._orchestration_cfg["start_node"] == "original"
