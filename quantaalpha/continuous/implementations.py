@@ -602,6 +602,7 @@ class DefaultMiningScheduler(MiningScheduler):
         provider_pool_cfg: Optional[dict] = None,
         degraded_mode: bool = False,
         direction_planner_cfg: Optional[dict] = None,
+        similarity_engine_cfg: Optional[dict] = None,
     ):
         import os
 
@@ -637,8 +638,18 @@ class DefaultMiningScheduler(MiningScheduler):
         self._provider_pool_cfg = provider_pool_cfg or {}
         self._degraded_mode = degraded_mode
         self._direction_planner_cfg = direction_planner_cfg or {}
-        self._escalation_state = None
         self._direction_planner = None
+        self._similarity_engine_cfg = similarity_engine_cfg or {}
+
+        # 初始化统一相似度引擎
+        self._similarity_engine = None
+        if self._similarity_engine_cfg and self._similarity_engine_cfg.get("enabled", False):
+            try:
+                from quantaalpha.factors.similarity_engine import SimilarityEngine
+                self._similarity_engine = SimilarityEngine(self._similarity_engine_cfg)
+                logger.info(f"SimilarityEngine initialized with metrics: {list(self._similarity_engine._metrics.keys())}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize SimilarityEngine: {e}, falling back to legacy redundancy check")
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -729,22 +740,56 @@ class DefaultMiningScheduler(MiningScheduler):
     def _check_redundancy(self, factor_entry: dict) -> dict:
         """
         Check if a factor is redundant with existing factors.
+        
+        优先使用 SimilarityEngine (如果已初始化),否则回退到传统的 library.check_redundancy。
 
         Args:
             factor_entry: Factor entry to check
 
         Returns:
-            Redundancy check result dict
+            Redundancy check result dict,格式保持与原有接口兼容:
+            {
+                "is_redundant": bool,
+                "most_similar_factor_id": str | None,
+                "max_similarity": float,
+                "method": "ensemble" | "expression" | None,
+                "comparisons_made": int,
+            }
         """
         try:
-            from quantaalpha.factors.library import FactorLibraryManager
-
-            library = FactorLibraryManager(self.library_path)
             expression = factor_entry.get("factor_expression", "")
-
             if not expression:
                 return {"is_redundant": False}
 
+            # 优先使用统一相似度引擎
+            if self._similarity_engine is not None:
+                try:
+                    result = self._similarity_engine.check_against_library(
+                        new_expression=expression,
+                        library_path=self.library_path,
+                        max_comparisons=50,
+                    )
+                    
+                    # 从 dimension_results 中提取最相似因子信息
+                    most_similar_factor_id = None
+                    for dim_result in result.dimension_results:
+                        if dim_result.raw_detail.get("most_similar_factor_id"):
+                            most_similar_factor_id = dim_result.raw_detail["most_similar_factor_id"]
+                            break
+                    
+                    return {
+                        "is_redundant": result.is_redundant,
+                        "most_similar_factor_id": most_similar_factor_id,
+                        "max_similarity": result.final_score,
+                        "method": "ensemble",
+                        "comparisons_made": 50,  # 使用默认值
+                    }
+                except Exception as e:
+                    logger.warning(f"SimilarityEngine check failed: {e}, falling back to legacy check")
+            
+            # 回退到传统的 library.check_redundancy
+            from quantaalpha.factors.library import FactorLibraryManager
+            library = FactorLibraryManager(self.library_path)
             return library.check_redundancy(
                 new_factor_expression=expression,
                 correlation_threshold=0.85,
@@ -769,6 +814,11 @@ class DefaultMiningScheduler(MiningScheduler):
     def _retrieve_context(self) -> str:
         """
         Retrieve context via RAG or fallback to library-based context.
+        
+        修复:
+        1. 不再使用空字符串 query="",而是使用方向规划器的输出或默认查询
+        2. 如果 SimilarityEngine 已初始化,优先使用其 query_similar_factors 方法
+        3. 配置驱动 RAG 启停
 
         Returns:
             Context string for factor generation.
@@ -780,17 +830,40 @@ class DefaultMiningScheduler(MiningScheduler):
                 build_fewshot_context,
             )
 
-            # Try RAG first, fall back to Jaccard
+            # 构建查询文本 - 不再使用空字符串
+            query = self._build_similarity_query()
+            
+            # 优先使用 SimilarityEngine (如果已初始化)
+            if self._similarity_engine is not None:
+                try:
+                    results = self._similarity_engine.query_similar_factors(
+                        query=query,
+                        library_path=self.library_path,
+                        top_k=10,
+                    )
+                    if results:
+                        context = build_fewshot_context(
+                            factors=results,
+                            include_expression=True,
+                            include_tags=True,
+                            include_ic=True,
+                        )
+                        logger.debug(f"Retrieved context via SimilarityEngine from {len(results)} factors")
+                        return context
+                except Exception as e:
+                    logger.warning(f"SimilarityEngine query failed: {e}, falling back to legacy")
+            
+            # 回退到传统方法: RAG -> Jaccard
             try:
                 results = query_active_factors_RAG(
-                    query="",
+                    query=query,
                     top_k=10,
                     library_path=self.library_path,
                 )
             except Exception:
                 # Fallback to Jaccard similarity
                 results = query_active_factors_jaccard(
-                    query="",
+                    query=query,
                     top_k=10,
                     library_path=self.library_path,
                 )
@@ -802,18 +875,39 @@ class DefaultMiningScheduler(MiningScheduler):
                     include_tags=True,
                     include_ic=True,
                 )
-                logger.debug(f"Retrieved context from {len(results)} active factors")
+                logger.debug(f"Retrieved context from {len(results)} active factors via legacy path")
                 return context
-            else:
-                logger.debug("No active factors found for context, using empty context")
-                return ""
 
-        except ImportError as e:
-            logger.warning(f"RAG/fewshot module not available: {e}, building fallback context")
-            return self._build_fallback_context()
+            return ""
         except Exception as e:
-            logger.error(f"Error retrieving RAG context: {e}")
-            return self._build_fallback_context()
+            logger.warning(f"Context retrieval failed: {e}")
+            return ""
+
+    def _build_similarity_query(self) -> str:
+        """
+        构建用于相似度检索的查询文本。
+        
+        优先级:
+        1. 方向规划器的输出 (如果配置)
+        2. 默认的高质量因子查询文本
+        
+        Returns:
+            查询字符串
+        """
+        # 尝试从方向规划器获取查询
+        if self._direction_planner is not None:
+            try:
+                direction = self._direction_planner.get_current_direction()
+                if direction:
+                    logger.debug(f"Using direction planner query: {direction}")
+                    return direction
+            except Exception as e:
+                logger.debug(f"Direction planner query failed: {e}")
+        
+        # 默认查询 - 描述需要高质量因子的意图
+        default_query = "high IC factor with volume and momentum signals"
+        logger.debug(f"Using default similarity query: {default_query}")
+        return default_query
 
     def _build_fallback_context(self) -> str:
         """

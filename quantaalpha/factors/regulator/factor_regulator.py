@@ -18,15 +18,17 @@ class FactorRegulator(Evaluator):
     """
     
     def __init__(self, factor_zoo_path: str = None, duplication_threshold: int = 8,
-                 symbol_length_threshold: int = 300, base_features_threshold: int = 6):
+                 symbol_length_threshold: int = 300, base_features_threshold: int = 6,
+                 similarity_engine = None):
         """
-        Initialize the FactorRegulator with a reference to the factor zoo.
-        
+        Initialize the FactorRegulator with a reference to the factor zoo database.
+
         Args:
             factor_zoo_path (str): Path to the CSV file containing the factor zoo database.
             duplication_threshold (int): Threshold for duplication detection.
             symbol_length_threshold (int): Maximum allowed symbol length (SL) for expressions.
             base_features_threshold (int): Maximum allowed number of unique base features (ER).
+            similarity_engine: Optional SimilarityEngine instance for computing ensemble similarity scores.
         """
         super().__init__(None)
         self.factor_zoo_path = factor_zoo_path
@@ -38,6 +40,9 @@ class FactorRegulator(Evaluator):
         self.symbol_length_threshold = symbol_length_threshold
         self.base_features_threshold = base_features_threshold
         self.new_factors = []
+        self._similarity_engine = similarity_engine
+        if similarity_engine:
+            logger.info("SimilarityEngine injected into FactorRegulator")
         
     
         
@@ -61,10 +66,12 @@ class FactorRegulator(Evaluator):
     def evaluate(self, expression: str) -> Tuple[int, str, Optional[str]]:
         """
         Evaluates an expression for duplication with existing factors in the factor zoo.
-        
+
+        如果注入了 SimilarityEngine,还会计算融合相似度并添加到返回结果中。
+
         Args:
             expression (str): The factor expression to evaluate.
-            
+
         Returns:
             Tuple containing:
                 - duplicated_subtree_size (int): Size of the duplicated subtree
@@ -76,13 +83,13 @@ class FactorRegulator(Evaluator):
             duplicated_subtree_size, duplicated_subtree, matched_alpha = match_alphazoo(
                 expression, self.alphazoo
             )
-            
+
             num_free_args = count_free_args(expression)
             num_unique_vars = count_unique_vars(expression)
             num_all_nodes = count_all_nodes(expression)
             symbol_length = calculate_symbol_length(expression)
             num_base_features = count_base_features(expression)
-            
+
             logger.info(f"""
                         Evaluated expr: {expression}
                         Duplicated Size: {duplicated_subtree_size}
@@ -92,10 +99,10 @@ class FactorRegulator(Evaluator):
                         Symbol Length (SL): {symbol_length}
                         # Base Features (ER): {num_base_features}
                         """)
-            
+
             eval_dict = {
                 "expr": expression,
-                "duplicated_subtree_size": duplicated_subtree_size, 
+                "duplicated_subtree_size": duplicated_subtree_size,
                 "duplicated_subtree": duplicated_subtree,
                 "matched_alpha": matched_alpha,
                 "num_free_args": num_free_args,
@@ -104,9 +111,32 @@ class FactorRegulator(Evaluator):
                 "symbol_length": symbol_length,
                 "num_base_features": num_base_features
                 }
-            
+
+            # 如果注入了 SimilarityEngine,计算与 factor_zoo 的融合相似度
+            if self._similarity_engine is not None and not self.alphazoo.empty:
+                try:
+                    # 找到最相似的已有因子
+                    best_score = 0.0
+                    best_expr = None
+                    for idx, row in self.alphazoo.iterrows():
+                        expr_b = row.get('factor_expression', '')
+                        if expr_b:
+                            ensemble = self._similarity_engine.compute_pairwise(expression, expr_b)
+                            if ensemble.final_score > best_score:
+                                best_score = ensemble.final_score
+                                best_expr = expr_b
+
+                    eval_dict["ensemble_score"] = best_score
+                    eval_dict["ensemble_redundant"] = best_score >= self._similarity_engine._rejection_threshold
+                    eval_dict["ensemble_most_similar"] = best_expr
+
+                except Exception as e:
+                    logger.warning(f"SimilarityEngine evaluation failed: {e}, skipping ensemble scores")
+                    eval_dict["ensemble_score"] = None
+                    eval_dict["ensemble_redundant"] = None
+
             return True, eval_dict
-            
+
         except Exception as e:
             logger.error(f"Failed to evaluate expression: {expression}. Error: {str(e)}")
             return False, None
