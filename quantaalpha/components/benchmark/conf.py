@@ -3,14 +3,13 @@ from pathlib import Path
 from typing import Optional
 
 from quantaalpha.core.conf import ExtendedBaseSettings
+from pydantic_settings import SettingsConfigDict
 
 DIRNAME = Path("./")
 
 
 class BenchmarkSettings(ExtendedBaseSettings):
-    class Config:
-        env_prefix = "BENCHMARK_"
-        """Use `BENCHMARK_` as prefix for environment variables"""
+    model_config = SettingsConfigDict(env_prefix="BENCHMARK_")
 
     bench_data_path: Path = DIRNAME / "example.json"
     """data for benchmark"""
