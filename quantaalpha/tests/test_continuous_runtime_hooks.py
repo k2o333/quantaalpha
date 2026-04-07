@@ -1701,3 +1701,207 @@ class TestPerFactorTimeoutEnforcement:
             "slow validator completed instead of timing out. "
             f"Got result: {result}"
         )
+
+
+class TestPhase4RuntimeEvolution:
+    """Tests for Phase 4 runtime evolution adapter wiring.
+
+    Tests cover:
+    - _execute_orchestrated_action dispatches mutation and crossover (not unsupported)
+    - _execute_mutation_action and _execute_crossover_action have real implementations
+    - degraded mode blocks crossover before calling the adapter
+    """
+
+    def test_phase4_runtime_evolution_mutation_dispatches_to_helper(self, tmp_path):
+        """Verify _execute_orchestrated_action dispatches 'mutation' to _execute_mutation_action."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        # Mock the mutation action helper
+        with patch.object(scheduler, '_execute_mutation_action') as mock_mutation:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_mutation.return_value = ActionResult(
+                action="mutation",
+                status="success",
+                generated_factors=1,
+                validated_factors=1,
+                added_factors=1,
+            )
+
+            result = scheduler._execute_orchestrated_action(
+                action="mutation",
+                params={"direction": "test"},
+                node_id="mutation_node",
+            )
+
+            mock_mutation.assert_called_once()
+            assert result.status != "unsupported"
+            assert result.action == "mutation"
+
+    def test_phase4_runtime_evolution_crossover_dispatches_to_helper(self, tmp_path):
+        """Verify _execute_orchestrated_action dispatches 'crossover' to _execute_crossover_action."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        # Mock the crossover action helper
+        with patch.object(scheduler, '_execute_crossover_action') as mock_crossover:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_crossover.return_value = ActionResult(
+                action="crossover",
+                status="success",
+                generated_factors=1,
+                validated_factors=1,
+                added_factors=1,
+            )
+
+            result = scheduler._execute_orchestrated_action(
+                action="crossover",
+                params={"direction": "test"},
+                node_id="crossover_node",
+            )
+
+            mock_crossover.assert_called_once()
+            assert result.status != "unsupported"
+            assert result.action == "crossover"
+
+    def test_phase4_runtime_evolution_mutation_helper_calls_real_adapter(self, tmp_path):
+        """Verify _execute_mutation_action calls the real adapter target path."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+        scheduler._direction_planner_cfg = {"enabled": False}
+        scheduler._evolution_cfg = {"max_rounds": 1}
+        scheduler._state_cfg = {
+            **scheduler._state_cfg,
+            "log_root": str(tmp_path / "logs"),
+            "budget_seconds": 17,
+        }
+
+        with patch(
+            "quantaalpha.pipeline.factor_mining.run_evolution_action",
+            return_value={"status": "success", "successful_tasks": 2, "factor_ids": ["m1", "m2"]},
+        ) as mock_adapter:
+            result = scheduler._execute_mutation_action(
+                params={"direction": "mutation test"},
+                node_id="mutation_node",
+            )
+
+        assert isinstance(result, ActionResult)
+        assert result.status == "success"
+        assert result.generated_factors == 2
+        mock_adapter.assert_called_once_with(
+            initial_direction="mutation test",
+            evolution_cfg={
+                **scheduler._evolution_cfg,
+                "mutation_enabled": True,
+                "crossover_enabled": False,
+            },
+            exec_cfg=scheduler._state_cfg,
+            planning_cfg=scheduler._direction_planner_cfg,
+            mutation_enabled=True,
+            crossover_enabled=False,
+            budget_seconds=17,
+            log_root=str(tmp_path / "logs"),
+        )
+
+    def test_phase4_runtime_evolution_crossover_helper_calls_real_adapter(self, tmp_path):
+        """Verify _execute_crossover_action calls the real adapter target path."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+        scheduler._direction_planner_cfg = {"enabled": False}
+        scheduler._evolution_cfg = {"max_rounds": 1}
+        scheduler._state_cfg = {
+            **scheduler._state_cfg,
+            "log_root": str(tmp_path / "logs"),
+            "budget_seconds": 19,
+        }
+
+        with patch(
+            "quantaalpha.pipeline.factor_mining.run_evolution_action",
+            return_value={"status": "success", "successful_tasks": 1, "factor_ids": ["c1"]},
+        ) as mock_adapter:
+            result = scheduler._execute_crossover_action(
+                params={"direction": "crossover test"},
+                node_id="crossover_node",
+            )
+
+        assert isinstance(result, ActionResult)
+        assert result.status == "success"
+        assert result.generated_factors == 1
+        mock_adapter.assert_called_once_with(
+            initial_direction="crossover test",
+            evolution_cfg={
+                **scheduler._evolution_cfg,
+                "mutation_enabled": False,
+                "crossover_enabled": True,
+            },
+            exec_cfg=scheduler._state_cfg,
+            planning_cfg=scheduler._direction_planner_cfg,
+            mutation_enabled=False,
+            crossover_enabled=True,
+            budget_seconds=19,
+            log_root=str(tmp_path / "logs"),
+        )
+
+    def test_phase4_runtime_evolution_degraded_mode_blocks_crossover(self, tmp_path):
+        """Verify degraded mode blocks crossover without calling the adapter."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        # Create scheduler with degraded mode enabled
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            degraded_mode=True,
+        )
+
+        with patch("quantaalpha.pipeline.factor_mining.run_evolution_action") as mock_adapter:
+            result = scheduler._execute_crossover_action(
+                params={"direction": "test"},
+                node_id="crossover_node",
+            )
+
+        # Result should indicate blocked/skipped/degraded
+        assert result.status in ("blocked", "skipped", "degraded", "disabled")
+        assert result.error is not None
+        mock_adapter.assert_not_called()
+
+    def test_phase4_runtime_evolution_failed_adapter_status_is_preserved(self, tmp_path):
+        """Verify failed adapter result is not collapsed into degraded."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+        scheduler._direction_planner_cfg = {"enabled": False}
+        scheduler._evolution_cfg = {"max_rounds": 1}
+
+        with patch(
+            "quantaalpha.pipeline.factor_mining.run_evolution_action",
+            return_value={"status": "failed", "successful_tasks": 0, "failed_tasks": 3},
+        ):
+            result = scheduler._execute_mutation_action(
+                params={"direction": "mutation test"},
+                node_id="mutation_node",
+            )
+
+        assert result.status == "failed"

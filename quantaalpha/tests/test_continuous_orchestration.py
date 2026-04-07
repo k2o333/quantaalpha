@@ -355,6 +355,38 @@ class TestConfigValidation:
                 max_steps_per_cycle=config["max_steps_per_cycle"],
             )
 
+    def test_missing_action_for_action_node(self):
+        """Validation fails when an action node is missing required action."""
+        config = self._make_valid_config()
+        del config["nodes"][0]["action"]
+
+        with pytest.raises(OrchestrationConfigError, match="missing required action"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )
+
+    def test_missing_decision_mode_for_decision_node(self):
+        """Validation fails when a decision node is missing required decision_mode."""
+        config = self._make_valid_config()
+        config["nodes"][0] = {
+            "id": "start",
+            "kind": "decision",
+            "allowed_next": ["mutation", "crossover"],
+            "fallback_next": "mutation",
+            "next": [],
+        }
+
+        with pytest.raises(OrchestrationConfigError, match="missing required decision_mode"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )
+
     def test_missing_goto_target(self):
         """Validation fails when goto target doesn't exist."""
         config = self._make_valid_config()

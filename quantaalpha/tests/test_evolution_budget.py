@@ -6,6 +6,80 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 
+class TestPhase4RuntimeEvolution:
+    """Tests for Phase 4 runtime evolution adapter: run_evolution_action."""
+
+    def test_phase4_runtime_evolution_mutation_adapter_calls_run_evolution_loop(self):
+        """run_evolution_action delegates to run_evolution_loop with mutation flags."""
+        from quantaalpha.pipeline.factor_mining import run_evolution_action
+
+        with patch(
+            "quantaalpha.pipeline.factor_mining.run_evolution_loop",
+            return_value={"status": "success", "successful_tasks": 1},
+        ) as mock_loop:
+            result = run_evolution_action(
+                initial_direction="mutation direction",
+                evolution_cfg={"max_rounds": 3, "mutation_enabled": False, "crossover_enabled": True},
+                exec_cfg={"steps_per_loop": 5, "use_local": True},
+                planning_cfg={"enabled": False},
+                mutation_enabled=True,
+                crossover_enabled=False,
+                budget_seconds=11,
+                log_root="/tmp/phase4-mutation",
+            )
+
+        assert result["status"] == "success"
+        mock_loop.assert_called_once_with(
+            initial_direction="mutation direction",
+            evolution_cfg={
+                "max_rounds": 3,
+                "mutation_enabled": True,
+                "crossover_enabled": False,
+            },
+            exec_cfg={"steps_per_loop": 5, "use_local": True},
+            planning_cfg={"enabled": False},
+            stop_event=None,
+            quality_gate_cfg=None,
+            budget_seconds=11,
+            log_root="/tmp/phase4-mutation",
+        )
+
+    def test_phase4_runtime_evolution_crossover_adapter_sets_flags(self):
+        """run_evolution_action delegates to run_evolution_loop with crossover flags."""
+        from quantaalpha.pipeline.factor_mining import run_evolution_action
+
+        with patch(
+            "quantaalpha.pipeline.factor_mining.run_evolution_loop",
+            return_value={"status": "degraded", "successful_tasks": 0},
+        ) as mock_loop:
+            result = run_evolution_action(
+                initial_direction="crossover direction",
+                evolution_cfg={"max_rounds": 5, "mutation_enabled": True, "crossover_enabled": False},
+                exec_cfg={"steps_per_loop": 7, "use_local": False},
+                planning_cfg={"enabled": True},
+                mutation_enabled=False,
+                crossover_enabled=True,
+                budget_seconds=13,
+                log_root="/tmp/phase4-crossover",
+            )
+
+        assert result["status"] == "degraded"
+        mock_loop.assert_called_once_with(
+            initial_direction="crossover direction",
+            evolution_cfg={
+                "max_rounds": 5,
+                "mutation_enabled": False,
+                "crossover_enabled": True,
+            },
+            exec_cfg={"steps_per_loop": 7, "use_local": False},
+            planning_cfg={"enabled": True},
+            stop_event=None,
+            quality_gate_cfg=None,
+            budget_seconds=13,
+            log_root="/tmp/phase4-crossover",
+        )
+
+
 class TestEvolutionBudget:
     """Tests for evolution budget enforcement."""
 

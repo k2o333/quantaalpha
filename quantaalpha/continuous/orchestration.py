@@ -247,7 +247,11 @@ def validate_orchestration_config(
         # Check action is valid for action nodes
         if kind == "action":
             action = node.get("action")
-            if action is not None and action not in VALID_ACTIONS:
+            if action is None:
+                raise OrchestrationConfigError(
+                    f"Node '{node_id}' is missing required action"
+                )
+            if action not in VALID_ACTIONS:
                 raise OrchestrationConfigError(
                     f"Node '{node_id}' has invalid action: '{action}'. Must be one of {VALID_ACTIONS}"
                 )
@@ -255,7 +259,11 @@ def validate_orchestration_config(
         # Check decision_mode is valid for decision nodes
         if kind == "decision":
             decision_mode = node.get("decision_mode")
-            if decision_mode is not None and decision_mode not in VALID_DECISION_MODES:
+            if decision_mode is None:
+                raise OrchestrationConfigError(
+                    f"Node '{node_id}' is missing required decision_mode"
+                )
+            if decision_mode not in VALID_DECISION_MODES:
                 raise OrchestrationConfigError(
                     f"Node '{node_id}' has invalid decision_mode: '{decision_mode}'. Must be one of {VALID_DECISION_MODES}"
                 )

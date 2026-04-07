@@ -10,12 +10,13 @@ These implementations use:
 
 from __future__ import annotations
 
-import logging
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread, Event
 from typing import Callable, Optional
+
+from quantaalpha.log import logger
 
 from .scheduler import (
     DataMonitorTrigger,
@@ -26,8 +27,6 @@ from .scheduler import (
     SchedulerContext,
     SchedulerEvent,
 )
-
-logger = logging.getLogger(__name__)
 
 RETURN_ALIAS_EXPRESSION = "(close / ts_delay(close, 1) - 1)"
 
@@ -1708,7 +1707,7 @@ class DefaultMiningScheduler(MiningScheduler):
 
     def _run_pipeline_mining(self, budget_seconds: Optional[int] = None) -> dict:
         """
-        Run mining via AlphaAgentLoop or EvolutionController.
+        Run mining via AlphaAgentLoop or EvolutionController, or orchestration runtime.
 
         Args:
             budget_seconds: Maximum seconds for this mining run.
@@ -1716,10 +1715,6 @@ class DefaultMiningScheduler(MiningScheduler):
         Returns:
             Dict with factors_generated, factors_validated, factors_added, factor_ids, errors.
         """
-        from pathlib import Path
-        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
-        from quantaalpha.pipeline.loop import AlphaAgentLoop
-
         result = {
             "factors_generated": 0,
             "factors_validated": 0,
@@ -1727,6 +1722,35 @@ class DefaultMiningScheduler(MiningScheduler):
             "factor_ids": [],
             "errors": [],
         }
+
+        from pathlib import Path
+
+        # Phase 3: orchestration runtime branch
+        if self._orchestration_cfg.get("enabled", False):
+            logger.info("Phase 3: entering orchestration runtime (original-only)")
+            # Keep basic runtime setup aligned with the existing pipeline path.
+            from quantaalpha.continuous.escalation import EscalationState
+            from quantaalpha.continuous.scheduler import EscalationConfig
+
+            escalation_config = EscalationConfig.from_dict(self._escalation_cfg)
+            if self._escalation_state is None:
+                self._escalation_state = EscalationState(escalation_config)
+
+            if self._state_manager is None:
+                self._init_state_manager()
+
+            workspace_root = Path(self._state_cfg.get("log_root", "log/continuous/mining"))
+            if not workspace_root.is_absolute():
+                workspace_root = workspace_root.resolve()
+            workspace_root.mkdir(parents=True, exist_ok=True)
+            logger.set_storages_path(workspace_root)
+
+            orchestrated_result = self._run_orchestrated_cycle(budget_seconds=budget_seconds)
+            self._persist_state()
+            return orchestrated_result
+
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
 
         # Apply degraded mode overrides
         effective_evolution_cfg = dict(self._evolution_cfg)
@@ -1975,3 +1999,338 @@ class DefaultMiningScheduler(MiningScheduler):
             logger.error("Factor library module not available")
         except Exception as e:
             logger.error(f"Error adding factor {factor_id} to library: {e}")
+
+    # =========================================================================
+    # Phase 3: Orchestration Runtime (original-only)
+    # =========================================================================
+
+    def _run_orchestrated_cycle(self, budget_seconds: Optional[int] = None) -> dict:
+        """
+        Run a single orchestrated mining cycle using SingleCycleOrchestrator.
+
+        This is the Phase 3 runtime entry point for orchestration mode.
+        Only supports 'original' action execution.
+
+        Args:
+            budget_seconds: Maximum seconds for this cycle (currently unused).
+
+        Returns:
+            Dict with factors_generated, factors_validated, factors_added, factor_ids, errors.
+        """
+        from quantaalpha.continuous.orchestration import (
+            SingleCycleOrchestrator,
+            OrchestrationContext,
+            validate_orchestration_config,
+        )
+        import uuid
+
+        result = {
+            "factors_generated": 0,
+            "factors_validated": 0,
+            "factors_added": 0,
+            "factor_ids": [],
+            "errors": [],
+        }
+
+        # Read orchestration config
+        start_node = self._orchestration_cfg.get("start_node", "original")
+        nodes = self._orchestration_cfg.get("nodes", [])
+        conditions = self._orchestration_cfg.get("conditions", [])
+        max_steps = self._orchestration_cfg.get("max_steps_per_cycle", 6)
+
+        validate_orchestration_config(
+            start_node=start_node,
+            nodes=nodes,
+            conditions=conditions,
+            max_steps_per_cycle=max_steps,
+        )
+
+        # Initialize orchestrator
+        orchestrator = SingleCycleOrchestrator(
+            start_node=start_node,
+            nodes=nodes,
+            conditions=conditions,
+            max_steps_per_cycle=max_steps,
+        )
+
+        # Initialize context
+        context = OrchestrationContext(
+            cycle_id=str(uuid.uuid4())[:8],
+            current_node=start_node,
+            step_index=0,
+        )
+
+        # Main orchestration loop
+        while not orchestrator.should_stop(context):
+            # Determine next action
+            action_spec = orchestrator.next_action(context)
+
+            # Execute the action
+            action_result = self._execute_orchestrated_action(
+                action=action_spec.action,
+                params=action_spec.params,
+                node_id=action_spec.node_id,
+            )
+
+            # Update context with result
+            context = orchestrator.apply_result(context, action_result)
+
+            # Merge action result into return value
+            result["factors_generated"] += action_result.generated_factors
+            result["factors_validated"] += action_result.validated_factors
+            result["factors_added"] += action_result.added_factors
+            if action_result.metadata.get("factor_ids"):
+                result["factor_ids"].extend(action_result.metadata["factor_ids"])
+            if action_result.error:
+                result["errors"].append(action_result.error)
+
+            # Advance to next node
+            next_node = orchestrator.select_next_node(context)
+            if next_node is None:
+                # No valid next node, stop
+                break
+
+            context.current_node = next_node
+            context.step_index += 1
+
+            # Check budget / stop event
+            if self._stop_event.is_set():
+                break
+
+        return result
+
+    def _execute_orchestrated_action(
+        self,
+        action: Optional[str],
+        params: dict,
+        node_id: str,
+    ) -> "ActionResult":
+        """
+        Dispatch and execute an orchestrated action.
+
+        Phase 4 supports 'original', 'mutation', and 'crossover' actions.
+
+        Args:
+            action: Action type (e.g. 'original', 'mutation', 'crossover').
+            params: Action parameters from the node config.
+            node_id: ID of the node being executed.
+
+        Returns:
+            ActionResult with execution result.
+        """
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        if action == "original":
+            return self._execute_original_action(params, node_id)
+        elif action == "mutation":
+            return self._execute_mutation_action(params, node_id)
+        elif action == "crossover":
+            return self._execute_crossover_action(params, node_id)
+
+        # Unsupported action
+        logger.warning(
+            f"Orchestration action '{action}' on node '{node_id}' is not supported"
+        )
+        return ActionResult(
+            action=action or "unknown",
+            status="unsupported",
+            error=f"Action '{action}' not supported",
+        )
+
+    def _execute_original_action(
+        self,
+        params: dict,
+        node_id: str,
+    ) -> "ActionResult":
+        """
+        Execute the 'original' action by reusing the existing AlphaAgentLoop path.
+
+        Args:
+            params: Action parameters (currently unused).
+            node_id: ID of the node being executed.
+
+        Returns:
+            ActionResult with generated/validated/added factor counts.
+        """
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        try:
+            # Reuse the existing original mining path by temporarily disabling
+            # orchestration and calling _run_pipeline_mining's existing logic.
+            # We directly invoke the AlphaAgentLoop path here.
+            from pathlib import Path
+            from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+            from quantaalpha.pipeline.loop import AlphaAgentLoop
+
+            steps = self._state_cfg.get("steps_per_mining", 5)
+            direction = self._get_mining_direction()
+
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction=direction,
+                stop_event=self._stop_event,
+                use_local=True,
+                quality_gate_config=self._quality_gate_config,
+                step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
+                ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
+                provider_pool_cfg=self._provider_pool_cfg,
+            )
+            loop.run(step_n=steps, stop_event=self._stop_event)
+
+            factor_ids = self._extract_factors_from_loop(loop)
+
+            return ActionResult(
+                action="original",
+                status="success" if factor_ids else "completed_no_factor",
+                generated_factors=len(factor_ids),
+                validated_factors=len(factor_ids),
+                added_factors=len(factor_ids),
+                metadata={
+                    "factor_ids": factor_ids,
+                    "node_id": node_id,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Original action failed on node '{node_id}': {e}")
+            return ActionResult(
+                action="original",
+                status="error",
+                error=str(e),
+            )
+
+    def _execute_mutation_action(
+        self,
+        params: dict,
+        node_id: str,
+    ) -> "ActionResult":
+        """
+        Execute the 'mutation' action by calling the real evolution adapter.
+
+        Args:
+            params: Action parameters from the node config.
+            node_id: ID of the node being executed.
+
+        Returns:
+            ActionResult with generated/validated/added factor counts.
+        """
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        try:
+            # Import the real adapter entrypoint from factor_mining module
+            from quantaalpha.pipeline.factor_mining import run_evolution_action
+
+            direction = params.get("direction") or self._get_mining_direction()
+            log_root = self._state_cfg.get("log_root")
+
+            result = run_evolution_action(
+                initial_direction=direction,
+                evolution_cfg={
+                    **self._evolution_cfg,
+                    "mutation_enabled": True,
+                    "crossover_enabled": False,
+                },
+                exec_cfg=self._state_cfg,
+                planning_cfg=self._direction_planner_cfg,
+                mutation_enabled=True,
+                crossover_enabled=False,
+                budget_seconds=self._state_cfg.get("budget_seconds"),
+                log_root=log_root,
+            )
+
+            factor_ids = result.get("factor_ids", [])
+            result_status = result.get("status", "degraded")
+            return ActionResult(
+                action="mutation",
+                status=result_status,
+                generated_factors=result.get("successful_tasks", 0),
+                validated_factors=result.get("successful_tasks", 0),
+                added_factors=result.get("successful_tasks", 0),
+                metadata={
+                    "factor_ids": factor_ids,
+                    "node_id": node_id,
+                    "evolution_summary": result,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Mutation action failed on node '{node_id}': {e}")
+            return ActionResult(
+                action="mutation",
+                status="error",
+                error=str(e),
+            )
+
+    def _execute_crossover_action(
+        self,
+        params: dict,
+        node_id: str,
+    ) -> "ActionResult":
+        """
+        Execute the 'crossover' action by calling the real evolution adapter.
+        In degraded mode, crossover is blocked and returns a non-success result.
+
+        Args:
+            params: Action parameters from the node config.
+            node_id: ID of the node being executed.
+
+        Returns:
+            ActionResult with generated/validated/added factor counts.
+        """
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        # Degraded mode blocks crossover
+        if self._degraded_mode:
+            logger.warning(
+                f"Crossover blocked on node '{node_id}': degraded mode is active"
+            )
+            return ActionResult(
+                action="crossover",
+                status="blocked",
+                error="Crossover is disabled in degraded mode",
+            )
+
+        try:
+            # Import the real adapter entrypoint from factor_mining module
+            from quantaalpha.pipeline.factor_mining import run_evolution_action
+
+            direction = params.get("direction") or self._get_mining_direction()
+            log_root = self._state_cfg.get("log_root")
+
+            result = run_evolution_action(
+                initial_direction=direction,
+                evolution_cfg={
+                    **self._evolution_cfg,
+                    "mutation_enabled": False,
+                    "crossover_enabled": True,
+                },
+                exec_cfg=self._state_cfg,
+                planning_cfg=self._direction_planner_cfg,
+                mutation_enabled=False,
+                crossover_enabled=True,
+                budget_seconds=self._state_cfg.get("budget_seconds"),
+                log_root=log_root,
+            )
+
+            factor_ids = result.get("factor_ids", [])
+            result_status = result.get("status", "degraded")
+            return ActionResult(
+                action="crossover",
+                status=result_status,
+                generated_factors=result.get("successful_tasks", 0),
+                validated_factors=result.get("successful_tasks", 0),
+                added_factors=result.get("successful_tasks", 0),
+                metadata={
+                    "factor_ids": factor_ids,
+                    "node_id": node_id,
+                    "evolution_summary": result,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Crossover action failed on node '{node_id}': {e}")
+            return ActionResult(
+                action="crossover",
+                status="error",
+                error=str(e),
+            )

@@ -25,7 +25,6 @@ import pickle
 from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
 from quantaalpha.pipeline.planning import generate_parallel_directions
 from quantaalpha.pipeline.planning import load_run_config
-from quantaalpha.pipeline.loop import AlphaAgentLoop
 from quantaalpha.pipeline.evolution import (
     EvolutionController,
     EvolutionConfig,
@@ -71,6 +70,8 @@ def _run_branch(
     log_prefix: str,
     quality_gate_cfg: dict = None,
 ):
+    from quantaalpha.pipeline.loop import AlphaAgentLoop
+
     if log_root:
         branch_name = f"{log_prefix}_{idx:02d}"
         branch_log = Path(log_root) / branch_name
@@ -113,6 +114,8 @@ def _run_evolution_task(
     Returns:
         Dict containing trajectory data
     """
+    from quantaalpha.pipeline.loop import AlphaAgentLoop
+
     phase = task["phase"]
     direction_id = task["direction_id"]
     strategy_suffix = task.get("strategy_suffix", "")
@@ -326,6 +329,55 @@ def _log_failure_summary(failures: list[dict[str, Any]], total_tasks: int) -> di
         logger.warning(f"Failed task detail: phase={failure['phase']}, round={failure['round_idx']}, direction={failure['direction_id']}, error={failure['error']}")
     logger.info("=" * 60)
     return summary
+
+
+def run_evolution_action(
+    initial_direction: str | None,
+    evolution_cfg: dict[str, Any],
+    exec_cfg: dict[str, Any],
+    planning_cfg: dict[str, Any],
+    mutation_enabled: bool = True,
+    crossover_enabled: bool = False,
+    budget_seconds: Optional[int] = None,
+    log_root: str | None = None,
+) -> dict[str, Any]:
+    """
+    Runtime adapter entrypoint for evolution actions.
+
+    Delegates to run_evolution_loop with per-action evolution flags:
+    - mutation => mutation_enabled=True, crossover_enabled=False
+    - crossover => mutation_enabled=False, crossover_enabled=True
+
+    Args:
+        initial_direction: Initial exploration direction.
+        evolution_cfg: Evolution configuration.
+        exec_cfg: Execution configuration.
+        planning_cfg: Planning configuration.
+        mutation_enabled: Whether to enable mutation phase.
+        crossover_enabled: Whether to enable crossover phase.
+        budget_seconds: Maximum seconds for this evolution run.
+        log_root: Log root directory.
+
+    Returns:
+        Dict with status, failed_tasks, total_tasks, successful_tasks.
+    """
+    # Merge action-specific flags into evolution_cfg for run_evolution_loop
+    effective_evolution_cfg = {
+        **evolution_cfg,
+        "mutation_enabled": mutation_enabled,
+        "crossover_enabled": crossover_enabled,
+    }
+
+    return run_evolution_loop(
+        initial_direction=initial_direction,
+        evolution_cfg=effective_evolution_cfg,
+        exec_cfg=exec_cfg,
+        planning_cfg=planning_cfg,
+        stop_event=None,
+        quality_gate_cfg=None,
+        budget_seconds=budget_seconds,
+        log_root=log_root,
+    )
 
 
 def run_evolution_loop(
@@ -585,6 +637,8 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
 
     """
     try:
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
 
         logger.info("=" * 60)
