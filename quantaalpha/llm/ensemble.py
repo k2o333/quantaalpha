@@ -242,6 +242,26 @@ def _fusion_score_strategy(
     return [(element_values[key], score) for key, score in sorted_items]
 
 
+def _collect_all_strategy(responses: list[ModelResponse]) -> list[Any]:
+    """Preserve every model output in a single structured bundle."""
+    if not responses:
+        return []
+
+    return [{
+        "hypotheses": [
+            {
+                "model": r.model_name,
+                "hypothesis": r.raw_output,
+                "latency_ms": r.latency_ms,
+                "quality_score": r.quality_score,
+            }
+            for r in responses
+        ],
+        "num_models": len(responses),
+        "strategy": "collect_all",
+    }]
+
+
 # =============================================================================
 # Main Aggregator
 # =============================================================================
@@ -252,6 +272,7 @@ STRATEGY_FUNCTIONS = {
     "union_dedup": _union_dedup_strategy,
     "voting": _voting_strategy,
     "fusion_score": _fusion_score_strategy,
+    "collect_all": _collect_all_strategy,
 }
 
 

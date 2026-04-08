@@ -31,7 +31,7 @@ class TestEnsembleAggregatorConstruction:
     """Verify EnsembleAggregator construction and validation."""
 
     def test_valid_strategies(self):
-        for strategy in ["intersection", "union_dedup", "voting", "fusion_score"]:
+        for strategy in ["intersection", "union_dedup", "voting", "fusion_score", "collect_all"]:
             agg = EnsembleAggregator(strategy=strategy)
             assert agg.strategy == strategy
 
@@ -215,6 +215,32 @@ class TestFusionScoreStrategy:
 
 class TestEnsembleAggregatorInterface:
     """Test EnsembleAggregator high-level interface."""
+
+    def test_collect_all_preserves_structured_hypotheses(self):
+        agg = EnsembleAggregator(strategy="collect_all")
+        result = agg.aggregate([
+            ModelResponse(
+                "m1",
+                {"hypothesis": "alpha", "concise_observation": "obs1"},
+                latency_ms=12.5,
+            ),
+            ModelResponse(
+                "m2",
+                {"hypothesis": "beta", "concise_observation": "obs2"},
+                latency_ms=19.0,
+            ),
+        ])
+
+        assert result.strategy == "collect_all"
+        assert result.num_models == 2
+        assert len(result.output) == 1
+
+        bundle = result.output[0]
+        assert bundle["strategy"] == "collect_all"
+        assert bundle["num_models"] == 2
+        assert [item["model"] for item in bundle["hypotheses"]] == ["m1", "m2"]
+        assert bundle["hypotheses"][0]["hypothesis"]["hypothesis"] == "alpha"
+        assert bundle["hypotheses"][1]["latency_ms"] == 19.0
 
     def test_dict_input_conversion(self):
         """Aggregator accepts dicts and converts to ModelResponse."""

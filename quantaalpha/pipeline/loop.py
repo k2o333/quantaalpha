@@ -24,7 +24,12 @@ from quantaalpha.log.time import measure_time
 from quantaalpha.utils.workflow import LoopBase, LoopMeta
 from quantaalpha.core.exception import FactorEmptyError
 from quantaalpha.factors.failure_tracker import FactorFailureTracker
-from quantaalpha.factors.proposal import AlphaAgentHypothesis, PROPOSE_FACTORS_TOOL
+from quantaalpha.factors.proposal import (
+    AlphaAgentHypothesis,
+    EnsembleHypothesisBundle,
+    PROPOSE_FACTORS_TOOL,
+    build_ensemble_hypothesis_bundle,
+)
 from quantaalpha.llm.client import APIBackend, call_structured
 import threading
 
@@ -290,7 +295,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                     json_mode=json_flag,
                     allow_text_fallback=True,
                 )
-                output = json.dumps(output_dict) if output_dict else ""
+                output = output_dict if output_dict else ""
                 latency_ms = (time.time() - start_time) * 1000
 
                 responses.append(
@@ -307,6 +312,17 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             return self.hypothesis_generator.gen(self.trace)
 
         result = aggregator.aggregate(responses)
+        if strategy == "collect_all":
+            aggregate_payload = result.output[0] if result.output else None
+            if not isinstance(aggregate_payload, dict):
+                logger.warning("Collect-all ensemble returned no structured payload, falling back to single-model generation")
+                return self.hypothesis_generator.gen(self.trace)
+            preferred_model = self._step_model_routing.get("propose")
+            return build_ensemble_hypothesis_bundle(
+                aggregate_payload,
+                preferred_model=preferred_model,
+            )
+
         raw_output = result.output[0] if result.output else None
         if raw_output is None:
             logger.warning("Ensemble produced no output, falling back to single-model generation")
@@ -321,7 +337,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
     def _normalize_hypothesis_output(self, idea: Any) -> AlphaAgentHypothesis:
         """Normalize propose outputs so all paths return AlphaAgentHypothesis."""
-        if isinstance(idea, AlphaAgentHypothesis):
+        if isinstance(idea, (AlphaAgentHypothesis, EnsembleHypothesisBundle)):
             return idea
 
         if isinstance(idea, str):
@@ -337,7 +353,11 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     def factor_construct(self, prev_out: dict[str, Any]):
         """Construct multiple factors from the hypothesis."""
         with logger.tag("r"), self._with_step_model("construct"):
-            factor = self.factor_constructor.convert(prev_out["factor_propose"], self.trace)
+            hypothesis = prev_out["factor_propose"]
+            if isinstance(hypothesis, EnsembleHypothesisBundle):
+                factor = self.factor_constructor.convert_multi_hypothesis(hypothesis, self.trace)
+            else:
+                factor = self.factor_constructor.convert(hypothesis, self.trace)
             logger.log_object(factor.sub_tasks, tag="experiment generation")
 
             # Register factors for failure tracking

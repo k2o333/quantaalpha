@@ -10,8 +10,23 @@ These tests verify that:
 """
 
 import json
+import sys
+import types
 import unittest
 from unittest.mock import MagicMock, patch
+
+_fake_factor_experiment = types.ModuleType("quantaalpha.factors.experiment")
+
+
+class _StubQlibFactorExperiment:
+    def __init__(self, tasks=None, sub_tasks=None):
+        self.sub_tasks = sub_tasks if sub_tasks is not None else (tasks or [])
+        self.result = None
+        self.based_experiments = []
+
+
+_fake_factor_experiment.QlibFactorExperiment = _StubQlibFactorExperiment
+sys.modules.setdefault("quantaalpha.factors.experiment", _fake_factor_experiment)
 
 
 class TestUnifiedStructuredEntry(unittest.TestCase):
@@ -138,6 +153,18 @@ class TestProposalUsesCallStructured(unittest.TestCase):
             "call_structured",
             source,
             "AlphaAgentHypothesis2FactorExpression._convert_with_history_limit must use call_structured",
+        )
+
+    def test_alpha_agent_hypothesis2factor_multi_hypothesis_uses_call_structured(self):
+        """The multi-hypothesis construct path must also use call_structured."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+        import inspect
+
+        source = inspect.getsource(AlphaAgentHypothesis2FactorExpression.convert_multi_hypothesis)
+        self.assertIn(
+            "call_structured",
+            source,
+            "AlphaAgentHypothesis2FactorExpression.convert_multi_hypothesis must use call_structured",
         )
 
 

@@ -1,10 +1,17 @@
 """Tests for ensemble integration in AlphaAgentLoop."""
 
+import sys
 import threading
+import types
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+_fake_factor_experiment = types.ModuleType("quantaalpha.factors.experiment")
+_fake_factor_experiment.QlibFactorExperiment = type("QlibFactorExperiment", (), {})
+sys.modules.setdefault("quantaalpha.factors.experiment", _fake_factor_experiment)
 
 
 @contextmanager
@@ -229,3 +236,134 @@ class TestEnsembleProposeStep:
         assert "Trace object" not in captured_prompts["user_prompt"]
         assert "<quantaalpha.core.proposal.Trace object" not in captured_prompts["user_prompt"]
         assert "price-volume divergence" in captured_prompts["user_prompt"]
+
+    def test_propose_with_collect_all_returns_hypothesis_bundle(self):
+        """collect_all must return a Hypothesis-compatible bundle, not a bare dict."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import EnsembleHypothesisBundle
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "strategy": "collect_all", "models": [{"name": "m1"}, {"name": "m2"}]},
+            )
+            loop.hypothesis_generator = MagicMock()
+            loop.trace = MagicMock()
+            loop._propose_with_ensemble = MagicMock(
+                return_value=EnsembleHypothesisBundle(
+                    hypothesis="bundle summary",
+                    concise_observation="obs",
+                    concise_knowledge="knowledge",
+                    concise_justification="justification",
+                    concise_specification="spec",
+                    hypotheses=[
+                        {"model": "m1", "hypothesis": {"hypothesis": "alpha"}},
+                        {"model": "m2", "hypothesis": {"hypothesis": "beta"}},
+                    ],
+                    ensemble_strategy="collect_all",
+                    num_models=2,
+                    primary_hypothesis_index=0,
+                )
+            )
+
+            result = loop.factor_propose({})
+
+            assert isinstance(result, EnsembleHypothesisBundle)
+            assert result.hypotheses[0]["hypothesis"]["hypothesis"] == "alpha"
+            loop.hypothesis_generator.convert_response.assert_not_called()
+
+    def test_propose_with_collect_all_structured_aggregate_builds_bundle(self):
+        """_propose_with_ensemble should wrap collect_all aggregate output into a bundle."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import EnsembleHypothesisBundle
+
+        class FakeBackend:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_messages(self, user_prompt, system_prompt):
+                return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "strategy": "collect_all", "models": [{"name": "m1"}, {"name": "m2"}]},
+            )
+            loop._provider_name_to_model = {"m1": "glm-4.7-flash", "m2": "mistral-small-latest"}
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.render_generation_prompts.return_value = ("system", "user", True)
+            loop.trace = MagicMock()
+
+            aggregate_payload = {
+                "hypotheses": [
+                    {"model": "m1", "hypothesis": {"hypothesis": "alpha", "concise_observation": "obs1"}},
+                    {"model": "m2", "hypothesis": {"hypothesis": "beta", "concise_observation": "obs2"}},
+                ],
+                "num_models": 2,
+                "strategy": "collect_all",
+            }
+            mock_result = MagicMock()
+            mock_result.output = [aggregate_payload]
+
+            with (
+                patch("quantaalpha.pipeline.loop.APIBackend", FakeBackend),
+                patch("quantaalpha.pipeline.loop.call_structured", side_effect=[
+                    {"hypothesis": "alpha", "concise_observation": "obs1"},
+                    {"hypothesis": "beta", "concise_observation": "obs2"},
+                ]),
+                patch("quantaalpha.llm.ensemble.EnsembleAggregator.aggregate", return_value=mock_result),
+            ):
+                result = loop._propose_with_ensemble()
+
+            assert isinstance(result, EnsembleHypothesisBundle)
+            assert result.num_models == 2
+            assert result.ensemble_strategy == "collect_all"
+            assert result.hypotheses[1]["hypothesis"]["hypothesis"] == "beta"
+
+    def test_factor_construct_routes_bundle_to_multi_hypothesis_converter(self):
+        """factor_construct should use the multi-hypothesis path for ensemble bundles."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import EnsembleHypothesisBundle
+
+        fake_factor = MagicMock()
+        fake_factor.sub_tasks = []
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "strategy": "collect_all"},
+            )
+            loop.trace = MagicMock()
+            loop.factor_constructor = MagicMock()
+            loop.factor_constructor.convert_multi_hypothesis.return_value = fake_factor
+            loop._register_factors_from_experiment = MagicMock()
+
+            bundle = EnsembleHypothesisBundle(
+                hypothesis="bundle summary",
+                concise_observation="obs",
+                concise_knowledge="knowledge",
+                concise_justification="justification",
+                concise_specification="spec",
+                hypotheses=[
+                    {"model": "m1", "hypothesis": {"hypothesis": "alpha"}},
+                    {"model": "m2", "hypothesis": {"hypothesis": "beta"}},
+                ],
+                ensemble_strategy="collect_all",
+                num_models=2,
+                primary_hypothesis_index=0,
+            )
+
+            result = loop.factor_construct({"factor_propose": bundle})
+
+            loop.factor_constructor.convert_multi_hypothesis.assert_called_once_with(bundle, loop.trace)
+            loop.factor_constructor.convert.assert_not_called()
+            assert result is fake_factor

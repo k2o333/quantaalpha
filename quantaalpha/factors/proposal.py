@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 from jinja2 import Environment, StrictUndefined
 
@@ -244,6 +244,83 @@ class AlphaAgentHypothesis(Hypothesis):
                 Concise Knowledge: {self.concise_knowledge}
                 concise Specification: {self.concise_specification}
                 """
+
+
+class EnsembleHypothesisBundle(AlphaAgentHypothesis):
+    """Hypothesis-compatible wrapper for multi-model ensemble outputs."""
+
+    def __init__(
+        self,
+        hypothesis: str,
+        concise_observation: str,
+        concise_knowledge: str,
+        concise_justification: str,
+        concise_specification: str,
+        hypotheses: list[dict[str, Any]],
+        ensemble_strategy: str,
+        num_models: int,
+        primary_hypothesis_index: int = 0,
+    ) -> None:
+        super().__init__(
+            hypothesis=hypothesis,
+            concise_observation=concise_observation,
+            concise_knowledge=concise_knowledge,
+            concise_justification=concise_justification,
+            concise_specification=concise_specification,
+        )
+        self.hypotheses = hypotheses
+        self.ensemble_strategy = ensemble_strategy
+        self.num_models = num_models
+        self.primary_hypothesis_index = primary_hypothesis_index
+
+    @property
+    def primary_hypothesis(self) -> dict[str, Any]:
+        if not self.hypotheses:
+            return {}
+        index = min(max(self.primary_hypothesis_index, 0), len(self.hypotheses) - 1)
+        return self.hypotheses[index]
+
+
+def build_ensemble_hypothesis_bundle(
+    aggregate_payload: dict[str, Any],
+    preferred_model: str | None = None,
+) -> EnsembleHypothesisBundle:
+    """Convert collect_all aggregate output into a Hypothesis-compatible bundle."""
+    hypotheses = list(aggregate_payload.get("hypotheses", []))
+    num_models = int(aggregate_payload.get("num_models", len(hypotheses)))
+    ensemble_strategy = str(aggregate_payload.get("strategy", "collect_all"))
+
+    primary_index = 0
+    if preferred_model:
+        for idx, item in enumerate(hypotheses):
+            if item.get("model") == preferred_model:
+                primary_index = idx
+                break
+
+    primary_payload = hypotheses[primary_index].get("hypothesis", {}) if hypotheses else {}
+    if isinstance(primary_payload, str):
+        try:
+            primary_payload = robust_json_parse(primary_payload)
+        except Exception:
+            primary_payload = {"hypothesis": primary_payload}
+    if not isinstance(primary_payload, dict):
+        primary_payload = {"hypothesis": str(primary_payload)}
+
+    model_names = ", ".join(str(item.get("model", "unknown")) for item in hypotheses) or "none"
+    summary = primary_payload.get("hypothesis", "") or f"Ensemble bundle from {model_names}"
+    summary = f"[ensemble:{ensemble_strategy}] {summary}"
+
+    return EnsembleHypothesisBundle(
+        hypothesis=summary,
+        concise_observation=primary_payload.get("concise_observation", ""),
+        concise_knowledge=primary_payload.get("concise_knowledge", ""),
+        concise_justification=primary_payload.get("concise_justification", ""),
+        concise_specification=primary_payload.get("concise_specification", ""),
+        hypotheses=hypotheses,
+        ensemble_strategy=ensemble_strategy,
+        num_models=num_models,
+        primary_hypothesis_index=primary_index,
+    )
 
 
 base_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
@@ -654,6 +731,102 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
         # Last attempt with minimum history limit
         return self._convert_with_history_limit(hypothesis, trace, MIN_HISTORY_LIMIT)
+
+    def _build_multi_hypothesis_target(self, bundle: EnsembleHypothesisBundle) -> str:
+        """Render a compact construct prompt from the collected ensemble hypotheses."""
+        sections: list[str] = []
+        for idx, item in enumerate(bundle.hypotheses, start=1):
+            payload = item.get("hypothesis", {})
+            if isinstance(payload, str):
+                try:
+                    payload = robust_json_parse(payload)
+                except Exception:
+                    payload = {"hypothesis": payload}
+            if not isinstance(payload, dict):
+                payload = {"hypothesis": str(payload)}
+
+            sections.append(
+                "\n".join([
+                    f"Model {idx}: {item.get('model', 'unknown')}",
+                    f"Hypothesis: {payload.get('hypothesis', '')}",
+                    f"Observation: {payload.get('concise_observation', '')}",
+                    f"Justification: {payload.get('concise_justification', '')}",
+                    f"Knowledge: {payload.get('concise_knowledge', '')}",
+                    f"Specification: {payload.get('concise_specification', '')}",
+                ])
+            )
+
+        return (
+            "You received multiple candidate hypotheses from an ensemble. "
+            "Adopt the strongest ideas, reject weak ones, and output final factor expressions.\n\n"
+            + "\n\n".join(sections)
+        )
+
+    def convert_multi_hypothesis(self, bundle: EnsembleHypothesisBundle, trace: Trace) -> Experiment:
+        """Convert an ensemble bundle into factor expressions via call_structured."""
+        if not bundle.hypotheses:
+            return self.convert(bundle, trace)
+
+        history_limit = DEFAULT_HISTORY_LIMIT
+        while history_limit >= MIN_HISTORY_LIMIT:
+            try:
+                context, json_flag = self.prepare_context(bundle, trace, history_limit)
+                context["target_hypothesis"] = self._build_multi_hypothesis_target(bundle)
+
+                system_prompt = (
+                    Environment(undefined=StrictUndefined)
+                    .from_string(qa_prompt_dict["hypothesis2experiment"]["system_prompt"])
+                    .render(
+                        targets=self.targets,
+                        scenario=trace.scen.background,
+                        experiment_output_format=context["experiment_output_format"],
+                    )
+                )
+                user_prompt = (
+                    Environment(undefined=StrictUndefined)
+                    .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                    .render(
+                        targets=self.targets,
+                        target_hypothesis=context["target_hypothesis"],
+                        hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                        function_lib_description=context["function_lib_description"],
+                        target_list=context["target_list"],
+                        RAG=context["RAG"],
+                        expression_duplication=None,
+                    )
+                )
+
+                api = APIBackend()
+                messages = api.build_messages(user_prompt, system_prompt)
+                response_dict = call_structured(
+                    api,
+                    messages,
+                    tools=[CONSTRUCT_FACTORS_TOOL],
+                    tool_choice="required",
+                    json_mode=json_flag,
+                    task_type="factor_construction",
+                    allow_text_fallback=True,
+                )
+                if not response_dict:
+                    raise ValueError("Empty multi-hypothesis construct response")
+                return self._build_experiment_from_dict(response_dict, trace)
+            except Exception as e:
+                if is_input_length_error(str(e)) and history_limit > MIN_HISTORY_LIMIT:
+                    history_limit -= 1
+                    logger.warning(f"Multi-hypothesis input length exceeded, retrying with history_limit={history_limit}...")
+                    continue
+                logger.warning(f"Multi-hypothesis construct failed, falling back to primary hypothesis: {e}")
+                primary_payload = bundle.primary_hypothesis.get("hypothesis", {})
+                if isinstance(primary_payload, dict):
+                    primary_hypothesis = AlphaAgentHypothesis(
+                        hypothesis=primary_payload.get("hypothesis", bundle.hypothesis),
+                        concise_observation=primary_payload.get("concise_observation", bundle.concise_observation),
+                        concise_knowledge=primary_payload.get("concise_knowledge", bundle.concise_knowledge),
+                        concise_justification=primary_payload.get("concise_justification", bundle.concise_justification),
+                        concise_specification=primary_payload.get("concise_specification", bundle.concise_specification),
+                    )
+                    return self.convert(primary_hypothesis, trace)
+                return self.convert(bundle, trace)
 
     def _convert_with_history_limit(self, hypothesis: Hypothesis, trace: Trace, history_limit: int) -> Experiment:
         """Convert with given history limit."""
