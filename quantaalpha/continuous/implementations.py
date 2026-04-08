@@ -328,7 +328,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             None indicates error/uncertain result.
         """
         factor_start = time.time()
-        logger.info("profile.revalidation.factor.start factor=%s", factor_id)
+        logger.info(f"profile.revalidation.factor.start factor={factor_id}")
         logger.info(f"Running backtest for factor {factor_id}")
 
         # Use injected runner if provided
@@ -1368,7 +1368,7 @@ class DefaultMiningScheduler(MiningScheduler):
             from third_party.glue.factor_executor import FactorExecutor
 
             factor_start = time.time()
-            logger.info("profile.validation.factor.start factor=%s", factor_id)
+            logger.info(f"profile.validation.factor.start factor={factor_id}")
 
             expression = factor_entry.get("factor_expression", "")
             if not expression:

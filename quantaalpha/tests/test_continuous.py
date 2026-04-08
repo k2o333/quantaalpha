@@ -547,6 +547,50 @@ class TestRevalidationFailurePath:
         for factor_id, new_status in result.status_changes.items():
             assert new_status != "active", f"Failed backtest should not result in active status for {factor_id}"
 
+    def test_run_revalidation_does_not_fail_on_profile_logging(self, tmp_path, monkeypatch):
+        """run_revalidation should not fail just because profile logger uses stdlib-style args.
+
+        Regression:
+        the project logger does not accept stdlib `logger.info("%s", value)` call style.
+        Revalidation must still run and record a status change instead of surfacing a logger
+        signature error as a factor-level failure.
+        """
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+        import json
+
+        lib_path = tmp_path / "test_library.json"
+        lib_path.write_text(
+            json.dumps(
+                {
+                    "metadata": {"version": "1.1", "total_factors": 1},
+                    "factors": {
+                        "factor_001": {
+                            "factor_id": "factor_001",
+                            "factor_name": "Test Factor",
+                            "factor_expression": "(close / ts_delay(close, 1) - 1)",
+                            "evaluation": {"status": "active", "last_validated": None},
+                        },
+                    },
+                }
+            )
+        )
+        monkeypatch.setenv("FACTOR_LIBRARY_PATH", str(lib_path))
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            max_per_run=10,
+            days_threshold=0,
+        )
+
+        result = scheduler.run_revalidation()
+
+        assert result.total_candidates == 1
+        assert "factor_001" in result.status_changes
+        assert not any(
+            "RDAgentLog.info() takes 2 positional arguments but 3 were given" in err
+            for err in result.errors
+        ), f"Unexpected logger signature error in revalidation errors: {result.errors}"
+
 
 class TestMiningFailurePath:
     """Tests for failure handling in mining scheduler."""
