@@ -352,9 +352,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             translated_expression, translation_warnings = _translate_factor_expression(expression)
             if translation_warnings:
                 logger.info(
-                    "Translation warnings for %s: %s",
-                    factor_id,
-                    "; ".join(translation_warnings),
+                    f"Translation warnings for {factor_id}: {'; '.join(translation_warnings)}"
                 )
 
             # Get periods from configured execution periods
@@ -391,32 +389,20 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 # Check against validation thresholds
                 if result.ic_value >= self.min_ic:
                     logger.info(
-                        "profile.revalidation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
-                        factor_id,
-                        True,
-                        total_seconds,
-                        result.ic_value,
+                        f"profile.revalidation.factor.done factor={factor_id} success=True total_seconds={total_seconds:.3f} ic_value={result.ic_value:.6f}"
                     )
                     logger.info(f"Factor {factor_id} passed backtest with IC={result.ic_value:.4f}")
                     return True
                 else:
                     logger.info(
-                        "profile.revalidation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
-                        factor_id,
-                        False,
-                        total_seconds,
-                        result.ic_value,
+                        f"profile.revalidation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} ic_value={result.ic_value:.6f}"
                     )
                     logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {self.min_ic}")
                     return False
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
                 logger.info(
-                    "profile.revalidation.factor.done factor=%s success=%s total_seconds=%.3f error=%s",
-                    factor_id,
-                    False,
-                    total_seconds,
-                    error_msg,
+                    f"profile.revalidation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} error={error_msg}"
                 )
                 logger.warning(f"Factor {factor_id} backtest failed: {error_msg}")
                 return False
@@ -510,10 +496,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             end_date = max(all_end_dates)
 
             logger.info(
-                "profile.load_price_data.start context=backtest interfaces=%s start_date=%s end_date=%s",
-                ["daily"],
-                start_date,
-                end_date,
+                f"profile.load_price_data.start context=backtest interfaces={['daily']} start_date={start_date} end_date={end_date}"
             )
             load_start = time.time()
             df = self._data_bridge.load_price_data(
@@ -525,8 +508,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
             if df is None or df.is_empty():
                 logger.info(
-                    "profile.load_price_data.done context=backtest rows=0 seconds=%.3f",
-                    load_seconds,
+                    f"profile.load_price_data.done context=backtest rows=0 seconds={load_seconds:.3f}"
                 )
                 logger.warning("Bridge returned empty DataFrame")
                 # Return empty DataFrame with correct schema for backward compatibility
@@ -544,9 +526,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 return self._execution_dataframe_cache
 
             logger.info(
-                "profile.load_price_data.done context=backtest rows=%s seconds=%.3f",
-                len(df),
-                load_seconds,
+                f"profile.load_price_data.done context=backtest rows={len(df)} seconds={load_seconds:.3f}"
             )
             logger.info(f"Loaded {len(df)} rows from bridge for backtest")
             self._execution_dataframe_cache = df
@@ -1316,9 +1296,9 @@ class DefaultMiningScheduler(MiningScheduler):
             logger.info(f"Monitor hook completed for {factor_id}")
         except Exception as e:
             # Monitor failure does not block main pipeline
+            import traceback
             logger.warning(
-                f"Monitor hook failed for {factor_id}: {e}",
-                exc_info=True,
+                f"Monitor hook failed for {factor_id}: {e}\n{traceback.format_exc()}"
             )
 
     def _validate_factor(self, factor_id: str, factor_entry: dict) -> Optional[dict]:
@@ -1356,9 +1336,9 @@ class DefaultMiningScheduler(MiningScheduler):
                         df=None,
                     )
                 except Exception as e:
+                    import traceback
                     logger.warning(
-                        f"Monitor hook failed for {factor_id}: {e}",
-                        exc_info=True,
+                        f"Monitor hook failed for {factor_id}: {e}\n{traceback.format_exc()}"
                     )
 
             return result
@@ -1384,9 +1364,7 @@ class DefaultMiningScheduler(MiningScheduler):
             translated_expression, translation_warnings = _translate_factor_expression(expression)
             if translation_warnings:
                 logger.info(
-                    "Translation warnings for %s: %s",
-                    factor_id,
-                    "; ".join(translation_warnings),
+                    f"Translation warnings for {factor_id}: {'; '.join(translation_warnings)}"
                 )
 
             # Validation thresholds - use instance configuration
@@ -1458,11 +1436,7 @@ class DefaultMiningScheduler(MiningScheduler):
 
                 if passes_validation:
                     logger.info(
-                        "profile.validation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
-                        factor_id,
-                        True,
-                        total_seconds,
-                        ic_mean,
+                        f"profile.validation.factor.done factor={factor_id} success=True total_seconds={total_seconds:.3f} ic_value={ic_mean:.6f}"
                     )
 
                     # Monitor Hook (fail-safe) - does not block validation
@@ -1475,9 +1449,9 @@ class DefaultMiningScheduler(MiningScheduler):
                                 df=df,
                             )
                         except Exception as e:
+                            import traceback
                             logger.warning(
-                                f"Monitor hook failed for {factor_id}: {e}",
-                                exc_info=True,
+                                f"Monitor hook failed for {factor_id}: {e}\n{traceback.format_exc()}"
                             )
 
                     return {
@@ -1492,11 +1466,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     }
                 else:
                     logger.info(
-                        "profile.validation.factor.done factor=%s success=%s total_seconds=%.3f ic_value=%.6f",
-                        factor_id,
-                        False,
-                        total_seconds,
-                        ic_mean,
+                        f"profile.validation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} ic_value={ic_mean:.6f}"
                     )
                     # Build failure reason
                     if not passes_ic:
@@ -1515,11 +1485,7 @@ class DefaultMiningScheduler(MiningScheduler):
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
                 logger.info(
-                    "profile.validation.factor.done factor=%s success=%s total_seconds=%.3f error=%s",
-                    factor_id,
-                    False,
-                    total_seconds,
-                    error_msg,
+                    f"profile.validation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} error={error_msg}"
                 )
                 return {
                     "status": "failure",
@@ -1659,10 +1625,7 @@ class DefaultMiningScheduler(MiningScheduler):
             end_date = max(all_end_dates)
 
             logger.info(
-                "profile.load_price_data.start context=validation interfaces=%s start_date=%s end_date=%s",
-                ["daily"],
-                start_date,
-                end_date,
+                f"profile.load_price_data.start context=validation interfaces={['daily']} start_date={start_date} end_date={end_date}"
             )
             load_start = time.time()
             df = self._data_bridge.load_price_data(
@@ -1674,17 +1637,14 @@ class DefaultMiningScheduler(MiningScheduler):
 
             if df is None or df.is_empty():
                 logger.info(
-                    "profile.load_price_data.done context=validation rows=0 seconds=%.3f",
-                    load_seconds,
+                    f"profile.load_price_data.done context=validation rows=0 seconds={load_seconds:.3f}"
                 )
                 logger.warning("Bridge returned empty DataFrame")
                 self._execution_dataframe_cache = df if df is not None else pl.DataFrame()
                 return self._execution_dataframe_cache
 
             logger.info(
-                "profile.load_price_data.done context=validation rows=%s seconds=%.3f",
-                len(df),
-                load_seconds,
+                f"profile.load_price_data.done context=validation rows={len(df)} seconds={load_seconds:.3f}"
             )
             logger.info(f"Loaded {len(df)} rows from bridge for validation")
             self._execution_dataframe_cache = df
