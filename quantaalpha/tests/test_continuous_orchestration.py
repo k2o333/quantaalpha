@@ -742,3 +742,120 @@ class TestApplyResult:
             ],
             max_steps_per_cycle=6,
         )
+
+
+# ============================================================================
+# Phase 6: LLM Advisor Config Validation Tests
+# ============================================================================
+
+
+class TestLLMAdvisorConfigValidation:
+    """Phase 6: Tests for llm_advisor decision node config validation."""
+
+    def _make_decision_config(self, **node_overrides):
+        """Create a valid base config with a decision node."""
+        base_node = {
+            "id": "decider",
+            "kind": "decision",
+            "decision_mode": "llm_advisor",
+            "allowed_next": ["mutation", "crossover"],
+            "fallback_next": "mutation",
+            "next": [],
+        }
+        base_node.update(node_overrides)
+        return {
+            "start_node": "decider",
+            "max_steps_per_cycle": 6,
+            "nodes": [
+                base_node,
+                {
+                    "id": "mutation",
+                    "kind": "action",
+                    "action": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "action",
+                    "action": "crossover",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+    def test_valid_llm_advisor_decision_passes(self):
+        """Valid llm_advisor decision node passes validation."""
+        config = self._make_decision_config()
+        validate_orchestration_config(
+            start_node=config["start_node"],
+            nodes=config["nodes"],
+            conditions=config["conditions"],
+            max_steps_per_cycle=config["max_steps_per_cycle"],
+        )
+
+    def test_llm_advisor_decision_missing_allowed_next_fails(self):
+        """Validation fails when decision node has no allowed_next."""
+        config = self._make_decision_config(allowed_next=None)
+        with pytest.raises(OrchestrationConfigError, match="requires non-empty allowed_next"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )
+
+    def test_llm_advisor_decision_empty_allowed_next_fails(self):
+        """Validation fails when decision node has empty allowed_next list."""
+        config = self._make_decision_config(allowed_next=[])
+        with pytest.raises(OrchestrationConfigError, match="requires non-empty allowed_next"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )
+
+    def test_llm_advisor_decision_missing_fallback_next_fails(self):
+        """Validation fails when decision node has no fallback_next."""
+        config = self._make_decision_config(fallback_next=None)
+        with pytest.raises(OrchestrationConfigError, match="requires non-empty fallback_next"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )
+
+    def test_llm_advisor_decision_empty_fallback_next_fails(self):
+        """Validation fails when decision node has empty string fallback_next."""
+        config = self._make_decision_config(fallback_next="")
+        with pytest.raises(OrchestrationConfigError, match="requires non-empty fallback_next"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )
+
+    def test_llm_advisor_decision_allowed_next_unknown_node_fails(self):
+        """Validation fails when allowed_next references a node that does not exist."""
+        config = self._make_decision_config(allowed_next=["mutation", "nonexistent"])
+        with pytest.raises(OrchestrationConfigError, match="allowed_next target.*does not exist"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )
+
+    def test_llm_advisor_decision_fallback_next_unknown_node_fails(self):
+        """Validation fails when fallback_next references a node that does not exist."""
+        config = self._make_decision_config(fallback_next="nonexistent")
+        with pytest.raises(OrchestrationConfigError, match="fallback_next.*does not exist"):
+            validate_orchestration_config(
+                start_node=config["start_node"],
+                nodes=config["nodes"],
+                conditions=config["conditions"],
+                max_steps_per_cycle=config["max_steps_per_cycle"],
+            )

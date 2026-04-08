@@ -268,6 +268,32 @@ def validate_orchestration_config(
                     f"Node '{node_id}' has invalid decision_mode: '{decision_mode}'. Must be one of {VALID_DECISION_MODES}"
                 )
 
+            # Phase 6: decision nodes require allowed_next and fallback_next
+            allowed_next = node.get("allowed_next")
+            if not allowed_next or not isinstance(allowed_next, list) or len(allowed_next) == 0:
+                raise OrchestrationConfigError(
+                    f"Decision node '{node_id}' requires non-empty allowed_next"
+                )
+
+            fallback_next = node.get("fallback_next")
+            if not fallback_next or not isinstance(fallback_next, str) or len(fallback_next) == 0:
+                raise OrchestrationConfigError(
+                    f"Decision node '{node_id}' requires non-empty fallback_next"
+                )
+
+            # Phase 6: all allowed_next targets must exist in node graph
+            for target in allowed_next:
+                if target not in node_ids:
+                    raise OrchestrationConfigError(
+                        f"Decision node '{node_id}' has allowed_next target '{target}' that does not exist"
+                    )
+
+            # Phase 6: fallback_next must exist in node graph
+            if fallback_next not in node_ids:
+                raise OrchestrationConfigError(
+                    f"Decision node '{node_id}' has fallback_next '{fallback_next}' that does not exist"
+                )
+
         # Check transitions
         transitions = node.get("next", [])
         unconditional_count = 0

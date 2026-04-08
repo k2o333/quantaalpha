@@ -2306,3 +2306,306 @@ class TestPhase5OrchestrationTrace:
         assert trace["cycle_id"] is not None
         assert len(trace["cycle_id"]) > 0
         assert len(trace["cycle_id"]) == 8
+
+
+# ============================================================================
+# Phase 6: LLM Advisor Runtime Tests
+# ============================================================================
+
+
+class TestPhase6LLMAdvisorRuntime:
+    """Phase 6: Tests for llm_advisor runtime wiring in _run_orchestrated_cycle."""
+
+    def _make_scheduler_with_advisor(self, tmp_path, orchestrator_cfg):
+        """Create a DefaultMiningScheduler with orchestration config."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg=orchestrator_cfg,
+        )
+        return scheduler
+
+    def test_phase6_llm_advisor_selects_valid_next_node(self, tmp_path):
+        """Advisor returns a valid next_node from allowed_next; the loop uses it."""
+
+        class FakeProvider:
+            def advise(self, context):
+                # Verify context is filtered (no factor code, no raw state)
+                assert "factor_code" not in context
+                assert "raw_state" not in context
+                assert "allowed_next" in context
+                return {"next_node": "crossover", "reason": "need more diversity"}
+
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "decider",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "decider",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "terminal",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler_with_advisor(tmp_path, orch_cfg)
+        scheduler._llm_advisor_provider = FakeProvider()
+
+        # Do NOT mock _execute_orchestrated_action — let the real wiring run
+        result = scheduler._run_orchestrated_cycle()
+
+        # The trace should show advisor-selected next node
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+        step0 = trace["steps"][0]
+        assert step0["next_node"] == "crossover"
+        assert step0["action"] == "llm_advisor"
+
+    def test_phase6_llm_advisor_invalid_next_node_falls_back(self, tmp_path):
+        """Advisor returns a next_node NOT in allowed_next; loop uses fallback_next."""
+
+        class FakeBadProvider:
+            def advise(self, context):
+                return {"next_node": "unknown_node", "reason": "bad choice"}
+
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "decider",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "decider",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "terminal",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler_with_advisor(tmp_path, orch_cfg)
+        scheduler._llm_advisor_provider = FakeBadProvider()
+
+        result = scheduler._run_orchestrated_cycle()
+
+        # The trace should show fallback to 'mutation'
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+        step0 = trace["steps"][0]
+        assert step0["next_node"] == "mutation"
+
+    def test_phase6_llm_advisor_provider_exception_falls_back(self, tmp_path):
+        """Advisor provider raises exception; loop uses fallback_next without crashing."""
+
+        class FailingProvider:
+            def advise(self, context):
+                raise RuntimeError("LLM service unavailable")
+
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "decider",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "decider",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "terminal",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler_with_advisor(tmp_path, orch_cfg)
+        scheduler._llm_advisor_provider = FailingProvider()
+
+        # Should not raise — must fall back gracefully
+        result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+        step0 = trace["steps"][0]
+        assert step0["next_node"] == "mutation"
+
+    def test_phase6_llm_advisor_malformed_output_falls_back(self, tmp_path):
+        """Advisor returns malformed JSON string; loop uses fallback_next."""
+
+        class MalformedProvider:
+            def advise(self, context):
+                return "not valid json{{{ "
+
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "decider",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "decider",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "terminal",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler_with_advisor(tmp_path, orch_cfg)
+        scheduler._llm_advisor_provider = MalformedProvider()
+
+        result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+        step0 = trace["steps"][0]
+        assert step0["next_node"] == "mutation"
+
+    def test_phase6_llm_advisor_missing_next_node_falls_back(self, tmp_path):
+        """Advisor returns dict without 'next_node' key; loop uses fallback_next."""
+
+        class IncompleteProvider:
+            def advise(self, context):
+                return {"reason": "I don't know"}
+
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "decider",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "decider",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "terminal",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler_with_advisor(tmp_path, orch_cfg)
+        scheduler._llm_advisor_provider = IncompleteProvider()
+
+        result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+        step0 = trace["steps"][0]
+        assert step0["next_node"] == "mutation"
+
+    def test_phase6_llm_advisor_context_is_filtered(self, tmp_path):
+        """Advisor context must not contain factor code or internal objects."""
+
+        captured_context = {}
+
+        class CapturingProvider:
+            def advise(self, context):
+                captured_context.update(context)
+                return {"next_node": "mutation", "reason": "test"}
+
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "decider",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "decider",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "terminal",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler_with_advisor(tmp_path, orch_cfg)
+        scheduler._llm_advisor_provider = CapturingProvider()
+
+        result = scheduler._run_orchestrated_cycle()
+
+        # Verify context contains only allowed fields
+        expected_keys = {
+            "cycle_id", "current_node", "step_index", "generated_factors",
+            "pass_rate", "active_parents", "diversity_score",
+            "consecutive_failures", "allowed_next",
+        }
+        assert set(captured_context.keys()) == expected_keys
+        assert "factor_code" not in captured_context
+        assert "raw_state" not in captured_context

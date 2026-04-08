@@ -2087,9 +2087,21 @@ class DefaultMiningScheduler(MiningScheduler):
             action_spec = orchestrator.next_action(context)
 
             # Execute the action
+            # Phase 6: Pass allowed_next and fallback_next for decision nodes
+            action_params = dict(action_spec.params)
+            action_params["allowed_next"] = action_spec.allowed_next
+            action_params["fallback_next"] = action_spec.fallback_next
+            action_params["cycle_id"] = context.cycle_id
+            action_params["step_index"] = context.step_index
+            action_params["generated_factors"] = context.generated_factors
+            action_params["pass_rate"] = context.pass_rate
+            action_params["active_parents"] = context.active_parents
+            action_params["diversity_score"] = context.diversity_score
+            action_params["consecutive_failures"] = context.consecutive_failures
+
             action_result = self._execute_orchestrated_action(
                 action=action_spec.action,
-                params=action_spec.params,
+                params=action_params,
                 node_id=action_spec.node_id,
             )
 
@@ -2106,13 +2118,20 @@ class DefaultMiningScheduler(MiningScheduler):
                 result["errors"].append(action_result.error)
 
             # Phase 5: Advance to next node with trace
-            next_node, condition_results = orchestrator.select_next_node_with_trace(context)
+            # Phase 6: For decision nodes, prefer advisor-selected next node
+            if action_result.metadata.get("selected_next"):
+                next_node = action_result.metadata["selected_next"]
+                condition_results = {}
+            else:
+                next_node, condition_results = orchestrator.select_next_node_with_trace(context)
 
             # Build step trace
+            # Phase 6: use action_result.action (real executed action) instead
+            # of action_spec.action (which is None for decision nodes)
             step_trace = {
                 "step_index": context.step_index,
                 "current_node": context.current_node,
-                "action": action_spec.action,
+                "action": action_result.action,
                 "action_status": action_result.status,
                 "condition_results": condition_results,
                 "next_node": next_node,
@@ -2148,9 +2167,10 @@ class DefaultMiningScheduler(MiningScheduler):
         Dispatch and execute an orchestrated action.
 
         Phase 4 supports 'original', 'mutation', and 'crossover' actions.
+        Phase 6 adds 'llm_advisor' for decision nodes.
 
         Args:
-            action: Action type (e.g. 'original', 'mutation', 'crossover').
+            action: Action type (e.g. 'original', 'mutation', 'crossover', 'llm_advisor').
             params: Action parameters from the node config.
             node_id: ID of the node being executed.
 
@@ -2159,12 +2179,23 @@ class DefaultMiningScheduler(MiningScheduler):
         """
         from quantaalpha.continuous.orchestration import ActionResult
 
+        # Phase 6: For decision nodes with no action, dispatch by decision_mode
+        if action is None:
+            node = self._orchestration_cfg.get("nodes", [])
+            node_def = next((n for n in node if n["id"] == node_id), None)
+            if node_def and node_def.get("kind") == "decision":
+                decision_mode = node_def.get("decision_mode")
+                if decision_mode == "llm_advisor":
+                    return self._execute_llm_advisor(params, node_id)
+
         if action == "original":
             return self._execute_original_action(params, node_id)
         elif action == "mutation":
             return self._execute_mutation_action(params, node_id)
         elif action == "crossover":
             return self._execute_crossover_action(params, node_id)
+        elif action == "llm_advisor":
+            return self._execute_llm_advisor(params, node_id)
 
         # Unsupported action
         logger.warning(
@@ -2373,3 +2404,168 @@ class DefaultMiningScheduler(MiningScheduler):
                 status="error",
                 error=str(e),
             )
+
+    # =========================================================================
+    # Phase 6: LLM Advisor
+    # =========================================================================
+
+    def _execute_llm_advisor(
+        self,
+        params: dict,
+        node_id: str,
+    ) -> "ActionResult":
+        """
+        Execute the llm_advisor decision node.
+
+        Phase 6: Filters context to allowed fields only, calls a provider,
+        validates the output against allowed_next, and falls back to fallback_next
+        on any failure.
+
+        Args:
+            params: Node parameters including allowed_next, fallback_next,
+                    and optional provider override.
+            node_id: ID of the decision node being executed.
+
+        Returns:
+            ActionResult with selected_next in metadata (or fallback_used=True).
+        """
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        allowed_next = params.get("allowed_next", [])
+        fallback_next = params.get("fallback_next")
+
+        # Build the filtered advisor context (spec: strict filtering)
+        advisor_context = {
+            "cycle_id": params.get("cycle_id", ""),
+            "current_node": node_id,
+            "step_index": params.get("step_index", 0),
+            "generated_factors": params.get("generated_factors", 0),
+            "pass_rate": params.get("pass_rate", 0.0),
+            "active_parents": params.get("active_parents", 0),
+            "diversity_score": params.get("diversity_score", 0.0),
+            "consecutive_failures": params.get("consecutive_failures", 0),
+            "allowed_next": list(allowed_next),
+        }
+
+        # Try to get advisor recommendation
+        try:
+            provider = params.get("llm_provider")
+            if provider is None:
+                provider = getattr(self, "_llm_advisor_provider", None)
+
+            if provider is None:
+                raise RuntimeError("No llm_advisor provider configured")
+
+            raw_output = provider.advise(advisor_context)
+        except Exception as exc:
+            logger.warning(
+                f"llm_advisor on node '{node_id}': provider failed: {exc}, "
+                f"falling back to '{fallback_next}'"
+            )
+            return ActionResult(
+                action="llm_advisor",
+                status="error",
+                metadata={
+                    "selected_next": fallback_next,
+                    "fallback_used": True,
+                    "error": str(exc),
+                    "advisor_context": advisor_context,
+                },
+                error=str(exc),
+            )
+
+        # Validate the advisor output
+        selected_next = self._validate_advisor_output(
+            raw_output, allowed_next, fallback_next, node_id
+        )
+
+        if selected_next == fallback_next:
+            status = "fallback"
+            fallback_used = True
+        else:
+            status = "success"
+            fallback_used = False
+
+        reason = ""
+        if isinstance(raw_output, dict):
+            reason = raw_output.get("reason", "")
+
+        return ActionResult(
+            action="llm_advisor",
+            status=status,
+            metadata={
+                "selected_next": selected_next,
+                "fallback_used": fallback_used,
+                "advisor_reason": reason,
+                "advisor_context": advisor_context,
+            },
+        )
+
+    def _validate_advisor_output(
+        self,
+        raw_output: Any,
+        allowed_next: list[str],
+        fallback_next: str | None,
+        node_id: str,
+    ) -> str:
+        """
+        Validate advisor output and return the selected next node.
+
+        Falls back to fallback_next on any validation failure.
+        """
+        try:
+            if raw_output is None:
+                logger.warning(
+                    f"llm_advisor on node '{node_id}': provider returned None, "
+                    f"falling back to '{fallback_next}'"
+                )
+                return fallback_next
+
+            # Handle string output (just a node name)
+            if isinstance(raw_output, str):
+                try:
+                    import json
+                    parsed = json.loads(raw_output)
+                except (json.JSONDecodeError, ValueError):
+                    # Treat as raw node name
+                    if raw_output in allowed_next:
+                        return raw_output
+                    logger.warning(
+                        f"llm_advisor on node '{node_id}': string output '{raw_output}' "
+                        f"not in allowed_next, falling back to '{fallback_next}'"
+                    )
+                    return fallback_next
+                raw_output = parsed
+
+            # Handle dict output
+            if isinstance(raw_output, dict):
+                next_node = raw_output.get("next_node")
+                if next_node is None:
+                    logger.warning(
+                        f"llm_advisor on node '{node_id}': missing 'next_node' in output, "
+                        f"falling back to '{fallback_next}'"
+                    )
+                    return fallback_next
+
+                if next_node not in allowed_next:
+                    logger.warning(
+                        f"llm_advisor on node '{node_id}': next_node '{next_node}' "
+                        f"not in allowed_next {allowed_next}, falling back to '{fallback_next}'"
+                    )
+                    return fallback_next
+
+                return next_node
+
+            # Unexpected type
+            logger.warning(
+                f"llm_advisor on node '{node_id}': unexpected output type {type(raw_output)}, "
+                f"falling back to '{fallback_next}'"
+            )
+            return fallback_next
+
+        except Exception as exc:
+            logger.error(
+                f"llm_advisor on node '{node_id}': validation error: {exc}, "
+                f"falling back to '{fallback_next}'"
+            )
+            return fallback_next
