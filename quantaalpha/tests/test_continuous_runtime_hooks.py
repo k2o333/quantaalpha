@@ -3081,3 +3081,418 @@ class TestPhase7OrchestrationIntegration:
         # stop_reason must be set
         assert trace["stop_reason"] is not None, "stop_reason should not be None"
         assert isinstance(trace["stop_reason"], str), "stop_reason should be a string"
+
+
+# ============================================================================
+# Phase 8: Production Readiness Acceptance Tests
+# ============================================================================
+
+
+class TestPhase8ProductionReadiness:
+    """Phase 8 acceptance tests for single-cycle orchestration production readiness.
+
+    These tests exercise the real runtime loop via _run_orchestrated_cycle()
+    and cover:
+    - Profile A: original-only flow
+    - Profile B: mutation->crossover flow
+    - Profile C: advisor fallback flow
+    - Profile D: degraded crossover block
+    """
+
+    def _make_scheduler(self, tmp_path, orchestration_cfg, degraded_mode=False):
+        """Helper to create a scheduler with orchestration config."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            pipeline_mode=True,
+            state_cfg={
+                "log_root": str(tmp_path / "log"),
+                "steps_per_mining": 2,
+            },
+            escalation_cfg={"enabled": False},
+            evolution_cfg={"enabled": False},
+            orchestration_cfg=orchestration_cfg,
+            degraded_mode=degraded_mode,
+        )
+        return scheduler
+
+    # ----------------------------------------------------------------
+    # Profile A: Original-only flow
+    # ----------------------------------------------------------------
+    def test_phase8_production_readiness_original_only_flow(self, tmp_path):
+        """Profile A: original-only flow ends at terminal with trace.
+
+        - start node: original
+        - next: terminal
+        - cycle ends normally
+        - stop_reason == "terminal_node"
+        - trace contains at least one "original" step
+        """
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "original",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "original",
+                    "kind": "action",
+                    "action": "original",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "terminal",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler(tmp_path, orch_cfg)
+
+        # Mock AlphaAgentLoop to return a deterministic factor
+        import sys
+        import types
+
+        class MockLoop:
+            def __init__(self, *args, **kwargs):
+                pass
+            def run(self, step_n=None, stop_event=None):
+                pass
+            def _get_successful_factor_ids(self):
+                return ["orig_factor_1"]
+
+        fake_loop_mod = types.ModuleType("quantaalpha.pipeline.loop")
+        fake_loop_mod.AlphaAgentLoop = MockLoop
+        sys.modules["quantaalpha.pipeline.loop"] = fake_loop_mod
+
+        try:
+            with patch("quantaalpha.continuous.implementations.logger"):
+                result = scheduler._run_orchestrated_cycle()
+        finally:
+            del sys.modules["quantaalpha.pipeline.loop"]
+
+        trace = result["orchestration_trace"]
+
+        assert trace["stop_reason"] == "terminal_node", (
+            f"Expected stop_reason 'terminal_node', got '{trace['stop_reason']}'"
+        )
+
+        # Trace must contain at least one original step
+        actions = [s["action"] for s in trace["steps"]]
+        assert "original" in actions, (
+            f"Expected 'original' in trace actions, got {actions}"
+        )
+
+    # ----------------------------------------------------------------
+    # Profile B: Mutation->crossover flow
+    # ----------------------------------------------------------------
+    def test_phase8_production_readiness_mutation_crossover_flow(self, tmp_path):
+        """Profile B: mutation->crossover flow runs both actions.
+
+        - start node: mutation
+        - next: crossover (unconditional)
+        - crossover -> terminal
+        - trace contains both mutation and crossover steps
+        """
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "mutation",
+            "max_steps_per_cycle": 6,
+            "nodes": [
+                {
+                    "id": "mutation",
+                    "kind": "action",
+                    "action": "mutation",
+                    "next": [{"goto": "crossover"}],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "action",
+                    "action": "crossover",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "terminal",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler(tmp_path, orch_cfg)
+
+        # Mock run_evolution_action for mutation and crossover
+        with patch("quantaalpha.pipeline.factor_mining.run_evolution_action") as mock_evo:
+            mock_evo.return_value = {
+                "factor_ids": ["evo_factor_1"],
+                "successful_tasks": 1,
+                "status": "success",
+            }
+
+            with patch("quantaalpha.continuous.implementations.logger"):
+                result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+
+        actions = [s["action"] for s in trace["steps"]]
+        assert "mutation" in actions, (
+            f"Expected 'mutation' in trace actions, got {actions}"
+        )
+        assert "crossover" in actions, (
+            f"Expected 'crossover' in trace actions, got {actions}"
+        )
+
+        # Verify order: mutation before crossover
+        mut_idx = actions.index("mutation")
+        cross_idx = actions.index("crossover")
+        assert mut_idx < cross_idx, (
+            f"Expected mutation (idx {mut_idx}) before crossover (idx {cross_idx})"
+        )
+
+    # ----------------------------------------------------------------
+    # Profile C: Advisor fallback flow
+    # ----------------------------------------------------------------
+    def test_phase8_production_readiness_advisor_fallback_flow(self, tmp_path):
+        """Profile C: advisor returns illegal next, falls back correctly.
+
+        - start node: llm_advisor decision node
+        - advisor returns a node NOT in allowed_next
+        - runtime falls back to fallback_next
+        - trace shows decision step and fallback result
+        """
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "advisor_node",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "advisor_node",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "original",
+                    "next": [
+                        {"if": "always_true", "goto": "mutation"},
+                        {"goto": "original"},
+                    ],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "action",
+                    "action": "mutation",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "original",
+                    "kind": "action",
+                    "action": "original",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "action",
+                    "action": "crossover",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "terminal",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [
+                {
+                    "name": "always_true",
+                    "type": "flag",
+                    "metric": "llm_available",
+                },
+            ],
+        }
+
+        scheduler = self._make_scheduler(tmp_path, orch_cfg)
+
+        # Mock advisor provider to return an illegal next node
+        def mock_advise(context):
+            return {"next_node": "INVALID_NODE_NOT_IN_ALLOWED"}
+
+        scheduler._llm_advisor_provider = MagicMock()
+        scheduler._llm_advisor_provider.advise = mock_advise
+
+        with patch("quantaalpha.pipeline.factor_mining.run_evolution_action") as mock_evo:
+            mock_evo.return_value = {
+                "factor_ids": ["factor_1"],
+                "successful_tasks": 1,
+                "status": "success",
+            }
+
+            with patch("quantaalpha.continuous.implementations.logger"):
+                result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+
+        # Find the advisor step
+        advisor_steps = [s for s in trace["steps"] if s["action"] == "llm_advisor"]
+        assert len(advisor_steps) >= 1, (
+            f"Expected at least one llm_advisor step, got {[s['action'] for s in trace['steps']]}"
+        )
+
+        advisor_step = advisor_steps[0]
+        # The advisor should have fallen back to 'original' (the fallback_next)
+        assert advisor_step["next_node"] == "original", (
+            f"Expected advisor to fall back to 'original', got '{advisor_step['next_node']}'"
+        )
+
+    def test_phase8_production_readiness_advisor_fallback_on_provider_exception(self, tmp_path):
+        """Profile C (provider-failure branch): advisor provider raises, falls back correctly.
+
+        - start node: llm_advisor decision node
+        - advisor provider raises an exception
+        - runtime falls back to fallback_next
+        - trace shows decision step with fallback_used=True
+        """
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "advisor_node",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "advisor_node",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "original",
+                    "next": [
+                        {"if": "always_true", "goto": "mutation"},
+                        {"goto": "original"},
+                    ],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "action",
+                    "action": "mutation",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "original",
+                    "kind": "action",
+                    "action": "original",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "action",
+                    "action": "crossover",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "terminal",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [
+                {
+                    "name": "always_true",
+                    "type": "flag",
+                    "metric": "llm_available",
+                },
+            ],
+        }
+
+        scheduler = self._make_scheduler(tmp_path, orch_cfg)
+
+        # Mock advisor provider to raise an exception
+        def mock_advise(context):
+            raise RuntimeError("LLM provider unavailable")
+
+        scheduler._llm_advisor_provider = MagicMock()
+        scheduler._llm_advisor_provider.advise = mock_advise
+
+        with patch("quantaalpha.pipeline.factor_mining.run_evolution_action") as mock_evo:
+            mock_evo.return_value = {
+                "factor_ids": ["factor_1"],
+                "successful_tasks": 1,
+                "status": "success",
+            }
+
+            with patch("quantaalpha.continuous.implementations.logger"):
+                result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+
+        # Find the advisor step
+        advisor_steps = [s for s in trace["steps"] if s["action"] == "llm_advisor"]
+        assert len(advisor_steps) >= 1, (
+            f"Expected at least one llm_advisor step, got {[s['action'] for s in trace['steps']]}"
+        )
+
+        advisor_step = advisor_steps[0]
+        # The advisor should have fallen back to 'original' (the fallback_next)
+        assert advisor_step["next_node"] == "original", (
+            f"Expected advisor to fall back to 'original' on provider exception, "
+            f"got '{advisor_step['next_node']}'"
+        )
+
+    # ----------------------------------------------------------------
+    # Profile D: Degraded crossover block
+    # ----------------------------------------------------------------
+    def test_phase8_production_readiness_degraded_crossover_block(self, tmp_path):
+        """Profile D: degraded crossover block is safe and traceable.
+
+        - start node: crossover
+        - degraded_mode=True
+        - crossover is blocked
+        - cycle does not crash
+        - action status and stop reason are explainable
+        """
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "crossover",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "crossover",
+                    "kind": "action",
+                    "action": "crossover",
+                    "next": [{"goto": "terminal"}],
+                },
+                {
+                    "id": "terminal",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        # Create scheduler with degraded_mode=True
+        scheduler = self._make_scheduler(tmp_path, orch_cfg, degraded_mode=True)
+
+        with patch("quantaalpha.continuous.implementations.logger"):
+            result = scheduler._run_orchestrated_cycle()
+
+        # Should not crash
+        assert "errors" in result
+
+        trace = result["orchestration_trace"]
+
+        # Find the crossover step
+        crossover_steps = [s for s in trace["steps"] if s["action"] == "crossover"]
+        assert len(crossover_steps) >= 1, (
+            f"Expected at least one crossover step, got {[s['action'] for s in trace['steps']]}"
+        )
+
+        crossover_step = crossover_steps[0]
+        # Action status should indicate blocked/unsupported
+        assert crossover_step["action_status"] in ("blocked", "unsupported", "error"), (
+            f"Expected crossover to be blocked/unsupported, got '{crossover_step['action_status']}'"
+        )
+
+        # Stop reason should be set (not crash)
+        assert trace["stop_reason"] is not None, "stop_reason should be set"
+        assert isinstance(trace["stop_reason"], str), "stop_reason should be a string"

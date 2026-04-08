@@ -374,3 +374,202 @@ class TestOrchestrationRuntimeEntry:
         mock_persist_state.assert_called_once()
         mock_logger.set_storages_path.assert_called_once()
         assert result["errors"] == []
+
+
+# ============================================================================
+# Phase 8: Fail-Fast Tests
+# ============================================================================
+
+
+class TestPhase8FailFast:
+    """Phase 8 fail-fast tests for orchestration config validation.
+
+    Coverage:
+    - missing start_node
+    - invalid goto target
+    - invalid decision config (missing allowed_next, missing fallback_next)
+    """
+
+    def _make_scheduler(self, orchestration_cfg):
+        """Helper to create a scheduler with orchestration config."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        import tempfile
+        import json
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            json.dump({"metadata": {}, "factors": {}}, f)
+            lib_path = f.name
+
+        scheduler = DefaultMiningScheduler(
+            pipeline_mode=True,
+            library_path=lib_path,
+            state_cfg={"log_root": "/tmp/test_phase8_fail_fast"},
+            escalation_cfg={"enabled": False},
+            evolution_cfg={"enabled": False},
+            orchestration_cfg=orchestration_cfg,
+        )
+        return scheduler
+
+    def test_phase8_fail_fast_missing_start_node(self):
+        """Fail-fast: start_node not found in nodes raises OrchestrationConfigError."""
+        from quantaalpha.continuous.orchestration import (
+            validate_orchestration_config,
+            OrchestrationConfigError,
+        )
+        import pytest
+
+        nodes = [
+            {"id": "original", "kind": "action", "action": "original", "next": []},
+        ]
+
+        with pytest.raises(OrchestrationConfigError) as exc_info:
+            validate_orchestration_config(
+                start_node="nonexistent_node",
+                nodes=nodes,
+                conditions=[],
+                max_steps_per_cycle=4,
+            )
+
+        assert "nonexistent_node" in str(exc_info.value)
+        assert "not found" in str(exc_info.value)
+
+    def test_phase8_fail_fast_invalid_goto(self):
+        """Fail-fast: goto target not in nodes raises OrchestrationConfigError."""
+        from quantaalpha.continuous.orchestration import (
+            validate_orchestration_config,
+            OrchestrationConfigError,
+        )
+        import pytest
+
+        nodes = [
+            {
+                "id": "original",
+                "kind": "action",
+                "action": "original",
+                "next": [{"goto": "nonexistent_target"}],
+            },
+        ]
+
+        with pytest.raises(OrchestrationConfigError) as exc_info:
+            validate_orchestration_config(
+                start_node="original",
+                nodes=nodes,
+                conditions=[],
+                max_steps_per_cycle=4,
+            )
+
+        assert "nonexistent_target" in str(exc_info.value)
+        assert "unknown node" in str(exc_info.value) or "not found" in str(exc_info.value)
+
+    def test_phase8_fail_fast_decision_missing_allowed_next(self):
+        """Fail-fast: decision node without allowed_next raises OrchestrationConfigError."""
+        from quantaalpha.continuous.orchestration import (
+            validate_orchestration_config,
+            OrchestrationConfigError,
+        )
+        import pytest
+
+        nodes = [
+            {
+                "id": "advisor",
+                "kind": "decision",
+                "decision_mode": "llm_advisor",
+                "allowed_next": [],
+                "fallback_next": "original",
+                "next": [],
+            },
+            {"id": "original", "kind": "action", "action": "original", "next": []},
+        ]
+
+        with pytest.raises(OrchestrationConfigError) as exc_info:
+            validate_orchestration_config(
+                start_node="advisor",
+                nodes=nodes,
+                conditions=[],
+                max_steps_per_cycle=4,
+            )
+
+        assert "allowed_next" in str(exc_info.value)
+
+    def test_phase8_fail_fast_decision_missing_fallback_next(self):
+        """Fail-fast: decision node without fallback_next raises OrchestrationConfigError."""
+        from quantaalpha.continuous.orchestration import (
+            validate_orchestration_config,
+            OrchestrationConfigError,
+        )
+        import pytest
+
+        nodes = [
+            {
+                "id": "advisor",
+                "kind": "decision",
+                "decision_mode": "llm_advisor",
+                "allowed_next": ["original"],
+                "fallback_next": None,
+                "next": [],
+            },
+            {"id": "original", "kind": "action", "action": "original", "next": []},
+        ]
+
+        with pytest.raises(OrchestrationConfigError) as exc_info:
+            validate_orchestration_config(
+                start_node="advisor",
+                nodes=nodes,
+                conditions=[],
+                max_steps_per_cycle=4,
+            )
+
+        assert "fallback_next" in str(exc_info.value)
+
+    def test_phase8_fail_fast_invalid_action(self):
+        """Fail-fast: invalid action raises OrchestrationConfigError."""
+        from quantaalpha.continuous.orchestration import (
+            validate_orchestration_config,
+            OrchestrationConfigError,
+        )
+        import pytest
+
+        nodes = [
+            {
+                "id": "bad_node",
+                "kind": "action",
+                "action": "invalid_action_type",
+                "next": [],
+            },
+        ]
+
+        with pytest.raises(OrchestrationConfigError) as exc_info:
+            validate_orchestration_config(
+                start_node="bad_node",
+                nodes=nodes,
+                conditions=[],
+                max_steps_per_cycle=4,
+            )
+
+        assert "invalid_action_type" in str(exc_info.value)
+
+    def test_phase8_fail_fast_invalid_kind(self):
+        """Fail-fast: invalid kind raises OrchestrationConfigError."""
+        from quantaalpha.continuous.orchestration import (
+            validate_orchestration_config,
+            OrchestrationConfigError,
+        )
+        import pytest
+
+        nodes = [
+            {
+                "id": "bad_kind",
+                "kind": "invalid_kind",
+                "next": [],
+            },
+        ]
+
+        with pytest.raises(OrchestrationConfigError) as exc_info:
+            validate_orchestration_config(
+                start_node="bad_kind",
+                nodes=nodes,
+                conditions=[],
+                max_steps_per_cycle=4,
+            )
+
+        assert "invalid_kind" in str(exc_info.value)
