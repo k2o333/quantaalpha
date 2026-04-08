@@ -351,7 +351,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 return False
             translated_expression, translation_warnings = _translate_factor_expression(expression)
             if translation_warnings:
-                logger.debug(
+                logger.info(
                     "Translation warnings for %s: %s",
                     factor_id,
                     "; ".join(translation_warnings),
@@ -479,11 +479,11 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         import polars as pl
 
         if self._execution_dataframe_cache is not None:
-            logger.debug("Using cached execution DataFrame for backtest")
+            logger.info("Using cached execution DataFrame for backtest")
             return self._execution_dataframe_cache
 
         if self._data_bridge is None:
-            logger.debug("No data bridge configured, using empty DataFrame")
+            logger.info("No data bridge configured, using empty DataFrame")
             self._execution_dataframe_cache = pl.DataFrame(
                 {
                     "datetime": pl.Series(dtype=pl.Date),
@@ -799,7 +799,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 max_comparisons=50,
             )
         except Exception as e:
-            logger.debug(f"Redundancy check failed: {e}, proceeding with admission")
+            logger.info(f"Redundancy check failed: {e}, proceeding with admission")
             return {"is_redundant": False}  # fail-open
 
     def get_next_scheduled_run(self) -> Optional[datetime]:
@@ -851,7 +851,7 @@ class DefaultMiningScheduler(MiningScheduler):
                             include_tags=True,
                             include_ic=True,
                         )
-                        logger.debug(f"Retrieved context via SimilarityEngine from {len(results)} factors")
+                        logger.info(f"Retrieved context via SimilarityEngine from {len(results)} factors")
                         return context
                 except Exception as e:
                     logger.warning(f"SimilarityEngine query failed: {e}, falling back to legacy")
@@ -878,7 +878,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     include_tags=True,
                     include_ic=True,
                 )
-                logger.debug(f"Retrieved context from {len(results)} active factors via legacy path")
+                logger.info(f"Retrieved context from {len(results)} active factors via legacy path")
                 return context
 
             return ""
@@ -902,14 +902,14 @@ class DefaultMiningScheduler(MiningScheduler):
             try:
                 direction = self._direction_planner.get_current_direction()
                 if direction:
-                    logger.debug(f"Using direction planner query: {direction}")
+                    logger.info(f"Using direction planner query: {direction}")
                     return direction
             except Exception as e:
-                logger.debug(f"Direction planner query failed: {e}")
+                logger.info(f"Direction planner query failed: {e}")
         
         # 默认查询 - 描述需要高质量因子的意图
         default_query = "high IC factor with volume and momentum signals"
-        logger.debug(f"Using default similarity query: {default_query}")
+        logger.info(f"Using default similarity query: {default_query}")
         return default_query
 
     def _build_fallback_context(self) -> str:
@@ -1031,7 +1031,7 @@ class DefaultMiningScheduler(MiningScheduler):
             return []
 
         except ImportError:
-            logger.debug("LLM client not available")
+            logger.info("LLM client not available")
             return []
         except Exception as e:
             logger.warning(f"LLM generation failed: {e}")
@@ -1076,7 +1076,7 @@ class DefaultMiningScheduler(MiningScheduler):
                             # Syntax validation — match mutation path behavior
                             expr = factor.get("factor_expression", "")
                             if expr and not self._is_parsable(expr):
-                                logger.debug(f"Skipping unparsable LLM factor: {expr[:80]}")
+                                logger.info(f"Skipping unparsable LLM factor: {expr[:80]}")
                                 continue
                             factors.append(factor)
         except (json.JSONDecodeError, ValueError) as e:
@@ -1130,7 +1130,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     if mutated_expr and mutated_expr != template_expr:
                         # Filter through is_parsable to ensure syntactic validity
                         if not self._is_parsable(mutated_expr):
-                            logger.debug(f"Mutation unparsable, skipping: {mutated_expr[:80]}")
+                            logger.info(f"Mutation unparsable, skipping: {mutated_expr[:80]}")
                             continue
                         # Create factor entry
                         factor_id = self._generate_mutated_factor_id(template.get("factor_id", "unknown"), mutated_expr)
@@ -1383,7 +1383,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 }
             translated_expression, translation_warnings = _translate_factor_expression(expression)
             if translation_warnings:
-                logger.debug(
+                logger.info(
                     "Translation warnings for %s: %s",
                     factor_id,
                     "; ".join(translation_warnings),
@@ -1628,11 +1628,11 @@ class DefaultMiningScheduler(MiningScheduler):
         import polars as pl
 
         if self._execution_dataframe_cache is not None:
-            logger.debug("Using cached execution DataFrame for validation")
+            logger.info("Using cached execution DataFrame for validation")
             return self._execution_dataframe_cache
 
         if self._data_bridge is None:
-            logger.debug("No data bridge configured, using empty DataFrame")
+            logger.info("No data bridge configured, using empty DataFrame")
             self._execution_dataframe_cache = pl.DataFrame(
                 {
                     "datetime": pl.Series(dtype=pl.Date),
