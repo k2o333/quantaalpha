@@ -369,16 +369,29 @@ class SingleCycleOrchestrator:
 
     def should_stop(self, context: OrchestrationContext) -> bool:
         """Check if the orchestration cycle should stop."""
+        stop_reason, _ = self.should_stop_with_reason(context)
+        return stop_reason is not None
+
+    def should_stop_with_reason(
+        self, context: OrchestrationContext
+    ) -> tuple[str | None, bool]:
+        """
+        Check if the orchestration cycle should stop and return the reason.
+
+        Returns:
+            Tuple of (stop_reason_or_None, should_stop_bool)
+            stop_reason can be: 'terminal_node', 'max_steps_reached', or None.
+        """
         # Stop if current node is terminal
         node = self._nodes.get(context.current_node)
         if node and node.get("kind") == "terminal":
-            return True
+            return "terminal_node", True
 
         # Stop if max steps reached
         if context.step_index >= self.max_steps_per_cycle:
-            return True
+            return "max_steps_reached", True
 
-        return False
+        return None, False
 
     def next_action(self, context: OrchestrationContext) -> ActionSpec:
         """
@@ -411,12 +424,26 @@ class SingleCycleOrchestrator:
 
         Returns the ID of the next node, or None if no transition matches.
         """
+        next_node, _ = self.select_next_node_with_trace(context)
+        return next_node
+
+    def select_next_node_with_trace(
+        self, context: OrchestrationContext
+    ) -> tuple[str | None, dict[str, bool]]:
+        """
+        Select the next node based on transition conditions, returning trace data.
+
+        Returns:
+            Tuple of (next_node_id_or_None, condition_results_dict)
+            condition_results maps condition_name -> bool for conditions evaluated.
+        """
         node = self._nodes.get(context.current_node)
         if node is None:
-            return None
+            return None, {}
 
         transitions = node.get("next", [])
         fallback = node.get("fallback_next")
+        condition_results: dict[str, bool] = {}
 
         for trans in transitions:
             condition_ref = trans.get("if")
@@ -424,15 +451,20 @@ class SingleCycleOrchestrator:
 
             if condition_ref is None:
                 # Unconditional transition - take it immediately
-                return goto_target
+                return goto_target, condition_results
 
             # Evaluate condition
             if condition_ref in self._condition_map:
                 cond = self._condition_map[condition_ref]
-                if evaluate_condition(cond, context, self._condition_map):
-                    return goto_target
+                try:
+                    result = evaluate_condition(cond, context, self._condition_map)
+                    condition_results[condition_ref] = result
+                    if result:
+                        return goto_target, condition_results
+                except Exception:
+                    condition_results[condition_ref] = False
 
-        return fallback
+        return fallback, condition_results
 
     def apply_result(
         self, context: OrchestrationContext, result: ActionResult

@@ -1905,3 +1905,404 @@ class TestPhase4RuntimeEvolution:
             )
 
         assert result.status == "failed"
+
+
+"""Phase 5: Orchestration trace tests."""
+
+import json
+from unittest.mock import patch
+
+import pytest
+
+
+class TestPhase5OrchestrationTrace:
+    """Tests for Phase 5: single-cycle orchestration trace observability."""
+
+    def test_phase5_orchestration_trace_returns_trace_in_result(self, tmp_path):
+        """Verify _run_orchestrated_cycle returns orchestration_trace in result."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "original",
+                "max_steps_per_cycle": 3,
+                "nodes": [
+                    {
+                        "id": "original",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [],
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_action.return_value = ActionResult(
+                action="original",
+                status="success",
+                generated_factors=1,
+                validated_factors=1,
+                added_factors=1,
+                metadata={"factor_ids": ["f1"]},
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        assert "orchestration_trace" in result
+        trace = result["orchestration_trace"]
+        assert "cycle_id" in trace
+        assert "start_node" in trace
+        assert "stop_reason" in trace
+        assert "steps" in trace
+        assert trace["start_node"] == "original"
+
+    def test_phase5_orchestration_trace_steps_have_required_fields(self, tmp_path):
+        """Verify each step in orchestration_trace has required fields."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "original",
+                "max_steps_per_cycle": 3,
+                "nodes": [
+                    {
+                        "id": "original",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [{"goto": "original"}],
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        step_count = [0]
+
+        def mock_action(*args, **kwargs):
+            from quantaalpha.continuous.orchestration import ActionResult
+            step_count[0] += 1
+            if step_count[0] >= 2:
+                return ActionResult(
+                    action="original",
+                    status="error",
+                    error="forced stop",
+                )
+            return ActionResult(
+                action="original",
+                status="success",
+                generated_factors=0,
+                validated_factors=0,
+                added_factors=0,
+            )
+
+        with patch.object(scheduler, "_execute_orchestrated_action", side_effect=mock_action):
+            result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+
+        for step in trace["steps"]:
+            assert "step_index" in step
+            assert "current_node" in step
+            assert "action" in step
+            assert "action_status" in step
+            assert "condition_results" in step
+            assert "next_node" in step
+            assert "error" in step
+
+    def test_phase5_orchestration_trace_stop_reason_terminal_node(self, tmp_path):
+        """Verify stop_reason is 'terminal_node' when reaching a terminal node."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "original",
+                "max_steps_per_cycle": 10,
+                "nodes": [
+                    {
+                        "id": "original",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [{"goto": "end_node"}],
+                    },
+                    {
+                        "id": "end_node",
+                        "kind": "terminal",
+                        "next": [],
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_action.return_value = ActionResult(
+                action="original",
+                status="success",
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert trace["stop_reason"] == "terminal_node"
+
+    def test_phase5_orchestration_trace_stop_reason_max_steps_reached(self, tmp_path):
+        """Verify stop_reason is 'max_steps_reached' when hitting step limit."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "original",
+                "max_steps_per_cycle": 2,
+                "nodes": [
+                    {
+                        "id": "original",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [{"goto": "original"}],
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_action.return_value = ActionResult(
+                action="original",
+                status="success",
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert trace["stop_reason"] == "max_steps_reached"
+
+    def test_phase5_orchestration_trace_stop_reason_no_valid_transition(self, tmp_path):
+        """Verify stop_reason is 'no_valid_transition' when next_node is None."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "original",
+                "max_steps_per_cycle": 10,
+                "nodes": [
+                    {
+                        "id": "original",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [],
+                        "fallback_next": None,
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_action.return_value = ActionResult(
+                action="original",
+                status="success",
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert trace["stop_reason"] == "no_valid_transition"
+
+    def test_phase5_orchestration_trace_stop_reason_stop_event(self, tmp_path):
+        """Verify stop_reason is 'stop_event' when stop event is set."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "original",
+                "max_steps_per_cycle": 10,
+                "nodes": [
+                    {
+                        "id": "original",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [{"goto": "original"}],
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        scheduler._stop_event.set()
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_action.return_value = ActionResult(
+                action="original",
+                status="success",
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert trace["stop_reason"] == "stop_event"
+
+    def test_phase5_orchestration_trace_condition_results_from_real_transition(self, tmp_path):
+        """Verify condition_results comes from real transition evaluation."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "decision_node",
+                "max_steps_per_cycle": 5,
+                "nodes": [
+                    {
+                        "id": "decision_node",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [
+                            {"if": "high_pass_rate", "goto": "good_node"},
+                            {"if": "low_pass_rate", "goto": "bad_node"},
+                        ],
+                        "fallback_next": "fallback_node",
+                    },
+                    {
+                        "id": "good_node",
+                        "kind": "terminal",
+                        "next": [],
+                    },
+                    {
+                        "id": "bad_node",
+                        "kind": "terminal",
+                        "next": [],
+                    },
+                    {
+                        "id": "fallback_node",
+                        "kind": "terminal",
+                        "next": [],
+                    },
+                ],
+                "conditions": [
+                    {
+                        "name": "high_pass_rate",
+                        "type": "threshold",
+                        "metric": "pass_rate",
+                        "operator": "gte",
+                        "value": 0.5,
+                    },
+                    {
+                        "name": "low_pass_rate",
+                        "type": "threshold",
+                        "metric": "pass_rate",
+                        "operator": "lt",
+                        "value": 0.5,
+                    },
+                ],
+            },
+        )
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_action.return_value = ActionResult(
+                action="original",
+                status="success",
+                added_factors=3,
+                validated_factors=5,
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+
+        condition_step = None
+        for step in trace["steps"]:
+            if step["condition_results"]:
+                condition_step = step
+                break
+
+        assert condition_step is not None, "Expected at least one step with condition_results"
+        assert "high_pass_rate" in condition_step["condition_results"]
+        assert condition_step["condition_results"]["high_pass_rate"] is True
+
+    def test_phase5_orchestration_trace_cycle_id_is_real(self, tmp_path):
+        """Verify cycle_id in trace is a real generated ID."""
+        from unittest.mock import patch
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "original",
+                "max_steps_per_cycle": 3,
+                "nodes": [
+                    {
+                        "id": "original",
+                        "kind": "action",
+                        "action": "original",
+                        "next": [],
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            from quantaalpha.continuous.orchestration import ActionResult
+            mock_action.return_value = ActionResult(
+                action="original",
+                status="success",
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        trace = result["orchestration_trace"]
+        assert trace["cycle_id"] is not None
+        assert len(trace["cycle_id"]) > 0
+        assert len(trace["cycle_id"]) == 8

@@ -2015,7 +2015,8 @@ class DefaultMiningScheduler(MiningScheduler):
             budget_seconds: Maximum seconds for this cycle (currently unused).
 
         Returns:
-            Dict with factors_generated, factors_validated, factors_added, factor_ids, errors.
+            Dict with factors_generated, factors_validated, factors_added, factor_ids, errors,
+            and orchestration_trace (Phase 5).
         """
         from quantaalpha.continuous.orchestration import (
             SingleCycleOrchestrator,
@@ -2060,8 +2061,28 @@ class DefaultMiningScheduler(MiningScheduler):
             step_index=0,
         )
 
+        # Phase 5: Initialize orchestration trace
+        orchestration_trace = {
+            "cycle_id": context.cycle_id,
+            "start_node": start_node,
+            "stop_reason": None,
+            "steps": [],
+        }
+
         # Main orchestration loop
-        while not orchestrator.should_stop(context):
+        while True:
+            # Check stop conditions
+            stop_reason, should_stop = orchestrator.should_stop_with_reason(context)
+
+            if should_stop:
+                orchestration_trace["stop_reason"] = stop_reason
+                break
+
+            # Check stop event
+            if self._stop_event.is_set():
+                orchestration_trace["stop_reason"] = "stop_event"
+                break
+
             # Determine next action
             action_spec = orchestrator.next_action(context)
 
@@ -2084,18 +2105,36 @@ class DefaultMiningScheduler(MiningScheduler):
             if action_result.error:
                 result["errors"].append(action_result.error)
 
-            # Advance to next node
-            next_node = orchestrator.select_next_node(context)
+            # Phase 5: Advance to next node with trace
+            next_node, condition_results = orchestrator.select_next_node_with_trace(context)
+
+            # Build step trace
+            step_trace = {
+                "step_index": context.step_index,
+                "current_node": context.current_node,
+                "action": action_spec.action,
+                "action_status": action_result.status,
+                "condition_results": condition_results,
+                "next_node": next_node,
+                "error": action_result.error,
+            }
+            orchestration_trace["steps"].append(step_trace)
+
             if next_node is None:
-                # No valid next node, stop
+                # No valid next node
+                orchestration_trace["stop_reason"] = "no_valid_transition"
                 break
 
             context.current_node = next_node
             context.step_index += 1
 
-            # Check budget / stop event
+            # Check budget / stop event (second check for safety)
             if self._stop_event.is_set():
+                orchestration_trace["stop_reason"] = "stop_event"
                 break
+
+        # Phase 5: Attach trace to result
+        result["orchestration_trace"] = orchestration_trace
 
         return result
 
