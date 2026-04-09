@@ -370,3 +370,129 @@ class TestConstructPayloadShape(unittest.TestCase):
         self.assertEqual(len(exp.tasks), 1)
         self.assertEqual(exp.tasks[0].factor_name, "wrapped_factor")
         self.assertEqual(exp.tasks[0].factor_expression, "ts_mean($close, 3)")
+
+
+class TestCompatibilityWrapperDelegation(unittest.TestCase):
+    """Step 2: 为兼容入口转调写失败测试
+
+    These tests verify that:
+    - build_messages_and_create_chat_completion_json() internally calls call_structured()
+    - The old entry point still returns dict by default (backward compatibility)
+    - When model is degraded, the old entry uses text JSON extraction, not tools
+    """
+
+    def _make_backend(self, model_name="gpt-4-turbo"):
+        """Create a minimal APIBackend mock for testing."""
+        from quantaalpha.llm.client import APIBackend
+
+        backend = object.__new__(APIBackend)
+        backend.use_azure = False
+        backend.use_llama2 = False
+        backend.use_gcr_endpoint = False
+        backend.chat_stream = False
+        backend.use_chat_cache = False
+        backend.chat_model = model_name
+        backend.reasoning_model = ""
+        backend.chat_client = MagicMock()
+        backend.cache = MagicMock()
+        backend.cache.chat_get.return_value = None
+        backend.task_model_map = {}
+        backend.routing_default = ""
+        backend.chat_model_map = {}
+        backend.chat_api_key = "test"
+        backend.base_url = None
+        backend.embedding_api_key = ""
+        backend.embedding_base_url = None
+        backend.encoder = None
+        backend.chat_seed = None
+        backend.retry_wait_seconds = 1
+        backend.dump_chat_cache = False
+        return backend
+
+    def test_compatibility_wrapper_calls_call_structured(self):
+        """build_messages_and_create_chat_completion_json must delegate to call_structured."""
+        import inspect
+        from quantaalpha.llm.client import APIBackend
+
+        source = inspect.getsource(APIBackend.build_messages_and_create_chat_completion_json)
+        self.assertIn(
+            "call_structured",
+            source,
+            "build_messages_and_create_chat_completion_json must delegate to call_structured, "
+            "not call _try_create_chat_completion_or_embedding directly",
+        )
+
+    def test_compatibility_wrapper_returns_dict_by_default(self):
+        """The old entry point must still return dict for backward compatibility."""
+        from quantaalpha.llm.client import call_structured
+
+        backend = self._make_backend()
+        backend._try_create_chat_completion_or_embedding = MagicMock(
+            return_value={
+                "content": '{"result": "test"}',
+                "finish_reason": "stop",
+                "tool_calls": None,
+            }
+        )
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+
+            result = backend.build_messages_and_create_chat_completion_json(
+                user_prompt="test",
+                tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                tool_choice="required",
+            )
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result, {"result": "test"})
+
+    def test_compatibility_wrapper_uses_text_json_when_model_degraded(self):
+        """When model is degraded, the old entry must use text JSON path, not tools."""
+        from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE
+
+        # Clear any leftover degradation state from previous tests
+        _MODEL_DEGRADATION_STATE.clear()
+
+        backend = self._make_backend()
+        captured_kwargs_list = []
+
+        def _capture(**kwargs):
+            captured_kwargs_list.append(kwargs)
+            return {"content": '{"hypothesis": "degraded_test"}', "finish_reason": "stop", "tool_calls": None}
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+
+            # Degrade the model first with 3 failures
+            for i in range(3):
+                backend._try_create_chat_completion_or_embedding = MagicMock(
+                    return_value={"content": f'{{"fail": {i}}}', "finish_reason": "stop", "tool_calls": None}
+                )
+                call_structured(
+                    backend,
+                    [{"role": "user", "content": f"degrade {i}"}],
+                    tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                    tool_choice="required",
+                    allow_text_fallback=True,
+                )
+
+            # Now use the compatibility wrapper
+            captured_kwargs_list.clear()
+            backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_capture)
+
+            result = backend.build_messages_and_create_chat_completion_json(
+                user_prompt="test after degradation",
+                tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                tool_choice="required",
+            )
+
+        # After degradation, the wrapper must call with tools=None and json_mode=True
+        self.assertEqual(len(captured_kwargs_list), 1)
+        call_kwargs = captured_kwargs_list[0]
+        self.assertIsNone(call_kwargs["tools"], "Degraded model must not use tools via compatibility wrapper")
+        self.assertTrue(call_kwargs["json_mode"], "Degraded model must use json_mode via compatibility wrapper")
+        self.assertIsInstance(result, dict, "Compatibility wrapper must still return dict")
+        self.assertEqual(result, {"hypothesis": "degraded_test"})
