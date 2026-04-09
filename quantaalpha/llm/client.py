@@ -251,12 +251,34 @@ def call_structured(
     - Dynamic-key ``factor_construct`` callers may still rely on text fallback
       internally; this function unifies the entry point.
 
+    Policy gateway:
+    - If ``LLM_SETTINGS.use_tool_calling`` is ``False`` and ``tools`` is
+      provided, the call is downgraded: ``tools`` / ``tool_choice`` are
+      cleared and ``json_mode`` is forced ``True``.  A short log records
+      the fallback.
+    - If ``use_tool_calling`` is ``True`` (default), tools pass through
+      unchanged and ``json_mode`` is forced ``False`` when tools are present.
+
     Returns a dict parsed from tool-call arguments or text JSON content.
     Raises ``json.JSONDecodeError`` when all parsing strategies fail.
     """
-    effective_json_mode = json_mode if tools is None else False
+    # --- Policy gateway: enforce use_tool_calling config ---
+    effective_tools = tools
+    effective_tool_choice = tool_choice
+    effective_json_mode = json_mode
+
+    if tools is not None and not LLM_SETTINGS.use_tool_calling:
+        logger.info("call_structured: use_tool_calling is disabled; clearing tools and falling back to json_mode")
+        effective_tools = None
+        effective_tool_choice = None
+        effective_json_mode = True
+    elif tools is not None:
+        # When tools are actually used, disable json_mode to avoid double enforcement
+        effective_json_mode = False
+    # --------------------------------------------------------
+
     original_chat_stream = getattr(api, "chat_stream", None)
-    if tools is not None and original_chat_stream is not None:
+    if effective_tools is not None and original_chat_stream is not None:
         api.chat_stream = False
     try:
         raw = api._try_create_chat_completion_or_embedding(
@@ -266,8 +288,8 @@ def call_structured(
             json_mode=effective_json_mode,
             reasoning_flag=reasoning_flag,
             task_type=task_type,
-            tools=tools,
-            tool_choice=tool_choice,
+            tools=effective_tools,
+            tool_choice=effective_tool_choice,
             temperature=temperature,
             max_tokens=max_tokens,
             frequency_penalty=frequency_penalty,
@@ -276,7 +298,7 @@ def call_structured(
             add_json_in_prompt=add_json_in_prompt,
         )
     finally:
-        if tools is not None and original_chat_stream is not None:
+        if effective_tools is not None and original_chat_stream is not None:
             api.chat_stream = original_chat_stream
 
     return parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)

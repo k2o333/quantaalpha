@@ -494,3 +494,156 @@ class TestJsonModeToolCallPriority:
         assert backend.chat_stream is True
         call_kwargs = backend._try_create_chat_completion_or_embedding.call_args.kwargs
         assert call_kwargs["json_mode"] is False
+
+
+class TestUseToolCallingGatewaySwitch:
+    """Tests proving call_structured() respects LLM_SETTINGS.use_tool_calling.
+
+    These tests verify that:
+    - When use_tool_calling=True (default), tools are passed through.
+    - When use_tool_calling=False, tools/tool_choice are cleared and json_mode=True.
+    """
+
+    def _make_backend(self):
+        from quantaalpha.llm.client import APIBackend
+
+        backend = object.__new__(APIBackend)
+        backend.use_azure = False
+        backend.use_llama2 = False
+        backend.use_gcr_endpoint = False
+        backend.chat_stream = False
+        backend.use_chat_cache = False
+        backend.chat_model = "gpt-4-turbo"
+        backend.reasoning_model = ""
+        backend.chat_client = MagicMock()
+        backend.cache = MagicMock()
+        backend.cache.chat_get.return_value = None
+        backend.task_model_map = {}
+        backend.routing_default = ""
+        backend.chat_model_map = {}
+        backend.chat_api_key = "test"
+        backend.base_url = None
+        backend.embedding_api_key = ""
+        backend.embedding_base_url = None
+        backend.encoder = None
+        backend.chat_seed = None
+        backend.retry_wait_seconds = 1
+        backend.dump_chat_cache = False
+        return backend
+
+    def test_call_structured_respects_use_tool_calling_false(self):
+        """When use_tool_calling=False, call_structured must clear tools and enable json_mode."""
+        from quantaalpha.llm.client import call_structured
+
+        backend = self._make_backend()
+        tools = [{"type": "function", "function": {"name": "emit_json"}}]
+
+        captured_kwargs = {}
+
+        def _capture(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {"content": '{"hypothesis": "test"}', "finish_reason": "stop", "tool_calls": None}
+
+        backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_capture)
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = False
+            call_structured(
+                backend,
+                [{"role": "user", "content": "test"}],
+                tools=tools,
+                tool_choice="required",
+                json_mode=False,
+            )
+
+        assert captured_kwargs["tools"] is None, "tools must be cleared when use_tool_calling=False"
+        assert captured_kwargs["tool_choice"] is None, "tool_choice must be cleared when use_tool_calling=False"
+        assert captured_kwargs["json_mode"] is True, "json_mode must be True when falling back"
+
+    def test_call_structured_passes_tools_when_use_tool_calling_true(self):
+        """When use_tool_calling=True, call_structured must pass tools through."""
+        from quantaalpha.llm.client import call_structured
+
+        backend = self._make_backend()
+        tools = [{"type": "function", "function": {"name": "emit_json"}}]
+
+        captured_kwargs = {}
+
+        def _capture(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {
+                "content": None,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "emit_json", "arguments": '{"hypothesis": "test"}'},
+                    }
+                ],
+            }
+
+        backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_capture)
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+            call_structured(
+                backend,
+                [{"role": "user", "content": "test"}],
+                tools=tools,
+                tool_choice="required",
+            )
+
+        assert captured_kwargs["tools"] == tools, "tools must be passed when use_tool_calling=True"
+        assert captured_kwargs["tool_choice"] == "required"
+        assert captured_kwargs["json_mode"] is False, "json_mode should be False when tools are used"
+
+    def test_call_structured_default_use_tool_calling_true(self):
+        """Default use_tool_calling must be True to match current runtime behavior."""
+        from quantaalpha.llm.config import LLMSettings
+
+        # Check the default value in the class definition using Pydantic V2 API
+        assert LLMSettings.model_fields["use_tool_calling"].default is True, (
+            "use_tool_calling default must be True to match current runtime behavior"
+        )
+
+    def test_call_structured_json_mode_false_when_tools_and_use_tool_calling_true(self):
+        """When tools are passed and use_tool_calling=True, json_mode must be False internally."""
+        from quantaalpha.llm.client import call_structured
+
+        backend = self._make_backend()
+        tools = [{"type": "function", "function": {"name": "emit_json"}}]
+
+        captured_kwargs = {}
+
+        def _capture(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {
+                "content": None,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "emit_json", "arguments": '{"result": 42}'},
+                    }
+                ],
+            }
+
+        backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_capture)
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+            call_structured(
+                backend,
+                [{"role": "user", "content": "test"}],
+                tools=tools,
+                tool_choice="required",
+                json_mode=True,  # caller passes True, but internal should override
+            )
+
+        # When tools are actually used, json_mode should be False internally
+        assert captured_kwargs["json_mode"] is False

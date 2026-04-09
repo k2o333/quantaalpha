@@ -16,62 +16,11 @@ import pandas as pd
 from quantaalpha.log import logger
 from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
 from quantaalpha.factors.data_capability import get_data_capabilities, render_financial_pit_panel_preview
-
-PROPOSE_FACTORS_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "propose_hypothesis",
-        "description": "Propose a new factor hypothesis with observation, knowledge, justification, and specification.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "hypothesis": {"type": "string"},
-                "concise_observation": {"type": "string"},
-                "concise_knowledge": {"type": "string"},
-                "concise_justification": {"type": "string"},
-                "concise_specification": {"type": "string"},
-            },
-            "required": ["hypothesis"],
-        },
-    },
-}
-
-CONSTRUCT_FACTORS_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "construct_factors",
-        "description": "Construct factor experiments from a hypothesis. Keys are factor names.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "factors": {
-                    "type": "object",
-                    "description": "Dynamic keys: each key is a factor name, value has description, formulation, expression, variables.",
-                },
-            },
-            "required": ["factors"],
-        },
-    },
-}
-
-FEEDBACK_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "provide_feedback",
-        "description": "Provide feedback on hypothesis and experiment results.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "Observations": {"type": "string"},
-                "Feedback for Hypothesis": {"type": "string"},
-                "New Hypothesis": {"type": "string"},
-                "Reasoning": {"type": "string"},
-                "Replace Best Result": {"type": "string"},
-            },
-            "required": ["Observations"],
-        },
-    },
-}
+from quantaalpha.llm.tool_schemas import (
+    PROPOSE_FACTORS_TOOL,
+    CONSTRUCT_FACTORS_TOOL,
+    FEEDBACK_TOOL,
+)
 DEFAULT_HISTORY_LIMIT = 6
 MIN_HISTORY_LIMIT = 1
 
