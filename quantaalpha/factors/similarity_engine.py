@@ -633,28 +633,15 @@ class SimilarityEngine:
         library_path: str,
         top_k: int,
     ) -> List[Dict[str, Any]]:
-        """使用 AST/Jaccard 回退方法检索相似因子."""
+        """使用 Jaccard 回退方法检索相似因子."""
         try:
-            from quantaalpha.factors.fewshot import query_active_factors_ast, query_active_factors_jaccard
+            from quantaalpha.factors.fewshot import query_active_factors_jaccard
         except ImportError:
             try:
-                from .fewshot import query_active_factors_ast, query_active_factors_jaccard
+                from .fewshot import query_active_factors_jaccard
             except ImportError:
-                logger.warning("fewshot module not available for AST/Jaccard query")
+                logger.warning("fewshot module not available for Jaccard query")
                 return []
-
-        if self._ast_cfg.get("enabled", False):
-            try:
-                ast_results = query_active_factors_ast(
-                    query=query,
-                    top_k=top_k,
-                    min_score=0.0,
-                    library_path=library_path,
-                )
-                if ast_results:
-                    return ast_results
-            except Exception as e:
-                logger.error(f"AST query failed: {e}")
 
         try:
             results = query_active_factors_jaccard(

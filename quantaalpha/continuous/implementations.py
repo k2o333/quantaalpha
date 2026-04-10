@@ -836,30 +836,15 @@ class DefaultMiningScheduler(MiningScheduler):
                 except Exception as e:
                     logger.warning(f"SimilarityEngine query failed: {e}, falling back to legacy")
             
-            # 回退到传统方法: 根据配置决定是否使用 RAG
-            rag_enabled = (
-                self._similarity_engine_cfg
-                .get("metrics", {})
-                .get("rag", {})
-                .get("enabled", False)
-            )
-
-            if rag_enabled:
-                try:
-                    results = query_active_factors_RAG(
-                        query=query,
-                        top_k=10,
-                        library_path=self.library_path,
-                    )
-                except Exception as e:
-                    logger.info(f"RAG query failed: {e}, falling back to Jaccard")
-                    results = query_active_factors_jaccard(
-                        query=query,
-                        top_k=10,
-                        library_path=self.library_path,
-                    )
-            else:
-                logger.info("RAG disabled by config, using Jaccard fallback")
+            # 回退到传统方法: RAG -> Jaccard
+            try:
+                results = query_active_factors_RAG(
+                    query=query,
+                    top_k=10,
+                    library_path=self.library_path,
+                )
+            except Exception:
+                # Fallback to Jaccard similarity
                 results = query_active_factors_jaccard(
                     query=query,
                     top_k=10,
@@ -1812,8 +1797,6 @@ class DefaultMiningScheduler(MiningScheduler):
                         step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
                         ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
                         provider_pool_cfg=self._provider_pool_cfg,
-                        similarity_engine_cfg=self._similarity_engine_cfg,
-                        library_path=self.library_path,
                     )
                     loop.run(step_n=steps, stop_event=self._stop_event)
 
@@ -2221,8 +2204,6 @@ class DefaultMiningScheduler(MiningScheduler):
                 step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
                 ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
                 provider_pool_cfg=self._provider_pool_cfg,
-                similarity_engine_cfg=self._similarity_engine_cfg,
-                library_path=self.library_path,
             )
             loop.run(step_n=steps, stop_event=self._stop_event)
 

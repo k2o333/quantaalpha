@@ -166,57 +166,6 @@ def is_input_length_error(error_msg: str) -> bool:
     return any(indicator.lower() in error_str for indicator in error_indicators)
 
 
-def get_similarity_query(seed: str | None) -> str:
-    """Build the retrieval query used for prompt-time factor context."""
-    query = (seed or "").strip()
-    return query or "high IC factor with volume and momentum signals"
-
-
-def build_similarity_reference(
-    query: str | None,
-    similarity_engine_cfg: dict | None,
-    library_path: str | None,
-    top_k: int = 5,
-) -> str | None:
-    """Render similar factor context for prompt injection."""
-    if not similarity_engine_cfg or not similarity_engine_cfg.get("enabled", False) or not library_path:
-        return None
-
-    try:
-        from quantaalpha.factors.similarity_engine import SimilarityEngine
-
-        engine = SimilarityEngine(similarity_engine_cfg)
-        results = engine.query_similar_factors(
-            query=get_similarity_query(query),
-            library_path=library_path,
-            top_k=top_k,
-        )
-        if not results:
-            return None
-
-        return (
-            Environment(undefined=StrictUndefined)
-            .from_string(qa_prompt_dict["factor_context_template"])
-            .render(factors=results)
-        )
-    except Exception as e:
-        logger.warning(f"Failed to build similarity reference: {e}")
-        return None
-
-
-def should_log_rendered_prompts() -> bool:
-    """Enable full rendered prompt logging via environment flag."""
-    return os.getenv("QUANTAALPHA_LOG_PROMPTS", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def log_rendered_prompt_pair(stage: str, system_prompt: str, user_prompt: str) -> None:
-    """Log prompt sizes always and full prompt bodies when enabled."""
-    logger.info(f"[PROMPT] {stage}: system_chars={len(system_prompt)} user_chars={len(user_prompt)}")
-    if should_log_rendered_prompts():
-        logger.info("[PROMPT %s SYSTEM]\n%s", stage, system_prompt)
-        logger.info("[PROMPT %s USER]\n%s", stage, user_prompt)
-
-
 QlibFactorHypothesis = Hypothesis
 
 
@@ -424,17 +373,9 @@ qa_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.
 
 # prompt_dict not as attribute: class instance is pickled later, prompt_dict cannot be pickled
 class AlphaAgentHypothesisGen(FactorHypothesisGen):
-    def __init__(
-        self,
-        scen: Scenario,
-        potential_direction: str = None,
-        similarity_engine_cfg: dict | None = None,
-        library_path: str | None = None,
-    ) -> Tuple[dict, bool]:
+    def __init__(self, scen: Scenario, potential_direction: str = None) -> Tuple[dict, bool]:
         super().__init__(scen)
         self.potential_direction = potential_direction
-        self.similarity_engine_cfg = similarity_engine_cfg or {}
-        self.library_path = library_path
 
     def _build_fallback_hypothesis(self) -> AlphaAgentHypothesis:
         direction = (self.potential_direction or "daily price-volume relationship").strip()
@@ -465,11 +406,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
 
         context_dict = {
             "hypothesis_and_feedback": hypothesis_and_feedback,
-            "RAG": build_similarity_reference(
-                query=self.potential_direction,
-                similarity_engine_cfg=self.similarity_engine_cfg,
-                library_path=self.library_path,
-            ),
+            "RAG": None,
             "hypothesis_output_format": qa_prompt_dict["hypothesis_output_format"],
             "hypothesis_specification": qa_prompt_dict["factor_hypothesis_specification"],
             "function_lib_description": qa_prompt_dict["function_lib_description"],
@@ -517,7 +454,6 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
                 round=len(trace.hist),
             )
         )
-        log_rendered_prompt_pair("hypothesis_gen", system_prompt, user_prompt)
         return system_prompt, user_prompt, json_flag
 
     def gen(self, trace: Trace) -> AlphaAgentHypothesis:
@@ -605,8 +541,6 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         data_quality_enabled: bool = True,
         allowed_inconsistent_severities: tuple[str, ...] = ("none", "minor"),
         data_capabilities: dict | None = None,
-        similarity_engine_cfg: dict | None = None,
-        library_path: str | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -624,8 +558,6 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         self.data_quality_enabled = data_quality_enabled
         self.allowed_inconsistent_severities = allowed_inconsistent_severities
         self.data_capabilities = data_capabilities
-        self.similarity_engine_cfg = similarity_engine_cfg or {}
-        self.library_path = library_path
         self._quality_gate = None
 
     @property
@@ -705,11 +637,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             "financial_pit_context_hint": build_financial_pit_context_hint(getattr(trace.scen, "data_capabilities", None)),
             "experiment_output_format": experiment_output_format,
             "target_list": factor_list,
-            "RAG": build_similarity_reference(
-                query=str(hypothesis),
-                similarity_engine_cfg=self.similarity_engine_cfg,
-                library_path=self.library_path,
-            ),
+            "RAG": None,
         }, True
 
     def convert_response(self, response: str, trace: Trace) -> Experiment:
@@ -816,7 +744,6 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         expression_duplication=None,
                     )
                 )
-                log_rendered_prompt_pair("hypothesis2experiment_multi", system_prompt, user_prompt)
 
                 api = APIBackend()
                 messages = api.build_messages(user_prompt, system_prompt)
@@ -867,7 +794,6 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
             .render(targets=self.targets, target_hypothesis=context["target_hypothesis"], hypothesis_and_feedback=context["hypothesis_and_feedback"], function_lib_description=context["function_lib_description"], target_list=context["target_list"], RAG=context["RAG"], expression_duplication=None)
         )
-        log_rendered_prompt_pair("hypothesis2experiment", system_prompt, user_prompt)
 
         # Detect duplicated sub-expressions
         flag = False

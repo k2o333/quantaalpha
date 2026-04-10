@@ -81,8 +81,6 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         step_model_routing: dict | None = None,
         ensemble_config: dict | None = None,
         provider_pool_cfg: dict | None = None,
-        similarity_engine_cfg: dict | None = None,
-        library_path: str | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
@@ -115,8 +113,6 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
             # Ensemble configuration
             self._ensemble_config = ensemble_config or {}
-            self._similarity_engine_cfg = similarity_engine_cfg or {}
-            self._library_path = library_path
 
             # Failure tracking for debug rounds
             self._failure_tracker = FactorFailureTracker(max_debug_rounds=10)  # Default max rounds
@@ -145,12 +141,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             if strategy_suffix:
                 effective_direction = (potential_direction or "") + "\n" + strategy_suffix
 
-            self.hypothesis_generator: HypothesisGen = import_class(PROP_SETTING.hypothesis_gen)(
-                scen,
-                effective_direction,
-                similarity_engine_cfg=self._similarity_engine_cfg,
-                library_path=self._library_path,
-            )
+            self.hypothesis_generator: HypothesisGen = import_class(PROP_SETTING.hypothesis_gen)(scen, effective_direction)
             logger.log_object(self.hypothesis_generator, tag="hypothesis generator")
 
             # Pass consistency check config into factor constructor
@@ -169,8 +160,6 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 if optional_key in self.quality_gate_config:
                     factor_constructor_kwargs[optional_key] = self.quality_gate_config[optional_key]
 
-            factor_constructor_kwargs["similarity_engine_cfg"] = self._similarity_engine_cfg
-            factor_constructor_kwargs["library_path"] = self._library_path
             self.factor_constructor: Hypothesis2Experiment = import_class(PROP_SETTING.hypothesis2experiment)(**factor_constructor_kwargs)
             logger.log_object(self.factor_constructor, tag="experiment generation")
 

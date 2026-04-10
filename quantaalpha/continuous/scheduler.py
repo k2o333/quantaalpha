@@ -461,7 +461,6 @@ class MiningConfig:
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     provider_pool: ProviderPoolConfig = field(default_factory=ProviderPoolConfig)
     direction_planner: DirectionPlannerConfig = field(default_factory=DirectionPlannerConfig)
-    similarity_engine: dict = field(default_factory=dict)
     orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
 
     @classmethod
@@ -481,7 +480,6 @@ class MiningConfig:
             ensemble=EnsembleConfig.from_dict(d.get("ensemble", {})),
             provider_pool=ProviderPoolConfig.from_dict(d.get("provider_pool", {})),
             direction_planner=DirectionPlannerConfig.from_dict(d.get("direction_planner", {})),
-            similarity_engine=d.get("similarity_engine", {}),
             orchestration=OrchestrationConfig.from_dict(d.get("orchestration", {})),
         )
 
@@ -734,7 +732,6 @@ class PipelineConfig:
                     "diversity_window": self.mining.direction_planner.diversity_window,
                     "last_failed_within_hours": self.mining.direction_planner.last_failed_within_hours,
                 },
-                "similarity_engine": self.mining.similarity_engine,
             },
         }
 
