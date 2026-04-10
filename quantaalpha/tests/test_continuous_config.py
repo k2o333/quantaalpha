@@ -963,6 +963,7 @@ class TestEnsembleConfig:
         assert config.enabled is False
         assert config.strategy == "voting"
         assert config.models == []
+        assert config.max_workers == 3
 
     def test_ensemble_config_from_dict(self):
         from quantaalpha.continuous.scheduler import EnsembleConfig
@@ -977,6 +978,22 @@ class TestEnsembleConfig:
         assert config.enabled is True
         assert config.strategy == "fusion_score"
         assert len(config.models) == 1
+
+    def test_ensemble_config_from_dict_with_max_workers(self):
+        from quantaalpha.continuous.scheduler import EnsembleConfig
+
+        config = EnsembleConfig.from_dict(
+            {
+                "enabled": True,
+                "strategy": "collect_all",
+                "max_workers": 5,
+                "models": [{"name": "m1"}, {"name": "m2"}],
+            }
+        )
+        assert config.enabled is True
+        assert config.strategy == "collect_all"
+        assert config.max_workers == 5
+        assert len(config.models) == 2
 
     def test_mining_config_has_ensemble(self):
         from quantaalpha.continuous.scheduler import MiningConfig
@@ -1010,6 +1027,37 @@ mining:
         config = PipelineConfig.from_yaml(str(yaml_path))
         assert config.mining.ensemble.enabled is True
         assert config.mining.ensemble.strategy == "voting"
+
+    def test_pipeline_config_parses_ensemble_max_workers(self, tmp_path):
+        """PipelineConfig parses ensemble max_workers from YAML."""
+        import yaml
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+runtime:
+  data_check_interval_seconds: 300
+  cycle_budget_seconds: 7200
+factor:
+  library_path: "data/factorlib/all_factors_library.json"
+validation:
+  min_ic: 0.02
+  max_mining_per_run: 5
+mining:
+  pipeline_mode: true
+  ensemble:
+    enabled: true
+    strategy: "collect_all"
+    max_workers: 3
+    models:
+      - name: "litellm_mistral"
+      - name: "litellm_glm47f"
+"""
+        yaml_path = tmp_path / "test_ensemble_workers.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.mining.ensemble.max_workers == 3
+        assert len(config.mining.ensemble.models) == 2
 
 
 class TestProviderPoolConfig:

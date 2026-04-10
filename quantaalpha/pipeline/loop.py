@@ -6,6 +6,7 @@ import time
 import hashlib
 import json
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from typing import Any, List
 
@@ -80,6 +81,8 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         step_model_routing: dict | None = None,
         ensemble_config: dict | None = None,
         provider_pool_cfg: dict | None = None,
+        similarity_engine_cfg: dict | None = None,
+        library_path: str | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
@@ -112,6 +115,8 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
             # Ensemble configuration
             self._ensemble_config = ensemble_config or {}
+            self._similarity_engine_cfg = similarity_engine_cfg or {}
+            self._library_path = library_path
 
             # Failure tracking for debug rounds
             self._failure_tracker = FactorFailureTracker(max_debug_rounds=10)  # Default max rounds
@@ -140,7 +145,12 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             if strategy_suffix:
                 effective_direction = (potential_direction or "") + "\n" + strategy_suffix
 
-            self.hypothesis_generator: HypothesisGen = import_class(PROP_SETTING.hypothesis_gen)(scen, effective_direction)
+            self.hypothesis_generator: HypothesisGen = import_class(PROP_SETTING.hypothesis_gen)(
+                scen,
+                effective_direction,
+                similarity_engine_cfg=self._similarity_engine_cfg,
+                library_path=self._library_path,
+            )
             logger.log_object(self.hypothesis_generator, tag="hypothesis generator")
 
             # Pass consistency check config into factor constructor
@@ -159,6 +169,8 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 if optional_key in self.quality_gate_config:
                     factor_constructor_kwargs[optional_key] = self.quality_gate_config[optional_key]
 
+            factor_constructor_kwargs["similarity_engine_cfg"] = self._similarity_engine_cfg
+            factor_constructor_kwargs["library_path"] = self._library_path
             self.factor_constructor: Hypothesis2Experiment = import_class(PROP_SETTING.hypothesis2experiment)(**factor_constructor_kwargs)
             logger.log_object(self.factor_constructor, tag="experiment generation")
 
@@ -243,6 +255,59 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         logger.info(f"Loaded AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}")
         return instance
 
+    def _call_ensemble_model(
+        self,
+        *,
+        model_name: str,
+        real_model: str,
+        system_prompt: str,
+        user_prompt: str,
+        json_flag: bool,
+    ) -> "ModelResponse":
+        """Call a single ensemble model and return a ModelResponse.
+
+        This helper is stateless and safe to run inside worker threads.
+        """
+        from quantaalpha.llm.ensemble import ModelResponse
+
+        start_time = time.time()
+        backend = APIBackend(chat_model=real_model)
+        messages = backend.build_messages(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+        )
+        output_dict = call_structured(
+            backend,
+            messages,
+            tools=[PROPOSE_FACTORS_TOOL],
+            tool_choice="required",
+            json_mode=json_flag,
+            allow_text_fallback=True,
+        )
+        output = output_dict if output_dict else ""
+        latency_ms = (time.time() - start_time) * 1000
+        return ModelResponse(
+            model_name=model_name,
+            raw_output=output,
+            latency_ms=latency_ms,
+        )
+
+    def _generate_single_hypothesis_with_routing(self):
+        """Generate a single hypothesis through the routed propose model path."""
+        with self._with_step_model("propose"):
+            return self.hypothesis_generator.gen(self.trace)
+
+    def _summarize_output(self, output_dict: dict | None) -> str:
+        """Return a short summary of model output for logging."""
+        if not output_dict:
+            return "<empty>"
+        if isinstance(output_dict, dict):
+            hypothesis = output_dict.get("hypothesis", "")
+            if isinstance(hypothesis, str) and hypothesis:
+                return hypothesis[:80]
+            return str(output_dict)[:80]
+        return str(output_dict)[:80]
+
     @measure_time
     @stop_event_check
     def factor_propose(self, prev_out: dict[str, Any]):
@@ -262,61 +327,80 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         """
         Generate hypothesis using ensemble of models.
 
-        Calls each model in the ensemble config separately and aggregates results.
+        Renders the proposal prompt once, fans out concurrent calls via
+        ThreadPoolExecutor (bounded by max_workers), and rebuilds the
+        responses list in the original model-config order before aggregation.
         """
         from quantaalpha.llm.ensemble import EnsembleAggregator, ModelResponse
 
         models = self._ensemble_config.get("models", [])
         strategy = self._ensemble_config.get("strategy", "voting")
+        configured_workers = int(self._ensemble_config.get("max_workers", 3) or 3)
 
         aggregator = EnsembleAggregator(strategy=strategy)
-        responses = []
 
+        # Build the list of valid model specs
+        model_specs = []
         for model_cfg in models:
             model_name = model_cfg.get("name", "")
             if not model_name:
                 continue
+            real_model = self._provider_name_to_model.get(model_name, model_name)
+            model_specs.append((model_name, real_model))
 
-            try:
-                # Resolve provider alias to real model name
-                real_model = self._provider_name_to_model.get(model_name, model_name)
-                backend = APIBackend(chat_model=real_model)
-                start_time = time.time()
-                system_prompt, user_prompt, json_flag = self.hypothesis_generator.render_generation_prompts(self.trace)
-                messages = backend.build_messages(
-                    user_prompt=user_prompt,
+        # Fast-path fallback when no valid models exist
+        if not model_specs:
+            return self._generate_single_hypothesis_with_routing()
+
+        # Render the prompt once, not once per model
+        system_prompt, user_prompt, json_flag = self.hypothesis_generator.render_generation_prompts(self.trace)
+
+        # Fan out concurrent execution with bounded workers
+        max_workers = max(1, min(len(model_specs), configured_workers))
+        result_map: dict[str, ModelResponse] = {}
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_model = {
+                executor.submit(
+                    self._call_ensemble_model,
+                    model_name=model_name,
+                    real_model=real_model,
                     system_prompt=system_prompt,
-                )
-                output_dict = call_structured(
-                    backend,
-                    messages,
-                    tools=[PROPOSE_FACTORS_TOOL],
-                    tool_choice="required",
-                    json_mode=json_flag,
-                    allow_text_fallback=True,
-                )
-                output = output_dict if output_dict else ""
-                latency_ms = (time.time() - start_time) * 1000
+                    user_prompt=user_prompt,
+                    json_flag=json_flag,
+                ): model_name
+                for model_name, real_model in model_specs
+            }
 
-                responses.append(
-                    ModelResponse(
-                        model_name=model_name,
-                        raw_output=output,
-                        latency_ms=latency_ms,
+            for future in as_completed(future_to_model):
+                model_name = future_to_model[future]
+                try:
+                    response = future.result()
+                    result_map[model_name] = response
+                    latency_ms = response.latency_ms
+                    logger.info(
+                        f"[ensemble] model={model_name} real_model={self._provider_name_to_model.get(model_name, model_name)} "
+                        f"latency_ms={latency_ms:.0f} output={self._summarize_output(response.raw_output)}"
                     )
-                )
-            except Exception as e:
-                logger.warning(f"Ensemble model {model_name} failed: {e}")
+                except Exception as exc:
+                    logger.warning(f"[ensemble] Model {model_name} failed: {exc}")
+
+        # Rebuild responses in original model-config order (deterministic)
+        responses = []
+        for model_cfg in models:
+            model_name = model_cfg.get("name", "")
+            if model_name in result_map:
+                responses.append(result_map[model_name])
 
         if not responses:
-            return self.hypothesis_generator.gen(self.trace)
+            return self._generate_single_hypothesis_with_routing()
 
         result = aggregator.aggregate(responses)
         if strategy == "collect_all":
             aggregate_payload = result.output[0] if result.output else None
             if not isinstance(aggregate_payload, dict):
                 logger.warning("Collect-all ensemble returned no structured payload, falling back to single-model generation")
-                return self.hypothesis_generator.gen(self.trace)
+                return self._generate_single_hypothesis_with_routing()
             preferred_model = self._step_model_routing.get("propose")
             return build_ensemble_hypothesis_bundle(
                 aggregate_payload,
@@ -326,14 +410,14 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         raw_output = result.output[0] if result.output else None
         if raw_output is None:
             logger.warning("Ensemble produced no output, falling back to single-model generation")
-            return self.hypothesis_generator.gen(self.trace)
+            return self._generate_single_hypothesis_with_routing()
 
         try:
             return self._normalize_hypothesis_output(raw_output)
         except Exception as e:
             logger.error(f"Failed to normalize ensemble output: {e}")
             logger.warning("Falling back to single-model hypothesis generation")
-            return self.hypothesis_generator.gen(self.trace)
+            return self._generate_single_hypothesis_with_routing()
 
     def _normalize_hypothesis_output(self, idea: Any) -> AlphaAgentHypothesis:
         """Normalize propose outputs so all paths return AlphaAgentHypothesis."""

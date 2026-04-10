@@ -154,6 +154,87 @@ def query_active_factors_RAG(
     return []
 
 
+def looks_like_factor_expression(query: str) -> bool:
+    """Return True when the query resembles a factor expression."""
+    if not query:
+        return False
+
+    markers = ["$", "(", ")", "+", "-", "*", "/"]
+    if any(marker in query for marker in markers):
+        return True
+
+    upper_query = query.upper()
+    function_markers = ["TS_", "MEAN(", "STD(", "MAX(", "MIN(", "RANK("]
+    return any(marker in upper_query for marker in function_markers)
+
+
+def query_active_factors_ast(
+    query: str,
+    top_k: int = 5,
+    min_score: float = 0.0,
+    library_path: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Query active factors using AST structural similarity when query is an expression."""
+    if not looks_like_factor_expression(query):
+        return []
+
+    library_path = library_path or DEFAULT_LIBRARY_PATH
+
+    if not os.path.exists(library_path):
+        logger.warning(f"Factor library not found: {library_path}")
+        return []
+
+    try:
+        with open(library_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load factor library: {e}")
+        return []
+
+    try:
+        from quantaalpha.factors.ast_score import compute_ast_score
+    except ImportError:
+        try:
+            from .ast_score import compute_ast_score
+        except ImportError:
+            logger.warning("AST score module not available for AST retrieval")
+            return []
+
+    factors = data.get("factors", {})
+    results = []
+
+    for factor_id, factor_entry in factors.items():
+        status = factor_entry.get("evaluation", {}).get("status", "")
+        if status != "active":
+            continue
+
+        expression = factor_entry.get("factor_expression", "")
+        ast_result = compute_ast_score(query, expression)
+        if ast_result.error is not None:
+            continue
+
+        if ast_result.score >= min_score:
+            results.append({
+                "factor_id": factor_id,
+                "score": round(ast_result.score, 4),
+                "factor_expression": expression,
+                "factor_description": factor_entry.get("factor_description", ""),
+                "factor_name": factor_entry.get("factor_name", ""),
+                "tags": factor_entry.get("tags", {}),
+                "metadata": {
+                    "status": status,
+                    "ic": factor_entry.get("backtest_results", {}).get("IC"),
+                    "rank_ic": factor_entry.get("backtest_results", {}).get("Rank IC"),
+                    "subtree_size": ast_result.subtree_size,
+                    "nodes_a": ast_result.nodes_a,
+                    "nodes_b": ast_result.nodes_b,
+                },
+            })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:top_k]
+
+
 def query_active_factors_jaccard(
     query: str,
     top_k: int = 5,

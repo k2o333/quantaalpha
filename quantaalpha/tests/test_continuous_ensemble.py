@@ -179,6 +179,7 @@ class TestEnsembleProposeStep:
             )
             loop.hypothesis_generator = MagicMock()
             loop.hypothesis_generator.gen.return_value = fallback
+            loop.hypothesis_generator.render_generation_prompts.return_value = ("system", "user", True)
             loop.trace = MagicMock()
 
             mock_result = MagicMock()
@@ -367,3 +368,171 @@ class TestEnsembleProposeStep:
             loop.factor_constructor.convert_multi_hypothesis.assert_called_once_with(bundle, loop.trace)
             loop.factor_constructor.convert.assert_not_called()
             assert result is fake_factor
+
+
+class TestEnsemblePromptRenderOnce:
+    """Tests that _propose_with_ensemble renders prompts exactly once, not per-model."""
+
+    def test_propose_with_ensemble_renders_prompt_once(self):
+        """Ensemble propose must call render_generation_prompts exactly once, not once per model."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import EnsembleHypothesisBundle
+
+        render_calls = []
+
+        class FakeBackend:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def build_messages(self, user_prompt, system_prompt):
+                return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={
+                    "enabled": True,
+                    "strategy": "collect_all",
+                    "models": [{"name": "m1"}, {"name": "m2"}],
+                },
+            )
+            loop._provider_name_to_model = {"m1": "glm-4.7-flash", "m2": "mistral-small-latest"}
+            loop.trace = MagicMock()
+
+            def capture_render(*args, **kwargs):
+                render_calls.append(args)
+                return ("system", "user", True)
+
+            loop.hypothesis_generator.render_generation_prompts = capture_render
+
+            aggregate_payload = {
+                "hypotheses": [
+                    {"model": "m1", "hypothesis": {"hypothesis": "alpha"}},
+                    {"model": "m2", "hypothesis": {"hypothesis": "beta"}},
+                ],
+                "num_models": 2,
+                "strategy": "collect_all",
+            }
+            mock_result = MagicMock()
+            mock_result.output = [aggregate_payload]
+
+            with (
+                patch("quantaalpha.pipeline.loop.APIBackend", FakeBackend),
+                patch("quantaalpha.pipeline.loop.call_structured", return_value={"hypothesis": "test"}),
+                patch("quantaalpha.llm.ensemble.EnsembleAggregator.aggregate", return_value=mock_result),
+            ):
+                loop._propose_with_ensemble()
+
+        assert len(render_calls) == 1, (
+            f"Expected render_generation_prompts to be called exactly once, but was called {len(render_calls)} times"
+        )
+
+
+class TestEnsembleDeterministicOrder:
+    """Tests that ensemble responses are returned in original model-config order."""
+
+    def test_propose_with_ensemble_preserves_model_config_order(self):
+        """Results must be ordered by model config order, not by completion time."""
+        import time
+
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.llm.ensemble import ModelResponse
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={
+                    "enabled": True,
+                    "strategy": "collect_all",
+                    "models": [{"name": "m1"}, {"name": "m2"}, {"name": "m3"}],
+                },
+            )
+            loop._provider_name_to_model = {"m1": "glm-4.7-flash", "m2": "mistral-small-latest", "m3": "minimax-m2.7"}
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.render_generation_prompts.return_value = ("system", "user", True)
+            loop.trace = MagicMock()
+
+            # Make m2 finish fastest, m3 medium, m1 slowest
+            sleep_map = {"m1": 0.03, "m2": 0.01, "m3": 0.02}
+
+            original_call = loop._call_ensemble_model if hasattr(loop, "_call_ensemble_model") else None
+
+            def fake_call_ensemble_model(**kwargs):
+                model_name = kwargs["model_name"]
+                time.sleep(sleep_map.get(model_name, 0.01))
+                return ModelResponse(model_name=model_name, raw_output={"hypothesis": model_name})
+
+            loop._call_ensemble_model = fake_call_ensemble_model
+
+            result = loop._propose_with_ensemble()
+
+            # For collect_all, result should be EnsembleHypothesisBundle
+            if hasattr(result, "hypotheses"):
+                model_order = [item["model"] for item in result.hypotheses]
+            else:
+                model_order = []
+
+            assert model_order == ["m1", "m2", "m3"], (
+                f"Expected model order ['m1', 'm2', 'm3'] but got {model_order}"
+            )
+
+
+class TestEnsembleRoutedFallback:
+    """Tests that ensemble fallback uses routed _with_step_model('propose') path."""
+
+    def test_propose_with_ensemble_fallback_uses_step_model_routing(self):
+        """When all ensemble models fail, fallback must go through _with_step_model('propose')."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis
+        from unittest.mock import patch as ut_patch
+
+        fallback = AlphaAgentHypothesis(
+            hypothesis="fallback",
+            concise_observation="obs",
+            concise_knowledge="knowledge",
+            concise_justification="just",
+            concise_specification="spec",
+        )
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={
+                    "enabled": True,
+                    "strategy": "collect_all",
+                    "models": [{"name": "m1"}],
+                },
+            )
+            loop.hypothesis_generator = MagicMock()
+            loop.hypothesis_generator.gen.return_value = fallback
+            loop.hypothesis_generator.render_generation_prompts.return_value = ("system", "user", True)
+            loop.trace = MagicMock()
+
+            with_step_model_called = []
+            original_with_step_model = loop._with_step_model
+
+            def tracking_with_step_model(step_name):
+                with_step_model_called.append(step_name)
+                return original_with_step_model(step_name)
+
+            def boom_call(**kwargs):
+                raise RuntimeError("boom")
+
+            loop._call_ensemble_model = boom_call
+
+            with ut_patch.object(loop, "_with_step_model", side_effect=tracking_with_step_model):
+                result = loop._propose_with_ensemble()
+
+            assert "propose" in with_step_model_called, (
+                f"Expected _with_step_model('propose') to be called during fallback, but got: {with_step_model_called}"
+            )
+            assert result is fallback

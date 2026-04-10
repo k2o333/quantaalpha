@@ -8,6 +8,7 @@ import random
 import re
 import sqlite3
 import ssl
+import threading
 import time
 import urllib.request
 import uuid
@@ -30,6 +31,7 @@ from quantaalpha.llm.structured_normalizer import normalize_and_parse
 # Key: model name (str)
 # Value: {"tool_call_failure_count": int, "force_text_json_fallback": bool}
 _MODEL_DEGRADATION_STATE: dict[str, dict[str, Any]] = {}
+_DEGRADATION_LOCK = threading.Lock()
 
 _TOOL_CALL_CAPABILITY_FAILURE_PATTERNS = (
     "does not support function calling",
@@ -60,27 +62,28 @@ def _is_tool_call_capability_failure(error: BaseException) -> bool:
 
 def _record_tool_call_capability_failure(model: str) -> None:
     """Increment the tool-call failure counter and degrade after 3 strikes."""
-    if model not in _MODEL_DEGRADATION_STATE:
-        _MODEL_DEGRADATION_STATE[model] = {
-            "tool_call_failure_count": 0,
-            "force_text_json_fallback": False,
-        }
-    state = _MODEL_DEGRADATION_STATE[model]
-    if state["force_text_json_fallback"]:
-        return  # Already degraded; no need to recount
-    state["tool_call_failure_count"] += 1
-    if state["tool_call_failure_count"] >= 3:
-        state["force_text_json_fallback"] = True
-        logger.error(
-            f"[call_structured] MODEL_DEGRADED: model={model} "
-            f"has reached {state['tool_call_failure_count']} consecutive tool-call capability failures; "
-            f"ALL future calls for this model in this process will use text-json fallback directly."
-        )
-    else:
-        logger.warning(
-            f"[call_structured] FAILURE_COUNT: model={model} "
-            f"tool-call capability failure count={state['tool_call_failure_count']}/3."
-        )
+    with _DEGRADATION_LOCK:
+        if model not in _MODEL_DEGRADATION_STATE:
+            _MODEL_DEGRADATION_STATE[model] = {
+                "tool_call_failure_count": 0,
+                "force_text_json_fallback": False,
+            }
+        state = _MODEL_DEGRADATION_STATE[model]
+        if state["force_text_json_fallback"]:
+            return  # Already degraded; no need to recount
+        state["tool_call_failure_count"] += 1
+        if state["tool_call_failure_count"] >= 3:
+            state["force_text_json_fallback"] = True
+            logger.error(
+                f"[call_structured] MODEL_DEGRADED: model={model} "
+                f"has reached {state['tool_call_failure_count']} consecutive tool-call capability failures; "
+                f"ALL future calls for this model in this process will use text-json fallback directly."
+            )
+        else:
+            logger.warning(
+                f"[call_structured] FAILURE_COUNT: model={model} "
+                f"tool-call capability failure count={state['tool_call_failure_count']}/3."
+            )
 
 
 def _get_model_degradation_state(model: str) -> dict[str, Any]:
@@ -566,82 +569,95 @@ class SQliteLazyCache(SingletonBaseClass):
         super().__init__()
         self.cache_location = cache_location
         db_file_exist = Path(cache_location).exists()
-        # TODO: sqlite3 does not support multiprocessing.
-        self.conn = sqlite3.connect(cache_location, timeout=20)
-        self.c = self.conn.cursor()
+        self.conn = sqlite3.connect(cache_location, timeout=20, check_same_thread=False)
+        self._lock = threading.RLock()
         if not db_file_exist:
-            self.c.execute(
-                """
-                CREATE TABLE chat_cache (
-                    md5_key TEXT PRIMARY KEY,
-                    chat TEXT
+            with self._lock:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    CREATE TABLE chat_cache (
+                        md5_key TEXT PRIMARY KEY,
+                        chat TEXT
+                    )
+                    """,
                 )
-                """,
-            )
-            self.c.execute(
-                """
-                CREATE TABLE embedding_cache (
-                    md5_key TEXT PRIMARY KEY,
-                    embedding TEXT
+                cursor.execute(
+                    """
+                    CREATE TABLE embedding_cache (
+                        md5_key TEXT PRIMARY KEY,
+                        embedding TEXT
+                    )
+                    """,
                 )
-                """,
-            )
-            self.c.execute(
-                """
-                CREATE TABLE message_cache (
-                    conversation_id TEXT PRIMARY KEY,
-                    message TEXT
+                cursor.execute(
+                    """
+                    CREATE TABLE message_cache (
+                        conversation_id TEXT PRIMARY KEY,
+                        message TEXT
+                    )
+                    """,
                 )
-                """,
-            )
-            self.conn.commit()
+                self.conn.commit()
 
     def chat_get(self, key: str) -> str | None:
         md5_key = md5_hash(key)
-        self.c.execute("SELECT chat FROM chat_cache WHERE md5_key=?", (md5_key,))
-        result = self.c.fetchone()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT chat FROM chat_cache WHERE md5_key=?", (md5_key,))
+            result = cursor.fetchone()
         if result is None:
             return None
         return result[0]
 
     def embedding_get(self, key: str) -> list | dict | str | None:
         md5_key = md5_hash(key)
-        self.c.execute("SELECT embedding FROM embedding_cache WHERE md5_key=?", (md5_key,))
-        result = self.c.fetchone()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT embedding FROM embedding_cache WHERE md5_key=?", (md5_key,))
+            result = cursor.fetchone()
         if result is None:
             return None
         return json.loads(result[0])
 
     def chat_set(self, key: str, value: str) -> None:
         md5_key = md5_hash(key)
-        self.c.execute(
-            "INSERT OR REPLACE INTO chat_cache (md5_key, chat) VALUES (?, ?)",
-            (md5_key, value),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO chat_cache (md5_key, chat) VALUES (?, ?)",
+                (md5_key, value),
+            )
+            self.conn.commit()
 
     def embedding_set(self, content_to_embedding_dict: dict) -> None:
-        for key, value in content_to_embedding_dict.items():
-            md5_key = md5_hash(key)
-            self.c.execute(
-                "INSERT OR REPLACE INTO embedding_cache (md5_key, embedding) VALUES (?, ?)",
-                (md5_key, json.dumps(value)),
-            )
-        self.conn.commit()
+        with self._lock:
+            for key, value in content_to_embedding_dict.items():
+                md5_key = md5_hash(key)
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "INSERT OR REPLACE INTO embedding_cache (md5_key, embedding) VALUES (?, ?)",
+                    (md5_key, json.dumps(value)),
+                )
+            self.conn.commit()
 
     def message_get(self, conversation_id: str) -> list[str]:
-        self.c.execute("SELECT message FROM message_cache WHERE conversation_id=?", (conversation_id,))
-        result = self.c.fetchone()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT message FROM message_cache WHERE conversation_id=?", (conversation_id,))
+            result = cursor.fetchone()
         if result is None:
             return []
         return json.loads(result[0])
 
     def message_set(self, conversation_id: str, message_value: list[str]) -> None:
-        self.c.execute(
-            "INSERT OR REPLACE INTO message_cache (conversation_id, message) VALUES (?, ?)",
-            (conversation_id, json.dumps(message_value)),
-        )
-        self.conn.commit()
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO message_cache (conversation_id, message) VALUES (?, ?)",
+                (conversation_id, json.dumps(message_value)),
+            )
+            self.conn.commit()
 
 
 class SessionChatHistoryCache(SingletonBaseClass):

@@ -218,6 +218,7 @@ class EnsembleConfig:
 
     enabled: bool = False
     strategy: str = "voting"
+    max_workers: int = 3
     models: list[ModelConfig] = field(default_factory=list)
 
     @classmethod
@@ -227,6 +228,7 @@ class EnsembleConfig:
         return cls(
             enabled=d.get("enabled", False),
             strategy=d.get("strategy", "voting"),
+            max_workers=d.get("max_workers", 3),
             models=[ModelConfig.from_dict(m) for m in d.get("models", [])],
         )
 
@@ -459,6 +461,7 @@ class MiningConfig:
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     provider_pool: ProviderPoolConfig = field(default_factory=ProviderPoolConfig)
     direction_planner: DirectionPlannerConfig = field(default_factory=DirectionPlannerConfig)
+    similarity_engine: dict = field(default_factory=dict)
     orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
 
     @classmethod
@@ -478,6 +481,7 @@ class MiningConfig:
             ensemble=EnsembleConfig.from_dict(d.get("ensemble", {})),
             provider_pool=ProviderPoolConfig.from_dict(d.get("provider_pool", {})),
             direction_planner=DirectionPlannerConfig.from_dict(d.get("direction_planner", {})),
+            similarity_engine=d.get("similarity_engine", {}),
             orchestration=OrchestrationConfig.from_dict(d.get("orchestration", {})),
         )
 
@@ -730,6 +734,7 @@ class PipelineConfig:
                     "diversity_window": self.mining.direction_planner.diversity_window,
                     "last_failed_within_hours": self.mining.direction_planner.last_failed_within_hours,
                 },
+                "similarity_engine": self.mining.similarity_engine,
             },
         }
 

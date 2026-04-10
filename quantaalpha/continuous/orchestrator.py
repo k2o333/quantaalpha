@@ -199,9 +199,11 @@ class MiningOrchestrator:
                     "diversity_window": self.config.mining.direction_planner.diversity_window,
                     "last_failed_within_hours": self.config.mining.direction_planner.last_failed_within_hours,
                 },
+                similarity_engine_cfg=self.config.mining.similarity_engine,
                 ensemble_cfg={
                     "enabled": self.config.mining.ensemble.enabled,
                     "strategy": self.config.mining.ensemble.strategy,
+                    "max_workers": self.config.mining.ensemble.max_workers,
                     "models": [{"name": m.name, "tier": m.tier} for m in self.config.mining.ensemble.models],
                 },
                 provider_pool_cfg={
