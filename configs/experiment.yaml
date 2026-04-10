@@ -163,6 +163,8 @@ llm:
   max_retries: 3
   retry_delay: 1.0
   json_mode_strict: true
+  # Structured streaming policy: false=non-streaming (default for this rollout)
+  structured_streaming_mode: false
 
 
 # ============================================================

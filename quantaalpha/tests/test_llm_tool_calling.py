@@ -642,21 +642,32 @@ class TestModelDegradationContract:
         from quantaalpha.llm.client import call_structured, _is_tool_call_capability_failure, _MODEL_DEGRADATION_STATE
 
         backend = self._make_backend()
-        backend._try_create_chat_completion_or_embedding = MagicMock(
-            return_value={"content": '{"fallback": "no_tools"}', "finish_reason": "stop", "tool_calls": None}
-        )
+
+        # Use a real capability failure pattern (exception-based)
+        call_count = [0]
+
+        def _fail_on_first_call(**kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: raise a real capability failure exception
+                raise Exception("tools parameter is not supported")
+            # Subsequent calls succeed
+            return {"content": '{"fallback": "no_tools"}', "finish_reason": "stop", "tool_calls": None}
+
+        backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_fail_on_first_call)
 
         with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
             mock_settings.log_llm_chat_content = False
             mock_settings.use_tool_calling = True
             # First failure: should still attempt tool call, not yet degraded
-            result = call_structured(
-                backend,
-                [{"role": "user", "content": "test"}],
-                tools=[{"type": "function", "function": {"name": "test_tool"}}],
-                tool_choice="required",
-                allow_text_fallback=True,
-            )
+            with pytest.raises(Exception, match="tools parameter is not supported"):
+                call_structured(
+                    backend,
+                    [{"role": "user", "content": "test"}],
+                    tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                    tool_choice="required",
+                    allow_text_fallback=True,
+                )
 
         # After one failure, the model should NOT be degraded yet
         model_name = backend.chat_model
@@ -670,21 +681,22 @@ class TestModelDegradationContract:
 
         backend = self._make_backend()
 
-        # Simulate 3 consecutive failures
+        # Simulate 3 consecutive capability failures via exceptions
         for i in range(3):
             backend._try_create_chat_completion_or_embedding = MagicMock(
-                return_value={"content": f'{{"attempt": {i}}}', "finish_reason": "stop", "tool_calls": None}
+                side_effect=Exception("tools parameter is not supported")
             )
             with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
                 mock_settings.log_llm_chat_content = False
                 mock_settings.use_tool_calling = True
-                call_structured(
-                    backend,
-                    [{"role": "user", "content": f"test attempt {i}"}],
-                    tools=[{"type": "function", "function": {"name": "test_tool"}}],
-                    tool_choice="required",
-                    allow_text_fallback=True,
-                )
+                with pytest.raises(Exception, match="tools parameter is not supported"):
+                    call_structured(
+                        backend,
+                        [{"role": "user", "content": f"test attempt {i}"}],
+                        tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                        tool_choice="required",
+                        allow_text_fallback=True,
+                    )
 
         model_name = backend.chat_model
         state = _MODEL_DEGRADATION_STATE.get(model_name, {})
@@ -715,15 +727,16 @@ class TestModelDegradationContract:
             # First, degrade the model with 3 failures
             for i in range(3):
                 backend._try_create_chat_completion_or_embedding = MagicMock(
-                    return_value={"content": f'{{"fail": {i}}}', "finish_reason": "stop", "tool_calls": None}
+                    side_effect=Exception("tools parameter is not supported")
                 )
-                call_structured(
-                    backend,
-                    [{"role": "user", "content": f"degrade {i}"}],
-                    tools=[{"type": "function", "function": {"name": "test_tool"}}],
-                    tool_choice="required",
-                    allow_text_fallback=True,
-                )
+                with pytest.raises(Exception, match="tools parameter is not supported"):
+                    call_structured(
+                        backend,
+                        [{"role": "user", "content": f"degrade {i}"}],
+                        tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                        tool_choice="required",
+                        allow_text_fallback=True,
+                    )
 
             # Reset capture and set up for the post-degradation call
             captured_kwargs_list.clear()
@@ -743,6 +756,39 @@ class TestModelDegradationContract:
         assert call_kwargs["tools"] is None, "Degraded model must NOT receive tools on subsequent calls"
         assert call_kwargs["json_mode"] is True, "Degraded model MUST use json_mode on subsequent calls"
 
+    def test_degraded_structured_call_respects_structured_streaming_mode(self):
+        """Degraded structured calls must still obey the unified structured streaming switch."""
+        from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE
+
+        backend = self._make_backend()
+        backend.chat_stream = True
+        _MODEL_DEGRADATION_STATE[backend.chat_model] = {
+            "tool_call_failure_count": 3,
+            "force_text_json_fallback": True,
+        }
+
+        def _capture(**kwargs):
+            assert backend.chat_stream is False
+            return {"content": '{"result": "fallback"}', "finish_reason": "stop", "tool_calls": None}
+
+        backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_capture)
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+            mock_settings.structured_streaming_mode = False
+
+            result = call_structured(
+                backend,
+                [{"role": "user", "content": "post-degradation call"}],
+                tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                tool_choice="required",
+                allow_text_fallback=True,
+            )
+
+        assert result == {"result": "fallback"}
+        assert backend.chat_stream is True
+
     def test_different_models_have_independent_degradation(self):
         """Degradation state must be isolated per model — degrading one model must not affect another."""
         from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE
@@ -754,18 +800,19 @@ class TestModelDegradationContract:
         for backend in [backend_a]:
             for i in range(3):
                 backend._try_create_chat_completion_or_embedding = MagicMock(
-                    return_value={"content": f'{{"fail": {i}}}', "finish_reason": "stop", "tool_calls": None}
+                    side_effect=Exception("tools parameter is not supported")
                 )
                 with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
                     mock_settings.log_llm_chat_content = False
                     mock_settings.use_tool_calling = True
-                    call_structured(
-                        backend,
-                        [{"role": "user", "content": f"degrade {i}"}],
-                        tools=[{"type": "function", "function": {"name": "test_tool"}}],
-                        tool_choice="required",
-                        allow_text_fallback=True,
-                    )
+                    with pytest.raises(Exception, match="tools parameter is not supported"):
+                        call_structured(
+                            backend,
+                            [{"role": "user", "content": f"degrade {i}"}],
+                            tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                            tool_choice="required",
+                            allow_text_fallback=True,
+                        )
 
         # model-a should be degraded
         assert _MODEL_DEGRADATION_STATE.get("model-a", {}).get("force_text_json_fallback", False) is True
@@ -830,18 +877,24 @@ class TestModelDegradationContract:
         assert _is_tool_call_capability_failure(err_unsupported_parameter) is True
 
     def test_response_without_tool_calls_when_requested_is_capability_failure(self):
-        """When tool call is requested but response consistently lacks tool_calls, this MUST be treated as capability failure."""
+        """When tool call is requested but response lacks tool_calls, this must NOT auto-count as capability failure.
+
+        The new normalized path treats finish_reason="stop" with missing tool_calls as valid
+        when structured text content is present. Only explicit protocol-level unsupported-tool
+        errors count as capability failures.
+        """
         from quantaalpha.llm.client import _detect_tool_call_capability_failure_from_response
 
-        # Response with finish_reason='stop' but no tool_calls when tools were requested
+        # Response with finish_reason='stop' but no tool_calls should NOT be capability failure
+        # when valid structured text may still be present
         response_without_tool_calls = {
             "content": "Some text response",
             "finish_reason": "stop",
             "tool_calls": None,
         }
-        assert _detect_tool_call_capability_failure_from_response(response_without_tool_calls) is True
+        assert _detect_tool_call_capability_failure_from_response(response_without_tool_calls) is False
 
-        # Response with empty tool_calls list should NOT trigger capability failure (valid response)
+        # Response with empty tool_calls list should NOT trigger capability failure
         response_with_empty_tool_calls = {
             "content": None,
             "finish_reason": "stop",
@@ -957,15 +1010,16 @@ class TestCompatibilityWrapperDegradation:
             # Degrade the model first
             for i in range(3):
                 backend._try_create_chat_completion_or_embedding = MagicMock(
-                    return_value={"content": f'{{"fail": {i}}}', "finish_reason": "stop", "tool_calls": None}
+                    side_effect=Exception("tools parameter is not supported")
                 )
-                call_structured(
-                    backend,
-                    [{"role": "user", "content": f"degrade {i}"}],
-                    tools=[{"type": "function", "function": {"name": "test_tool"}}],
-                    tool_choice="required",
-                    allow_text_fallback=True,
-                )
+                with pytest.raises(Exception, match="tools parameter is not supported"):
+                    call_structured(
+                        backend,
+                        [{"role": "user", "content": f"degrade {i}"}],
+                        tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                        tool_choice="required",
+                        allow_text_fallback=True,
+                    )
 
             # Now use the compatibility wrapper
             captured_kwargs_list.clear()
@@ -1033,3 +1087,110 @@ class TestCompatibilityWrapperDegradation:
 
         # When tools are actually used, json_mode should be False internally
         assert captured_kwargs["json_mode"] is False
+
+
+class TestFinishReasonStopNotCapabilityFailure:
+    """Regression tests: finish_reason="stop" + missing tool_calls must NOT auto-count as capability failure.
+
+    These tests MUST FAIL before the fix because the current code treats
+    finish_reason="stop" with absent tool_calls as a soft capability failure signal.
+    After the fix, valid structured text/content should parse successfully without
+    incrementing the degradation counter.
+    """
+
+    def _make_backend(self):
+        """Create a minimal APIBackend mock for testing."""
+        from quantaalpha.llm.client import APIBackend
+
+        backend = object.__new__(APIBackend)
+        backend.use_azure = False
+        backend.use_llama2 = False
+        backend.use_gcr_endpoint = False
+        backend.chat_stream = False
+        backend.use_chat_cache = False
+        backend.chat_model = "gpt-4-turbo"
+        backend.reasoning_model = ""
+        backend.chat_client = MagicMock()
+        backend.cache = MagicMock()
+        backend.cache.chat_get.return_value = None
+        backend.task_model_map = {}
+        backend.routing_default = ""
+        backend.chat_model_map = {}
+        backend.chat_api_key = "test"
+        backend.base_url = None
+        backend.embedding_api_key = ""
+        backend.embedding_base_url = None
+        backend.encoder = None
+        backend.chat_seed = None
+        backend.retry_wait_seconds = 1
+        backend.dump_chat_cache = False
+        return backend
+
+    def test_finish_reason_stop_with_valid_content_not_counted_as_capability_failure(self):
+        """finish_reason="stop" with valid JSON content must not increment capability failure count."""
+        from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE
+
+        _MODEL_DEGRADATION_STATE.clear()
+
+        backend = self._make_backend()
+        backend._try_create_chat_completion_or_embedding = MagicMock(
+            return_value={
+                "content": '{"hypothesis": "valid_hypothesis"}',
+                "finish_reason": "stop",
+                "tool_calls": None,
+            }
+        )
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+            result = call_structured(
+                backend,
+                [{"role": "user", "content": "test"}],
+                tools=[{"type": "function", "function": {"name": "emit_json"}}],
+                tool_choice="required",
+                allow_text_fallback=True,
+            )
+
+        assert result["hypothesis"] == "valid_hypothesis"
+        # The model must NOT be marked as degraded
+        model_name = backend.chat_model
+        state = _MODEL_DEGRADATION_STATE.get(model_name, {})
+        assert state.get("tool_call_failure_count", 0) == 0, (
+            "finish_reason=stop with valid content must not count as capability failure"
+        )
+        assert state.get("force_text_json_fallback", False) is False
+
+    def test_finish_reason_stop_with_valid_reasoning_content_not_counted_as_capability_failure(self):
+        """finish_reason="stop" with valid reasoning_content JSON must not increment capability failure count."""
+        from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE
+
+        _MODEL_DEGRADATION_STATE.clear()
+
+        backend = self._make_backend()
+        backend._try_create_chat_completion_or_embedding = MagicMock(
+            return_value={
+                "content": "",
+                "reasoning_content": '{"result": "from_reasoning"}',
+                "finish_reason": "stop",
+                "tool_calls": None,
+            }
+        )
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+            result = call_structured(
+                backend,
+                [{"role": "user", "content": "test"}],
+                tools=[{"type": "function", "function": {"name": "emit_json"}}],
+                tool_choice="required",
+                allow_text_fallback=True,
+            )
+
+        assert result["result"] == "from_reasoning"
+        model_name = backend.chat_model
+        state = _MODEL_DEGRADATION_STATE.get(model_name, {})
+        assert state.get("tool_call_failure_count", 0) == 0, (
+            "finish_reason=stop with valid reasoning_content must not count as capability failure"
+        )

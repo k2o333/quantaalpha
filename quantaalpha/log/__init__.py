@@ -15,9 +15,10 @@ import os
 import tempfile
 
 
-class LogColors(Enum):
+class LogColors(str, Enum):
     """Color codes for terminal output, compatible with rdagent.log.utils.LogColors."""
     RESET = "\033[0m"
+    END = RESET
     RED = "\033[91m"
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
@@ -28,6 +29,9 @@ class LogColors(Enum):
     GRAY = "\033[90m"
     BOLD = "\033[1m"
     UNDERLINE = "\033[4m"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class FallbackFileStorage:
@@ -96,6 +100,28 @@ class FallbackLoggerWrapper:
             object.__setattr__(self, name, value)
         else:
             setattr(self._inner, name, value)
+
+    @staticmethod
+    def _sanitize_logging_kwargs(kwargs: dict) -> dict:
+        """Drop non-standard kwargs such as `tag` before delegating to stdlib logging."""
+        sanitized = dict(kwargs)
+        sanitized.pop("tag", None)
+        return sanitized
+
+    def debug(self, msg, *args, **kwargs) -> None:
+        self._inner.debug(msg, *args, **self._sanitize_logging_kwargs(kwargs))
+
+    def info(self, msg, *args, **kwargs) -> None:
+        self._inner.info(msg, *args, **self._sanitize_logging_kwargs(kwargs))
+
+    def warning(self, msg, *args, **kwargs) -> None:
+        self._inner.warning(msg, *args, **self._sanitize_logging_kwargs(kwargs))
+
+    def error(self, msg, *args, **kwargs) -> None:
+        self._inner.error(msg, *args, **self._sanitize_logging_kwargs(kwargs))
+
+    def exception(self, msg, *args, **kwargs) -> None:
+        self._inner.exception(msg, *args, **self._sanitize_logging_kwargs(kwargs))
 
 
 # Try to import from rdagent.log, fall back to standard library logging

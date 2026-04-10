@@ -69,5 +69,10 @@ class LLMSettings(ExtendedBaseSettings):
     # Tool calling
     use_tool_calling: bool = True  # Default on to match current runtime behavior; set False to explicitly degrade.
 
+    # Structured streaming policy
+    # Controls whether structured calls use streaming. Default is False (non-streaming)
+    # to preserve tool_calls payloads reliably across providers.
+    structured_streaming_mode: bool = False
+
 
 LLM_SETTINGS = LLMSettings()

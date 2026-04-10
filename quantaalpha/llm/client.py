@@ -22,6 +22,7 @@ from quantaalpha.core.utils import LLM_CACHE_SEED_GEN, SingletonBaseClass
 from quantaalpha.log import LogColors, logger
 from quantaalpha.log import logger
 from quantaalpha.llm.config import LLM_SETTINGS
+from quantaalpha.llm.structured_normalizer import normalize_and_parse
 
 # ---------------------------------------------------------------------------
 # Process-local model-level degradation state for tool-call capability failures
@@ -91,6 +92,10 @@ def _detect_tool_call_capability_failure_from_response(raw: Any) -> bool:
     """Inspect the raw response / exception for tool-call capability failure signals.
 
     Returns True if the response indicates the provider cannot handle tool calling.
+
+    Note: finish_reason="stop" with missing tool_calls is NOT treated as capability
+    failure when valid structured text is still present. Only explicit protocol-level
+    unsupported-tool errors count as capability failures.
     """
     if isinstance(raw, BaseException):
         return _is_tool_call_capability_failure(raw)
@@ -100,10 +105,8 @@ def _detect_tool_call_capability_failure_from_response(raw: Any) -> bool:
         error_msg = str(raw.get("error", raw.get("message", ""))).lower()
         if error_msg and _is_tool_call_capability_failure(Exception(error_msg)):
             return True
-        # If finish_reason is 'stop' but tools were requested and no tool_calls returned
-        # This is a soft signal — only counted when combined with empty tool_calls
-        if raw.get("finish_reason") == "stop" and raw.get("tool_calls") is None:
-            return True
+        # finish_reason="stop" with missing tool_calls is NOT capability failure
+        # when valid structured text may still be present.
     return False
 
 
@@ -411,8 +414,10 @@ def call_structured(
     # --------------------------------------------------------
 
     original_chat_stream = getattr(api, "chat_stream", None)
-    if effective_tools is not None and original_chat_stream is not None:
-        api.chat_stream = False
+    # Unified structured streaming policy for the structured entry point.
+    # This applies to both tool-call and degraded text-json structured paths.
+    if original_chat_stream is not None:
+        api.chat_stream = LLM_SETTINGS.structured_streaming_mode
     try:
         raw = api._try_create_chat_completion_or_embedding(
             messages=messages,
@@ -443,7 +448,7 @@ def call_structured(
                 _record_tool_call_capability_failure(model_name)
         raise
     finally:
-        if effective_tools is not None and original_chat_stream is not None:
+        if original_chat_stream is not None:
             api.chat_stream = original_chat_stream
 
     # --- Stage 3 (response path): detect capability failure from response ---
@@ -465,65 +470,44 @@ def parse_chat_completion_json_response(
     *,
     allow_text_fallback: bool = True,
 ) -> dict[str, Any]:
-    """Parse chat-completion JSON with tool-call arguments taking priority.
+    """Parse chat-completion JSON via the unified normalizer.
 
-    Parsing priority (clearly logged):
-    1. TOOL_CALL_PATH: Extract and parse tool-call arguments (primary structured path).
-    2. TEXT_JSON_PATH: Parse content field as JSON (fallback when tool-call args fail
-       or when no tool_calls are present).
+    Parser precedence (delegated to normalize_and_parse):
+    1. TOOL_CALL_PATH: tool_calls[].function.arguments (primary structured path).
+    2. CONTENT_PATH: content field JSON.
+    3. REASONING_PATH: reasoning_content field JSON.
+    4. TEXT_FALLBACK_PATH: generic JSON extraction.
 
-    Uses `robust_json_parse()` as a fallback parser for both paths.
+    Args:
+        response: The raw response dict or string from the provider.
+        allow_text_fallback: Whether to allow fallback to text-based JSON parsing.
+
+    Returns:
+        Parsed structured data as a dict.
+
+    Raises:
+        json.JSONDecodeError: When all parsing strategies fail.
     """
     if isinstance(response, dict):
-        tool_calls = response.get("tool_calls")
-        if isinstance(tool_calls, list):
-            for tool_call in tool_calls:
-                if not isinstance(tool_call, dict):
-                    continue
-                function_payload = tool_call.get("function")
-                if not isinstance(function_payload, dict):
-                    continue
-                arguments = function_payload.get("arguments")
-                if not isinstance(arguments, str) or not arguments.strip():
-                    continue
-                try:
-                    parsed = robust_json_parse(arguments)
-                    logger.info(
-                        f"[parse_response] TOOL_CALL_PATH: successfully parsed tool-call arguments."
-                    )
-                    return parsed
-                except json.JSONDecodeError as exc:
-                    tool_name = function_payload.get("name", "<unknown>")
-                    logger.warning(
-                        f"[parse_response] TOOL_CALL_PARSE_FAILED: tool={tool_name}; "
-                        f"falling back to text content. error={exc}"
-                    )
-                    # Continue to text content fallback
-            if not allow_text_fallback:
-                raise json.JSONDecodeError(
-                    "Tool-call arguments parse failed and text fallback is disabled",
-                    "",
-                    0,
-                )
-
-        # TEXT_JSON_PATH: No tool_calls or all tool-call args failed to parse
-        content = response.get("content")
-        if isinstance(content, str):
-            logger.info(
-                f"[parse_response] TEXT_JSON_PATH: parsing content field (no valid tool-call args). "
-                f"content_length={len(content)}"
-            )
-            return robust_json_parse(content)
-        raise TypeError(f"Unsupported chat completion response content type: {type(content).__name__}")
+        return normalize_and_parse(
+            response,
+            allow_text_fallback=allow_text_fallback,
+            json_parser=robust_json_parse,
+        )
 
     if not allow_text_fallback:
         raise json.JSONDecodeError("Text fallback disabled but response is not a dict", "", 0)
-    # Response is a string — use text-json extraction directly
+
+    # Response is a string — wrap as dict and normalize
     logger.info(
         f"[parse_response] TEXT_JSON_PATH: response is raw string; "
         f"extracting JSON from text. length={len(response)}"
     )
-    return robust_json_parse(response)
+    return normalize_and_parse(
+        {"content": response, "finish_reason": "stop"},
+        allow_text_fallback=True,
+        json_parser=robust_json_parse,
+    )
 
 
 try:

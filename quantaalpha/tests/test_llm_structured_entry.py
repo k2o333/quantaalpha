@@ -100,11 +100,12 @@ class TestUnifiedStructuredEntry(unittest.TestCase):
         self.assertEqual(result["hypothesis"], "from_tool")
 
     def test_parse_chat_completion_json_response_text_fallback_disabled(self):
-        """When allow_text_fallback=False, must raise on non-dict or tool-call failure."""
+        """When allow_text_fallback=False and all precedence levels fail, must raise."""
         from quantaalpha.llm.client import parse_chat_completion_json_response
 
+        # When tool_calls fail and content is also not valid JSON, should raise
         raw = {
-            "content": '{"hypothesis": "text"}',
+            "content": "NOT_VALID_JSON_EITHER",
             "finish_reason": "tool_calls",
             "tool_calls": [
                 {
@@ -450,6 +451,7 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
 
     def test_compatibility_wrapper_uses_text_json_when_model_degraded(self):
         """When model is degraded, the old entry must use text JSON path, not tools."""
+        import pytest
         from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE
 
         # Clear any leftover degradation state from previous tests
@@ -469,15 +471,16 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
             # Degrade the model first with 3 failures
             for i in range(3):
                 backend._try_create_chat_completion_or_embedding = MagicMock(
-                    return_value={"content": f'{{"fail": {i}}}', "finish_reason": "stop", "tool_calls": None}
+                    side_effect=Exception("tools parameter is not supported")
                 )
-                call_structured(
-                    backend,
-                    [{"role": "user", "content": f"degrade {i}"}],
-                    tools=[{"type": "function", "function": {"name": "test_tool"}}],
-                    tool_choice="required",
-                    allow_text_fallback=True,
-                )
+                with pytest.raises(Exception, match="tools parameter is not supported"):
+                    call_structured(
+                        backend,
+                        [{"role": "user", "content": f"degrade {i}"}],
+                        tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                        tool_choice="required",
+                        allow_text_fallback=True,
+                    )
 
             # Now use the compatibility wrapper
             captured_kwargs_list.clear()
