@@ -23,6 +23,90 @@ from quantaalpha.log import LogColors, logger
 from quantaalpha.log import logger
 from quantaalpha.llm.config import LLM_SETTINGS
 
+# ---------------------------------------------------------------------------
+# Process-local model-level degradation state for tool-call capability failures
+# ---------------------------------------------------------------------------
+# Key: model name (str)
+# Value: {"tool_call_failure_count": int, "force_text_json_fallback": bool}
+_MODEL_DEGRADATION_STATE: dict[str, dict[str, Any]] = {}
+
+_TOOL_CALL_CAPABILITY_FAILURE_PATTERNS = (
+    "does not support function calling",
+    "does not support tools",
+    "does not support tool_choice",
+    "tools parameter is not supported",
+    "tool_choice is not supported",
+    "tools is not supported",
+    "function calling is not supported",
+    "tool calls are not supported",
+    "unsupported parameter",
+    "invalid_parameter_error: tools",
+    "invalid_parameter_error: tool_choice",
+)
+
+
+def _is_tool_call_capability_failure(error: BaseException) -> bool:
+    """Return True if *error* signals that the provider cannot handle tool calls.
+
+    This explicitly excludes generic network errors, rate-limit (429), timeouts,
+    and business-level validation errors.  Only protocol / capability errors
+    related to the tool-calling mechanism itself should count toward the
+    process-local degradation threshold.
+    """
+    error_text = str(error).lower()
+    return any(pattern in error_text for pattern in _TOOL_CALL_CAPABILITY_FAILURE_PATTERNS)
+
+
+def _record_tool_call_capability_failure(model: str) -> None:
+    """Increment the tool-call failure counter and degrade after 3 strikes."""
+    if model not in _MODEL_DEGRADATION_STATE:
+        _MODEL_DEGRADATION_STATE[model] = {
+            "tool_call_failure_count": 0,
+            "force_text_json_fallback": False,
+        }
+    state = _MODEL_DEGRADATION_STATE[model]
+    if state["force_text_json_fallback"]:
+        return  # Already degraded; no need to recount
+    state["tool_call_failure_count"] += 1
+    if state["tool_call_failure_count"] >= 3:
+        state["force_text_json_fallback"] = True
+        logger.error(
+            f"[call_structured] MODEL_DEGRADED: model={model} "
+            f"has reached {state['tool_call_failure_count']} consecutive tool-call capability failures; "
+            f"ALL future calls for this model in this process will use text-json fallback directly."
+        )
+    else:
+        logger.warning(
+            f"[call_structured] FAILURE_COUNT: model={model} "
+            f"tool-call capability failure count={state['tool_call_failure_count']}/3."
+        )
+
+
+def _get_model_degradation_state(model: str) -> dict[str, Any]:
+    """Return the current degradation state for *model*."""
+    return _MODEL_DEGRADATION_STATE.get(model, {"tool_call_failure_count": 0, "force_text_json_fallback": False})
+
+
+def _detect_tool_call_capability_failure_from_response(raw: Any) -> bool:
+    """Inspect the raw response / exception for tool-call capability failure signals.
+
+    Returns True if the response indicates the provider cannot handle tool calling.
+    """
+    if isinstance(raw, BaseException):
+        return _is_tool_call_capability_failure(raw)
+
+    if isinstance(raw, dict):
+        # Check for error fields in the response
+        error_msg = str(raw.get("error", raw.get("message", ""))).lower()
+        if error_msg and _is_tool_call_capability_failure(Exception(error_msg)):
+            return True
+        # If finish_reason is 'stop' but tools were requested and no tool_calls returned
+        # This is a soft signal — only counted when combined with empty tool_calls
+        if raw.get("finish_reason") == "stop" and raw.get("tool_calls") is None:
+            return True
+    return False
+
+
 DEFAULT_QLIB_DOT_PATH = Path("./")
 KNOWN_TASK_TYPES = {
     "hypothesis_generation",
@@ -154,9 +238,24 @@ def _close_truncated_json(text: str) -> str:
 
 
 def robust_json_parse(text: str, max_retries: int = 3) -> dict:
-    """
-    Robust JSON parser: handles extra data, LaTeX escapes, markdown-wrapped JSON.
-    Raises json.JSONDecodeError if all strategies fail.
+    """Fallback JSON parser for text-based response content.
+
+    ⚠️  FALLBACK-ONLY PARSER — NOT THE DEFAULT STRUCTURED MECHANISM
+    =================================================================
+    This function is **only** invoked when:
+    1. Tool-call arguments (from a structured tool_call response) fail to parse,
+       and text content fallback is enabled.
+    2. The model is degraded and the text-json extraction path is used directly.
+    3. ``json_mode=True`` is used without tools (response_format=json_object path).
+
+    It is **NOT** the primary mechanism for obtaining structured responses.
+    The primary path is tool-call argument extraction via ``parse_chat_completion_json_response()``.
+
+    This parser applies multiple heuristics to extract JSON from raw text,
+    including markdown code block extraction, balanced brace matching, and
+    common repair strategies for truncated or escaped content.
+
+    Raises json.JSONDecodeError if all extraction strategies fail.
     """
     original_text = text
 
@@ -214,6 +313,10 @@ def robust_json_parse(text: str, max_retries: int = 3) -> dict:
         except json.JSONDecodeError:
             pass
 
+    logger.warning(
+        f"robust_json_parse: all strategies failed; text length={len(original_text)}, "
+        f"preview={original_text[:120]!r}"
+    )
     raise json.JSONDecodeError(
         f"Could not parse JSON; original text length: {len(original_text)}",
         original_text,
@@ -241,6 +344,13 @@ def call_structured(
 ) -> dict[str, Any]:
     """Unified structured-completion entry for the once mining path.
 
+    Three-stage strategy with process-local model degradation:
+    1. If model is already degraded in this process, skip tool call and go
+       directly to text-json extraction path.
+    2. Otherwise, attempt tool call first.
+    3. If tool-call capability failure occurs, count it; after 3 consecutive
+       failures for the same model, degrade and switch to text-json path.
+
     Phase-1 contract:
     - When ``tools`` is provided, the call uses ``tools + tool_choice`` to
       request a tool-call response.  Tool-call arguments are parsed first.
@@ -262,19 +372,42 @@ def call_structured(
     Returns a dict parsed from tool-call arguments or text JSON content.
     Raises ``json.JSONDecodeError`` when all parsing strategies fail.
     """
+    model_name = getattr(api, "chat_model", None) or getattr(api, "reasoning_model", None) or "<unknown>"
+
     # --- Policy gateway: enforce use_tool_calling config ---
     effective_tools = tools
     effective_tool_choice = tool_choice
     effective_json_mode = json_mode
 
     if tools is not None and not LLM_SETTINGS.use_tool_calling:
-        logger.info("call_structured: use_tool_calling is disabled; clearing tools and falling back to json_mode")
+        logger.info(
+            f"[call_structured] POLICY: use_tool_calling is disabled; "
+            f"downgrading to json_mode path (tools cleared). model={model_name}"
+        )
         effective_tools = None
         effective_tool_choice = None
         effective_json_mode = True
     elif tools is not None:
         # When tools are actually used, disable json_mode to avoid double enforcement
         effective_json_mode = False
+
+        # --- Stage 1: Check if model is already degraded ---
+        degradation_state = _get_model_degradation_state(model_name)
+        if degradation_state["force_text_json_fallback"]:
+            logger.warning(
+                f"[call_structured] DEGRADED_PATH: model={model_name} is degraded "
+                f"(failure_count={degradation_state['tool_call_failure_count']}); "
+                f"skipping tool call, using text-json extraction directly."
+            )
+            effective_tools = None
+            effective_tool_choice = None
+            effective_json_mode = True
+        else:
+            # Model is NOT degraded — proceeding with tool-call path
+            logger.info(
+                f"[call_structured] TOOL_CALL_PATH: model={model_name}; "
+                f"attempting tool-call first (tools={len(tools)}, tool_choice={tool_choice})."
+            )
     # --------------------------------------------------------
 
     original_chat_stream = getattr(api, "chat_stream", None)
@@ -297,9 +430,32 @@ def call_structured(
             seed=seed,
             add_json_in_prompt=add_json_in_prompt,
         )
+    except Exception as exc:
+        # --- Stage 3 (exception path): record capability failure if applicable ---
+        if tools is not None and LLM_SETTINGS.use_tool_calling:
+            if _is_tool_call_capability_failure(exc):
+                degradation_state = _get_model_degradation_state(model_name)
+                current_count = degradation_state["tool_call_failure_count"] + 1
+                logger.warning(
+                    f"[call_structured] CAPABILITY_FAILURE: model={model_name} "
+                    f"tool-call capability error (count={current_count}/3); error={exc}"
+                )
+                _record_tool_call_capability_failure(model_name)
+        raise
     finally:
         if effective_tools is not None and original_chat_stream is not None:
             api.chat_stream = original_chat_stream
+
+    # --- Stage 3 (response path): detect capability failure from response ---
+    if tools is not None and LLM_SETTINGS.use_tool_calling and effective_tools is not None:
+        if _detect_tool_call_capability_failure_from_response(raw):
+            degradation_state = _get_model_degradation_state(model_name)
+            current_count = degradation_state["tool_call_failure_count"] + 1
+            logger.warning(
+                f"[call_structured] CAPABILITY_FAILURE: model={model_name} "
+                f"tool-call capability failure detected in response (count={current_count}/3)."
+            )
+            _record_tool_call_capability_failure(model_name)
 
     return parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
 
@@ -309,7 +465,15 @@ def parse_chat_completion_json_response(
     *,
     allow_text_fallback: bool = True,
 ) -> dict[str, Any]:
-    """Parse chat-completion JSON with tool-call arguments taking priority."""
+    """Parse chat-completion JSON with tool-call arguments taking priority.
+
+    Parsing priority (clearly logged):
+    1. TOOL_CALL_PATH: Extract and parse tool-call arguments (primary structured path).
+    2. TEXT_JSON_PATH: Parse content field as JSON (fallback when tool-call args fail
+       or when no tool_calls are present).
+
+    Uses `robust_json_parse()` as a fallback parser for both paths.
+    """
     if isinstance(response, dict):
         tool_calls = response.get("tool_calls")
         if isinstance(tool_calls, list):
@@ -323,10 +487,18 @@ def parse_chat_completion_json_response(
                 if not isinstance(arguments, str) or not arguments.strip():
                     continue
                 try:
-                    return robust_json_parse(arguments)
+                    parsed = robust_json_parse(arguments)
+                    logger.info(
+                        f"[parse_response] TOOL_CALL_PATH: successfully parsed tool-call arguments."
+                    )
+                    return parsed
                 except json.JSONDecodeError as exc:
                     tool_name = function_payload.get("name", "<unknown>")
-                    logger.warning(f"Failed to parse tool call arguments for {tool_name}: {exc}; falling back to text content")
+                    logger.warning(
+                        f"[parse_response] TOOL_CALL_PARSE_FAILED: tool={tool_name}; "
+                        f"falling back to text content. error={exc}"
+                    )
+                    # Continue to text content fallback
             if not allow_text_fallback:
                 raise json.JSONDecodeError(
                     "Tool-call arguments parse failed and text fallback is disabled",
@@ -334,13 +506,23 @@ def parse_chat_completion_json_response(
                     0,
                 )
 
+        # TEXT_JSON_PATH: No tool_calls or all tool-call args failed to parse
         content = response.get("content")
         if isinstance(content, str):
+            logger.info(
+                f"[parse_response] TEXT_JSON_PATH: parsing content field (no valid tool-call args). "
+                f"content_length={len(content)}"
+            )
             return robust_json_parse(content)
         raise TypeError(f"Unsupported chat completion response content type: {type(content).__name__}")
 
     if not allow_text_fallback:
         raise json.JSONDecodeError("Text fallback disabled but response is not a dict", "", 0)
+    # Response is a string — use text-json extraction directly
+    logger.info(
+        f"[parse_response] TEXT_JSON_PATH: response is raw string; "
+        f"extracting JSON from text. length={len(response)}"
+    )
     return robust_json_parse(response)
 
 
@@ -537,9 +719,19 @@ class ChatSession:
         return response
 
     def build_chat_completion_json(self, user_prompt: str, **kwargs: Any) -> dict[str, Any]:
-        kwargs["json_mode"] = True
-        response = self.build_chat_completion(user_prompt, **kwargs)
-        return parse_chat_completion_json_response(response)
+        messages = self.build_chat_completion_message(user_prompt)
+        if "json_mode" not in kwargs and "tools" not in kwargs:
+            kwargs["json_mode"] = True
+        response = call_structured(self.api_backend, messages, **kwargs)
+
+        messages.append(
+            {
+                "role": "assistant",
+                "content": json.dumps(response, ensure_ascii=False),
+            },
+        )
+        SessionChatHistoryCache().message_set(self.conversation_id, messages)
+        return response
 
     def get_conversation_id(self) -> str:
         return self.conversation_id
@@ -891,16 +1083,20 @@ class APIBackend:
         shrink_multiple_break: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        kwargs["json_mode"] = True
-        response = self.build_messages_and_create_chat_completion(
+        """Compatibility wrapper that delegates to ``call_structured()``.
+
+        This method no longer drives its own ``json_mode`` path directly.
+        Instead it builds messages and forwards through the unified structured
+        gateway so that tool-call-first behavior and model-level degradation
+        apply automatically.
+        """
+        messages = self.build_messages(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
             former_messages=former_messages,
-            chat_cache_prefix=chat_cache_prefix,
             shrink_multiple_break=shrink_multiple_break,
-            **kwargs,
         )
-        return parse_chat_completion_json_response(response)
+        return call_structured(self, messages, **kwargs)
 
     def create_embedding(self, input_content: str | list[str], **kwargs: Any) -> list[Any] | Any:
         input_content_list = [input_content] if isinstance(input_content, str) else input_content
@@ -1159,7 +1355,7 @@ class APIBackend:
             if json_mode:
                 if add_json_in_prompt:
                     for message in messages[::-1]:
-                        message["content"] = message["content"] + "\nPlease respond in json format."
+                        message["content"] = message["content"] + "\nReturn a valid JSON object only."
                         if message["role"] == "system":
                             break
                 kwargs["response_format"] = {"type": "json_object"}

@@ -1,43 +1,14 @@
 extract_model_formulation_system: |-
-    offer description of the proposed model in this paper, write a latex formula with variable as well as the architecture of the model. the format should be like 
-    {
-    "model_name (The name of the model)": {
-        "description": "A detailed description of the model",
-        "formulation": "A LaTeX formula representing the model's formulation",
-        "architecture": "A detailed description of the model's architecture, e.g., neural network layers or tree structures",
-        "variables": {
-            "\\hat{y}_u": "The predicted output for node u",
-            "variable_name_2": "Description of variable 2",
-            "variable_name_3": "Description of variable 3"
-        },
-        "hyperparameters": {
-            "hyperparameter_name_1": "value of hyperparameter 1",
-            "hyperparameter_name_2": "value of hyperparameter 2",
-            "hyperparameter_name_3": "value of hyperparameter 3"
-        },
-        "model_type": "Tabular or TimeSeries or Graph or XGBoost"  # Should be one of "Tabular", "TimeSeries", "Graph", or "XGBoost"
-    }
-    }
-    Eg. 
-    {
-    "ABC Model": {
-        "description": "A detailed description of the model",
-        "formulation": "A LaTeX formula representing the model's formulation",
-        "architecture": "A detailed description of the model's architecture, e.g., neural network layers or tree structures",
-        "variables": {
-            "\\hat{y}_u": "The predicted output for node u",
-            "variable_name_2": "Description of variable 2",
-            "variable_name_3": "Description of variable 3"
-        },
-        "hyperparameters": {
-            "hyperparameter_name_1": "value of hyperparameter 1",
-            "hyperparameter_name_2": "value of hyperparameter 2",
-            "hyperparameter_name_3": "value of hyperparameter 3"
-        },
-        "model_type": "Tabular or TimeSeries or Graph or RandomForest or XGBoost"  # If torch & Neural network models are required, the choice should be one of "Tabular", "TimeSeries", or "Graph" 
-    }
-    }
-    such format content should be begin with ```json and end with ``` and the content should be in json format.
+    Extract the model description from the paper and produce a structured formulation. The output should include:
+    - model_name: The name of the model
+    - description: A detailed description of the model
+    - formulation: A LaTeX formula representing the model's formulation
+    - architecture: A detailed description of the model's architecture (e.g., neural network layers or tree structures)
+    - variables: A mapping of variable names to their descriptions (e.g., "\\hat{y}_u": "The predicted output for node u")
+    - hyperparameters: A mapping of hyperparameter names to their values
+    - model_type: One of "Tabular", "TimeSeries", "Graph", or "XGBoost"
+
+    (Fallback text extraction only: if not using structured tools, respond with a JSON object where the key is the model name and the value is an object containing "description", "formulation", "architecture", "variables", "hyperparameters", and "model_type".)
 
 evolving_strategy_model_coder:
     system: |-
@@ -69,11 +40,8 @@ evolving_strategy_model_coder:
         =====Feedback to the former implementation=====
         {{ queried_former_failed_knowledge[-1].feedback }}
         {% endif %}
-        
-        Please response the code in the following format, using `\n` to separate the code, without any other content. Here is an example structure for the JSON output:
-        {
-            "code": "The Python code as a string."
-        }
+
+        (Fallback text extraction only: if not using structured tools, respond with a JSON object containing "code" (the Python code as a string).)
 
     user: |-
         --------------Target model information:---------------
@@ -150,11 +118,7 @@ evaluator_final_feedback:
         1. If the value and the ground truth value are exactly the same under a small tolerance, the implementation is considered correct.
         2. If no ground truth value is not provided, the implementation is considered correct if the code execution is successful and the code feedback is align with the scenario and model description.
 
-        Please response the critic in the json format. Here is an example structure for the JSON output, please strictly follow the format:
-        {
-            "final_decision": True,
-            "final_feedback": "The final feedback message, A SINGLE LINE OF TEXT",
-        }
+        (Fallback text extraction only: if not using structured tools, respond with a JSON object containing "final_decision" (boolean) and "final_feedback" (a single line of text describing the final feedback).)
     user: |-
         --------------Model information:---------------
         {{ model_information }}

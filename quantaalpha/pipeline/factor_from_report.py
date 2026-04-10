@@ -15,7 +15,8 @@ from quantaalpha.core.prompts import Prompts
 from quantaalpha.core.proposal import Hypothesis
 from quantaalpha.log import logger
 from quantaalpha.log.time import measure_time
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured
+from quantaalpha.llm.tool_schemas import HYPOTHESIS_FROM_REPORT_TOOL
 from quantaalpha.factors.experiment import QlibFactorExperiment
 from quantaalpha.factors.loader.pdf_loader import (
     FactorExperimentLoaderFromPDFfiles,
@@ -46,9 +47,15 @@ def generate_hypothesis(factor_result: dict, report_content: str) -> str:
         .render(factor_descriptions=json.dumps(factor_result), report_content=report_content)
     )
 
-    response_json = APIBackend().build_messages_and_create_chat_completion_json(
-        user_prompt=user_prompt,
-        system_prompt=system_prompt,
+    api = APIBackend()
+    messages = api.build_messages(user_prompt=user_prompt, system_prompt=system_prompt)
+
+    response_json = call_structured(
+        api,
+        messages,
+        tools=[HYPOTHESIS_FROM_REPORT_TOOL],
+        tool_choice="required",
+        task_type="hypothesis_generation",
     )
 
     return Hypothesis(

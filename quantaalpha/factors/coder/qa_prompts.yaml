@@ -214,10 +214,7 @@ evolving_strategy_factor_implementation_v1_system: |-
   - Make sure your factor expression contains at least one variable within the dataframe columns (e.g., $open), combined with registered operations above. Do NOT use any undeclared variable (e.g., `n`, `w_1`) and undefined symbols (e.g., `=`) in the expression.
   - Pay attention to the distinction between operations with the TS prefix (e.g., TS_STD()) and those without (e.g., `STD()`).
 
-  Please response the corrected expression in the following json format. Here is the structure for the JSON output:
-  {
-      "expr": "[CORRECTED_FACTOR_EXPRESSION]"
-  }
+  (Fallback text extraction only: if not using structured tools, respond with a JSON object containing "expr" (the corrected factor expression as a string).)
 
 
 
@@ -307,11 +304,9 @@ select_implementable_factor_system: |-
   {{ scenario }}
   Your job is to help the user select the easiest-to-implement factors. Some factors may be difficult to implement due to a lack of information or excessive complexity. The user will provide the number of factors you should pick and information about the factors, including their descriptions, formulas, and variable explanations.
   User will provide you the former attempt to implement the factor and the feedback to the implementation. You need to carefully review your previous attempts. Some factors have been repeatedly tried without success. You should consider discarding these factors.
-  Please analyze the difficulties of the each factors and provide the reason and response the indices of selected implementable factor in the json format. Here is an example structure for the JSON output:
-  {
-      "Analysis": "Analyze the difficulties of the each factors and provide the reason why the factor can be implemented or not."
-      "selected_factor": "The indices of selected factor index in the list, like [0, 2, 3].The length should be the number of factor left after filtering.",
-  }
+  Please analyze the difficulties of the each factors and provide the reason and respond with the indices of selected implementable factors.
+
+  (Fallback text extraction only: if not using structured tools, respond with a JSON object containing "Analysis" (string analyzing the difficulties of each factor) and "selected_factor" (list of indices like [0, 2, 3]), with the length matching the number of factors to pick.)
 
 select_implementable_factor_user: |-
   Number of factor you should pick: {{ factor_num }}
@@ -338,11 +333,7 @@ evaluator_output_format_system: |-
   User is trying to implement some factors in the following scenario:
   {{ scenario }}
   User will provide you the format of the output. Please help to check whether the output is align with the format.
-  Please respond in the JSON format. Here is an example structure for the JSON output:
-  {
-      "output_format_decision": true,
-      "output_format_feedback": "The output format is correct."
-  }
+  (Fallback text extraction only: if not using structured tools, respond with a JSON object containing "output_format_decision" (boolean) and "output_format_feedback" (string describing format issues or confirming correctness).)
 
 
 evaluator_final_decision_v1_system: |-
@@ -353,11 +344,7 @@ evaluator_final_decision_v1_system: |-
 
   The implementation is considered correct if the code executes successfully (assuming the data provided is correct). Any exceptions, including those actively raised, are considered faults of the code. Additionally, the code feedback must align with the scenario and factor description.
 
-  Please response the critic in the json format. Here is an example structure for the JSON output, please strictly follow the format:
-  {
-      "final_decision": true,
-      "final_feedback": "The final feedback message, A SINGLE LINE OF TEXT",
-  }
+  (Fallback text extraction only: if not using structured tools, respond with a JSON object containing "final_decision" (boolean) and "final_feedback" (a single line of text describing the final feedback).)
 
 evaluator_final_decision_v1_user: |-
   --------------Factor information:---------------
@@ -453,4 +440,3 @@ function_lib_description: |-
   - **BB_MIDDLE(A, n)**: Middle Bollinger Band, calculated as the n-period simple moving average of sequence A.
   - **BB_UPPER(A, n)**: Upper Bollinger Band, calculated as middle band plus two standard deviations of sequence A over n periods.
   - **BB_LOWER(A, n)**: Lower Bollinger Band, calculated as middle band minus two standard deviations of sequence A over n periods.
-

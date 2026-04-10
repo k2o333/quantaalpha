@@ -13,10 +13,11 @@ from quantaalpha.core.proposal import (
     Trace,
 )
 from quantaalpha.log import logger
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured
+from quantaalpha.llm.tool_schemas import FEEDBACK_TOOL
 from quantaalpha.utils import convert2bool
 
-# Max retries for JSON parsing
+# Max retries for JSON parsing (now handled by call_structured degradation, kept for safety)
 MAX_JSON_PARSE_RETRIES = 3
 
 base_feedback_prompts = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
@@ -153,15 +154,20 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
             )
         )
 
-        # Call the APIBackend to generate the response for hypothesis feedback with retry
+        # Call the unified structured gateway with tool schema
+        api = APIBackend()
+        messages = api.build_messages(user_prompt=usr_prompt, system_prompt=sys_prompt)
+
         response_json = None
         last_error = None
 
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
-                response_json = APIBackend().build_messages_and_create_chat_completion_json(
-                    user_prompt=usr_prompt,
-                    system_prompt=sys_prompt,
+                response_json = call_structured(
+                    api,
+                    messages,
+                    tools=[FEEDBACK_TOOL],
+                    tool_choice="required",
                     task_type="feedback_summarization",
                 )
                 break
@@ -269,15 +275,20 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
             )
         )
 
-        # Call the APIBackend to generate the response for hypothesis feedback with retry
+        # Call the unified structured gateway with tool schema
+        api = APIBackend()
+        messages = api.build_messages(user_prompt=usr_prompt, system_prompt=sys_prompt)
+
         response_json = None
         last_error = None
 
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
-                response_json = APIBackend().build_messages_and_create_chat_completion_json(
-                    user_prompt=usr_prompt,
-                    system_prompt=sys_prompt,
+                response_json = call_structured(
+                    api,
+                    messages,
+                    tools=[FEEDBACK_TOOL],
+                    tool_choice="required",
                 )
                 break
             except json.JSONDecodeError as e:
@@ -344,15 +355,20 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
             )
         )
 
-        # Call the APIBackend to generate the response for hypothesis feedback with retry
+        # Call the unified structured gateway with tool schema
+        api = APIBackend()
+        messages = api.build_messages(user_prompt=user_prompt, system_prompt=system_prompt)
+
         response_json_hypothesis = None
         last_error = None
 
         for attempt in range(MAX_JSON_PARSE_RETRIES):
             try:
-                response_json_hypothesis = APIBackend().build_messages_and_create_chat_completion_json(
-                    user_prompt=user_prompt,
-                    system_prompt=system_prompt,
+                response_json_hypothesis = call_structured(
+                    api,
+                    messages,
+                    tools=[FEEDBACK_TOOL],
+                    tool_choice="required",
                 )
                 break
             except json.JSONDecodeError as e:

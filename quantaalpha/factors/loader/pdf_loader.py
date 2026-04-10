@@ -23,7 +23,16 @@ from quantaalpha.core.prompts import Prompts
 from quantaalpha.core.utils import multiprocessing_wrapper
 from quantaalpha.log import logger
 from quantaalpha.llm.config import LLM_SETTINGS
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured
+from quantaalpha.llm.tool_schemas import (
+    FACTOR_DUPLICATION_TOOL,
+    FACTOR_RELEVANCE_TOOL,
+    FACTOR_VIABILITY_TOOL,
+    REPORT_CLASSIFICATION_TOOL,
+    REPORT_FACTOR_CONTINUATION_TOOL,
+    REPORT_FACTOR_EXTRACTION_TOOL,
+    REPORT_FORMULATION_EXTRACTION_TOOL,
+)
 from quantaalpha.factors.loader.json_loader import (
     FactorExperimentLoaderFromDict,
 )
@@ -90,13 +99,20 @@ def classify_report_from_dict(
         for _ in range(vote_time):
             user_prompt = content
             system_prompt = classify_prompt
-            res = APIBackend().build_messages_and_create_chat_completion_json(
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
+            
+            api = APIBackend()
+            messages = api.build_messages(user_prompt=user_prompt, system_prompt=system_prompt)
+            
+            res = call_structured(
+                api,
+                messages,
+                tools=[REPORT_CLASSIFICATION_TOOL],
+                tool_choice="required",
+                task_type="report_classification",
             )
             try:
                 vote_list.append(int(res["class"]))
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, KeyError, ValueError):
                 logger.warning(f"Return value could not be parsed: {file_name}")
                 res_dict[file_name] = {"class": 0}
             count_0 = vote_list.count(0)
@@ -120,9 +136,11 @@ def __extract_factors_name_and_desc_from_content(
     extracted_factor_dict = {}
     current_user_prompt = content
 
-    for _ in range(10):
+    for round_idx in range(10):
         ret_dict = session.build_chat_completion_json(
             user_prompt=current_user_prompt,
+            tools=[REPORT_FACTOR_EXTRACTION_TOOL if round_idx == 0 else REPORT_FACTOR_CONTINUATION_TOOL],
+            tool_choice="required",
         )
         factors = ret_dict["factors"]
         if len(factors) == 0:
@@ -158,8 +176,10 @@ def __extract_factors_formulation_from_content(
     for _ in range(10):
         ret_dict = session.build_chat_completion_json(
             user_prompt=current_user_prompt,
+            tools=[REPORT_FORMULATION_EXTRACTION_TOOL],
+            tool_choice="required",
         )
-        for name, formulation_and_description in ret_dict.items():
+        for name, formulation_and_description in ret_dict.get("factors", ret_dict).items():
             if name in factor_dict:
                 factor_to_formulation[name] = formulation_and_description
         if len(factor_to_formulation) != len(factor_dict):
@@ -267,10 +287,18 @@ def merge_file_to_factor_dict_to_factor_dict(
 def __check_factor_dict_relevance(
     factor_df_string: str,
 ) -> dict[str, dict[str, str]]:
-    return APIBackend().build_messages_and_create_chat_completion_json(
+    api = APIBackend()
+    messages = api.build_messages(
         system_prompt=document_process_prompts["factor_relevance_system"],
         user_prompt=factor_df_string,
     )
+    return call_structured(
+        api,
+        messages,
+        tools=[FACTOR_RELEVANCE_TOOL],
+        tool_choice="required",
+        task_type="factor_relevance_check",
+    ).get("results", {})
 
 
 def check_factor_relevance(
@@ -308,10 +336,18 @@ def check_factor_relevance(
 def __check_factor_dict_viability_simulate_json_mode(
     factor_df_string: str,
 ) -> dict[str, dict[str, str]]:
-    return APIBackend().build_messages_and_create_chat_completion_json(
+    api = APIBackend()
+    messages = api.build_messages(
         system_prompt=document_process_prompts["factor_viability_system"],
         user_prompt=factor_df_string,
     )
+    return call_structured(
+        api,
+        messages,
+        tools=[FACTOR_VIABILITY_TOOL],
+        tool_choice="required",
+        task_type="factor_viability_check",
+    ).get("results", {})
 
 
 def check_factor_viability(
@@ -376,11 +412,14 @@ def __check_factor_duplication_simulate_json_mode(
         for _ in range(10):
             ret_dict = session.build_chat_completion_json(
                 user_prompt=current_factor_to_string,
+                tools=[FACTOR_DUPLICATION_TOOL],
+                tool_choice="required",
             )
-            if len(ret_dict) == 0:
+            duplicate_groups = ret_dict.get("duplicate_groups", [])
+            if len(duplicate_groups) == 0:
                 return generated_duplicated_groups
             else:
-                generated_duplicated_groups.extend(ret_dict)
+                generated_duplicated_groups.extend(duplicate_groups)
                 current_factor_to_string = """Continue to extract duplicated groups. If no more duplicated group found please respond empty dict."""
     return generated_duplicated_groups
 

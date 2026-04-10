@@ -18,7 +18,8 @@ from quantaalpha.contrib.model.coder.model import (
 )
 from quantaalpha.core.prompts import Prompts
 from quantaalpha.llm.config import LLM_SETTINGS
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured
+from quantaalpha.llm.tool_schemas import MODEL_CODE_GENERATION_TOOL
 
 coder_prompts = Prompts(file_path=Path(__file__).parent / "prompts.yaml")
 
@@ -87,11 +88,16 @@ class ModelMultiProcessEvolvingStrategy(MultiProcessEvolvingStrategy):
             elif len(queried_similar_successful_knowledge_to_render) > 1:
                 queried_similar_successful_knowledge_to_render = queried_similar_successful_knowledge_to_render[1:]
 
-        code = APIBackend(
-            use_chat_cache=CoSTEER_SETTINGS.coder_use_cache
-        ).build_messages_and_create_chat_completion_json(
+        api = APIBackend(use_chat_cache=CoSTEER_SETTINGS.coder_use_cache)
+        messages = api.build_messages(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
+        )
+        code = call_structured(
+            api,
+            messages,
+            tools=[MODEL_CODE_GENERATION_TOOL],
+            tool_choice="required",
         )["code"]
         return code
 

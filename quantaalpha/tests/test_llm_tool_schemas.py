@@ -25,13 +25,30 @@ class TestToolSchemas:
         assert "hypothesis" in params["required"]
 
     def test_all_mining_tools_list(self):
-        """ALL_MINING_TOOLS contains the three active schemas."""
-        from quantaalpha.llm.tool_schemas import ALL_MINING_TOOLS, PROPOSE_FACTORS_TOOL, CONSTRUCT_FACTORS_TOOL, FEEDBACK_TOOL
+        """ALL_MINING_TOOLS contains the three active schemas plus expanded business schemas."""
+        from quantaalpha.llm.tool_schemas import (
+            ALL_MINING_TOOLS,
+            PROPOSE_FACTORS_TOOL,
+            CONSTRUCT_FACTORS_TOOL,
+            FEEDBACK_TOOL,
+            CONSISTENCY_CHECK_TOOL,
+            FACTOR_EXTRACTION_TOOL,
+            REPORT_CLASSIFICATION_TOOL,
+            EVALUATOR_FINAL_DECISION_TOOL,
+            FACTOR_CORRECTION_TOOL,
+            KNOWLEDGE_COMPONENT_TOOL,
+        )
 
-        assert len(ALL_MINING_TOOLS) == 3
+        assert len(ALL_MINING_TOOLS) == 9
         assert PROPOSE_FACTORS_TOOL in ALL_MINING_TOOLS
         assert CONSTRUCT_FACTORS_TOOL in ALL_MINING_TOOLS
         assert FEEDBACK_TOOL in ALL_MINING_TOOLS
+        assert CONSISTENCY_CHECK_TOOL in ALL_MINING_TOOLS
+        assert FACTOR_EXTRACTION_TOOL in ALL_MINING_TOOLS
+        assert REPORT_CLASSIFICATION_TOOL in ALL_MINING_TOOLS
+        assert EVALUATOR_FINAL_DECISION_TOOL in ALL_MINING_TOOLS
+        assert FACTOR_CORRECTION_TOOL in ALL_MINING_TOOLS
+        assert KNOWLEDGE_COMPONENT_TOOL in ALL_MINING_TOOLS
 
 
 class TestSchemaSingleSource:
@@ -97,3 +114,37 @@ class TestSchemaSingleSource:
         assert PROPOSE_FACTORS_TOOL in ALL_MINING_TOOLS
         assert CONSTRUCT_FACTORS_TOOL in ALL_MINING_TOOLS
         assert FEEDBACK_TOOL in ALL_MINING_TOOLS
+
+
+class TestExpandedSchemas:
+    """Tests for newly added tool schemas for migrated business callers."""
+
+    def test_consistency_check_schema_structure(self):
+        """CONSISTENCY_CHECK_TOOL has correct structure."""
+        from quantaalpha.llm.tool_schemas import CONSISTENCY_CHECK_TOOL
+
+        assert CONSISTENCY_CHECK_TOOL["type"] == "function"
+        assert CONSISTENCY_CHECK_TOOL["function"]["name"] == "check_consistency"
+        params = CONSISTENCY_CHECK_TOOL["function"]["parameters"]
+        assert "is_consistent" in params["properties"]
+        assert "is_consistent" in params["required"]
+
+    def test_factor_extraction_schema_structure(self):
+        """FACTOR_EXTRACTION_TOOL has correct structure."""
+        from quantaalpha.llm.tool_schemas import FACTOR_EXTRACTION_TOOL
+
+        assert FACTOR_EXTRACTION_TOOL["type"] == "function"
+        assert FACTOR_EXTRACTION_TOOL["function"]["name"] == "extract_factors"
+        params = FACTOR_EXTRACTION_TOOL["function"]["parameters"]
+        assert "factors" in params["properties"]
+        assert "factors" in params["required"]
+
+    def test_evaluator_decision_schema_structure(self):
+        """EVALUATOR_FINAL_DECISION_TOOL has correct structure."""
+        from quantaalpha.llm.tool_schemas import EVALUATOR_FINAL_DECISION_TOOL
+
+        assert EVALUATOR_FINAL_DECISION_TOOL["type"] == "function"
+        assert EVALUATOR_FINAL_DECISION_TOOL["function"]["name"] == "final_decision"
+        params = EVALUATOR_FINAL_DECISION_TOOL["function"]["parameters"]
+        assert "passed" in params["properties"]
+        assert "passed" in params["required"]

@@ -31,8 +31,10 @@ from quantaalpha.core.scenario import Task
 from quantaalpha.log import logger
 from quantaalpha.llm.client import (
     APIBackend,
+    call_structured,
     calculate_embedding_distance_between_str_list,
 )
+from quantaalpha.llm.tool_schemas import KNOWLEDGE_COMPONENT_TOOL
 
 
 class CoSTEERKnowledge(Knowledge):
@@ -335,9 +337,16 @@ class CoSTEERRAGStrategyV2(RAGStrategy):
 
         analyze_component_user_prompt = target_task_information
         try:
-            component_no_list = APIBackend().build_messages_and_create_chat_completion_json(
+            api = APIBackend()
+            messages = api.build_messages(
                 system_prompt=analyze_component_system_prompt,
                 user_prompt=analyze_component_user_prompt,
+            )
+            component_no_list = call_structured(
+                api,
+                messages,
+                tools=[KNOWLEDGE_COMPONENT_TOOL],
+                tool_choice="required",
             )["component_no_list"]
             return [all_component_nodes[index - 1] for index in sorted(list(set(component_no_list)))]
         except:

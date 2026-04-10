@@ -17,7 +17,8 @@ from quantaalpha.factors.coder.factor import FactorFBWorkspace, FactorTask
 from quantaalpha.core.prompts import Prompts
 from quantaalpha.core.template import CodeTemplate
 from quantaalpha.llm.config import LLM_SETTINGS
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured
+from quantaalpha.llm.tool_schemas import FACTOR_CODE_GENERATION_TOOL, FACTOR_EXPR_CORRECTION_TOOL
 from quantaalpha.core.utils import multiprocessing_wrapper
 from quantaalpha.core.conf import RD_AGENT_SETTINGS
 
@@ -177,10 +178,16 @@ class FactorMultiProcessEvolvingStrategy(MultiProcessEvolvingStrategy):
                 queried_similar_error_knowledge_to_render = queried_similar_error_knowledge_to_render[:-1]
         for _ in range(10):
             try:
-                code = APIBackend(
-                    use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache
-                ).build_messages_and_create_chat_completion_json(
-                    user_prompt=user_prompt, system_prompt=system_prompt
+                api = APIBackend(use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache)
+                messages = api.build_messages(
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                )
+                code = call_structured(
+                    api,
+                    messages,
+                    tools=[FACTOR_CODE_GENERATION_TOOL],
+                    tool_choice="required",
                 )["code"]
                 return code
             except json.decoder.JSONDecodeError:
@@ -332,19 +339,26 @@ class FactorParsingStrategy(MultiProcessEvolvingStrategy):
             for _ in range(10):
                 try:
                     # Call API for new expression
-                    expr = APIBackend(
-                        use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache
-                    ).build_messages_and_create_chat_completion_json(
-                        user_prompt=user_prompt, system_prompt=system_prompt, reasoning_flag=False
+                    api = APIBackend(use_chat_cache=FACTOR_COSTEER_SETTINGS.coder_use_cache)
+                    messages = api.build_messages(
+                        user_prompt=user_prompt,
+                        system_prompt=system_prompt,
+                    )
+                    expr = call_structured(
+                        api,
+                        messages,
+                        reasoning_flag=False,
+                        tools=[FACTOR_EXPR_CORRECTION_TOOL],
+                        tool_choice="required",
                     )["expr"]
-                    
+
                     # Render code template with new expression
                     rendered_code = code_template.render(
-                        expression=expr, 
-                        factor_name=target_task.factor_name 
+                        expression=expr,
+                        factor_name=target_task.factor_name
                     )
                     return rendered_code
-                    
+
                 except json.decoder.JSONDecodeError:
                     pass  # JSON parse failed, retry
     

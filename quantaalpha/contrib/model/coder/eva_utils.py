@@ -10,7 +10,8 @@ from quantaalpha.core.evaluation import Evaluator
 from quantaalpha.core.experiment import Task, Workspace
 from quantaalpha.core.prompts import Prompts
 from quantaalpha.llm.config import LLM_SETTINGS
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured
+from quantaalpha.llm.tool_schemas import MODEL_FINAL_DECISION_TOOL
 
 evaluate_prompts = Prompts(file_path=Path(__file__).parent / "prompts.yaml")
 
@@ -171,14 +172,21 @@ class ModelFinalEvaluator(Evaluator):
             else:
                 break
 
-        final_evaluation_dict = APIBackend().build_messages_and_create_chat_completion_json(
+        final_api = APIBackend()
+        messages = final_api.build_messages(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
+        )
+        final_evaluation_dict = call_structured(
+            final_api,
+            messages,
+            tools=[MODEL_FINAL_DECISION_TOOL],
+            tool_choice="required",
         )
         if isinstance(final_evaluation_dict["final_decision"], str) and final_evaluation_dict[
             "final_decision"
         ].lower() in ("true", "false"):
-            final_evaluation_dict["final_decision"] = bool(final_evaluation_dict["final_decision"])
+            final_evaluation_dict["final_decision"] = final_evaluation_dict["final_decision"].lower() == "true"
         return (
             final_evaluation_dict["final_feedback"],
             final_evaluation_dict["final_decision"],

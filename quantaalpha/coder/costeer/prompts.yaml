@@ -4,7 +4,5 @@ analyze_component_prompt_v1_system: |-
   {{all_component_content}}
 
   You should find out what components does the new task have, and put their indices in a list.
-  Please response the critic in the json format. Here is an example structure for the JSON output, please strictly follow the format:
-  {
-      "component_no_list": the list containing indices of components.
-  }
+
+  (Fallback text extraction only: if not using structured tools, respond with a JSON object containing "component_no_list" (a list of component indices).)

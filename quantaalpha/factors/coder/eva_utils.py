@@ -12,7 +12,8 @@ from quantaalpha.factors.coder.factor import FactorTask
 from quantaalpha.core.experiment import Task, Workspace
 from quantaalpha.core.prompts import Prompts
 from quantaalpha.llm.config import LLM_SETTINGS
-from quantaalpha.llm.client import APIBackend
+from quantaalpha.llm.client import APIBackend, call_structured
+from quantaalpha.llm.tool_schemas import FACTOR_FINAL_DECISION_TOOL, FACTOR_OUTPUT_FORMAT_TOOL
 
 evaluate_prompts = Prompts(file_path=Path(__file__).parent / "prompts.yaml")
 qa_evaluate_prompts = Prompts(file_path=Path(__file__).parent / "qa_prompts.yaml")
@@ -206,7 +207,6 @@ class FactorOutputFormatEvaluator(FactorEvaluator):
             )
         )
 
-        # TODO: with retry_context(retry_n=3, except_list=[KeyError]):
         max_attempts = 3
         attempts = 0
         final_evaluation_dict = None
@@ -214,10 +214,17 @@ class FactorOutputFormatEvaluator(FactorEvaluator):
         while attempts < max_attempts:
             try:
                 api = APIBackend() if attempts == 0 else APIBackend(use_chat_cache=False)
-                resp_dict = api.build_messages_and_create_chat_completion_json(
-                    user_prompt=gen_df_info_str, 
-                    system_prompt=system_prompt, 
+                messages = api.build_messages(
+                    user_prompt=gen_df_info_str,
+                    system_prompt=system_prompt,
+                )
+                resp_dict = call_structured(
+                    api,
+                    messages,
+                    tools=[FACTOR_OUTPUT_FORMAT_TOOL],
+                    tool_choice="required",
                     reasoning_flag=False,
+                    seed=attempts,
                 )
                 resp_dict["output_format_decision"] = str(resp_dict["output_format_decision"]).lower() in ["true", "1"]
 
@@ -548,7 +555,7 @@ class FactorFinalDecisionEvaluator(FactorEvaluator):
             else:
                 break
 
-        # TODO:  with retry_context(retry_n=3, except_list=[KeyError]):
+        # Final evaluation via call_structured
         final_evaluation_dict = None
         attempts = 0
         max_attempts = 3
@@ -556,11 +563,17 @@ class FactorFinalDecisionEvaluator(FactorEvaluator):
         while attempts < max_attempts:
             try:
                 api = APIBackend() if attempts == 0 else APIBackend(use_chat_cache=False)
-                final_evaluation_dict = api.build_messages_and_create_chat_completion_json(
+                messages = api.build_messages(
                     user_prompt=user_prompt,
                     system_prompt=system_prompt,
+                )
+                final_evaluation_dict = call_structured(
+                    api,
+                    messages,
+                    tools=[FACTOR_FINAL_DECISION_TOOL],
+                    tool_choice="required",
                     reasoning_flag=False,
-                    seed=attempts,  # in case of useless retrying when cache enabled.
+                    seed=attempts,
                 )
                 final_decision = final_evaluation_dict["final_decision"]
                 final_feedback = final_evaluation_dict["final_feedback"]
