@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import types
@@ -50,6 +51,48 @@ spec.loader.exec_module(library_mod)
 
 
 class TestFactorLibraryLocking(unittest.TestCase):
+    def test_add_factors_from_experiment_persists_new_factors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lib_path = Path(tmp) / "lib.json"
+            lib_path.write_text(
+                json.dumps({"metadata": {}, "factors": {}}), encoding="utf-8"
+            )
+
+            class Task:
+                factor_name = "ExperimentFactor"
+                factor_expression = "$close"
+                factor_description = "from experiment"
+                factor_formulation = ""
+
+            class Experiment:
+                sub_tasks = [Task()]
+                sub_workspace_list = []
+
+            manager = library_mod.FactorLibraryManager(str(lib_path))
+            manager.add_factors_from_experiment(Experiment())
+
+            with open(lib_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            self.assertEqual(len(loaded["factors"]), 1)
+
+    def test_save_preserves_group_read_write_permission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lib_path = Path(tmp) / "lib.json"
+            lib_path.write_text(
+                json.dumps({"metadata": {}, "factors": {}}), encoding="utf-8"
+            )
+            manager = library_mod.FactorLibraryManager(str(lib_path))
+            manager.upsert_factor(
+                {
+                    "factor_id": "group_perm",
+                    "factor_name": "GroupPerm",
+                    "factor_expression": "$close",
+                }
+            )
+
+            mode = os.stat(lib_path).st_mode & 0o777
+            self.assertEqual(mode & 0o060, 0o060)
+
     def test_save_is_atomic(self):
         with tempfile.TemporaryDirectory() as tmp:
             lib_path = Path(tmp) / "lib.json"
@@ -64,6 +107,8 @@ class TestFactorLibraryLocking(unittest.TestCase):
                 "evaluation": {"status": "active", "stability_score": 0.5},
                 "metadata": {"evolution_phase": "original"},
             }
+            manager._dirty = True
+            manager._dirty_factor_ids.add("test_f1")
             manager._save()
             with open(lib_path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
@@ -91,6 +136,8 @@ class TestFactorLibraryLocking(unittest.TestCase):
                         "evaluation": {"status": "active", "stability_score": 0.5},
                         "metadata": {"evolution_phase": "original"},
                     }
+                    mgr._dirty = True
+                    mgr._dirty_factor_ids.add(f"concurrent_f{manager_idx}")
                     mgr._save()
                     with count_lock:
                         saved_count[0] += 1
@@ -137,6 +184,8 @@ class TestFactorLibraryLocking(unittest.TestCase):
                 "evaluation": {"status": "active"},
                 "metadata": {"evolution_phase": "original"},
             }
+            mgr._dirty = True
+            mgr._dirty_factor_ids.add("locktest")
             mgr._save()
             second_fd = mgr._acquire_lock()
             try:

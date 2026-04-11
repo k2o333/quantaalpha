@@ -65,13 +65,6 @@ class FactorLibraryManager:
     """Manage unified factor library (CRUD) with locking and audit support."""
 
     _lock_dir = Path(tempfile.gettempdir()) / "quantaalpha_locks"
-    _initialized = False
-
-    @classmethod
-    def _ensure_lock_dir(cls):
-        if not cls._initialized:
-            cls._lock_dir.mkdir(parents=True, exist_ok=True)
-            cls._initialized = True
 
     def __init__(self, library_path: str):
         self.library_path = Path(library_path)
@@ -81,9 +74,13 @@ class FactorLibraryManager:
         self._last_save_time = None
 
     def _acquire_lock(self):
-        self._ensure_lock_dir()
-        lock_file = self._lock_dir / f"{self.library_path.name}.lock"
+        self.library_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_file = self.library_path.parent / f".{self.library_path.name}.lock"
         lock_fd = open(lock_file, "w")
+        try:
+            os.chmod(lock_file, 0o664)
+        except OSError:
+            logger.debug("Unable to chmod lock file %s", lock_file, exc_info=True)
         fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
         return lock_fd
 
@@ -134,6 +131,7 @@ class FactorLibraryManager:
             tmp_path = Path(tmp_path_str)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(merged_data, f, ensure_ascii=False, indent=2, default=str)
+            os.chmod(tmp_path, 0o664)
             os.replace(tmp_path, self.library_path)
             self.data = merged_data
 
@@ -324,6 +322,8 @@ class FactorLibraryManager:
                 )
 
             self.data["factors"][factor_id] = factor_entry
+            self._dirty = True
+            self._dirty_factor_ids.add(factor_id)
 
             if factor_expr and cache_location.get("result_h5_path"):
                 self._sync_h5_to_md5_cache(
