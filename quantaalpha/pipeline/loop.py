@@ -61,6 +61,93 @@ def stop_event_check(func):
     return wrapper
 
 
+def save_factors_to_parquet(
+    experiment,
+    parquet_store_path: str,
+    experiment_id: str = "unknown",
+    round_number: int = 0,
+    hypothesis=None,
+    feedback=None,
+    initial_direction=None,
+    user_initial_direction=None,
+    planning_direction=None,
+    evolution_phase: str = "original",
+    trajectory_id: str = "",
+    parent_trajectory_ids: list = None,
+):
+    """Save factors from experiment to Parquet factor library.
+
+    This is the Parquet-native write path that replaces JSON factor library saves.
+    Each factor is written as a delta shard with atomic publication.
+
+    Args:
+        experiment: Experiment object with sub_tasks and sub_workspace_list.
+        parquet_store_path: Path to the Parquet factor store directory.
+        experiment_id: Experiment identifier.
+        round_number: Mining round number.
+        hypothesis: Hypothesis text.
+        feedback: Feedback object.
+        initial_direction: Initial direction string.
+        user_initial_direction: User initial direction string.
+        planning_direction: Planning direction string.
+        evolution_phase: Evolution phase (original/mutation/crossover).
+        trajectory_id: Trajectory identifier.
+        parent_trajectory_ids: List of parent trajectory identifiers.
+    """
+    from quantaalpha.factors.parquet_library import ParquetFactorLibrary
+
+    if experiment is None:
+        logger.warning("experiment is None, skip saving factors")
+        return
+
+    library = ParquetFactorLibrary(store_path=parquet_store_path)
+    now_iso = datetime.datetime.now().isoformat()
+
+    sub_tasks = getattr(experiment, "sub_tasks", []) or []
+    sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
+
+    for idx, task in enumerate(sub_tasks):
+        factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
+        factor_expr = getattr(task, "factor_expression", "")
+        factor_desc = getattr(task, "factor_description", getattr(task, "description", ""))
+
+        factor_id = hashlib.md5(f"{factor_name}_{factor_expr}".encode()).hexdigest()[:16]
+        expression_hash = hashlib.sha256(factor_expr.encode()).hexdigest()[:16]
+
+        metadata = {
+            "experiment_id": experiment_id,
+            "round_number": round_number,
+            "evolution_phase": evolution_phase,
+            "trajectory_id": trajectory_id,
+            "parent_trajectory_ids": parent_trajectory_ids or [],
+            "hypothesis": str(hypothesis) if hypothesis else "",
+            "initial_direction": initial_direction or "",
+            "planning_direction": planning_direction or "",
+            "created_at": now_iso,
+            "factor_description": factor_desc,
+        }
+
+        entry = {
+            "factor_id": factor_id,
+            "factor_name": factor_name,
+            "factor_expression": factor_expr,
+            "factor_expression_normalized": factor_expr,
+            "expression_hash": expression_hash,
+            "evaluation_status": "pending_validation",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "sequence": round_number,
+            "op": "upsert",
+            "tags_json": json.dumps([]),
+            "metadata_json": json.dumps(metadata),
+            "backtest_results_json": json.dumps({}),
+        }
+
+        library.write_factor_delta(entry)
+
+    logger.info(f"Saved {len(sub_tasks)} factors to Parquet store: {parquet_store_path}")
+
+
 class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     skip_loop_error = (FactorEmptyError,)
 
@@ -486,11 +573,10 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             retry_factors = self._get_factors_for_retry()
             logger.info(f"Next round will retry {len(retry_factors)} failed factors")
 
-        # Auto-save factors to unified factor library
+        # Auto-save factors to unified factor library (Parquet-native)
         try:
             import os
             from pathlib import Path
-            from quantaalpha.factors.library import FactorLibraryManager
 
             # Project root: loop.py -> pipeline/ -> quantaalpha/ -> project_root/
             project_root = Path(__file__).resolve().parent.parent.parent
@@ -516,18 +602,14 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             trajectory_id = getattr(self, "trajectory_id", "")
             parent_trajectory_ids = getattr(self, "parent_trajectory_ids", [])
 
-            # Factor library filename can be customized via env FACTOR_LIBRARY_SUFFIX
-            library_suffix = os.environ.get("FACTOR_LIBRARY_SUFFIX", "")
-            if library_suffix:
-                library_filename = f"all_factors_library_{library_suffix}.json"
-            else:
-                library_filename = "all_factors_library.json"
+            # Use Parquet store for factor library
             factorlib_dir = project_root / "data" / "factorlib"
             factorlib_dir.mkdir(parents=True, exist_ok=True)
-            library_path = factorlib_dir / library_filename
-            manager = FactorLibraryManager(str(library_path))
-            manager.add_factors_from_experiment(
+            parquet_store_path = factorlib_dir / "parquet_store"
+
+            save_factors_to_parquet(
                 experiment=prev_out["factor_backtest"],
+                parquet_store_path=str(parquet_store_path),
                 experiment_id=experiment_id,
                 round_number=round_number,
                 hypothesis=hypothesis_text,
@@ -539,9 +621,9 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 trajectory_id=trajectory_id,
                 parent_trajectory_ids=parent_trajectory_ids,
             )
-            logger.info(f"Saved factors to library: {library_path} (phase={evolution_phase})")
+            logger.info(f"Saved factors to Parquet store: {parquet_store_path} (phase={evolution_phase})")
         except Exception as e:
-            logger.warning(f"Failed to save factors to library: {e}")
+            logger.warning(f"Failed to save factors to Parquet store: {e}")
 
     def _generate_factor_id(self, factor_name: str, factor_expression: str) -> str:
         """Generate a unique factor ID from name and expression."""

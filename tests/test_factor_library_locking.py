@@ -9,6 +9,7 @@ import unittest
 import threading
 import time
 import unittest.mock
+import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,22 +17,25 @@ PKG_ROOT = ROOT / "quantaalpha"
 
 
 def _ensure_stubs():
-    if "pandas" not in sys.modules:
+    if "pandas" not in sys.modules and importlib.util.find_spec("pandas") is None:
         stub = types.ModuleType("pandas")
         stub.Series = type("Series", (), {})
         stub.DataFrame = type("DataFrame", (), {})
         stub.read_hdf = lambda *a, **k: None
         sys.modules["pandas"] = stub
-    if "numpy" not in sys.modules:
+    if "numpy" not in sys.modules and importlib.util.find_spec("numpy") is None:
         np_stub = types.ModuleType("numpy")
         np_stub.inf = float("inf")
         np_stub.nan = float("nan")
         np_stub.floating = (float,)
         np_stub.isnan = lambda x: False
         np_stub.isinf = lambda x: False
+        np_stub.isscalar = lambda x: isinstance(x, (int, float, complex, bool, str, bytes))
         sys.modules["numpy"] = np_stub
     if "quantaalpha" not in sys.modules:
-        sys.modules["quantaalpha"] = types.ModuleType("quantaalpha")
+        pkg = types.ModuleType("quantaalpha")
+        pkg.__path__ = [str(PKG_ROOT)]
+        sys.modules["quantaalpha"] = pkg
     if "quantaalpha.factors" not in sys.modules:
         pkg = types.ModuleType("quantaalpha.factors")
         pkg.__path__ = [str(PKG_ROOT / "factors")]
@@ -39,8 +43,6 @@ def _ensure_stubs():
 
 
 _ensure_stubs()
-
-import importlib.util
 
 spec = importlib.util.spec_from_file_location(
     "quantaalpha.factors.library", PKG_ROOT / "factors" / "library.py"

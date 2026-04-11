@@ -1,14 +1,10 @@
 import pandas as pd
 import numpy as np
 from typing import Tuple, List, Dict, Any, Optional
+from pathlib import Path
 from quantaalpha.core.evaluation import Evaluator
 from quantaalpha.log import logger
 from quantaalpha.core.scenario import Scenario
-from quantaalpha.factors.coder.factor_ast import (
-    match_alphazoo, count_free_args, count_unique_vars, count_all_nodes,
-    calculate_symbol_length, count_base_features
-)
-from quantaalpha.factors.coder.expr_parser import parse_expression
 
 class FactorRegulator(Evaluator):
     """
@@ -16,7 +12,7 @@ class FactorRegulator(Evaluator):
     This class provides functionality to detect duplicated subtrees in factor expressions
     and ensure new factors maintain appropriate originality.
     """
-    
+
     def __init__(self, factor_zoo_path: str = None, duplication_threshold: int = 8,
                  symbol_length_threshold: int = 300, base_features_threshold: int = 6,
                  similarity_engine = None):
@@ -24,7 +20,8 @@ class FactorRegulator(Evaluator):
         Initialize the FactorRegulator with a reference to the factor zoo database.
 
         Args:
-            factor_zoo_path (str): Path to the CSV file containing the factor zoo database.
+            factor_zoo_path (str): Path to the CSV file containing the factor zoo database,
+                                   or path to a Parquet factor store directory.
             duplication_threshold (int): Threshold for duplication detection.
             symbol_length_threshold (int): Maximum allowed symbol length (SL) for expressions.
             base_features_threshold (int): Maximum allowed number of unique base features (ER).
@@ -33,7 +30,7 @@ class FactorRegulator(Evaluator):
         super().__init__(None)
         self.factor_zoo_path = factor_zoo_path
         if factor_zoo_path:
-            self.alphazoo = pd.read_csv(factor_zoo_path, index_col=None)
+            self.alphazoo = self._load_factor_zoo(factor_zoo_path)
         else:
             self.alphazoo = pd.DataFrame()
         self.duplication_threshold = duplication_threshold
@@ -43,20 +40,71 @@ class FactorRegulator(Evaluator):
         self._similarity_engine = similarity_engine
         if similarity_engine:
             logger.info("SimilarityEngine injected into FactorRegulator")
+
+    def _load_factor_zoo(self, path: str) -> pd.DataFrame:
+        """Load factor zoo from CSV or Parquet store.
+
+        Args:
+            path: Path to CSV file or Parquet factor store directory.
+
+        Returns:
+            DataFrame with factor_name and factor_expression columns.
+        """
+        path_obj = Path(path)
+
+        # Check if this is a Parquet store directory
+        if path_obj.is_dir():
+            return self._load_from_parquet_store(str(path_obj))
+
+        # Legacy CSV path
+        if path_obj.exists():
+            return pd.read_csv(str(path_obj), index_col=None)
+
+        return pd.DataFrame()
+
+    def _load_from_parquet_store(self, store_path: str) -> pd.DataFrame:
+        """Load factors from Parquet factor store.
+
+        Args:
+            store_path: Path to the Parquet factor store directory.
+
+        Returns:
+            DataFrame with factor_name, factor_expression columns.
+        """
+        try:
+            # Lazy import to avoid circular dependency
+            from quantaalpha.factors.parquet_library import ParquetFactorLibrary
+            library = ParquetFactorLibrary(store_path=store_path)
+            df = library.read_factor_library()
+
+            if df is None or df.is_empty():
+                return pd.DataFrame()
+
+            # Convert to pandas and select required columns
+            pdf = df.to_pandas()
+            # Ensure we have the required columns
+            if "factor_name" in pdf.columns and "factor_expression" in pdf.columns:
+                return pdf[["factor_name", "factor_expression"]].copy()
+
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"Failed to load Parquet factor store: {e}")
+            return pd.DataFrame()
         
     
         
     def is_parsable(self, expression: str) -> bool:
         """
         Checks if an expression can be successfully parsed.
-        
+
         Args:
             expression (str): The factor expression to check.
-            
+
         Returns:
             bool: True if the expression can be parsed, False otherwise.
         """
         try:
+            from quantaalpha.factors.coder.expr_parser import parse_expression
             parse_expression(expression)
             return True
         except Exception as e:
@@ -79,6 +127,12 @@ class FactorRegulator(Evaluator):
                 - matched_alpha (str or None): Name of the matched alpha if available
         """
         try:
+            # Lazy import to avoid circular dependency
+            from quantaalpha.factors.coder.factor_ast import (
+                match_alphazoo, count_free_args, count_unique_vars, count_all_nodes,
+                calculate_symbol_length, count_base_features
+            )
+            
             # Check for duplication
             duplicated_subtree_size, duplicated_subtree, matched_alpha = match_alphazoo(
                 expression, self.alphazoo
