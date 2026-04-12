@@ -176,6 +176,79 @@ class TestToolCallResponseParsing:
         assert result[2][0]["id"] == "call_abc123"
         assert result[2][0]["function"]["name"] == "propose_factors"
 
+    def test_non_streaming_tool_calls_with_none_content_not_logged_as_empty_response(self, capsys):
+        """Non-streaming tool-call response with content=None must not log 'Empty LLM response'."""
+        import logging
+        from unittest.mock import patch
+
+        backend = self._make_backend()
+
+        tool_call_mock = MagicMock()
+        tool_call_mock.id = "call_xyz789"
+        tool_call_mock.function.name = "propose_factors"
+        tool_call_mock.function.arguments = '{"factors": [{"factor_name": "test2", "factor_expression": "ts_std(close, 10)"}]}'
+
+        message_mock = MagicMock()
+        message_mock.content = None
+        message_mock.tool_calls = [tool_call_mock]
+
+        choice_mock = MagicMock()
+        choice_mock.message = message_mock
+        choice_mock.finish_reason = "tool_calls"
+
+        mock_response = MagicMock()
+        mock_response.choices = [choice_mock]
+        backend.chat_client.chat.completions.create.return_value = mock_response
+
+        messages = [{"role": "user", "content": "propose factors"}]
+        tools = [{"type": "function", "function": {"name": "propose_factors"}}]
+
+        # Patch the actual loguru logger used in client.py so we can intercept
+        # warning/info calls regardless of caplog incompatibility with loguru.
+        logged_messages = []
+
+        def capture_warning(msg, *args, **kwargs):
+            logged_messages.append(("warning", str(msg)))
+
+        def capture_info(msg, *args, **kwargs):
+            logged_messages.append(("info", str(msg)))
+
+        with (
+            patch("quantaalpha.llm.client.logger.warning", side_effect=capture_warning),
+            patch("quantaalpha.llm.client.logger.info", side_effect=capture_info),
+            patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings,
+        ):
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_auto_chat_cache_seed_gen = False
+            result = backend._create_chat_completion_inner_function(
+                messages=messages,
+                reasoning_flag=False,
+                tools=tools,
+            )
+
+        # Assert finish_reason and tool_calls are correctly returned
+        assert result[1] == "tool_calls"
+        assert result[2] is not None
+        assert len(result[2]) == 1
+        assert result[2][0]["function"]["name"] == "propose_factors"
+        assert "ts_std" in result[2][0]["function"]["arguments"]
+
+        # Assert no WARNING log contains the misleading "Empty LLM response" phrase
+        for level, msg in logged_messages:
+            assert "Empty LLM response" not in msg, (
+                f"Must not log 'Empty LLM response' for tool-call with None content: {msg}"
+            )
+
+        # Assert a diagnostic about tool_calls and content exists at INFO level
+        tool_call_diagnostics = [
+            msg for level, msg in logged_messages
+            if level == "info" and ("tool_call" in msg.lower() or "content" in msg.lower())
+        ]
+        assert len(tool_call_diagnostics) > 0, (
+            f"Expected a diagnostic log about tool_calls/content when tool calls present with None content. "
+            f"Logged messages: {logged_messages}"
+        )
+
 
 class TestBuildMessagesToolRole:
     """Tests for tool role in build_messages."""

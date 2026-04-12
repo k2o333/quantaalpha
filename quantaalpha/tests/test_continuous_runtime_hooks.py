@@ -3496,3 +3496,131 @@ class TestPhase8ProductionReadiness:
         # Stop reason should be set (not crash)
         assert trace["stop_reason"] is not None, "stop_reason should be set"
         assert isinstance(trace["stop_reason"], str), "stop_reason should be a string"
+
+
+def test_parquet_revalidation_respects_days_threshold_before_limit():
+    """Prove parquet candidate selection filters by revalidation_days_threshold before max_revalidation_per_run truncation."""
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import MagicMock, patch
+    import json
+
+    from quantaalpha.continuous.main import (
+        ContinuousOrchestrator,
+        _filter_parquet_candidates_by_days_threshold,
+    )
+
+    now = datetime.now()
+    one_day_ago = (now - timedelta(days=1)).isoformat()
+    thirty_days_ago = (now - timedelta(days=30)).isoformat()
+    now_iso = now.isoformat()
+
+    # Create mock parquet records equivalent to:
+    # new_today: created_at=now, empty metadata_json
+    # validated_yesterday: metadata_json.last_validated=one_day_ago
+    # stale: metadata_json.last_validated=thirty_days_ago
+    mock_records = [
+        {
+            "factor_id": "new_today",
+            "factor_name": "New Today",
+            "factor_expression": "$close",
+            "evaluation_status": "active",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "metadata_json": "{}",
+        },
+        {
+            "factor_id": "validated_yesterday",
+            "factor_name": "Validated Yesterday",
+            "factor_expression": "$open",
+            "evaluation_status": "active",
+            "created_at": thirty_days_ago,
+            "updated_at": one_day_ago,
+            "metadata_json": json.dumps({"last_validated": one_day_ago}),
+        },
+        {
+            "factor_id": "stale",
+            "factor_name": "Stale Factor",
+            "factor_expression": "$volume",
+            "evaluation_status": "active",
+            "created_at": thirty_days_ago,
+            "updated_at": thirty_days_ago,
+            "metadata_json": json.dumps({"last_validated": thirty_days_ago}),
+        },
+    ]
+
+    # Test the helper directly first
+    due = _filter_parquet_candidates_by_days_threshold(
+        mock_records, days_threshold=21, now=now
+    )
+    due_ids = [r["factor_id"] for r in due]
+    assert "stale" in due_ids, f"stale should be due (30 days > 21 threshold), got {due_ids}"
+    assert "new_today" not in due_ids, f"new_today should NOT be due (just created), got {due_ids}"
+    assert "validated_yesterday" not in due_ids, f"validated_yesterday should NOT be due (1 day < 21 threshold), got {due_ids}"
+
+    # Now exercise the real parquet candidate selection path in ContinuousOrchestrator._run_revalidation
+    # by mocking FactorStoreFacade to return our mock records.
+    captured_candidates = []
+
+    class MockOrchestrator:
+        """Minimal mock that captures candidates passed to run_revalidation_cycle."""
+
+        def __init__(self):
+            self._captured_candidates = []
+
+        def run_revalidation_cycle(self, candidates=None):
+            self._captured_candidates = candidates or []
+            from quantaalpha.continuous.scheduler import RevalidationResult
+            return RevalidationResult()
+
+    # Build a mock config with the required settings
+    mock_config = MagicMock()
+    mock_config.factor.library_backend = "parquet"
+    mock_config.factor.parquet_library_dir = "/tmp/test_parquet_store"
+    mock_config.validation.max_revalidation_per_run = 1
+    mock_config.revalidation_days_threshold = 21
+
+    mock_impact_classifier = MagicMock()
+
+    # Create the real ContinuousOrchestrator with mocked dependencies
+    orchestrator = MagicMock(spec=ContinuousOrchestrator)
+    orchestrator.config = mock_config
+    orchestrator._impact_classifier = mock_impact_classifier
+    orchestrator._bridge = None
+    orchestrator._orchestrator = MockOrchestrator()
+
+    # Mock FactorStoreFacade.read_effective_factor_records to return our records
+    with patch("quantaalpha.factors.factor_store_facade.FactorStoreFacade") as mock_facade_class:
+        mock_facade = MagicMock()
+        mock_facade.read_effective_factor_records.return_value = mock_records
+        mock_facade_class.return_value = mock_facade
+
+        # Call the real _run_revalidation method
+        from quantaalpha.continuous.main import ContinuousOrchestrator as RealOrchestrator
+
+        # We need to call the real method but with our mocked orchestrator
+        # Use the real _run_revalidation logic by creating a minimal test instance
+        real_orchestrator = object.__new__(RealOrchestrator)
+        real_orchestrator.config = mock_config
+        real_orchestrator._impact_classifier = mock_impact_classifier
+        real_orchestrator._bridge = None
+        real_orchestrator._orchestrator = orchestrator._orchestrator
+
+        result = real_orchestrator._run_revalidation()
+
+    # The captured candidates should only contain 'stale'
+    captured = orchestrator._orchestrator._captured_candidates
+    captured_ids = [c.get("factor_id") for c in captured]
+
+    assert "stale" in captured_ids, (
+        f"stale factor must be present in candidates passed to orchestrator, got {captured_ids}"
+    )
+    assert "new_today" not in captured_ids, (
+        f"new_today must NOT be present in candidates (filtered out by days threshold), got {captured_ids}"
+    )
+    assert "validated_yesterday" not in captured_ids, (
+        f"validated_yesterday must NOT be present in candidates (filtered out by days threshold), got {captured_ids}"
+    )
+    # With max_revalidation_per_run=1, only stale should be there (1 item)
+    assert len(captured) <= 1, (
+        f"candidates must be truncated to max_revalidation_per_run=1 after days filtering, got {len(captured)} items: {captured_ids}"
+    )

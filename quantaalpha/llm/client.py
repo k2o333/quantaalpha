@@ -1428,7 +1428,14 @@ class APIBackend:
 
                 # Check for None response
                 if resp is None:
-                    logger.warning(f"Empty LLM response for model {model} (non-streaming), returning empty string")
+                    if tool_calls_result:
+                        logger.info(
+                            f"[llm] Tool-call response has empty content; "
+                            f"using tool_calls arguments. model={model}, "
+                            f"tool_calls_count={len(tool_calls_result)}"
+                        )
+                    else:
+                        logger.warning(f"Empty LLM response for model {model} (non-streaming), returning empty string")
                     resp = ""
 
                 if LLM_SETTINGS.log_llm_chat_content:

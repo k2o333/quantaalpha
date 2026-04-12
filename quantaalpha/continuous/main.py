@@ -43,6 +43,126 @@ logger = logging.getLogger(__name__)
 _stop_event = threading.Event()
 
 
+def _parse_timestamp(value: Optional[str], factor_id: str) -> Optional[datetime]:
+    """Parse a timestamp string into a datetime object.
+
+    Handles ISO 8601 formats with or without timezone info.
+    Returns None if the value cannot be parsed.
+    """
+    if not value:
+        return None
+
+    try:
+        from dateutil import parser as dateutil_parser
+
+        return dateutil_parser.parse(value)
+    except (ValueError, TypeError, ImportError):
+        logger.debug(
+            f"revalidation.candidate.days_filter: factor={factor_id} "
+            f"reason=timestamp_parse_failed value={value!r}"
+        )
+        return None
+
+
+def _filter_parquet_candidates_by_days_threshold(
+    all_records: list[dict],
+    days_threshold: int,
+    now: Optional[datetime] = None,
+) -> list[dict]:
+    """Filter parquet factor records by revalidation days threshold.
+
+    Only returns factors that are due for revalidation based on their
+    last validation time or creation/update time.
+
+    Rules:
+    - If metadata_json.last_validated exists and parses, the factor is due
+      only when now - last_validated >= days_threshold.
+    - If last_validated does not exist, use created_at or updated_at as a
+      freshness fallback; the factor is due only when
+      now - created_or_updated >= days_threshold.
+    - If metadata JSON cannot parse, or no usable time is present, treat
+      the factor as due and log a warning.
+    - Timezone-aware and timezone-naive timestamps are normalized before
+      comparison to avoid crashes on mixed timezone inputs.
+
+    Args:
+        all_records: List of factor record dicts from
+            FactorStoreFacade.read_effective_factor_records().
+        days_threshold: Number of days after which a factor is considered
+            due for revalidation.
+        now: Current time for comparison. Defaults to datetime.now().
+
+    Returns:
+        List of candidate dicts that are due for revalidation.
+    """
+    from datetime import timedelta, timezone
+    import json
+
+    now = now or datetime.now()
+    # Normalize now to naive UTC if timezone-aware
+    if now.tzinfo is not None:
+        now = now.astimezone(timezone.utc).replace(tzinfo=None)
+
+    threshold_delta = timedelta(days=days_threshold)
+    candidates = []
+
+    for record in all_records:
+        factor_id = record.get("factor_id", "")
+        metadata_raw = record.get("metadata_json", "")
+
+        # Try to parse metadata_json
+        if metadata_raw:
+            try:
+                if isinstance(metadata_raw, str):
+                    metadata = json.loads(metadata_raw)
+                elif isinstance(metadata_raw, dict):
+                    metadata = metadata_raw
+                else:
+                    metadata = {}
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    f"revalidation.candidate.days_filter: factor={factor_id} "
+                    f"reason=metadata_json_parse_failed action=include_as_due"
+                )
+                candidates.append(record)
+                continue
+        else:
+            metadata = {}
+
+        # Try last_validated first
+        last_validated_str = metadata.get("last_validated") if metadata else None
+        parsed_time = _parse_timestamp(last_validated_str, factor_id)
+
+        if parsed_time is None:
+            # Fall back to created_at or updated_at
+            created_at_str = record.get("created_at")
+            parsed_time = _parse_timestamp(created_at_str, factor_id)
+
+        if parsed_time is None:
+            updated_at_str = record.get("updated_at")
+            parsed_time = _parse_timestamp(updated_at_str, factor_id)
+
+        if parsed_time is None:
+            # No usable time found — treat as due
+            logger.debug(
+                f"revalidation.candidate.days_filter: factor={factor_id} "
+                f"reason=no_usable_timestamp action=include_as_due"
+            )
+            candidates.append(record)
+            continue
+
+        # Normalize parsed_time to naive UTC if timezone-aware
+        if parsed_time.tzinfo is not None:
+            parsed_time = parsed_time.astimezone(timezone.utc).replace(tzinfo=None)
+
+        # Check if due
+        elapsed = now - parsed_time
+        if elapsed >= threshold_delta:
+            candidates.append(record)
+
+    return candidates
+
+
 def _setup_logging(verbose: bool = False) -> None:
     """Configure logging for the continuous runtime."""
     level = logging.DEBUG if verbose else logging.INFO
@@ -813,9 +933,20 @@ class ContinuousOrchestrator:
                 if backend == "parquet":
                     # Parquet backend: use FactorStoreFacade for candidates
                     from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
                     facade = FactorStoreFacade(store_path=self.config.factor.parquet_library_dir)
                     all_records = facade.read_effective_factor_records()
-                    # Simple candidate selection: all factors
+
+                    # Filter by revalidation days threshold BEFORE applying limit
+                    days_threshold = getattr(self.config, "revalidation_days_threshold", 21)
+                    due_records = _filter_parquet_candidates_by_days_threshold(
+                        all_records, days_threshold=days_threshold
+                    )
+                    logger.info(
+                        f"Parquet revalidation: {len(due_records)} of {len(all_records)} factors due for revalidation (threshold={days_threshold}d)"
+                    )
+
+                    # Build candidate dicts from filtered records
                     candidates = [
                         {
                             "factor_id": r.get("factor_id", ""),
@@ -823,8 +954,8 @@ class ContinuousOrchestrator:
                             "factor_expression": r.get("factor_expression", ""),
                             "evaluation": {"status": r.get("evaluation_status", "unknown")},
                         }
-                        for r in all_records
-                    ][:self.config.validation.max_revalidation_per_run]
+                        for r in due_records
+                    ][: self.config.validation.max_revalidation_per_run]
                     candidate_count = len(candidates)
                     candidate_source = "parquet_facade"
                     logger.info(f"Parquet facade selected {candidate_count} revalidation candidates")

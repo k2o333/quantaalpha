@@ -1469,3 +1469,30 @@ factor:
         assert scheduler_config.factor.library_backend == "parquet"
         assert scheduler_config.factor.parquet_library_dir == "third_party/quantaalpha/data/factorlib/parquet_store"
         assert scheduler_config.factor.parquet_compact.delta_file_threshold == 7
+
+
+def test_pipeline_yaml_declares_distinct_revalidation_and_mining_quality_gate_min_ic():
+    """Parse real pipeline.yaml and assert distinct revalidation vs mining IC thresholds."""
+    import yaml
+
+    from quantaalpha.continuous.scheduler import PipelineConfig, SchedulerConfig
+
+    path = Path("/home/quan/testdata/aspipe_v4/config/pipeline.yaml")
+    raw = yaml.safe_load(path.read_text())
+
+    # Raw YAML assertions
+    assert raw["validation"]["min_ic"] == 0.02
+    assert raw["mining"]["quality_gate"]["min_ic"] == 0.02
+    assert raw["mining"]["quality_gate"]["min_rank_ic"] == 0.03
+    assert raw["mining"]["quality_gate"]["max_correlation"] == 0.7
+    assert raw["mining"]["quality_gate"]["min_sharpe"] == 0.3
+
+    # Parsed PipelineConfig assertions
+    cfg = PipelineConfig.from_yaml(str(path))
+    assert cfg.validation.min_ic == 0.02
+    assert cfg.mining.quality_gate.min_ic == 0.02
+
+    # SchedulerConfig assertions
+    sched = SchedulerConfig.from_pipeline_config(cfg)
+    assert sched.min_ic == 0.02
+    assert sched.mining.quality_gate.min_ic == 0.02

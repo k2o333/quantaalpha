@@ -40,6 +40,46 @@ class TestFactorConstructRejectsEmptyExperiment:
         with pytest.raises(FactorEmptyError, match="[Nn]o.*factor|[Ee]mpty|[Nn]o.*sub_task|[Nn]o.*task"):
             AlphaAgentLoop.factor_construct(loop, prev_out)
 
+    def test_factor_construct_empty_experiment_error_includes_diagnostic_context(self):
+        """FactorEmptyError for empty sub_tasks must include diagnostic context fields."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.core.exception import FactorEmptyError
+        _ensure_stop_event_in_module()
+
+        loop = object.__new__(AlphaAgentLoop)
+        loop.factor_constructor = MagicMock()
+        loop._failure_tracker = MagicMock()
+        loop._failure_tracker._round_in_progress = False
+        loop.trace = MagicMock()
+        loop._step_model_routing = {}
+
+        mock_experiment = MagicMock()
+        mock_experiment.sub_tasks = []
+        loop.factor_constructor.convert.return_value = mock_experiment
+
+        # Pass a non-empty hypothesis object
+        prev_out = {"factor_propose": MagicMock(spec=["hypothesis"])}
+        prev_out["factor_propose"].hypothesis = "test hypothesis about volume-price divergence"
+
+        with pytest.raises(FactorEmptyError) as exc_info:
+            AlphaAgentLoop.factor_construct(loop, prev_out)
+
+        error_message = str(exc_info.value)
+
+        # Assert required diagnostic fields are in the error message
+        assert "Factor constructor returned no sub_tasks" in error_message, (
+            f"Error must state 'Factor constructor returned no sub_tasks', got: {error_message}"
+        )
+        assert "converter=convert" in error_message, (
+            f"Error must identify converter path 'converter=convert', got: {error_message}"
+        )
+        assert "hypothesis_present=True" in error_message, (
+            f"Error must indicate 'hypothesis_present=True', got: {error_message}"
+        )
+        assert "sub_tasks_count=0" in error_message, (
+            f"Error must report 'sub_tasks_count=0', got: {error_message}"
+        )
+
 
 class TestTrackCoderResultRejectsFactorIdMismatch:
     """_track_coder_result must raise FactorEmptyError when tracking lists have mismatched lengths."""

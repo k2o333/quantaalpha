@@ -591,16 +591,28 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             hypothesis = prev_out["factor_propose"]
             if isinstance(hypothesis, EnsembleHypothesisBundle):
                 factor = self.factor_constructor.convert_multi_hypothesis(hypothesis, self.trace)
+                converter_name = "convert_multi_hypothesis"
             else:
                 factor = self.factor_constructor.convert(hypothesis, self.trace)
+                converter_name = "convert"
 
-            # Fail-fast: reject empty experiment
+            # Fail-fast: reject empty experiment with diagnostic context
             sub_tasks = getattr(factor, "sub_tasks", []) or []
             if not sub_tasks:
-                raise FactorEmptyError(
-                    "Factor constructor returned no sub_tasks (empty factor experiment). "
-                    "The LLM failed to produce any valid factor expressions."
+                hypothesis_present = hypothesis is not None
+                hypothesis_type = type(hypothesis).__name__ if hypothesis_present else "None"
+                factor_type = type(factor).__name__ if factor is not None else "None"
+
+                diagnostic = (
+                    f"Factor constructor returned no sub_tasks "
+                    f"(converter={converter_name}, "
+                    f"hypothesis_type={hypothesis_type}, "
+                    f"hypothesis_present={hypothesis_present}, "
+                    f"factor_type={factor_type}, "
+                    f"sub_tasks_count={len(sub_tasks)}). "
+                    f"The LLM failed to produce any valid factor expressions."
                 )
+                raise FactorEmptyError(diagnostic)
 
             logger.log_object(factor.sub_tasks, tag="experiment generation")
 

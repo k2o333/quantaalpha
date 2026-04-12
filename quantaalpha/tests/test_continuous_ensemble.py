@@ -333,8 +333,12 @@ class TestEnsembleProposeStep:
         from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
         from quantaalpha.factors.proposal import EnsembleHypothesisBundle
 
+        # A valid experiment with non-empty sub_tasks should succeed
         fake_factor = MagicMock()
-        fake_factor.sub_tasks = []
+        fake_task = MagicMock()
+        fake_task.factor_name = "test_factor"
+        fake_task.factor_expression = "ts_mean(close, 10)"
+        fake_factor.sub_tasks = [fake_task]
 
         with mock_loop_dependencies():
             loop = AlphaAgentLoop(
@@ -368,6 +372,47 @@ class TestEnsembleProposeStep:
             loop.factor_constructor.convert_multi_hypothesis.assert_called_once_with(bundle, loop.trace)
             loop.factor_constructor.convert.assert_not_called()
             assert result is fake_factor
+
+    def test_factor_construct_empty_bundle_raises_factor_empty_error(self):
+        """factor_construct with empty bundle conversion must raise FactorEmptyError, not return empty factor."""
+        from quantaalpha.pipeline.loop import AlphaAgentLoop
+        from quantaalpha.pipeline.settings import ALPHA_AGENT_FACTOR_PROP_SETTING
+        from quantaalpha.factors.proposal import EnsembleHypothesisBundle
+        from quantaalpha.core.exception import FactorEmptyError
+
+        # Empty sub_tasks from converter should raise FactorEmptyError
+        fake_factor = MagicMock()
+        fake_factor.sub_tasks = []
+
+        with mock_loop_dependencies():
+            loop = AlphaAgentLoop(
+                ALPHA_AGENT_FACTOR_PROP_SETTING,
+                potential_direction="test direction",
+                stop_event=threading.Event(),
+                ensemble_config={"enabled": True, "strategy": "collect_all"},
+            )
+            loop.trace = MagicMock()
+            loop.factor_constructor = MagicMock()
+            loop.factor_constructor.convert_multi_hypothesis.return_value = fake_factor
+            loop._register_factors_from_experiment = MagicMock()
+
+            bundle = EnsembleHypothesisBundle(
+                hypothesis="bundle summary",
+                concise_observation="obs",
+                concise_knowledge="knowledge",
+                concise_justification="justification",
+                concise_specification="spec",
+                hypotheses=[
+                    {"model": "m1", "hypothesis": {"hypothesis": "alpha"}},
+                    {"model": "m2", "hypothesis": {"hypothesis": "beta"}},
+                ],
+                ensemble_strategy="collect_all",
+                num_models=2,
+                primary_hypothesis_index=0,
+            )
+
+            with pytest.raises(FactorEmptyError, match="[Nn]o.*sub_task|[Ff]actor.*constructor.*returned.*no.*sub_task"):
+                loop.factor_construct({"factor_propose": bundle})
 
 
 class TestEnsemblePromptRenderOnce:
