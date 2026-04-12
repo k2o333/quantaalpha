@@ -370,6 +370,48 @@ class QlibFactorHypothesis2Experiment(FactorHypothesis2Experiment):
 
 qa_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
 
+# Constants for bounded feedback accumulation
+MAX_FEEDBACK_ITEMS = 5
+MAX_FEEDBACK_TOTAL_CHARS = 8000
+
+
+def _bound_feedback_accumulation(current: str | None, new_item: str) -> str:
+    """Accumulate feedback with a bounded recent window and total character cap.
+
+    Args:
+        current: Previously accumulated feedback string, or None.
+        new_item: New feedback item to append.
+
+    Returns:
+        Bounded feedback string that retains only recent items and stays
+        within the total character length cap.
+    """
+    if current is None or not current.strip():
+        result = new_item.strip()
+        if len(result) > MAX_FEEDBACK_TOTAL_CHARS:
+            return result[-MAX_FEEDBACK_TOTAL_CHARS:]
+        return result
+
+    # Split into items, keep only the most recent MAX_FEEDBACK_ITEMS - 1, then append new
+    items = [item.strip() for item in current.split("\n\n") if item.strip()]
+    items.append(new_item.strip())
+
+    # Keep only the most recent MAX_FEEDBACK_ITEMS
+    if len(items) > MAX_FEEDBACK_ITEMS:
+        items = items[-MAX_FEEDBACK_ITEMS:]
+
+    result = "\n\n".join(items)
+
+    # Hard cap on total length — truncate from the beginning if needed
+    if len(result) > MAX_FEEDBACK_TOTAL_CHARS:
+        result = result[-MAX_FEEDBACK_TOTAL_CHARS:]
+        # Find a safe cut point (after a newline)
+        newline_idx = result.find("\n")
+        if newline_idx > 0:
+            result = result[newline_idx:]
+
+    return result
+
 
 # prompt_dict not as attribute: class instance is pickled later, prompt_dict cannot be pickled
 class AlphaAgentHypothesisGen(FactorHypothesisGen):
@@ -801,6 +843,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         MAX_RETRIES = 10
         api = APIBackend()
         final_response_dict = None
+        last_failure_reason = None
         for attempt in range(MAX_RETRIES):
             if flag:
                 break
@@ -818,7 +861,8 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
             # Check for empty response before JSON parsing
             if not response_dict:
-                logger.warning(f"Empty LLM response at attempt {attempt + 1}/{MAX_RETRIES}, retrying...")
+                last_failure_reason = "empty response"
+                logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}, retrying...")
                 continue
             final_response_dict = response_dict
             proposed_names = []
@@ -837,14 +881,16 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
                 # Check if expression is parsable
                 if not self.factor_regulator.is_parsable(expr):
-                    logger.info(f"Failed to parse expr: {expr}, retrying...")
+                    last_failure_reason = f"unparsable expression for {factor_name}: {expr[:160]}"
+                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
                     break
 
                 capability_valid, capability_feedback = self._validate_expression_capabilities(expr, trace)
                 if not capability_valid:
-                    logger.warning(f"{factor_name}: {capability_feedback}")
+                    last_failure_reason = f"capability validation failure for {factor_name}: {capability_feedback[:240]}"
+                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
                     if expression_duplication_prompt is not None:
-                        expression_duplication_prompt = "\n\n".join([expression_duplication_prompt, capability_feedback])
+                        expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, capability_feedback)
                     else:
                         expression_duplication_prompt = capability_feedback
                     user_prompt = (
@@ -864,6 +910,8 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
                 success, eval_dict = self.factor_regulator.evaluate(expr)
                 if not success:
+                    last_failure_reason = f"factor evaluation failure for {factor_name}: {expr[:160]}"
+                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
                     break
 
                 # Consistency check (if enabled)
@@ -935,8 +983,18 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         )
                     )
 
+                    last_failure_reason = (
+                        f"expression acceptability failure for {factor_name}: "
+                        f"symbol_length={symbol_length}, "
+                        f"duplicated_subtree_size={eval_dict.get('duplicated_subtree_size')}, "
+                        f"num_free_args={eval_dict.get('num_free_args')}, "
+                        f"num_unique_vars={eval_dict.get('num_unique_vars')}, "
+                        f"num_all_nodes={num_all_nodes}, "
+                        f"num_base_features={num_base_features}"
+                    )
+                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
                     if expression_duplication_prompt is not None:
-                        expression_duplication_prompt = "\n\n".join([expression_duplication_prompt, feedback_item])
+                        expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, feedback_item)
                     else:
                         expression_duplication_prompt = feedback_item
 
@@ -963,7 +1021,11 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         continue
         else:
             # Loop completed without break (all retries exhausted)
-            raise RuntimeError(f"Factor proposal failed after {MAX_RETRIES} retries: persistent empty or invalid LLM response")
+            reason_detail = last_failure_reason if last_failure_reason else "persistent empty or invalid LLM response"
+            raise RuntimeError(
+                f"Factor proposal failed after {MAX_RETRIES} retries: {reason_detail}. "
+                f"last failure reason: {reason_detail}"
+            )
 
         # Add valid factors to the factor regulator
         self.factor_regulator.add_factor(proposed_names, proposed_exprs)

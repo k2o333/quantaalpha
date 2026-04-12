@@ -37,6 +37,42 @@ from quantaalpha.log.time import measure_time
 from quantaalpha.llm.config import LLM_SETTINGS
 
 
+def _resolve_initial_directions(
+    planning_enabled: bool,
+    initial_direction: str | None,
+    num_directions: int,
+) -> tuple[list[str | None], str]:
+    """Resolve initial exploration directions based on planning config.
+
+    When planning is enabled but no initial direction is provided, produces
+    generic exploration markers represented as ``[None] * num_directions``
+    with source labelled as ``'generic'``.
+
+    Args:
+        planning_enabled: Whether planning mode is enabled.
+        initial_direction: The user-provided initial direction string, or None.
+        num_directions: Number of parallel directions to generate.
+
+    Returns:
+        A tuple of (directions_list, source_string).
+        When planning_enabled=True and initial_direction=None, returns
+        ``([None, None, ...], 'generic')``.
+    """
+    if planning_enabled and initial_direction is None:
+        directions = [None] * num_directions
+        return directions, "generic"
+
+    if planning_enabled and initial_direction:
+        # Will be resolved by generate_parallel_directions at runtime
+        # Return a placeholder; the caller handles the actual LLM call
+        return [initial_direction] * num_directions, "llm_planning"
+
+    # Planning disabled: use single direction or [None]
+    if initial_direction:
+        return [initial_direction], "user"
+    return [None], "user"
+
+
 def force_timeout():
     def decorator(func):
         @wraps(func)
@@ -433,26 +469,35 @@ def run_evolution_loop(
     failures: list[dict[str, Any]] = []
     total_tasks = 0
 
-    # Generate initial directions
+    # Generate initial directions using the resolution helper
     planning_enabled = bool(planning_cfg.get("enabled", False))
     prompt_file = planning_cfg.get("prompt_file") or "planning_prompts.yaml"
     prompt_path = Path(__file__).parent / "prompts" / str(prompt_file)
 
-    if planning_enabled and initial_direction:
-        directions = generate_parallel_directions(
-            initial_direction=initial_direction,
-            n=num_directions,
-            prompt_file=prompt_path,
-            max_attempts=int(planning_cfg.get("max_attempts", 5)),
-            use_llm=bool(planning_cfg.get("use_llm", True)),
-            allow_fallback=bool(planning_cfg.get("allow_fallback", True)),
-        )
-    elif planning_enabled:
-        directions = [None] * num_directions
-    else:
-        directions = [initial_direction] if initial_direction else [None]
+    directions, direction_source = _resolve_initial_directions(
+        planning_enabled=planning_enabled,
+        initial_direction=initial_direction,
+        num_directions=num_directions,
+    )
 
-    logger.info(f"Generated {len(directions)} exploration directions")
+    # When planning is enabled with an initial direction, call the LLM planner
+    if planning_enabled and initial_direction and direction_source == "llm_planning":
+        try:
+            directions = generate_parallel_directions(
+                initial_direction=initial_direction,
+                n=num_directions,
+                prompt_file=prompt_path,
+                max_attempts=int(planning_cfg.get("max_attempts", 5)),
+                use_llm=bool(planning_cfg.get("use_llm", True)),
+                allow_fallback=bool(planning_cfg.get("allow_fallback", True)),
+            )
+            direction_source = "llm_planning"
+        except Exception as exc:
+            logger.warning(f"Planning LLM failed, falling back to generic directions: {exc}")
+            directions = [None] * num_directions
+            direction_source = "generic"
+
+    logger.info(f"Generated {len(directions)} exploration directions (source: {direction_source})")
     for i, d in enumerate(directions):
         logger.info(f"  Direction {i}: {d}")
 
@@ -714,17 +759,25 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
             allow_fallback = bool(planning_cfg.get("allow_fallback", True))
             prompt_file = planning_cfg.get("prompt_file") or "planning_prompts.yaml"
             prompt_path = Path(__file__).parent / "prompts" / str(prompt_file)
-            if planning_enabled and direction:
-                directions = generate_parallel_directions(
-                    initial_direction=direction,
-                    n=n_dirs,
-                    prompt_file=prompt_path,
-                    max_attempts=max_attempts,
-                    use_llm=use_llm,
-                    allow_fallback=allow_fallback,
-                )
-            else:
-                directions = [direction] if direction else [None]
+
+            directions, direction_source = _resolve_initial_directions(
+                planning_enabled=planning_enabled,
+                initial_direction=direction,
+                num_directions=n_dirs,
+            )
+            if planning_enabled and direction and direction_source == "llm_planning":
+                try:
+                    directions = generate_parallel_directions(
+                        initial_direction=direction,
+                        n=n_dirs,
+                        prompt_file=prompt_path,
+                        max_attempts=max_attempts,
+                        use_llm=use_llm,
+                        allow_fallback=allow_fallback,
+                    )
+                except Exception as exc:
+                    logger.warning(f"Planning LLM failed, falling back to generic: {exc}")
+                    directions = [None] * n_dirs
 
             log_root = exec_cfg.get("branch_log_root") or "log"
             log_prefix = exec_cfg.get("branch_log_prefix") or "branch"

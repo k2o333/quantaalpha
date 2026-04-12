@@ -593,6 +593,15 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 factor = self.factor_constructor.convert_multi_hypothesis(hypothesis, self.trace)
             else:
                 factor = self.factor_constructor.convert(hypothesis, self.trace)
+
+            # Fail-fast: reject empty experiment
+            sub_tasks = getattr(factor, "sub_tasks", []) or []
+            if not sub_tasks:
+                raise FactorEmptyError(
+                    "Factor constructor returned no sub_tasks (empty factor experiment). "
+                    "The LLM failed to produce any valid factor expressions."
+                )
+
             logger.log_object(factor.sub_tasks, tag="experiment generation")
 
             # Register factors for failure tracking
@@ -605,6 +614,20 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         """Compute factor values from factor expressions."""
         with logger.tag("d"):  # develop
             factor = self.coder.develop(prev_out["factor_construct"])
+
+            # Fail-fast: reject None or empty coder output
+            if factor is None:
+                raise FactorEmptyError(
+                    "Coder returned None (no factor workspace produced). "
+                    "The coder failed to implement the factor expressions."
+                )
+            sub_tasks = getattr(factor, "sub_tasks", []) or []
+            if not sub_tasks:
+                raise FactorEmptyError(
+                    "Coder output has no sub_tasks (empty factor experiment). "
+                    "The coder failed to produce any valid factor workspaces."
+                )
+
             logger.log_object(factor.sub_workspace_list, tag="coder result")
 
             # Track coder results for failure filtering
@@ -740,11 +763,33 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         return factor_ids
 
     def _track_coder_result(self, experiment):
-        """Track coder results for all factors."""
+        """Track coder results for all factors.
+
+        Validates sub_tasks, sub_workspace_list, and _current_round_factors
+        lengths before indexing to prevent IndexError leaks.
+        """
         from quantaalpha.factors.failure_tracker import FailureReason
 
-        for i, (task, workspace) in enumerate(zip(experiment.sub_tasks, experiment.sub_workspace_list)):
-            factor_id = self._current_round_factors[i]
+        sub_tasks = list(getattr(experiment, "sub_tasks", []) or [])
+        sub_workspaces = list(getattr(experiment, "sub_workspace_list", []) or [])
+        factor_ids = list(self._current_round_factors)
+
+        # Validate workspace count matches tasks
+        if len(sub_tasks) != len(sub_workspaces):
+            raise FactorEmptyError(
+                f"Tracking mismatch: sub_tasks count ({len(sub_tasks)}) != sub_workspace_list count ({len(sub_workspaces)}). "
+                "Coder output structure is inconsistent."
+            )
+
+        # Validate factor IDs match tasks
+        if len(factor_ids) != len(sub_tasks):
+            raise FactorEmptyError(
+                f"Tracking mismatch: _current_round_factors count ({len(factor_ids)}) != sub_tasks count ({len(sub_tasks)}). "
+                "Factor registration and experiment task count are inconsistent."
+            )
+
+        for i, (task, workspace) in enumerate(zip(sub_tasks, sub_workspaces)):
+            factor_id = factor_ids[i]
             if workspace is not None:
                 self._failure_tracker.mark_coder_success(factor_id)
             else:
