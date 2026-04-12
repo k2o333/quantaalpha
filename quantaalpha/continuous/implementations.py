@@ -250,6 +250,9 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         result = RevalidationResult(timestamp=start_time)
 
         try:
+            facade = None
+            library = None
+
             # Use provided candidates or query library
             if candidates is None:
                 if getattr(self, "library_backend", "json") == "parquet":
@@ -303,7 +306,13 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                             },
                         }
 
-                    updated_entry = library.apply_validation_result(factor_entry, validation_result)
+                    if getattr(self, "library_backend", "json") == "parquet":
+                        if facade is None:
+                            from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                            facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                        updated_entry = facade.write_status_update(factor_entry, validation_result)
+                    else:
+                        updated_entry = library.apply_validation_result(factor_entry, validation_result)
                     new_status = updated_entry.get("evaluation", {}).get("status", "unknown")
                     result.status_changes[factor_id] = new_status
 
@@ -781,11 +790,20 @@ class DefaultMiningScheduler(MiningScheduler):
             # 优先使用统一相似度引擎
             if self._similarity_engine is not None:
                 try:
-                    result = self._similarity_engine.check_against_library(
-                        new_expression=expression,
-                        library_path=self.library_path,
-                        max_comparisons=50,
-                    )
+                    if getattr(self, "library_backend", "json") == "parquet":
+                        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                        facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                        result = self._similarity_engine.check_against_library_data(
+                            new_expression=expression,
+                            library=facade.as_legacy_library(),
+                            max_comparisons=50,
+                        )
+                    else:
+                        result = self._similarity_engine.check_against_library(
+                            new_expression=expression,
+                            library_path=self.library_path,
+                            max_comparisons=50,
+                        )
                     
                     # 从 dimension_results 中提取最相似因子信息
                     most_similar_factor_id = None
@@ -865,11 +883,20 @@ class DefaultMiningScheduler(MiningScheduler):
             # 优先使用 SimilarityEngine (如果已初始化)
             if self._similarity_engine is not None:
                 try:
-                    results = self._similarity_engine.query_similar_factors(
-                        query=query,
-                        library_path=self.library_path,
-                        top_k=10,
-                    )
+                    if getattr(self, "library_backend", "json") == "parquet":
+                        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                        facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                        results = self._similarity_engine.query_similar_factors_data(
+                            query=query,
+                            library=facade.as_legacy_library(),
+                            top_k=10,
+                        )
+                    else:
+                        results = self._similarity_engine.query_similar_factors(
+                            query=query,
+                            library_path=self.library_path,
+                            top_k=10,
+                        )
                     if results:
                         context = build_fewshot_context(
                             factors=results,
@@ -882,20 +909,54 @@ class DefaultMiningScheduler(MiningScheduler):
                 except Exception as e:
                     logger.warning(f"SimilarityEngine query failed: {e}, falling back to legacy")
             
-            # 回退到传统方法: RAG -> Jaccard
-            try:
-                results = query_active_factors_RAG(
-                    query=query,
-                    top_k=10,
-                    library_path=self.library_path,
-                )
-            except Exception:
-                # Fallback to Jaccard similarity
-                results = query_active_factors_jaccard(
-                    query=query,
-                    top_k=10,
-                    library_path=self.library_path,
-                )
+            if getattr(self, "library_backend", "json") == "parquet":
+                from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                from quantaalpha.factors.fewshot import compute_jaccard_similarity
+
+                facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                library_data = facade.as_legacy_library()
+                results = []
+                for factor_id, factor_entry in library_data.get("factors", {}).items():
+                    if factor_entry.get("evaluation", {}).get("status") != "active":
+                        continue
+                    expression = factor_entry.get("factor_expression", "")
+                    description = factor_entry.get("factor_description", "")
+                    score = max(
+                        compute_jaccard_similarity(query, expression) if expression else 0.0,
+                        compute_jaccard_similarity(query, description) if description else 0.0,
+                    )
+                    results.append(
+                        {
+                            "factor_id": factor_id,
+                            "score": round(score, 4),
+                            "factor_expression": expression,
+                            "factor_description": description,
+                            "factor_name": factor_entry.get("factor_name", ""),
+                            "tags": factor_entry.get("tags", {}),
+                            "metadata": {
+                                "status": factor_entry.get("evaluation", {}).get("status", ""),
+                                "ic": factor_entry.get("backtest_results", {}).get("IC"),
+                                "rank_ic": factor_entry.get("backtest_results", {}).get("Rank IC"),
+                            },
+                        }
+                    )
+                results.sort(key=lambda item: item["score"], reverse=True)
+                results = results[:10]
+            else:
+                # 回退到传统方法: RAG -> Jaccard
+                try:
+                    results = query_active_factors_RAG(
+                        query=query,
+                        top_k=10,
+                        library_path=self.library_path,
+                    )
+                except Exception:
+                    # Fallback to Jaccard similarity
+                    results = query_active_factors_jaccard(
+                        query=query,
+                        top_k=10,
+                        library_path=self.library_path,
+                    )
 
             if results and len(results) > 0:
                 context = build_fewshot_context(

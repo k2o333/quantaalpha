@@ -266,6 +266,91 @@ class SimilarityEngine:
         )
         return best_result
 
+    def _compute_pairwise_without_global_rag(
+        self,
+        expr_a: str,
+        expr_b: str,
+        desc_a: str = "",
+        desc_b: str = "",
+    ) -> EnsembleResult:
+        """Compute pairwise similarity without querying the global fewshot/RAG library."""
+        if not self._enabled:
+            return EnsembleResult(
+                is_redundant=False,
+                final_score=0.0,
+                active_dimensions=[],
+            )
+
+        results: List[SimilarityResult] = []
+        if self._ast_cfg.get("enabled", False):
+            results.append(self._compute_ast_score(expr_a, expr_b))
+        if self._jaccard_cfg.get("enabled", False):
+            results.append(self._compute_jaccard_score(expr_a, expr_b))
+        if self._rag_cfg.get("enabled", False):
+            logger.debug("Skipping global RAG dimension for in-memory library data")
+
+        return self._compute_ensemble(results)
+
+    def check_against_library_data(
+        self,
+        new_expression: str,
+        library: Dict[str, Any],
+        max_comparisons: int = 50,
+    ) -> EnsembleResult:
+        """检查新因子是否与已加载的因子库数据冗余."""
+        candidates = self._find_top_candidates(
+            new_expr=new_expression,
+            library=library,
+            top_n=max_comparisons,
+        )
+
+        if not candidates:
+            logger.info("No candidates found in library data")
+            return EnsembleResult(
+                is_redundant=False,
+                final_score=0.0,
+                active_dimensions=[],
+            )
+
+        best_result: Optional[EnsembleResult] = None
+        best_score = -1.0
+        comparisons_made = 0
+
+        for factor_id, factor_entry in candidates:
+            expr_b = factor_entry.get("factor_expression", "")
+            desc_b = factor_entry.get("factor_description", "")
+
+            result = self._compute_pairwise_without_global_rag(
+                expr_a=new_expression,
+                expr_b=expr_b,
+                desc_b=desc_b,
+            )
+            comparisons_made += 1
+
+            if result.final_score > best_score:
+                best_score = result.final_score
+                best_result = result
+                for dr in best_result.dimension_results:
+                    dr.raw_detail["most_similar_factor_id"] = factor_id
+                    dr.raw_detail["most_similar_factor_name"] = factor_entry.get(
+                        "factor_name", ""
+                    )
+
+        if best_result is None:
+            return EnsembleResult(
+                is_redundant=False,
+                final_score=0.0,
+                active_dimensions=[],
+                comparisons_made=0,
+            )
+
+        best_result.comparisons_made = comparisons_made
+        logger.info(
+            f"check_against_library_data: {comparisons_made} comparisons, "
+            f"best_score={best_score:.4f}, is_redundant={best_result.is_redundant}"
+        )
+        return best_result
+
     def query_similar_factors(
         self,
         query: str,
@@ -290,6 +375,47 @@ class SimilarityEngine:
             return self._query_similar_factors_rag(query, library_path, top_k)
         else:
             return self._query_similar_factors_jaccard(query, library_path, top_k)
+
+    def query_similar_factors_data(
+        self,
+        query: str,
+        library: Dict[str, Any],
+        top_k: int = 10,
+        min_score: float = 0.0,
+    ) -> List[Dict[str, Any]]:
+        """Use in-memory library data for Parquet-backed few-shot context."""
+        candidates = self._find_top_candidates(
+            new_expr=query,
+            library=library,
+            top_n=top_k,
+        )
+        results = []
+        for factor_id, factor_entry in candidates:
+            expression = factor_entry.get("factor_expression", "")
+            description = factor_entry.get("factor_description", "")
+            score = max(
+                self._compute_jaccard_score(query, expression).score if expression else 0.0,
+                self._compute_jaccard_score(query, description).score if description else 0.0,
+            )
+            if score < min_score:
+                continue
+            results.append(
+                {
+                    "factor_id": factor_id,
+                    "score": round(score, 4),
+                    "factor_expression": expression,
+                    "factor_description": description,
+                    "factor_name": factor_entry.get("factor_name", ""),
+                    "tags": factor_entry.get("tags", {}),
+                    "metadata": {
+                        "status": factor_entry.get("evaluation", {}).get("status", ""),
+                        "ic": factor_entry.get("backtest_results", {}).get("IC"),
+                        "rank_ic": factor_entry.get("backtest_results", {}).get("Rank IC"),
+                    },
+                }
+            )
+        results.sort(key=lambda item: item["score"], reverse=True)
+        return results[:top_k]
 
     # -----------------------------------------------------------------------
     # Internal: Per-dimension score computation

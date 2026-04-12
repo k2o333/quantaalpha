@@ -132,6 +132,88 @@ class TestFactorStoreFacadeCompact:
         df = facade.read_effective_factors()
         assert len(df) == 2, f"Effective factor count should be preserved after compact, got {len(df)}"
 
+    def test_facade_compact_honors_archive_retention(self, tmp_store):
+        """Compaction keeps only the newest archive_retention archive directories."""
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        store_path = Path(tmp_store)
+        archive_dir = store_path / "archive"
+        (archive_dir / "compact_at=20000101_000001").mkdir(parents=True)
+        (archive_dir / "compact_at=20000101_000002").mkdir(parents=True)
+
+        facade = FactorStoreFacade(store_path=tmp_store)
+        facade.write_factor(
+            _make_factor_entry(
+                factor_name="retention_factor",
+                factor_expression="STD($close, 20)",
+                expression_hash="retention_hash",
+                sequence=3000,
+            )
+        )
+
+        facade.compact(archive_retention=1)
+
+        archives = sorted(p.name for p in archive_dir.iterdir() if p.is_dir())
+        assert len(archives) == 1
+        assert archives[0].startswith("compact_at=")
+
+
+class TestFactorStoreFacadeStatusAndDelete:
+    """Test append-only status updates and tombstone deletes."""
+
+    def test_facade_status_update_writes_parquet_event(self, tmp_store):
+        """A validation status update writes a new Parquet delta event and keeps only the latest status effective."""
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        facade = FactorStoreFacade(store_path=tmp_store)
+        entry = _make_factor_entry(
+            factor_id="status_factor",
+            factor_name="status_factor",
+            factor_expression="STD($close, 20)",
+            expression_hash="status_hash",
+            sequence=10,
+        )
+        facade.write_factor(entry)
+
+        updated = facade.write_status_update(
+            entry,
+            {
+                "status": "failure",
+                "summary": {
+                    "stability_score": 0.1,
+                    "validation_summary": "failed regression",
+                },
+            },
+            sequence=11,
+        )
+
+        records = facade.read_effective_factor_records()
+        assert len(records) == 1
+        assert updated["evaluation"]["status"] == "degraded"
+        assert records[0]["evaluation_status"] == "degraded"
+        assert records[0]["sequence"] == 11
+        assert not list(Path(tmp_store).rglob("*.json"))
+
+    def test_facade_delete_factor_writes_tombstone(self, tmp_store):
+        """Deleting a factor writes an append-only tombstone and removes it from effective reads."""
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        facade = FactorStoreFacade(store_path=tmp_store)
+        entry = _make_factor_entry(
+            factor_id="delete_factor",
+            factor_name="delete_factor",
+            factor_expression="MEAN($volume, 10)",
+            expression_hash="delete_hash",
+            sequence=20,
+        )
+        facade.write_factor(entry)
+
+        facade.delete_factor("delete_factor", sequence=21)
+
+        assert facade.read_effective_factor_records() == []
+        assert facade.delta_file_count() == 2
+        assert not list(Path(tmp_store).rglob("*.json"))
+
 
 class TestFactorStoreFacadeEncapsulation:
     """Test that FactorStoreFacade does not expose business methods."""

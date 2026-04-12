@@ -98,7 +98,10 @@ def maybe_compact_after_save(store, compact_config: dict | None) -> dict:
         }
 
     try:
-        store.compact()
+        if "archive_retention" in cfg:
+            store.compact(archive_retention=cfg.get("archive_retention"))
+        else:
+            store.compact()
     except Exception as exc:
         logger.warning(f"Parquet factor compact failed after save: {exc}")
         return {

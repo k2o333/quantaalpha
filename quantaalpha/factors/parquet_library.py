@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import tempfile
 import uuid
 import fcntl
@@ -174,23 +175,21 @@ class ParquetFactorLibrary:
             self._release_lock(lock_fd)
 
     def _deduplicate_and_filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Deduplicate by expression_hash keeping latest sequence, filter deletes.
+        """Deduplicate by expression_hash keeping latest sequence, then filter deletes.
 
         Uses stable tie-break ordering: expression_hash -> sequence -> updated_at -> created_at
         """
-        df_filtered = df.filter(pl.col("op") != "delete")
+        if df.is_empty():
+            return df
 
-        if df_filtered.is_empty():
-            return df_filtered
-
-        df_sorted = df_filtered.sort(
+        df_sorted = df.sort(
             ["expression_hash", "sequence", "updated_at", "created_at"],
             descending=[False, True, True, True],
         )
         df_deduped = df_sorted.group_by("expression_hash").first()
-        return df_deduped
+        return df_deduped.filter(pl.col("op") != "delete")
 
-    def compact(self):
+    def compact(self, *, archive_retention: int | None = None):
         """Merge compacted + delta into new compacted/factors.parquet.
 
         Uses atomic write pattern:
@@ -235,6 +234,8 @@ class ParquetFactorLibrary:
             os.replace(str(tmp_path), str(final_path))
 
             self._archive_delta_files(delta_files)
+            if archive_retention is not None:
+                self._cleanup_archive_dirs(archive_retention)
 
             logger.info(f"Compact complete: {len(effective)} effective factors")
         except Exception:
@@ -254,3 +255,15 @@ class ParquetFactorLibrary:
             if delta_file.exists():
                 target = archive_subdir / delta_file.name
                 os.replace(str(delta_file), str(target))
+
+    def _cleanup_archive_dirs(self, archive_retention: int):
+        """Keep only the newest compact archive directories."""
+        if archive_retention < 0:
+            return
+        archive_dirs = sorted(
+            [p for p in self.archive_dir.iterdir() if p.is_dir() and p.name.startswith("compact_at=")],
+            key=lambda p: p.name,
+        )
+        to_delete = archive_dirs[: max(0, len(archive_dirs) - archive_retention)]
+        for archive_path in to_delete:
+            shutil.rmtree(archive_path, ignore_errors=True)
