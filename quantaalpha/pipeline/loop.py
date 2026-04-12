@@ -61,6 +61,62 @@ def stop_event_check(func):
     return wrapper
 
 
+def maybe_compact_after_save(store, compact_config: dict | None) -> dict:
+    """Maybe compact the Parquet store after a save batch.
+
+    Only uses store.delta_file_count() and store.compact().
+    Compact failure does not roll back saved delta files.
+
+    Args:
+        store: FactorStoreFacade instance.
+        compact_config: Optional compact configuration dict.
+
+    Returns:
+        dict with keys: triggered, reason, and relevant threshold/count fields.
+    """
+    cfg = compact_config or {}
+    if not cfg.get("enabled", True):
+        return {"triggered": False, "reason": "disabled"}
+    if not cfg.get("compact_on_save_batch_end", True):
+        return {"triggered": False, "reason": "batch_end_disabled"}
+
+    threshold = int(cfg.get("delta_file_threshold", 100))
+    if threshold <= 0:
+        return {
+            "triggered": False,
+            "reason": "invalid_threshold",
+            "delta_file_threshold": threshold,
+        }
+
+    delta_count = store.delta_file_count()
+    if delta_count < threshold:
+        return {
+            "triggered": False,
+            "reason": "below_threshold",
+            "delta_count": delta_count,
+            "delta_file_threshold": threshold,
+        }
+
+    try:
+        store.compact()
+    except Exception as exc:
+        logger.warning(f"Parquet factor compact failed after save: {exc}")
+        return {
+            "triggered": False,
+            "reason": "compact_failed",
+            "delta_count": delta_count,
+            "delta_file_threshold": threshold,
+            "error": str(exc),
+        }
+
+    return {
+        "triggered": True,
+        "reason": "delta_file_threshold",
+        "delta_count": delta_count,
+        "delta_file_threshold": threshold,
+    }
+
+
 def save_factors_to_parquet(
     experiment,
     parquet_store_path: str,
@@ -74,6 +130,7 @@ def save_factors_to_parquet(
     evolution_phase: str = "original",
     trajectory_id: str = "",
     parent_trajectory_ids: list = None,
+    compact_config: dict | None = None,
 ):
     """Save factors from experiment to Parquet factor library.
 
@@ -93,15 +150,20 @@ def save_factors_to_parquet(
         evolution_phase: Evolution phase (original/mutation/crossover).
         trajectory_id: Trajectory identifier.
         parent_trajectory_ids: List of parent trajectory identifiers.
+        compact_config: Optional compact configuration dict with keys:
+            - enabled: bool
+            - delta_file_threshold: int
+            - compact_on_save_batch_end: bool
     """
-    from quantaalpha.factors.parquet_library import ParquetFactorLibrary
+    from quantaalpha.factors.factor_store_facade import FactorStoreFacade
 
     if experiment is None:
         logger.warning("experiment is None, skip saving factors")
-        return
+        return None
 
-    library = ParquetFactorLibrary(store_path=parquet_store_path)
+    store = FactorStoreFacade(store_path=parquet_store_path)
     now_iso = datetime.datetime.now().isoformat()
+    base_sequence = int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1_000_000)
 
     sub_tasks = getattr(experiment, "sub_tasks", []) or []
     sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
@@ -136,16 +198,20 @@ def save_factors_to_parquet(
             "evaluation_status": "pending_validation",
             "created_at": now_iso,
             "updated_at": now_iso,
-            "sequence": round_number,
+            "sequence": base_sequence + idx,
             "op": "upsert",
             "tags_json": json.dumps([]),
             "metadata_json": json.dumps(metadata),
             "backtest_results_json": json.dumps({}),
         }
 
-        library.write_factor_delta(entry)
+        store.write_factor(entry)
 
     logger.info(f"Saved {len(sub_tasks)} factors to Parquet store: {parquet_store_path}")
+
+    # Maybe compact after all factors in the batch are written
+    compact_result = maybe_compact_after_save(store, compact_config)
+    return compact_result
 
 
 class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
@@ -168,6 +234,8 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         step_model_routing: dict | None = None,
         ensemble_config: dict | None = None,
         provider_pool_cfg: dict | None = None,
+        parquet_store_path: str | None = None,
+        parquet_compact_config: dict | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
@@ -200,6 +268,10 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
             # Ensemble configuration
             self._ensemble_config = ensemble_config or {}
+
+            # Parquet factor-store configuration
+            self._parquet_store_path = parquet_store_path
+            self._parquet_compact_config = parquet_compact_config
 
             # Failure tracking for debug rounds
             self._failure_tracker = FactorFailureTracker(max_debug_rounds=10)  # Default max rounds
@@ -602,10 +674,15 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             trajectory_id = getattr(self, "trajectory_id", "")
             parent_trajectory_ids = getattr(self, "parent_trajectory_ids", [])
 
-            # Use Parquet store for factor library
-            factorlib_dir = project_root / "data" / "factorlib"
-            factorlib_dir.mkdir(parents=True, exist_ok=True)
-            parquet_store_path = factorlib_dir / "parquet_store"
+            # Use Parquet store for factor library - resolve from config if available
+            parquet_store_path = getattr(self, "_parquet_store_path", None)
+            if parquet_store_path is None:
+                factorlib_dir = project_root / "data" / "factorlib"
+                factorlib_dir.mkdir(parents=True, exist_ok=True)
+                parquet_store_path = factorlib_dir / "parquet_store"
+
+            # Get compact config from loop if available
+            compact_config = getattr(self, "_parquet_compact_config", None)
 
             save_factors_to_parquet(
                 experiment=prev_out["factor_backtest"],
@@ -620,6 +697,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 evolution_phase=evolution_phase,
                 trajectory_id=trajectory_id,
                 parent_trajectory_ids=parent_trajectory_ids,
+                compact_config=compact_config,
             )
             logger.info(f"Saved factors to Parquet store: {parquet_store_path} (phase={evolution_phase})")
         except Exception as e:

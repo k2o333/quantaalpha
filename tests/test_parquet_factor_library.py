@@ -113,6 +113,39 @@ class TestParquetFactorLibraryRead:
         assert "factor_in_compacted" in factor_names
         assert "factor_in_delta" in factor_names
 
+    def test_read_factor_library_tie_breaks_same_sequence_by_updated_at(self, tmp_store):
+        """Same expression_hash and same sequence keeps the row with later updated_at."""
+        library = ParquetFactorLibrary(store_path=tmp_store)
+
+        common_expr_hash = "shared_hash_tiebreak"
+
+        # Entry v1 with earlier updated_at
+        entry_v1 = _make_factor_entry(
+            factor_name="factor_v1",
+            factor_expression="STD($close, 20)",
+            expression_hash=common_expr_hash,
+            sequence=1000,
+        )
+        entry_v1["updated_at"] = "2026-01-01T00:00:00"
+
+        # Entry v2 with later updated_at (same sequence)
+        entry_v2 = _make_factor_entry(
+            factor_name="factor_v2",
+            factor_expression="MEAN($volume, 10)",
+            expression_hash=common_expr_hash,
+            sequence=1000,  # Same sequence
+        )
+        entry_v2["updated_at"] = "2026-01-02T00:00:00"
+
+        library.write_factor_delta(entry_v1)
+        library.write_factor_delta(entry_v2)
+
+        df = library.read_factor_library()
+        assert df is not None
+        effective_factors = df.filter(pl.col("expression_hash") == common_expr_hash)
+        assert effective_factors.shape[0] == 1, "Should deduplicate to 1 effective factor by expression_hash"
+        assert effective_factors["factor_name"][0] == "factor_v2", "Should keep the row with later updated_at"
+
     def test_read_factor_library_deduplicates_by_expression_hash(self, tmp_store):
         """Duplicate expression_hash entries produce one effective factor, using the latest sequence."""
         library = ParquetFactorLibrary(store_path=tmp_store)

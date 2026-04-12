@@ -40,12 +40,36 @@ class App4BridgeConfig:
 
 
 @dataclass
+class ParquetCompactConfig:
+    """Parquet compact configuration."""
+
+    enabled: bool = True
+    delta_file_threshold: int = 100
+    compact_on_save_batch_end: bool = True
+    archive_retention: int = 3
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ParquetCompactConfig":
+        if not d:
+            return cls()
+        return cls(
+            enabled=d.get("enabled", True),
+            delta_file_threshold=d.get("delta_file_threshold", 100),
+            compact_on_save_batch_end=d.get("compact_on_save_batch_end", True),
+            archive_retention=d.get("archive_retention", 3),
+        )
+
+
+@dataclass
 class FactorConfig:
     """Factor runtime configuration."""
 
     library_path: str = "third_party/quantaalpha/data/factorlib/all_factors_library.json"
     monitoring_output_path: str = "log/monitoring/"
     backtest_config_path: str = "config/backtest.yaml"
+    library_backend: str = "json"
+    parquet_library_dir: str = "third_party/quantaalpha/data/factorlib/parquet_store"
+    parquet_compact: ParquetCompactConfig = field(default_factory=ParquetCompactConfig)
 
 
 @dataclass
@@ -567,10 +591,14 @@ class PipelineConfig:
 
         # Parse factor section
         factor_data = data.get("factor", {})
+        compact_data = factor_data.get("parquet_compact", {})
         factor = FactorConfig(
             library_path=factor_data.get("library_path", "third_party/quantaalpha/data/factorlib/all_factors_library.json"),
             monitoring_output_path=factor_data.get("monitoring_output_path", "log/monitoring/"),
             backtest_config_path=factor_data.get("backtest_config_path", "config/backtest.yaml"),
+            library_backend=factor_data.get("library_backend", "json"),
+            parquet_library_dir=factor_data.get("parquet_library_dir", "third_party/quantaalpha/data/factorlib/parquet_store"),
+            parquet_compact=ParquetCompactConfig.from_dict(compact_data),
         )
 
         # Parse validation section
@@ -769,6 +797,9 @@ class SchedulerConfig:
     # Mining pipeline config
     mining: MiningConfig = field(default_factory=MiningConfig)
 
+    # Factor storage config
+    factor: FactorConfig = field(default_factory=FactorConfig)
+
     @classmethod
     def from_pipeline_config(cls, pipeline_config: PipelineConfig) -> "SchedulerConfig":
         """
@@ -796,6 +827,7 @@ class SchedulerConfig:
             enable_revalidation=pipeline_config.enable_revalidation,
             enable_mining=pipeline_config.enable_mining,
             mining=pipeline_config.mining,
+            factor=pipeline_config.factor,
         )
 
 

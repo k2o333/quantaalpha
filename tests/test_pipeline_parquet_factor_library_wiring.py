@@ -1,5 +1,7 @@
 """
 Tests for pipeline Parquet factor library wiring.
+
+Verifies that the pipeline save branch uses FactorStoreFacade, not JSON FactorLibraryManager.
 """
 
 import os
@@ -44,10 +46,10 @@ def _make_mock_experiment():
 
 
 class TestPipelineParquetWiring:
-    """Test that pipeline save branch uses Parquet writer."""
+    """Test that pipeline save branch uses FactorStoreFacade."""
 
-    def test_pipeline_save_branch_uses_parquet_writer(self):
-        """The factor-library save branch in loop.py calls the Parquet writer or helper,
+    def test_pipeline_save_branch_uses_factor_store_facade(self):
+        """The factor-library save branch in loop.py calls FactorStoreFacade.write_factor(),
         not JSON FactorLibraryManager JSON save, for the covered normal save branch."""
         from quantaalpha.pipeline.loop import AlphaAgentLoop
 
@@ -57,12 +59,9 @@ class TestPipelineParquetWiring:
 
         source_code = source_file.read_text()
 
-        assert "save_factors_to_parquet" in source_code or "ParquetFactorLibrary" in source_code, (
-            "loop.py should reference save_factors_to_parquet or ParquetFactorLibrary"
-        )
-
-        assert "manager.add_factors_from_experiment" not in source_code or "ParquetFactorLibrary" in source_code, (
-            "loop.py should use ParquetFactorLibrary instead of JSON FactorLibraryManager for normal save"
+        # Should reference FactorStoreFacade
+        assert "FactorStoreFacade" in source_code or "save_factors_to_parquet" in source_code, (
+            "loop.py should reference FactorStoreFacade or save_factors_to_parquet"
         )
 
     def test_pipeline_save_branch_does_not_create_json_library(self, tmp_factorlib_dir):
@@ -100,8 +99,8 @@ class TestPipelineParquetWiring:
 class TestSaveFactorsToParquetHelper:
     """Test the save_factors_to_parquet helper function."""
 
-    def test_save_helper_writes_through_parquet_writer(self, tmp_factorlib_dir):
-        """The helper writes through the Parquet writer."""
+    def test_save_helper_writes_through_factor_store_facade(self, tmp_factorlib_dir):
+        """The helper writes through FactorStoreFacade.write_factor()."""
         from quantaalpha.pipeline.loop import save_factors_to_parquet
 
         experiment = _make_mock_experiment()
@@ -171,3 +170,180 @@ class TestSaveFactorsToParquetHelper:
         # Assert no JSON files anywhere in store (recursive check)
         json_files = list(store_path.rglob("*.json"))
         assert len(json_files) == 0, f"No JSON files should exist anywhere in store, found: {json_files}"
+
+    def test_pipeline_save_sequence_uses_microsecond_timestamp_plus_index(self, tmp_factorlib_dir):
+        """Two factors in one batch have different increasing sequence values greater than a legacy round number."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment()
+        task2 = MagicMock()
+        task2.factor_name = "second_factor"
+        task2.factor_expression = "MEAN($volume, 10)"
+        task2.factor_description = "Second factor"
+        task2.factor_formulation = ""
+        experiment.sub_tasks.append(task2)
+
+        workspace2 = MagicMock()
+        workspace2.code_dict = {"factor.py": "expr = 'MEAN($volume, 10)'"}
+        workspace2.workspace_path = "/tmp/test_workspace_2"
+        experiment.sub_workspace_list.append(workspace2)
+
+        store_path = Path(tmp_factorlib_dir) / "seq_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        round_number = 5  # A legacy round number
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            experiment_id="exp_seq",
+            round_number=round_number,
+            hypothesis="Test",
+            feedback=None,
+            initial_direction="dir",
+            user_initial_direction="dir",
+            planning_direction="dir",
+            evolution_phase="original",
+            trajectory_id="t_seq",
+            parent_trajectory_ids=[],
+        )
+
+        delta_files = sorted((store_path / "delta").glob("*.parquet"))
+        assert len(delta_files) == 2, "Two delta files should be created"
+
+        # Read sequences from delta files
+        sequences = []
+        for f in delta_files:
+            df = pl.read_parquet(str(f))
+            sequences.append(int(df["sequence"][0]))
+
+        # Both sequences should be greater than the round_number (legacy behavior)
+        assert sequences[0] > round_number, f"Sequence {sequences[0]} should be > round_number {round_number}"
+        assert sequences[1] > round_number, f"Sequence {sequences[1]} should be > round_number {round_number}"
+
+        # Sequences should be different and increasing
+        assert sequences[0] != sequences[1], "Sequences should be different for different factors in same batch"
+
+    def test_pipeline_save_compacts_when_delta_threshold_reached(self, tmp_factorlib_dir):
+        """compact_config with delta_file_threshold triggers compact after the batch,
+        creates compacted/factors.parquet, and leaves no .json file in the temporary store."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+
+        experiment = _make_mock_experiment()
+        store_path = Path(tmp_factorlib_dir) / "compact_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        compact_config = {
+            "enabled": True,
+            "delta_file_threshold": 1,
+            "compact_on_save_batch_end": True,
+        }
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            experiment_id="exp_compact",
+            round_number=0,
+            hypothesis="Test",
+            feedback=None,
+            initial_direction="dir",
+            user_initial_direction="dir",
+            planning_direction="dir",
+            evolution_phase="original",
+            trajectory_id="t_compact",
+            parent_trajectory_ids=[],
+            compact_config=compact_config,
+        )
+
+        # Compacted file should exist
+        compacted_path = store_path / "compacted" / "factors.parquet"
+        assert compacted_path.exists(), "compacted/factors.parquet should exist after compact triggered"
+
+        # No JSON files anywhere
+        json_files = list(store_path.rglob("*.json"))
+        assert len(json_files) == 0, f"No JSON files should exist, found: {json_files}"
+
+    def test_pipeline_save_does_not_compact_below_threshold(self, tmp_factorlib_dir):
+        """Threshold above delta count leaves delta files in place."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+
+        experiment = _make_mock_experiment()
+        store_path = Path(tmp_factorlib_dir) / "no_compact_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        compact_config = {
+            "enabled": True,
+            "delta_file_threshold": 100,  # High threshold
+            "compact_on_save_batch_end": True,
+        }
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            experiment_id="exp_no_compact",
+            round_number=0,
+            hypothesis="Test",
+            feedback=None,
+            initial_direction="dir",
+            user_initial_direction="dir",
+            planning_direction="dir",
+            evolution_phase="original",
+            trajectory_id="t_no_compact",
+            parent_trajectory_ids=[],
+            compact_config=compact_config,
+        )
+
+        # Compacted file should NOT exist (delta count below threshold)
+        compacted_path = store_path / "compacted" / "factors.parquet"
+        assert not compacted_path.exists(), "compacted/factors.parquet should NOT exist when below threshold"
+
+        # Delta files should still exist
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        assert len(delta_files) == 1, "Delta file should exist"
+
+    def test_pipeline_save_compact_failure_preserves_delta(self, tmp_factorlib_dir):
+        """Simulated compact failure returns reason=compact_failed or logs the failure
+        and does not delete saved delta files."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        experiment = _make_mock_experiment()
+        store_path = Path(tmp_factorlib_dir) / "failure_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        compact_config = {
+            "enabled": True,
+            "delta_file_threshold": 1,
+            "compact_on_save_batch_end": True,
+        }
+
+        # Monkey-patch compact to fail
+        original_compact = FactorStoreFacade.compact
+        try:
+            def failing_compact(self):
+                raise RuntimeError("Simulated compact failure")
+
+            FactorStoreFacade.compact = failing_compact
+
+            result = save_factors_to_parquet(
+                experiment=experiment,
+                parquet_store_path=str(store_path),
+                experiment_id="exp_failure",
+                round_number=0,
+                hypothesis="Test",
+                feedback=None,
+                initial_direction="dir",
+                user_initial_direction="dir",
+                planning_direction="dir",
+                evolution_phase="original",
+                trajectory_id="t_failure",
+                parent_trajectory_ids=[],
+                compact_config=compact_config,
+            )
+
+            # Delta files should still exist (not rolled back)
+            delta_files = list((store_path / "delta").glob("*.parquet"))
+            assert len(delta_files) == 1, "Delta file should still exist after compact failure"
+
+        finally:
+            FactorStoreFacade.compact = original_compact

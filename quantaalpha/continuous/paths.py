@@ -93,6 +93,13 @@ def resolve_workspace_paths(config_dict: dict) -> dict:
     )
     factor_library_path = str(resolve_path(factor_lib_raw, project_root))
 
+    # Parquet library dir
+    parquet_lib_raw = factor.get(
+        "parquet_library_dir",
+        "third_party/quantaalpha/data/factorlib/parquet_store",
+    )
+    parquet_library_dir = str(resolve_path(parquet_lib_raw, project_root))
+
     # monitoring_output_path: prefer workspace, fallback to factor
     monitoring_raw = workspace.get(
         "monitoring_output_path",
@@ -122,5 +129,6 @@ def resolve_workspace_paths(config_dict: dict) -> dict:
         "runs_dir": runs_dir,
         "pool_save_path": pool_save_path,
         "factor_library_path": factor_library_path,
+        "parquet_library_dir": parquet_library_dir,
         "monitoring_output_path": monitoring_output_path,
     }

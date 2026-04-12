@@ -124,3 +124,20 @@ def test_monitoring_output_fallback_to_factor():
         }
     )
     assert resolved["monitoring_output_path"] == "/test/log/old_monitor"
+
+
+def test_parquet_library_dir_resolved_relative_to_project_root():
+    """resolve_workspace_paths() returns a parquet_library_dir absolute path
+    resolved relative to workspace.project_root."""
+    resolved = resolve_workspace_paths(
+        {
+            "workspace": {"project_root": "/home/quan/testdata/aspipe_v4"},
+            "factor": {
+                "library_path": "third_party/quantaalpha/data/factorlib/all_factors_library.json",
+                "parquet_library_dir": "third_party/quantaalpha/data/factorlib/parquet_store",
+            },
+        }
+    )
+    assert "parquet_library_dir" in resolved
+    assert resolved["parquet_library_dir"] == "/home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store"
+    assert Path(resolved["parquet_library_dir"]).is_absolute()

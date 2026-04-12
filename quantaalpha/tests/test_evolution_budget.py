@@ -133,3 +133,36 @@ class TestEvolutionBudget:
             )
             # Should complete normally
             assert result is not None
+
+    def test_evolution_task_passes_factor_store_kwargs_to_loop(self, tmp_path):
+        """Evolution task AlphaAgentLoop receives parquet store and compact kwargs."""
+        from quantaalpha.pipeline.evolution import RoundPhase
+        from quantaalpha.pipeline.factor_mining import _run_evolution_task
+
+        loop = MagicMock()
+        loop._get_trajectory_data.return_value = {}
+
+        with patch("quantaalpha.pipeline.loop.AlphaAgentLoop", return_value=loop) as MockLoop:
+            _run_evolution_task(
+                task={
+                    "phase": RoundPhase.ORIGINAL,
+                    "direction_id": 0,
+                    "round_idx": 0,
+                    "parent_trajectories": [],
+                },
+                directions=["test direction"],
+                step_n=1,
+                use_local=True,
+                user_direction="test direction",
+                log_root=str(tmp_path),
+                stop_event=None,
+                quality_gate_cfg={},
+                factor_store_kwargs={
+                    "parquet_store_path": str(tmp_path / "parquet_store"),
+                    "parquet_compact_config": {"delta_file_threshold": 3},
+                },
+            )
+
+        kwargs = MockLoop.call_args.kwargs
+        assert kwargs["parquet_store_path"] == str(tmp_path / "parquet_store")
+        assert kwargs["parquet_compact_config"] == {"delta_file_threshold": 3}

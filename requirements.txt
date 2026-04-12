@@ -40,6 +40,8 @@ azure-ai-formrecognizer    # Azure Document Intelligence
 # Factor storage
 # -----------------------------------------------------------------------------
 tables                     # HDF5 table storage (PyTables)
+polars>=0.20               # Parquet factor storage
+pyarrow>=10                # Parquet I/O, pandas conversion
 
 # -----------------------------------------------------------------------------
 # Vector store / RAG

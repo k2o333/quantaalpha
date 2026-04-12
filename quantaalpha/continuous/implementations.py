@@ -11,7 +11,7 @@ These implementations use:
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread, Event
 from typing import Callable, Optional
@@ -174,6 +174,8 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         max_per_run: int = 10,
         interval_hours: int = 24,
         library_path: Optional[str] = None,
+        library_backend: str = "json",
+        parquet_library_dir: Optional[str] = None,
         backtest_runner: Optional[Callable[[str, dict], bool]] = None,
         data_bridge=None,
         execution_periods: Optional[dict] = None,
@@ -186,6 +188,8 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
         self.library_path = library_path or os.environ.get("FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json")
+        self.library_backend = library_backend
+        self.parquet_library_dir = parquet_library_dir
         self._backtest_runner = backtest_runner
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {
@@ -246,15 +250,30 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         result = RevalidationResult(timestamp=start_time)
 
         try:
-            from quantaalpha.factors.library import FactorLibraryManager
-
-            library = FactorLibraryManager(self.library_path)
-
             # Use provided candidates or query library
             if candidates is None:
-                candidates = library.select_revalidation_candidates(
-                    days=self.days_threshold,
-                )
+                if getattr(self, "library_backend", "json") == "parquet":
+                    # Parquet backend: read through FactorStoreFacade
+                    from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                    facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                    all_records = facade.read_effective_factor_records()
+                    # Simple candidate selection: take all active factors
+                    candidates = [
+                        {
+                            "factor_id": r.get("factor_id", ""),
+                            "factor_name": r.get("factor_name", ""),
+                            "factor_expression": r.get("factor_expression", ""),
+                            "evaluation": {"status": r.get("evaluation_status", "unknown")},
+                        }
+                        for r in all_records
+                    ]
+                else:
+                    # JSON fallback
+                    from quantaalpha.factors.library import FactorLibraryManager
+                    library = FactorLibraryManager(self.library_path)
+                    candidates = library.select_revalidation_candidates(
+                        days=self.days_threshold,
+                    )
 
             result.total_candidates = len(candidates)
             candidates_to_run = candidates[: self.max_per_run]
@@ -564,6 +583,9 @@ class DefaultMiningScheduler(MiningScheduler):
         max_per_run: int = 5,
         interval_hours: int = 12,
         library_path: Optional[str] = None,
+        library_backend: str = "json",
+        parquet_library_dir: Optional[str] = None,
+        parquet_compact_config: Optional[dict] = None,
         factor_validator: Optional[Callable[[str, dict], Optional[dict]]] = None,
         data_bridge=None,
         execution_periods: Optional[dict] = None,
@@ -589,6 +611,9 @@ class DefaultMiningScheduler(MiningScheduler):
         self.max_per_run = max_per_run
         self.interval_hours = interval_hours
         self.library_path = library_path or os.environ.get("FACTOR_LIBRARY_PATH", "third_party/quantaalpha/data/factorlib/all_factors_library.json")
+        self.library_backend = library_backend
+        self.parquet_library_dir = parquet_library_dir
+        self.parquet_compact_config = parquet_compact_config or {}
         self._factor_validator = factor_validator
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {
@@ -633,6 +658,15 @@ class DefaultMiningScheduler(MiningScheduler):
                 logger.warning(f"Failed to initialize SimilarityEngine: {e}, falling back to legacy redundancy check")
 
         self._escalation_state = None
+
+    def _build_alpha_agent_loop_storage_kwargs(self) -> dict:
+        """Build factor-store kwargs for AlphaAgentLoop."""
+        if self.library_backend != "parquet":
+            return {}
+        return {
+            "parquet_store_path": self.parquet_library_dir,
+            "parquet_compact_config": self.parquet_compact_config,
+        }
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -771,13 +805,25 @@ class DefaultMiningScheduler(MiningScheduler):
                     logger.warning(f"SimilarityEngine check failed: {e}, falling back to legacy check")
             
             # 回退到传统的 library.check_redundancy
-            from quantaalpha.factors.library import FactorLibraryManager
-            library = FactorLibraryManager(self.library_path)
-            return library.check_redundancy(
-                new_factor_expression=expression,
-                correlation_threshold=0.85,
-                max_comparisons=50,
-            )
+            if getattr(self, "library_backend", "json") == "parquet":
+                # Parquet backend: use FactorStoreFacade records for redundancy check
+                from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                records = facade.read_effective_factor_records()
+                expressions = [r.get("factor_expression", "") for r in records if r.get("factor_expression")]
+                # Simple redundancy check: exact expression match
+                for expr in expressions:
+                    if expr == expression:
+                        return {"is_redundant": True, "most_similar_factor_id": None, "max_similarity": 1.0, "method": "exact_match", "comparisons_made": 1}
+                return {"is_redundant": False, "most_similar_factor_id": None, "max_similarity": 0.0, "method": "exact_match", "comparisons_made": len(expressions)}
+            else:
+                from quantaalpha.factors.library import FactorLibraryManager
+                library = FactorLibraryManager(self.library_path)
+                return library.check_redundancy(
+                    new_factor_expression=expression,
+                    correlation_threshold=0.85,
+                    max_comparisons=50,
+                )
         except Exception as e:
             logger.info(f"Redundancy check failed: {e}, proceeding with admission")
             return {"is_redundant": False}  # fail-open
@@ -900,18 +946,33 @@ class DefaultMiningScheduler(MiningScheduler):
             Context string from recent active factors.
         """
         try:
-            from quantaalpha.factors.library import FactorLibraryManager
+            if getattr(self, "library_backend", "json") == "parquet":
+                # Parquet backend: use FactorStoreFacade
+                from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                records = facade.read_effective_factor_records()
+                candidates = [
+                    {
+                        "factor_id": r.get("factor_id", ""),
+                        "factor_name": r.get("factor_name", ""),
+                        "factor_expression": r.get("factor_expression", ""),
+                        "evaluation_status": r.get("evaluation_status", ""),
+                        "updated_at": r.get("updated_at", ""),
+                    }
+                    for r in records
+                ]
+            else:
+                from quantaalpha.factors.library import FactorLibraryManager
+                library = FactorLibraryManager(self.library_path)
 
-            library = FactorLibraryManager(self.library_path)
+                # Get active factors sorted by last_validated
+                candidates = library.select_revalidation_candidates(
+                    status="active",
+                )
 
-            # Get active factors sorted by last_validated
-            candidates = library.select_revalidation_candidates(
-                status="active",
-            )
-
-            if not candidates:
-                # Fall back to any non-failed factors
-                candidates = library.select_revalidation_candidates()
+                if not candidates:
+                    # Fall back to any non-failed factors
+                    candidates = library.select_revalidation_candidates()
 
             if not candidates:
                 return ""
@@ -1076,14 +1137,27 @@ class DefaultMiningScheduler(MiningScheduler):
             List of mutated factor dicts.
         """
         try:
-            from quantaalpha.factors.library import FactorLibraryManager
+            if getattr(self, "library_backend", "json") == "parquet":
+                from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                records = facade.read_effective_factor_records()
+                candidates = [
+                    {
+                        "factor_id": r.get("factor_id", ""),
+                        "factor_name": r.get("factor_name", ""),
+                        "factor_expression": r.get("factor_expression", ""),
+                        "evaluation_status": r.get("evaluation_status", ""),
+                    }
+                    for r in records
+                ]
+            else:
+                from quantaalpha.factors.library import FactorLibraryManager
+                library = FactorLibraryManager(self.library_path)
 
-            library = FactorLibraryManager(self.library_path)
-
-            # Get recent active factors as templates
-            candidates = library.select_revalidation_candidates(
-                status="active",
-            )
+                # Get recent active factors as templates
+                candidates = library.select_revalidation_candidates(
+                    status="active",
+                )
 
             if not candidates:
                 return []
@@ -1765,6 +1839,7 @@ class DefaultMiningScheduler(MiningScheduler):
                     exec_cfg={
                         "steps_per_loop": self._state_cfg.get("steps_per_mining", 5),
                         "use_local": True,
+                        "factor_store_kwargs": self._build_alpha_agent_loop_storage_kwargs(),
                     },
                     planning_cfg={"enabled": False},
                     stop_event=self._stop_event,
@@ -1797,6 +1872,7 @@ class DefaultMiningScheduler(MiningScheduler):
                         step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
                         ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
                         provider_pool_cfg=self._provider_pool_cfg,
+                        **self._build_alpha_agent_loop_storage_kwargs(),
                     )
                     loop.run(step_n=steps, stop_event=self._stop_event)
 
@@ -1941,24 +2017,54 @@ class DefaultMiningScheduler(MiningScheduler):
             factor_entry: Factor entry dict to add.
         """
         try:
-            from quantaalpha.factors.library import FactorLibraryManager
-
-            library = FactorLibraryManager(self.library_path)
             factor_id = factor_entry.get("factor_id", "")
-            validation_result = {
-                "status": "success",
-                "summary": {
-                    "stability_score": 0.6,
-                    "validation_summary": f"Factor {factor_id} activated after mining",
-                },
-            }
-            library.apply_validation_result(factor_entry, validation_result)
-            logger.info(f"Factor {factor_id} added to library")
+
+            if getattr(self, "library_backend", "json") == "parquet":
+                # Parquet backend: write through FactorStoreFacade
+                from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+
+                now_iso = datetime.now().isoformat()
+                expression = factor_entry.get("factor_expression", "")
+                import hashlib
+                expression_hash = hashlib.sha256(expression.encode()).hexdigest()[:16]
+                base_sequence = int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+
+                entry = {
+                    "factor_id": factor_id,
+                    "factor_name": factor_entry.get("factor_name", factor_id),
+                    "factor_expression": expression,
+                    "factor_expression_normalized": expression,
+                    "expression_hash": expression_hash,
+                    "evaluation_status": "active",
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                    "sequence": base_sequence,
+                    "op": "upsert",
+                    "tags_json": "[]",
+                    "metadata_json": "{}",
+                    "backtest_results_json": "{}",
+                }
+                facade.write_factor(entry)
+                logger.info(f"Factor {factor_id} added to Parquet library")
+            else:
+                # JSON fallback
+                from quantaalpha.factors.library import FactorLibraryManager
+                library = FactorLibraryManager(self.library_path)
+                validation_result = {
+                    "status": "success",
+                    "summary": {
+                        "stability_score": 0.6,
+                        "validation_summary": f"Factor {factor_id} activated after mining",
+                    },
+                }
+                library.apply_validation_result(factor_entry, validation_result)
+                logger.info(f"Factor {factor_id} added to library")
 
         except ImportError:
             logger.error("Factor library module not available")
         except Exception as e:
-            logger.error(f"Error adding factor {factor_id} to library: {e}")
+            logger.error(f"Error adding factor {factor_entry.get('factor_id', '')} to library: {e}")
 
     # =========================================================================
     # Phase 3: Orchestration Runtime (original-only)
@@ -2204,6 +2310,7 @@ class DefaultMiningScheduler(MiningScheduler):
                 step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
                 ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
                 provider_pool_cfg=self._provider_pool_cfg,
+                **self._build_alpha_agent_loop_storage_kwargs(),
             )
             loop.run(step_n=steps, stop_event=self._stop_event)
 

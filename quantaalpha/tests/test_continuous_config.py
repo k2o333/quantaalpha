@@ -1372,3 +1372,100 @@ mining:
         assert len(config.mining.orchestration.nodes) == 2
         assert config.mining.orchestration.nodes[0].id == "original"
         assert config.mining.orchestration.nodes[1].id == "mutation"
+
+
+class TestParquetCompactConfig:
+    """Tests for parquet compact configuration parsing."""
+
+    def test_factor_library_backend_parses_from_yaml(self, tmp_path: Path):
+        """factor.library_backend == 'parquet' parses from yaml."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+factor:
+  library_backend: parquet
+  library_path: third_party/quantaalpha/data/factorlib/all_factors_library.json
+  parquet_library_dir: third_party/quantaalpha/data/factorlib/parquet_store
+"""
+        yaml_path = tmp_path / "test_backend.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.factor.library_backend == "parquet"
+
+    def test_factor_parquet_library_dir_parses_from_yaml(self, tmp_path: Path):
+        """factor.parquet_library_dir parses from yaml."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+factor:
+  library_backend: parquet
+  parquet_library_dir: third_party/quantaalpha/data/factorlib/parquet_store
+"""
+        yaml_path = tmp_path / "test_parquet_dir.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.factor.parquet_library_dir == "third_party/quantaalpha/data/factorlib/parquet_store"
+
+    def test_factor_parquet_compact_delta_file_threshold_parses(self, tmp_path: Path):
+        """factor.parquet_compact.delta_file_threshold == 100 parses from yaml."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+factor:
+  library_backend: parquet
+  parquet_library_dir: third_party/quantaalpha/data/factorlib/parquet_store
+  parquet_compact:
+    enabled: true
+    delta_file_threshold: 100
+    compact_on_save_batch_end: true
+    archive_retention: 3
+"""
+        yaml_path = tmp_path / "test_compact.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.factor.parquet_compact.delta_file_threshold == 100
+
+    def test_factor_parquet_compact_on_save_batch_end_parses(self, tmp_path: Path):
+        """factor.parquet_compact.compact_on_save_batch_end is True parses from yaml."""
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        yaml_content = """
+factor:
+  library_backend: parquet
+  parquet_compact:
+    enabled: true
+    delta_file_threshold: 50
+    compact_on_save_batch_end: true
+"""
+        yaml_path = tmp_path / "test_batch_end.yaml"
+        yaml_path.write_text(yaml_content)
+
+        config = PipelineConfig.from_yaml(str(yaml_path))
+        assert config.factor.parquet_compact.compact_on_save_batch_end is True
+
+    def test_scheduler_config_preserves_factor_parquet_settings(self):
+        """SchedulerConfig.from_pipeline_config carries factor parquet settings into orchestrator wiring."""
+        from quantaalpha.continuous.scheduler import PipelineConfig, SchedulerConfig
+
+        config = PipelineConfig._from_dict(
+            {
+                "factor": {
+                    "library_backend": "parquet",
+                    "parquet_library_dir": "third_party/quantaalpha/data/factorlib/parquet_store",
+                    "parquet_compact": {
+                        "enabled": True,
+                        "delta_file_threshold": 7,
+                        "compact_on_save_batch_end": True,
+                    },
+                }
+            }
+        )
+
+        scheduler_config = SchedulerConfig.from_pipeline_config(config)
+
+        assert scheduler_config.factor.library_backend == "parquet"
+        assert scheduler_config.factor.parquet_library_dir == "third_party/quantaalpha/data/factorlib/parquet_store"
+        assert scheduler_config.factor.parquet_compact.delta_file_threshold == 7

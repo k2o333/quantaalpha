@@ -781,3 +781,157 @@ class TestInjectedExecutionHooks:
         assert result.factors_validated == 1
         assert result.factors_added == 1
         assert captured == [("new_factor_1", "Test Factor")]
+
+
+class TestParquetBackendSchedulerBehavior:
+    """Test that schedulers use FactorStoreFacade in parquet backend."""
+
+    def test_revalidation_scheduler_parquet_backend_uses_facade(self, tmp_path, monkeypatch):
+        """In parquet backend, DefaultRevalidationScheduler.run_revalidation(candidates=None)
+        obtains candidates through FactorStoreFacade and does not instantiate FactorLibraryManager."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+        import json
+
+        # Create a JSON library for fallback path
+        lib_path = tmp_path / "test_library.json"
+        lib_path.write_text(
+            json.dumps({
+                "metadata": {"version": "1.1", "total_factors": 1},
+                "factors": {
+                    "factor_001": {
+                        "factor_id": "factor_001",
+                        "factor_name": "Test Factor",
+                        "factor_expression": "STD($close, 20)",
+                        "evaluation": {"status": "active", "last_validated": None},
+                    },
+                },
+            })
+        )
+
+        # Create parquet store
+        parquet_dir = tmp_path / "parquet_store"
+        parquet_dir.mkdir()
+
+        # Create scheduler with parquet backend
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            library_backend="parquet",
+            parquet_library_dir=str(parquet_dir),
+            max_per_run=10,
+            days_threshold=0,
+        )
+
+        # Verify it has parquet backend attributes
+        assert scheduler.library_backend == "parquet"
+        assert scheduler.parquet_library_dir == str(parquet_dir)
+
+    def test_mining_scheduler_parquet_backend_uses_facade(self, tmp_path, monkeypatch):
+        """In parquet backend, DefaultMiningScheduler._build_fallback_context()
+        obtains records through FactorStoreFacade and does not instantiate FactorLibraryManager."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        parquet_dir = tmp_path / "parquet_store"
+        parquet_dir.mkdir()
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(tmp_path / "library.json"),
+            library_backend="parquet",
+            parquet_library_dir=str(parquet_dir),
+        )
+
+        assert scheduler.library_backend == "parquet"
+        assert scheduler.parquet_library_dir == str(parquet_dir)
+
+    def test_json_backend_still_works(self, tmp_path, monkeypatch):
+        """In json backend, existing FactorLibraryManager fallback still works."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+        import json
+
+        lib_path = tmp_path / "test_library.json"
+        lib_path.write_text(
+            json.dumps({
+                "metadata": {"version": "1.1", "total_factors": 0},
+                "factors": {},
+            })
+        )
+
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            library_backend="json",
+            max_per_run=10,
+            days_threshold=0,
+        )
+
+        assert scheduler.library_backend == "json"
+        # JSON backend should not have parquet_library_dir
+        assert not hasattr(scheduler, 'parquet_library_dir') or scheduler.parquet_library_dir is None
+
+    def test_parquet_add_factor_writes_delta_file(self, tmp_path):
+        """DefaultMiningScheduler._add_factor_to_library writes through parquet backend."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        parquet_dir = tmp_path / "parquet_store"
+        scheduler = DefaultMiningScheduler(
+            library_backend="parquet",
+            parquet_library_dir=str(parquet_dir),
+        )
+
+        scheduler._add_factor_to_library(
+            {
+                "factor_id": "factor_001",
+                "factor_name": "Test Factor",
+                "factor_expression": "STD($close, 20)",
+            }
+        )
+
+        delta_files = list((parquet_dir / "delta").glob("*.parquet"))
+        assert len(delta_files) == 1
+
+    def test_orchestrator_passes_factor_backend_to_schedulers(self, tmp_path):
+        """MiningOrchestrator forwards factor backend config to lazy schedulers."""
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+        from quantaalpha.continuous.scheduler import (
+            FactorConfig,
+            ParquetCompactConfig,
+            SchedulerConfig,
+        )
+
+        parquet_dir = tmp_path / "parquet_store"
+        config = SchedulerConfig(
+            factor=FactorConfig(
+                library_backend="parquet",
+                parquet_library_dir=str(parquet_dir),
+                parquet_compact=ParquetCompactConfig(delta_file_threshold=3),
+            )
+        )
+
+        orchestrator = MiningOrchestrator(config=config, library_path=str(tmp_path / "library.json"))
+
+        assert orchestrator.revalidation_scheduler.library_backend == "parquet"
+        assert orchestrator.revalidation_scheduler.parquet_library_dir == str(parquet_dir)
+        assert orchestrator.mining_scheduler.library_backend == "parquet"
+        assert orchestrator.mining_scheduler.parquet_library_dir == str(parquet_dir)
+        assert orchestrator.mining_scheduler.parquet_compact_config["delta_file_threshold"] == 3
+
+    def test_mining_scheduler_builds_loop_kwargs_with_parquet_config(self, tmp_path):
+        """DefaultMiningScheduler passes parquet store and compact config into AlphaAgentLoop."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        parquet_dir = tmp_path / "parquet_store"
+        compact_config = {
+            "enabled": True,
+            "delta_file_threshold": 3,
+            "compact_on_save_batch_end": True,
+        }
+        scheduler = DefaultMiningScheduler(
+            library_backend="parquet",
+            parquet_library_dir=str(parquet_dir),
+            parquet_compact_config=compact_config,
+        )
+
+        kwargs = scheduler._build_alpha_agent_loop_storage_kwargs()
+
+        assert kwargs["parquet_store_path"] == str(parquet_dir)
+        assert kwargs["parquet_compact_config"] == compact_config

@@ -63,7 +63,7 @@ class FactorRegulator(Evaluator):
         return pd.DataFrame()
 
     def _load_from_parquet_store(self, store_path: str) -> pd.DataFrame:
-        """Load factors from Parquet factor store.
+        """Load factors from Parquet factor store via FactorStoreFacade.
 
         Args:
             store_path: Path to the Parquet factor store directory.
@@ -72,24 +72,25 @@ class FactorRegulator(Evaluator):
             DataFrame with factor_name, factor_expression columns.
         """
         try:
-            # Lazy import to avoid circular dependency
-            from quantaalpha.factors.parquet_library import ParquetFactorLibrary
-            library = ParquetFactorLibrary(store_path=store_path)
-            df = library.read_factor_library()
+            from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+            facade = FactorStoreFacade(store_path=store_path)
+            df = facade.to_factor_zoo_frame()
 
-            if df is None or df.is_empty():
-                return pd.DataFrame()
+            if df.empty:
+                logger.info("Parquet factor store is empty")
+                return pd.DataFrame(columns=["factor_name", "factor_expression"])
 
-            # Convert to pandas and select required columns
-            pdf = df.to_pandas()
-            # Ensure we have the required columns
-            if "factor_name" in pdf.columns and "factor_expression" in pdf.columns:
-                return pdf[["factor_name", "factor_expression"]].copy()
+            return df
 
-            return pd.DataFrame()
+        except FileNotFoundError:
+            logger.warning(f"Parquet factor store directory not found at {store_path}, returning empty")
+            return pd.DataFrame(columns=["factor_name", "factor_expression"])
+
         except Exception as e:
-            logger.warning(f"Failed to load Parquet factor store: {e}")
-            return pd.DataFrame()
+            logger.error(f"Unexpected error loading parquet store from {store_path}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return pd.DataFrame(columns=["factor_name", "factor_expression"])
         
     
         

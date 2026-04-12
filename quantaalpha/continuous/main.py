@@ -97,6 +97,8 @@ def _load_config_and_paths(config_path: str):
         config_for_pipeline["factor"] = {}
     config_for_pipeline["factor"]["library_path"] = resolved["factor_library_path"]
     config_for_pipeline["factor"]["monitoring_output_path"] = resolved["monitoring_output_path"]
+    if "parquet_library_dir" in resolved:
+        config_for_pipeline["factor"]["parquet_library_dir"] = resolved["parquet_library_dir"]
 
     pipeline_config = PipelineConfig.from_yaml_dict(config_for_pipeline)
 
@@ -807,17 +809,37 @@ class ContinuousOrchestrator:
 
         if self._impact_classifier:
             try:
-                from quantaalpha.factors.library import FactorLibraryManager
-
-                library_manager = FactorLibraryManager(self.config.factor.library_path)
-                candidates = self._impact_classifier.select_factor_candidates(
-                    library_manager,
-                    impact_groups,
-                    limit=self.config.validation.max_revalidation_per_run,
-                )
-                candidate_count = len(candidates)
-                candidate_source = "impact"
-                logger.info(f"Impact-selected {candidate_count} revalidation candidates")
+                backend = getattr(self.config.factor, "library_backend", "json")
+                if backend == "parquet":
+                    # Parquet backend: use FactorStoreFacade for candidates
+                    from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+                    facade = FactorStoreFacade(store_path=self.config.factor.parquet_library_dir)
+                    all_records = facade.read_effective_factor_records()
+                    # Simple candidate selection: all factors
+                    candidates = [
+                        {
+                            "factor_id": r.get("factor_id", ""),
+                            "factor_name": r.get("factor_name", ""),
+                            "factor_expression": r.get("factor_expression", ""),
+                            "evaluation": {"status": r.get("evaluation_status", "unknown")},
+                        }
+                        for r in all_records
+                    ][:self.config.validation.max_revalidation_per_run]
+                    candidate_count = len(candidates)
+                    candidate_source = "parquet_facade"
+                    logger.info(f"Parquet facade selected {candidate_count} revalidation candidates")
+                else:
+                    # JSON fallback
+                    from quantaalpha.factors.library import FactorLibraryManager
+                    library_manager = FactorLibraryManager(self.config.factor.library_path)
+                    candidates = self._impact_classifier.select_factor_candidates(
+                        library_manager,
+                        impact_groups,
+                        limit=self.config.validation.max_revalidation_per_run,
+                    )
+                    candidate_count = len(candidates)
+                    candidate_source = "impact"
+                    logger.info(f"Impact-selected {candidate_count} revalidation candidates")
             except Exception as e:
                 logger.warning(f"Impact classifier selection failed, using default: {e}")
                 candidates = None

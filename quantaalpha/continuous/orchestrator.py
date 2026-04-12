@@ -13,7 +13,7 @@ unified status and error reporting.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -142,6 +142,8 @@ class MiningOrchestrator:
                 execution_periods=self._execution_periods,
                 min_ic=self.config.min_ic,
                 per_factor_timeout_seconds=self.config.per_factor_timeout_seconds,
+                library_backend=self.config.factor.library_backend,
+                parquet_library_dir=self.config.factor.parquet_library_dir,
             )
         return self._revalidation_scheduler
 
@@ -159,6 +161,9 @@ class MiningOrchestrator:
                 min_ic=self.config.min_ic,
                 min_rank_ic=self.config.min_rank_ic,
                 per_factor_timeout_seconds=self.config.per_factor_timeout_seconds,
+                library_backend=self.config.factor.library_backend,
+                parquet_library_dir=self.config.factor.parquet_library_dir,
+                parquet_compact_config=asdict(self.config.factor.parquet_compact),
                 monitor_engine=self._monitor_engine,
                 pipeline_mode=self.config.mining.pipeline_mode,
                 quality_gate_config={

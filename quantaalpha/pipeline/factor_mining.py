@@ -69,6 +69,7 @@ def _run_branch(
     log_root: str,
     log_prefix: str,
     quality_gate_cfg: dict = None,
+    factor_store_kwargs: dict | None = None,
 ):
     from quantaalpha.pipeline.loop import AlphaAgentLoop
 
@@ -83,6 +84,7 @@ def _run_branch(
         stop_event=None,
         use_local=use_local,
         quality_gate_config=quality_gate_cfg or {},
+        **(factor_store_kwargs or {}),
     )
     model_loop.user_initial_direction = direction
     model_loop.run(step_n=step_n, stop_event=None)
@@ -97,6 +99,7 @@ def _run_evolution_task(
     log_root: str,
     stop_event: threading.Event | None,
     quality_gate_cfg: dict[str, Any] | None = None,
+    factor_store_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Run a single evolution task (one small loop).
@@ -154,6 +157,7 @@ def _run_evolution_task(
         direction_id=direction_id,
         round_idx=round_idx,
         quality_gate_config=quality_gate_cfg or {},
+        **(factor_store_kwargs or {}),
     )
     model_loop.user_initial_direction = user_direction
 
@@ -175,6 +179,7 @@ def _parallel_task_worker(
     log_root: str,
     result_queue: Queue,
     task_idx: int,
+    factor_store_kwargs: dict[str, Any] | None = None,
 ):
     """
     Worker for parallel evolution tasks. Runs one evolution task in a separate process and puts result in queue.
@@ -194,6 +199,7 @@ def _parallel_task_worker(
             user_direction=user_direction,
             log_root=log_root,
             stop_event=None,
+            factor_store_kwargs=factor_store_kwargs,
         )
         result_queue.put(
             {
@@ -241,6 +247,7 @@ def _run_tasks_parallel(
     use_local: bool,
     user_direction: str | None,
     log_root: str,
+    factor_store_kwargs: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Run multiple evolution tasks in parallel.
@@ -268,6 +275,7 @@ def _run_tasks_parallel(
                 log_root,
                 result_queue,
                 idx,
+                factor_store_kwargs,
             ),
         )
         p.start()
@@ -408,6 +416,7 @@ def run_evolution_loop(
     crossover_n = int(evolution_cfg.get("crossover_n", 3))
     steps_per_loop = int(exec_cfg.get("steps_per_loop", 5))
     use_local = bool(exec_cfg.get("use_local", True))
+    factor_store_kwargs = exec_cfg.get("factor_store_kwargs", {}) or {}
 
     mutation_enabled = bool(evolution_cfg.get("mutation_enabled", True))
     crossover_enabled = bool(evolution_cfg.get("crossover_enabled", True))
@@ -517,6 +526,7 @@ def run_evolution_loop(
                 use_local=use_local,
                 user_direction=initial_direction,
                 log_root=log_root,
+                factor_store_kwargs=factor_store_kwargs,
             )
 
             completed_tasks = []
@@ -573,6 +583,7 @@ def run_evolution_loop(
                     log_root=log_root,
                     stop_event=stop_event,
                     quality_gate_cfg=quality_gate_cfg,
+                    factor_store_kwargs=factor_store_kwargs,
                 )
                 trajectory = controller.create_trajectory_from_loop_result(
                     task=task,
