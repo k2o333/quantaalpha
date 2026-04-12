@@ -94,6 +94,26 @@ class FactorRegulator(Evaluator):
         
     
         
+    def parse_diagnostic(self, expression: str) -> tuple[bool, str | None]:
+        """Diagnose whether an expression can be parsed and return structured feedback.
+
+        Args:
+            expression: The factor expression to check.
+
+        Returns:
+            A tuple of (is_parsable, error_message).  error_message is None when
+            the expression parses successfully, otherwise it contains the concrete
+            parser error string (e.g. "Unclosed parentheses").
+        """
+        try:
+            from quantaalpha.factors.coder.expr_parser import parse_expression
+            parse_expression(expression)
+            return True, None
+        except Exception as exc:
+            message = str(exc)
+            logger.error(f"Failed to parse expression: {expression}. Error: {message}")
+            return False, message
+
     def is_parsable(self, expression: str) -> bool:
         """
         Checks if an expression can be successfully parsed.
@@ -104,13 +124,8 @@ class FactorRegulator(Evaluator):
         Returns:
             bool: True if the expression can be parsed, False otherwise.
         """
-        try:
-            from quantaalpha.factors.coder.expr_parser import parse_expression
-            parse_expression(expression)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to parse expression: {expression}. Error: {str(e)}")
-            return False
+        ok, _ = self.parse_diagnostic(expression)
+        return ok
         
     def evaluate(self, expression: str) -> Tuple[int, str, Optional[str]]:
         """

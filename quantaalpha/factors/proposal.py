@@ -880,9 +880,37 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 variables = factor_data.get("variables", {})
 
                 # Check if expression is parsable
-                if not self.factor_regulator.is_parsable(expr):
+                parsable, parse_error = self.factor_regulator.parse_diagnostic(expr)
+                if not parsable:
+                    feedback_item = (
+                        "Expression Syntax Check Failed:\n"
+                        f"- Factor name: {factor_name}\n"
+                        f"- Parser error: {parse_error or 'unknown parse error'}\n"
+                        f"- Expression preview: {expr[:500]}\n"
+                        "- Action required: regenerate this factor expression from scratch.\n"
+                        "- Ensure every opening parenthesis has exactly one matching closing parenthesis.\n"
+                        "- Keep the replacement expression simple, preferably 50-150 characters.\n"
+                        "- Do not return the same expression again.\n"
+                    )
                     last_failure_reason = f"unparsable expression for {factor_name}: {expr[:160]}"
-                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}; parse_error={parse_error}")
+                    if expression_duplication_prompt is not None:
+                        expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, feedback_item)
+                    else:
+                        expression_duplication_prompt = feedback_item
+                    user_prompt = (
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                        .render(
+                            targets=self.targets,
+                            target_hypothesis=context["target_hypothesis"],
+                            hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                            function_lib_description=context["function_lib_description"],
+                            target_list=context["target_list"],
+                            RAG=context["RAG"],
+                            expression_duplication=expression_duplication_prompt,
+                        )
+                    )
                     break
 
                 capability_valid, capability_feedback = self._validate_expression_capabilities(expr, trace)

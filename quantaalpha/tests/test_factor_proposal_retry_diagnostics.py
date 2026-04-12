@@ -10,6 +10,30 @@ except ImportError:
     _HAS_BOUNDED_FEEDBACK = False
 
 
+def test_parse_diagnostic_returns_error_message_for_unbalanced_parentheses():
+    """FactorRegulator.parse_diagnostic must return (False, error_message) for unbalanced expressions."""
+    from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+    ok, error = FactorRegulator().parse_diagnostic("RANK($close))")
+
+    assert ok is False
+    assert error is not None
+    assert len(error) > 0
+    # Must mention a concrete parser failure signal
+    assert "Unclosed parentheses" in error or "Expected end of text" in error or "ParseException" in error or "parse" in error.lower()
+
+
+def test_construct_prompt_requires_parentheses_balance():
+    """The hypothesis2experiment system_prompt must contain explicit parentheses balance rules."""
+    from quantaalpha.factors.proposal import qa_prompt_dict
+
+    system_prompt = qa_prompt_dict["hypothesis2experiment"]["system_prompt"]
+
+    assert "Every opening parenthesis" in system_prompt
+    assert "matching closing parenthesis" in system_prompt
+    assert "Do not add trailing unmatched" in system_prompt
+
+
 class TestConvertReportsLastFailureReason:
     """_convert_with_history_limit must include last failure reason in final RuntimeError."""
 
@@ -19,6 +43,7 @@ class TestConvertReportsLastFailureReason:
 
         h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
         h2e.factor_regulator = MagicMock()
+        h2e.factor_regulator.parse_diagnostic.return_value = (True, None)
         h2e.data_capabilities = None
         h2e.targets = []
         h2e.consistency_enabled = False
@@ -31,7 +56,7 @@ class TestConvertReportsLastFailureReason:
         from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
 
         h2e = self._make_h2e()
-        h2e.factor_regulator.is_parsable.return_value = False
+        h2e.factor_regulator.parse_diagnostic.return_value = (False, "mock parse error")
 
         mock_trace = MagicMock()
         mock_trace.scen.data_capabilities = None
@@ -73,12 +98,85 @@ class TestConvertReportsLastFailureReason:
                             assert "[retry attempt 1/10]" in warning_text
                             assert "unparsable expression for factor_A" in warning_text
 
+    def test_unparsable_expression_feedback_is_added_to_retry_prompt(self):
+        """When expression is unparsable, the next retry user_prompt must contain parser-error feedback."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        # Use a real FactorRegulator so parse_diagnostic is real
+        h2e.factor_regulator = FactorRegulator()
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = MagicMock()
+        mock_trace.hist.__len__ = MagicMock(return_value=0)
+        mock_trace.hist.__bool__ = MagicMock(return_value=False)
+
+        mock_hypothesis = MagicMock()
+        mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
+
+        seen_user_prompts = []
+
+        def fake_render(**kwargs):
+            prompt = f"feedback={kwargs.get('expression_duplication')}"
+            seen_user_prompts.append(prompt)
+            return prompt
+
+        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
+                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
+                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
+                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.side_effect = fake_render
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                        # Return an unbalanced expression
+                        mock_call.return_value = {
+                            "factor_A": {
+                                "expression": "RANK($close))",
+                                "description": "test",
+                                "formulation": "test"
+                            }
+                        }
+
+                        with pytest.raises(RuntimeError) as exc_info:
+                            h2e._convert_with_history_limit(mock_hypothesis, mock_trace, 6)
+
+                        error_msg = str(exc_info.value)
+                        assert "last failure reason" in error_msg.lower()
+                        assert "unparsable expression" in error_msg.lower()
+
+        # At least one retry prompt after the first must contain the required feedback phrases
+        retry_prompts = seen_user_prompts[1:]  # skip the first prompt
+        assert len(retry_prompts) > 0, "Expected at least one retry prompt"
+
+        combined_retry = "\n".join(retry_prompts)
+        assert "Expression Syntax Check Failed" in combined_retry
+        assert "Parser error" in combined_retry
+        assert "Ensure every opening parenthesis" in combined_retry
+        assert "Do not return the same expression again" in combined_retry
+        assert "factor_A" in combined_retry
+
     def test_capability_validation_failure_reports_last_failure(self):
         """When capability validation always fails, final RuntimeError must mention capability validation."""
         from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
 
         h2e = self._make_h2e()
-        h2e.factor_regulator.is_parsable.return_value = True
+        h2e.factor_regulator.parse_diagnostic.return_value = (True, None)
         # Make capability validation always fail
         h2e._validate_expression_capabilities = MagicMock(return_value=(False, "Unsupported fields: disallowed_field"))
 
@@ -122,7 +220,7 @@ class TestConvertReportsLastFailureReason:
         from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
 
         h2e = self._make_h2e()
-        h2e.factor_regulator.is_parsable.return_value = True
+        h2e.factor_regulator.parse_diagnostic.return_value = (True, None)
         h2e._validate_expression_capabilities = MagicMock(return_value=(True, ""))
         h2e.factor_regulator.evaluate.return_value = (True, {"num_all_nodes": 5, "num_free_args": 0,
                                                                "num_unique_vars": 2, "duplicated_subtree_size": 0,

@@ -371,7 +371,14 @@ hypothesis2experiment:
         - **Target expression length: 50-150 characters for optimal generalization.**
       - **If previous factors were flagged for complexity, you MUST generate MUCH simpler alternatives in the next iteration.**
 
-    3.**Key Considerations in Factor Construction:**
+    3. **CRITICAL: Expression Syntax Constraints (MUST FOLLOW):**
+      - Every factor expression must be parseable before submission.
+      - Every opening parenthesis `(` must have exactly one matching closing parenthesis `)`.
+      - Do not add trailing unmatched `)` at the end of an expression.
+      - Before finalizing, count `(` and `)` for each expression; the counts must be equal.
+      - If a previous retry reports a parser error, regenerate the expression from scratch instead of lightly editing it.
+
+    4.**Key Considerations in Factor Construction:**
       - **Data Preprocessing and Standardization:**
           - Avoid using raw prices and volumes directly due to scale differences
           - Use relative changes or standardized data (e.g., RANK(), ZSCORE())
