@@ -1,0 +1,465 @@
+"""Remediation tests for factor construct retry behavior.
+
+Tests cover:
+- Empty response handling with feedback injection and history-limit fallback
+- Acceptability retry early stopping for non-improving symbol_length
+- Multi-hypothesis construction safety (empty factors_dict detection)
+- DSL function signature validation for MEAN(A, B, C)
+- Bounded feedback accumulation (MAX_FEEDBACK_ITEMS = 3)
+"""
+import pytest
+from unittest.mock import MagicMock, patch, call
+
+
+class TestEmptyResponseRecognition:
+    """is_input_length_error must recognize persistent empty-response failures."""
+
+    def test_empty_response_is_recognized_as_length_error(self):
+        """'persistent empty or invalid LLM response' must be treated as a context-length fallback candidate."""
+        from quantaalpha.factors.proposal import is_input_length_error
+
+        # Must recognize empty response indicators
+        assert is_input_length_error("persistent empty or invalid LLM response") is True
+        assert is_input_length_error("empty response") is True
+        assert is_input_length_error("EmptyLLMResponseError: got empty content") is True
+
+    def test_context_length_errors_still_recognized(self):
+        """Original context length indicators must still work."""
+        from quantaalpha.factors.proposal import is_input_length_error
+
+        assert is_input_length_error("input length exceeded") is True
+        assert is_input_length_error("context length limit reached") is True
+        assert is_input_length_error("maximum context exceeded") is True
+
+
+class TestEmptyResponseFeedbackInjection:
+    """Empty response must inject feedback and re-render prompt, not repeat unchanged."""
+
+    def _make_h2e(self):
+        """Create a minimal AlphaAgentHypothesis2FactorExpression for testing."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        h2e.factor_regulator = MagicMock()
+        h2e.factor_regulator.parse_diagnostic.return_value = (True, None)
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+        return h2e
+
+    def test_empty_response_injects_feedback_and_changes_prompt(self):
+        """When response_dict is empty, the retry loop must inject a short feedback item."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        h2e = self._make_h2e()
+
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = MagicMock()
+        mock_trace.hist.__len__ = MagicMock(return_value=0)
+        mock_trace.hist.__bool__ = MagicMock(return_value=False)
+
+        mock_hypothesis = MagicMock()
+        mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
+
+        seen_user_prompts = []
+
+        def fake_render(**kwargs):
+            prompt = f"feedback={kwargs.get('expression_duplication')}"
+            seen_user_prompts.append(prompt)
+            return prompt
+
+        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
+                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
+                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
+                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.side_effect = fake_render
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                        # Return empty response every time
+                        mock_call.return_value = {}
+
+                        with pytest.raises(RuntimeError) as exc_info:
+                            h2e._convert_with_history_limit(mock_hypothesis, mock_trace, 6)
+
+                        error_msg = str(exc_info.value)
+                        # Must contain empty response reason
+                        assert "empty response" in error_msg.lower() or "empty" in error_msg.lower()
+
+        # At least some retry prompts after the first must contain empty response feedback
+        retry_prompts = seen_user_prompts[1:]
+        assert len(retry_prompts) > 0, "Expected at least one retry prompt after empty response"
+        combined_retry = "\n".join(retry_prompts)
+        # Must contain some feedback about empty response
+        assert "empty" in combined_retry.lower() or "previous call" in combined_retry.lower() or "response" in combined_retry.lower()
+
+
+class TestAcceptabilityEarlyStopping:
+    """Repeated acceptability failures from non-improving symbol_length must stop early."""
+
+    def _make_h2e_with_regulator(self):
+        """Create H2E with a real FactorRegulator for symbol_length tracking."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        h2e.factor_regulator = FactorRegulator()
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+        return h2e
+
+    def test_acceptability_early_stop_on_non_improving_symbol_length(self):
+        """When symbol_length does not improve for 3 consecutive attempts, must stop before 10 retries."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        h2e = self._make_h2e_with_regulator()
+
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = MagicMock()
+        mock_trace.hist.__len__ = MagicMock(return_value=0)
+        mock_trace.hist.__bool__ = MagicMock(return_value=False)
+
+        mock_hypothesis = MagicMock()
+        mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
+
+        call_count = 0
+
+        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
+                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
+                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
+                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.return_value = "mock prompt"
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                        mock_call.return_value = {
+                            "factor_A": {
+                                "expression": "MEAN($volume)",
+                                "description": "test",
+                                "formulation": "test"
+                            }
+                        }
+
+                        with pytest.raises(RuntimeError) as exc_info:
+                            h2e._convert_with_history_limit(mock_hypothesis, mock_trace, 6)
+
+                        error_msg = str(exc_info.value)
+                        # Must mention early stopping or symbol length
+                        assert "symbol_length" in error_msg or "early stop" in error_msg.lower() or "not improving" in error_msg.lower() or "non-improving" in error_msg.lower() or "length" in error_msg.lower()
+                        # Must contain the factor name
+                        assert "factor_A" in error_msg or "factor_a" in error_msg.lower()
+
+    def test_early_stop_allows_improving_sequence(self):
+        """[500, 400, 300] should NOT trigger early stopping — expression is getting shorter."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        h2e.factor_regulator = FactorRegulator()
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = MagicMock()
+        mock_trace.hist.__len__ = MagicMock(return_value=0)
+        mock_trace.hist.__bool__ = MagicMock(return_value=False)
+
+        mock_hypothesis = MagicMock()
+        mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
+
+        # Simulate improving symbol lengths across all 10 attempts
+        improving_lengths = [500, 400, 300, 250, 200, 180, 160, 140, 120, 100]
+        length_idx = [0]
+
+        def mock_evaluate(expr):
+            sl = improving_lengths[min(length_idx[0], len(improving_lengths) - 1)]
+            length_idx[0] += 1
+            return True, {
+                "num_all_nodes": 5, "num_free_args": 0,
+                "num_unique_vars": 2, "duplicated_subtree_size": 0,
+                "symbol_length": sl, "num_base_features": 1
+            }
+
+        # Mock is_expression_acceptable to always return False (so we test early stopping logic)
+        h2e.factor_regulator.is_expression_acceptable = MagicMock(return_value=False)
+        h2e.factor_regulator.evaluate = MagicMock(side_effect=mock_evaluate)
+
+        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
+                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
+                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
+                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.return_value = "mock prompt"
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                        mock_call.return_value = {
+                            "factor_A": {
+                                "expression": "MEAN($volume)",
+                                "description": "test",
+                                "formulation": "test"
+                            }
+                        }
+
+                        # Should NOT raise early-stop RuntimeError for improving sequence
+                        # It will exhaust all 10 retries and raise the full retry exhaustion error
+                        with pytest.raises(RuntimeError) as exc_info:
+                            h2e._convert_with_history_limit(mock_hypothesis, mock_trace, 6)
+
+                        error_msg = str(exc_info.value)
+                        # Must NOT mention early stopping for improving sequence
+                        assert "early-stop" not in error_msg
+
+
+class TestMultiHypothesisEmptyFactorsDict:
+    """convert_multi_hypothesis must not silently return zero-task experiment from empty factors_dict."""
+
+    def test_empty_multi_hypothesis_response_retries_or_falls_back_with_reason(self):
+        """When call_structured returns empty dict, must retry or fallback with logged reason."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression, EnsembleHypothesisBundle
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        h2e.factor_regulator = MagicMock()
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+
+        bundle = EnsembleHypothesisBundle(
+            hypothesis="ensemble test",
+            concise_observation="obs",
+            concise_knowledge="know",
+            concise_justification="just",
+            concise_specification="spec",
+            hypotheses=[
+                {"model": "m1", "hypothesis": {"hypothesis": "h1"}},
+                {"model": "m2", "hypothesis": {"hypothesis": "h2"}},
+            ],
+            ensemble_strategy="collect_all",
+            num_models=2,
+        )
+
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = MagicMock()
+        mock_trace.hist.__len__ = MagicMock(return_value=0)
+        mock_trace.hist.__bool__ = MagicMock(return_value=False)
+
+        call_count = 0
+        fallback_reason_logged = []
+
+        def mock_call_structured(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Return empty dict first 2 times, then still empty
+            return {}
+
+        with patch("quantaalpha.factors.proposal.call_structured", side_effect=mock_call_structured):
+            with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
+                              return_value=({"target_hypothesis": "test", "experiment_output_format": "",
+                                             "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
+                                             "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+                with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+                    mock_template = MagicMock()
+                    mock_template.render.return_value = "mock prompt"
+                    MockEnv.return_value.from_string.return_value = mock_template
+
+                    # Mock convert for fallback path
+                    with patch.object(AlphaAgentHypothesis2FactorExpression, 'convert') as mock_convert:
+                        mock_convert.return_value = MagicMock()
+
+                        with patch("quantaalpha.factors.proposal.logger") as mock_logger:
+                            result = h2e.convert_multi_hypothesis(bundle, mock_trace)
+
+                            # Must have logged the fallback reason
+                            warning_calls = [str(args[0]) for args, _ in mock_logger.warning.call_args_list if args]
+                            combined_warnings = "\n".join(warning_calls)
+                            assert "empty" in combined_warnings.lower() or "multi-hypothesis" in combined_warnings.lower() or "fallback" in combined_warnings.lower()
+
+    def test_multi_hypothesis_length_error_retries_with_reduced_history(self):
+        """Context-length errors must retry the multi-hypothesis path with reduced history before fallback."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression, EnsembleHypothesisBundle
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        h2e.factor_regulator = FactorRegulator()
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+        h2e._validate_expression_capabilities = MagicMock(return_value=(True, ""))
+
+        bundle = EnsembleHypothesisBundle(
+            hypothesis="ensemble test",
+            concise_observation="obs",
+            concise_knowledge="know",
+            concise_justification="just",
+            concise_specification="spec",
+            hypotheses=[
+                {"model": "m1", "hypothesis": {"hypothesis": "h1"}},
+                {"model": "m2", "hypothesis": {"hypothesis": "h2"}},
+            ],
+            ensemble_strategy="collect_all",
+            num_models=2,
+        )
+
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = MagicMock()
+        mock_trace.hist.__len__ = MagicMock(return_value=0)
+        mock_trace.hist.__bool__ = MagicMock(return_value=False)
+
+        seen_history_limits = []
+
+        def fake_prepare_context(_bundle, _trace, history_limit):
+            seen_history_limits.append(history_limit)
+            return ({"target_hypothesis": "test", "experiment_output_format": "",
+                     "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
+                     "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)
+
+        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context', side_effect=fake_prepare_context):
+            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.return_value = "mock prompt"
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                        mock_call.side_effect = [
+                            RuntimeError("context length exceeded"),
+                            {"factors": {"factor_A": {
+                                "expression": "RANK(TS_MEAN($volume,20))",
+                                "description": "test",
+                                "formulation": "test",
+                                "variables": {},
+                            }}},
+                        ]
+
+                        with patch.object(AlphaAgentHypothesis2FactorExpression, 'convert') as mock_convert:
+                            result = h2e.convert_multi_hypothesis(bundle, mock_trace)
+
+                        mock_convert.assert_not_called()
+                        assert result.tasks
+                        assert seen_history_limits[:2] == [6, 5]
+
+
+class TestMeanSignatureValidation:
+    """MEAN(A, B, C) must be rejected before execution; MEAN(A) must pass."""
+
+    def test_mean_signature_single_arg_passes(self):
+        """MEAN($volume) is legal."""
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        parsable, error = regulator.parse_diagnostic("MEAN($volume)")
+        assert parsable is True
+        assert error is None
+
+    def test_mean_signature_multi_arg_rejected(self):
+        """MEAN(A, B, C) must be rejected with a clear diagnostic."""
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        # MEAN(A, B, C) must be rejected by capability validation
+        expr = "MEAN(RANK($close), RANK($volume), RANK($open))"
+        parsable, parse_error = regulator.parse_diagnostic(expr)
+        # Must be rejected
+        assert parsable is False
+        assert parse_error is not None
+        assert "MEAN()" in parse_error
+        assert "single-argument" in parse_error
+
+    def test_mean_signature_ts_mean_multi_arg_still_passes(self):
+        """TS_MEAN(A, n) is legal with 2 args."""
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        parsable, error = regulator.parse_diagnostic("TS_MEAN($close, 20)")
+        assert parsable is True
+        assert error is None
+
+    def test_mean_signature_deep_nested_multi_arg_rejected(self):
+        """MEAN with deeply nested multi-arg must be rejected via AST validation."""
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        expr = "MEAN(RANK(ZSCORE(TS_CORR($return,$volume,5))), RANK(ZSCORE(TS_CORR($return,$volume,10))), RANK(ZSCORE(TS_CORR($return,$volume,20))))"
+        parsable, parse_error = regulator.parse_diagnostic(expr)
+        assert parsable is False
+        assert parse_error is not None
+        assert "MEAN()" in parse_error
+        assert "single-argument" in parse_error
+
+
+class TestFeedbackAccumulationReduction:
+    """MAX_FEEDBACK_ITEMS must be reduced to 3."""
+
+    def test_feedback_accumulation_max_items_is_3(self):
+        """The bounded feedback accumulation must keep only the most recent 3 items."""
+        from quantaalpha.factors.proposal import _bound_feedback_accumulation, MAX_FEEDBACK_ITEMS
+
+        # MAX_FEEDBACK_ITEMS must be 3
+        assert MAX_FEEDBACK_ITEMS == 3, f"MAX_FEEDBACK_ITEMS should be 3, got {MAX_FEEDBACK_ITEMS}"
+
+    def test_feedback_accumulation_retains_only_recent_3_items(self):
+        """Accumulating more than 3 items must keep only the most recent 3."""
+        from quantaalpha.factors.proposal import _bound_feedback_accumulation, MAX_FEEDBACK_ITEMS
+
+        accumulated = None
+        for i in range(10):
+            accumulated = _bound_feedback_accumulation(accumulated, f"item_{i}")
+
+        # Must contain recent items
+        assert "item_9" in accumulated
+        assert "item_8" in accumulated
+        assert "item_7" in accumulated
+        # Must NOT contain old items
+        assert "item_0" not in accumulated
+        assert "item_1" not in accumulated
+        assert "item_2" not in accumulated
+        assert "item_3" not in accumulated
+        assert "item_4" not in accumulated
+        assert "item_5" not in accumulated
+        assert "item_6" not in accumulated

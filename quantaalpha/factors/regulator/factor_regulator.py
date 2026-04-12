@@ -97,6 +97,8 @@ class FactorRegulator(Evaluator):
     def parse_diagnostic(self, expression: str) -> tuple[bool, str | None]:
         """Diagnose whether an expression can be parsed and return structured feedback.
 
+        Also validates known fixed-arity DSL function signatures (e.g. MEAN is single-arg).
+
         Args:
             expression: The factor expression to check.
 
@@ -108,11 +110,103 @@ class FactorRegulator(Evaluator):
         try:
             from quantaalpha.factors.coder.expr_parser import parse_expression
             parse_expression(expression)
-            return True, None
         except Exception as exc:
             message = str(exc)
             logger.error(f"Failed to parse expression: {expression}. Error: {message}")
             return False, message
+
+        # DSL function signature validation
+        sig_error = self._validate_dsl_function_signatures(expression)
+        if sig_error:
+            logger.error(f"DSL signature violation in expression: {expression}. Error: {sig_error}")
+            return False, sig_error
+
+        return True, None
+
+    def _validate_dsl_function_signatures(self, expression: str) -> str | None:
+        """Validate known fixed-arity DSL function signatures using AST.
+
+        Currently enforces:
+        - MEAN(A) is single-argument only. Suggests explicit weighted addition or MEAN(A).
+        - Does NOT reject TS_MEAN, CS_MEAN, or other prefixed variants.
+
+        Args:
+            expression: The factor expression to validate.
+
+        Returns:
+            Error message if violation detected, None otherwise.
+        """
+        try:
+            from quantaalpha.factors.coder.factor_ast import parse_expression, FunctionNode
+
+            tree = parse_expression(expression)
+        except Exception:
+            # If AST parsing fails, fall back to regex-based check
+            return self._validate_dsl_function_signatures_regex(expression)
+
+        # Walk AST to find MEAN() calls (not TS_MEAN, CS_MEAN, etc.)
+        violations = []
+        self._collect_mean_violations(tree, violations)
+        if violations:
+            return violations[0]
+        return None
+
+    def _collect_mean_violations(self, node, violations: list[str]) -> None:
+        """Recursively walk AST and collect MEAN() calls with >1 argument."""
+        try:
+            from quantaalpha.factors.coder.factor_ast import FunctionNode, VarNode
+        except ImportError:
+            return
+
+        if isinstance(node, FunctionNode):
+            # FunctionNode.name is a VarNode, not a string
+            func_name = node.name.name if isinstance(node.name, VarNode) else str(node.name)
+            # Only reject exact "MEAN" name, not prefixed variants like TS_MEAN
+            if func_name == "MEAN" and len(node.args) > 1:
+                args_repr = ", ".join(str(arg) for arg in node.args)
+                violations.append(
+                    f"MEAN() is a single-argument cross-sectional function in this DSL, "
+                    f"but got {len(node.args)} arguments: MEAN({args_repr}). "
+                    f"Use explicit weighted addition (e.g. 0.33*A + 0.33*B + 0.34*C) "
+                    f"or MEAN(A) for a single expression."
+                )
+            # Recurse into all children
+            for arg in node.args:
+                self._collect_mean_violations(arg, violations)
+        elif hasattr(node, '__iter__') and not isinstance(node, str):
+            for child in node:
+                if hasattr(child, '__dict__'):
+                    self._collect_mean_violations(child, violations)
+
+    def _validate_dsl_function_signatures_regex(self, expression: str) -> str | None:
+        """Fallback regex-based MEAN validation when AST parsing is unavailable."""
+        import re
+
+        # Match MEAN(...) but NOT TS_MEAN, CS_MEAN, etc.
+        mean_pattern = re.compile(r'(?<![_A-Z])MEAN\s*\((.+)\)', re.DOTALL)
+        match = mean_pattern.search(expression)
+        if match:
+            args_str = match.group(1).strip()
+            if not args_str:
+                return "MEAN() requires exactly one argument, got empty."
+            # Count top-level commas (not inside nested parens)
+            depth = 0
+            arg_count = 1
+            for ch in args_str:
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                elif ch == ',' and depth == 0:
+                    arg_count += 1
+            if arg_count > 1:
+                return (
+                    f"MEAN() is a single-argument cross-sectional function in this DSL, "
+                    f"but got {arg_count} arguments. "
+                    f"Use explicit weighted addition (e.g. 0.33*A + 0.33*B + 0.34*C) "
+                    f"or MEAN(A) for a single expression."
+                )
+        return None
 
     def is_parsable(self, expression: str) -> bool:
         """

@@ -227,7 +227,7 @@ factor_feedback_generation:
           - Identify critical components in the factor construction process
 
       3. **Complexity Control (CRITICAL - PRIMARY CAUSE OF POOR TEST PERFORMANCE):**
-          - **Symbol Length (SL)**: Factors with expressions exceeding 250 characters are HIGHLY LIKELY to be OVERFITTING. If a factor is flagged for high symbol length, it MUST be drastically simplified in the next iteration. Target: 50-150 characters.
+          - **Symbol Length (SL)**: Factors with expressions exceeding 250 characters are HIGHLY LIKELY to be OVERFITTING. The runtime hard limit is 300 characters. If a factor is flagged for high symbol length, it MUST be drastically simplified in the next iteration. Target: 50-150 characters.
           - **Base Features Count (ER)**: Factors using too many distinct raw features (> 6) indicate over-engineering. Recommend reducing to 2-4 core features.
           - **Free Parameters (PC)**: Factors with too many free parameters (numeric constants) relative to total nodes (> 50%) are likely over-parameterized. Reduce parameter count significantly.
           - **OVERFITTING WARNING**: Complex factors with long expressions, many nested functions, and conditional branches almost ALWAYS perform well on training/validation but FAIL CATASTROPHICALLY on test sets. This is the #1 cause of poor out-of-sample performance.
@@ -350,13 +350,14 @@ hypothesis2experiment:
       - Note that each factor is independent. Please do NOT reference other factors within the factor expression.
 
     2. **CRITICAL: Factor Complexity Constraints (MUST FOLLOW - OVERFITTING PREVENTION):**
-      - **Symbol Length (SL) Limit: ≤ 250 characters (STRICT LIMIT)**
-        - Factor expressions MUST NOT exceed 250 characters. This is a HARD LIMIT.
+      - **Symbol Length (SL) Limit: ≤ 300 characters (HARD LIMIT)**
+        - Factor expressions MUST NOT exceed 300 characters. This is the runtime hard limit enforced by the evaluator.
+        - **Recommended target: 50-150 characters** for robust generalization and to avoid overfitting.
         - **WARNING: Overly complex/long expressions (> 250 chars) are highly prone to OVERFITTING.** They may perform well on training data but fail catastrophically on test data.
         - **Simple factors generalize better.** A concise factor with moderate performance is FAR more valuable than a complex one with high training performance but poor test performance.
         - Example of GOOD (short, ~50 chars): `RANK(TS_MEAN($return, 20))`
         - Example of GOOD (moderate, ~100 chars): `RANK(TS_CORR($close, $volume, 10)) * SIGN(TS_MEAN($return, 5))`
-        - Example of BAD (too long, > 250 chars): `RANK(POW(TS_CORR($close, SEQUENCE(15), 15), 2)) * RANK(TS_MEAN(($high - $low) / ($volume + 1e-8), 15)) * ...`
+        - Example of BAD (too long, > 300 chars): `RANK(POW(TS_CORR($close, SEQUENCE(15), 15), 2)) * RANK(TS_MEAN(($high - $low) / ($volume + 1e-8), 15)) * ...`
       - **Base Features (ER) Limit: ≤ 6 distinct raw features**
         - Use at most 6 distinct base features (e.g., $close, $open, $high, $low, $volume, $return).
         - Reusing the same feature multiple times is acceptable, but using too many different features indicates over-engineering.

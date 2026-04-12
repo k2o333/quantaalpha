@@ -160,8 +160,18 @@ def render_hypothesis_and_feedback(prompt_dict, trace: Trace, history_limit: int
 
 
 def is_input_length_error(error_msg: str) -> bool:
-    """Check if error is due to input length limit."""
-    error_indicators = ["input length", "context length", "maximum context", "token limit", "InvalidParameter", "Range of input length", "max_tokens", "too long"]
+    """Check if error is due to input length limit or persistent empty responses.
+
+    Extended to recognize persistent empty-response failures that can plausibly
+    be context-length fallbacks, enabling outer history_limit degradation.
+    """
+    error_indicators = [
+        "input length", "context length", "maximum context", "token limit",
+        "InvalidParameter", "Range of input length", "max_tokens", "too long",
+        # Empty response indicators — persistent empty responses may indicate
+        # context overflow or model degradation, triggering history fallback.
+        "empty response", "persistent empty", "emptyllmresponseerror",
+    ]
     error_str = str(error_msg).lower()
     return any(indicator.lower() in error_str for indicator in error_indicators)
 
@@ -371,7 +381,8 @@ class QlibFactorHypothesis2Experiment(FactorHypothesis2Experiment):
 qa_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
 
 # Constants for bounded feedback accumulation
-MAX_FEEDBACK_ITEMS = 5
+# Reduced from 5 to 3 to keep only the most recent actionable items
+MAX_FEEDBACK_ITEMS = 3
 MAX_FEEDBACK_TOTAL_CHARS = 8000
 
 
@@ -754,70 +765,169 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         )
 
     def convert_multi_hypothesis(self, bundle: EnsembleHypothesisBundle, trace: Trace) -> Experiment:
-        """Convert an ensemble bundle into factor expressions via call_structured."""
+        """Convert an ensemble bundle into factor expressions via call_structured.
+
+        This method now includes:
+        - Retry loop (up to 3 attempts) for empty/invalid responses.
+        - Explicit detection of empty factors_dict before building experiment.
+        - Logged fallback reason when falling back to primary hypothesis.
+        """
         if not bundle.hypotheses:
+            logger.warning("Multi-hypothesis bundle has no hypotheses, falling back to bundle as single hypothesis")
             return self.convert(bundle, trace)
 
         history_limit = DEFAULT_HISTORY_LIMIT
+        max_multi_retries = 3
+
         while history_limit >= MIN_HISTORY_LIMIT:
-            try:
-                context, json_flag = self.prepare_context(bundle, trace, history_limit)
-                context["target_hypothesis"] = self._build_multi_hypothesis_target(bundle)
+            retry_with_reduced_history = False
+            for attempt in range(max_multi_retries):
+                try:
+                    context, json_flag = self.prepare_context(bundle, trace, history_limit)
+                    context["target_hypothesis"] = self._build_multi_hypothesis_target(bundle)
 
-                system_prompt = (
-                    Environment(undefined=StrictUndefined)
-                    .from_string(qa_prompt_dict["hypothesis2experiment"]["system_prompt"])
-                    .render(
-                        targets=self.targets,
-                        scenario=trace.scen.background,
-                        experiment_output_format=context["experiment_output_format"],
+                    system_prompt = (
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["hypothesis2experiment"]["system_prompt"])
+                        .render(
+                            targets=self.targets,
+                            scenario=trace.scen.background,
+                            experiment_output_format=context["experiment_output_format"],
+                        )
                     )
-                )
-                user_prompt = (
-                    Environment(undefined=StrictUndefined)
-                    .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
-                    .render(
-                        targets=self.targets,
-                        target_hypothesis=context["target_hypothesis"],
-                        hypothesis_and_feedback=context["hypothesis_and_feedback"],
-                        function_lib_description=context["function_lib_description"],
-                        target_list=context["target_list"],
-                        RAG=context["RAG"],
-                        expression_duplication=None,
+                    user_prompt = (
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                        .render(
+                            targets=self.targets,
+                            target_hypothesis=context["target_hypothesis"],
+                            hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                            function_lib_description=context["function_lib_description"],
+                            target_list=context["target_list"],
+                            RAG=context["RAG"],
+                            expression_duplication=None,
+                        )
                     )
-                )
 
-                api = APIBackend()
-                messages = api.build_messages(user_prompt, system_prompt)
-                response_dict = call_structured(
-                    api,
-                    messages,
-                    tools=[CONSTRUCT_FACTORS_TOOL],
-                    tool_choice="required",
-                    json_mode=json_flag,
-                    task_type="factor_construction",
-                    allow_text_fallback=True,
-                )
-                if not response_dict:
-                    raise ValueError("Empty multi-hypothesis construct response")
-                return self._build_experiment_from_dict(response_dict, trace)
-            except Exception as e:
-                if is_input_length_error(str(e)) and history_limit > MIN_HISTORY_LIMIT:
-                    history_limit -= 1
-                    logger.warning(f"Multi-hypothesis input length exceeded, retrying with history_limit={history_limit}...")
+                    api = APIBackend()
+                    messages = api.build_messages(user_prompt, system_prompt)
+                    response_dict = call_structured(
+                        api,
+                        messages,
+                        tools=[CONSTRUCT_FACTORS_TOOL],
+                        tool_choice="required",
+                        json_mode=json_flag,
+                        task_type="factor_construction",
+                        allow_text_fallback=True,
+                    )
+                    if not response_dict:
+                        logger.warning(
+                            f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                            f"Empty multi-hypothesis construct response, retrying..."
+                        )
+                        continue
+
+                    # Validate that factors_dict is not empty before building experiment
+                    factors_dict = self._unwrap_construct_response(response_dict)
+                    if not factors_dict:
+                        logger.warning(
+                            f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                            f"Multi-hypothesis response yielded empty factors_dict, retrying..."
+                        )
+                        continue
+
+                    # Quality gate: validate each factor before building experiment
+                    quality_passed = True
+                    for factor_name, factor_data in factors_dict.items():
+                        if not isinstance(factor_data, dict):
+                            continue
+                        expr = factor_data.get("expression", "")
+                        if not expr:
+                            logger.warning(
+                                f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                                f"Factor {factor_name} has no expression, rejecting."
+                            )
+                            quality_passed = False
+                            break
+
+                        # 1. Parse diagnostic
+                        parsable, parse_error = self.factor_regulator.parse_diagnostic(expr)
+                        if not parsable:
+                            logger.warning(
+                                f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                                f"Factor {factor_name} unparsable: {parse_error}"
+                            )
+                            quality_passed = False
+                            break
+
+                        # 2. Capability validation
+                        capability_valid, capability_feedback = self._validate_expression_capabilities(expr, trace)
+                        if not capability_valid:
+                            logger.warning(
+                                f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                                f"Factor {factor_name} capability failure: {capability_feedback[:200]}"
+                            )
+                            quality_passed = False
+                            break
+
+                        # 3. Evaluate
+                        success, eval_dict = self.factor_regulator.evaluate(expr)
+                        if not success:
+                            logger.warning(
+                                f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                                f"Factor {factor_name} evaluation failure."
+                            )
+                            quality_passed = False
+                            break
+
+                        # 4. Acceptability check
+                        if not self.factor_regulator.is_expression_acceptable(eval_dict):
+                            symbol_length = eval_dict.get("symbol_length", 0)
+                            logger.warning(
+                                f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                                f"Factor {factor_name} not acceptable: symbol_length={symbol_length}."
+                            )
+                            quality_passed = False
+                            break
+
+                    if not quality_passed:
+                        continue
+
+                    # Build and return the experiment
+                    return self._build_experiment_from_dict(response_dict, trace)
+
+                except Exception as e:
+                    if is_input_length_error(str(e)) and history_limit > MIN_HISTORY_LIMIT:
+                        history_limit -= 1
+                        retry_with_reduced_history = True
+                        logger.warning(f"Multi-hypothesis input length exceeded, retrying with history_limit={history_limit}...")
+                        break  # Break inner for loop, continue outer while loop
+                    logger.warning(
+                        f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] "
+                        f"Multi-hypothesis construct failed: {e}"
+                    )
+                    # Continue retry loop
                     continue
-                logger.warning(f"Multi-hypothesis construct failed, falling back to primary hypothesis: {e}")
-                primary_payload = bundle.primary_hypothesis.get("hypothesis", {})
-                if isinstance(primary_payload, dict):
-                    primary_hypothesis = AlphaAgentHypothesis(
-                        hypothesis=primary_payload.get("hypothesis", bundle.hypothesis),
-                        concise_observation=primary_payload.get("concise_observation", bundle.concise_observation),
-                        concise_knowledge=primary_payload.get("concise_knowledge", bundle.concise_knowledge),
-                        concise_justification=primary_payload.get("concise_justification", bundle.concise_justification),
-                        concise_specification=primary_payload.get("concise_specification", bundle.concise_specification),
-                    )
-                    return self.convert(primary_hypothesis, trace)
-                return self.convert(bundle, trace)
+
+            if retry_with_reduced_history:
+                continue
+
+            # If we exhausted all retries without success, fall back to primary hypothesis
+            logger.warning(
+                f"Multi-hypothesis construct failed after {max_multi_retries} attempts, "
+                f"falling back to primary hypothesis. Reason: empty or invalid multi-hypothesis response"
+            )
+            primary_payload = bundle.primary_hypothesis.get("hypothesis", {})
+            if isinstance(primary_payload, dict):
+                primary_hypothesis = AlphaAgentHypothesis(
+                    hypothesis=primary_payload.get("hypothesis", bundle.hypothesis),
+                    concise_observation=primary_payload.get("concise_observation", bundle.concise_observation),
+                    concise_knowledge=primary_payload.get("concise_knowledge", bundle.concise_knowledge),
+                    concise_justification=primary_payload.get("concise_justification", bundle.concise_justification),
+                    concise_specification=primary_payload.get("concise_specification", bundle.concise_specification),
+                )
+                return self.convert(primary_hypothesis, trace)
+            return self.convert(bundle, trace)
 
     def _convert_with_history_limit(self, hypothesis: Hypothesis, trace: Trace, history_limit: int) -> Experiment:
         """Convert with given history limit."""
@@ -844,6 +954,10 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         api = APIBackend()
         final_response_dict = None
         last_failure_reason = None
+
+        # Track symbol_length for early stopping on non-improving acceptability failures
+        recent_symbol_lengths: list[int] = []
+
         for attempt in range(MAX_RETRIES):
             if flag:
                 break
@@ -863,6 +977,32 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             if not response_dict:
                 last_failure_reason = "empty response"
                 logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}, retrying...")
+                # Inject feedback to guide the LLM away from empty responses
+                empty_feedback = (
+                    "Empty Response Warning:\n"
+                    "- Previous call returned an empty response.\n"
+                    "- Please generate at least one valid factor expression.\n"
+                    "- Keep expressions simple, target 50-150 characters.\n"
+                    "- Use only single-argument cross-sectional functions like MEAN(A).\n"
+                )
+                if expression_duplication_prompt is not None:
+                    expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, empty_feedback)
+                else:
+                    expression_duplication_prompt = empty_feedback
+                # Re-render user prompt with the injected feedback
+                user_prompt = (
+                    Environment(undefined=StrictUndefined)
+                    .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                    .render(
+                        targets=self.targets,
+                        target_hypothesis=context["target_hypothesis"],
+                        hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                        function_lib_description=context["function_lib_description"],
+                        target_list=context["target_list"],
+                        RAG=context["RAG"],
+                        expression_duplication=expression_duplication_prompt,
+                    )
+                )
                 continue
             final_response_dict = response_dict
             proposed_names = []
@@ -989,6 +1129,31 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                     num_base_features = eval_dict.get("num_base_features", 0)
                     symbol_length_threshold = self.factor_regulator.symbol_length_threshold
                     base_features_threshold = self.factor_regulator.base_features_threshold
+
+                    # Track symbol_length for early stopping
+                    recent_symbol_lengths.append(symbol_length)
+
+                    # Early stopping: if last 3 symbol_lengths show no net improvement, stop early
+                    if len(recent_symbol_lengths) >= 3:
+                        last_three = recent_symbol_lengths[-3:]
+                        # No net improvement if the last value >= the first of the 3
+                        # Correctly allows [500, 400, 300] (improving) while stopping on [20, 20, 20] or [300, 350, 400]
+                        if last_three[-1] >= last_three[0]:
+                            last_failure_reason = (
+                                f"expression acceptability failure for {factor_name}: "
+                                f"symbol_length={symbol_length} (recent sequence: {last_three}, non-improving), "
+                                f"duplicated_subtree_size={eval_dict.get('duplicated_subtree_size')}, "
+                                f"num_free_args={eval_dict.get('num_free_args')}, "
+                                f"num_unique_vars={eval_dict.get('num_unique_vars')}, "
+                                f"num_all_nodes={num_all_nodes}, "
+                                f"num_base_features={num_base_features}"
+                            )
+                            logger.warning(f"[early stop after attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                            raise RuntimeError(
+                                f"Factor proposal early-stopped after {attempt + 1} retries: {last_failure_reason}. "
+                                f"last failure reason: {last_failure_reason}. "
+                                f"symbol_length not improving: {last_three}"
+                            )
 
                     feedback_item = (
                         Environment(undefined=StrictUndefined)
