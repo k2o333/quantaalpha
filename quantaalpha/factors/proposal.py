@@ -1032,7 +1032,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         "- Keep the replacement expression simple, preferably 50-150 characters.\n"
                         "- Do not return the same expression again.\n"
                     )
-                    last_failure_reason = f"unparsable expression for {factor_name}: {expr[:160]}"
+                    last_failure_reason = f"unparsable expression for {factor_name}: {expr[:500]}"
                     logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}; parse_error={parse_error}")
                     if expression_duplication_prompt is not None:
                         expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, feedback_item)
@@ -1078,7 +1078,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
                 success, eval_dict = self.factor_regulator.evaluate(expr)
                 if not success:
-                    last_failure_reason = f"factor evaluation failure for {factor_name}: {expr[:160]}"
+                    last_failure_reason = f"factor evaluation failure for {factor_name}: {expr[:500]}"
                     logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
                     break
 

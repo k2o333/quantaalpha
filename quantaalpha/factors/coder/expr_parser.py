@@ -275,8 +275,16 @@ expr <<= infix_notation(operand,
 
     
 def check_parentheses_balance(expr):
-    if expr.count('(') != expr.count(')'):
-        raise ParseException("Unclosed parentheses")
+    open_count = expr.count('(')
+    close_count = expr.count(')')
+    if open_count != close_count:
+        if open_count > close_count:
+            detail = f"missing {open_count - close_count} closing ')'"
+        else:
+            detail = f"extra {close_count - open_count} closing ')'"
+        raise ValueError(
+            f"Unbalanced parentheses: {open_count} open '(' vs {close_count} close ')' — {detail}"
+        )
 
 expr.set_parse_action(parse_entire_expression)
 
@@ -287,24 +295,24 @@ def preprocess_unary_minus(factor_expression):
     # "* -(" or "/ -(" -> "* (-1 * (" or "/ (-1 * ("
     factor_expression = re.sub(
         r'(\*\s*)-(\s*\()',
-        r'\1(-1 * \2',
+        r'\1(-1) * \2',
         factor_expression
     )
     factor_expression = re.sub(
         r'(/\s*)-(\s*\()',
-        r'\1(-1 * \2',
+        r'\1(-1) * \2',
         factor_expression
     )
     
     # "* -func(" or "/ -func("
     factor_expression = re.sub(
         r'(\*\s*)-(\s*[A-Za-z_][A-Za-z0-9_]*\s*\()',
-        r'\1(-1 * \2',
+        r'\1(-1) * \2',
         factor_expression
     )
     factor_expression = re.sub(
         r'(/\s*)-(\s*[A-Za-z_][A-Za-z0-9_]*\s*\()',
-        r'\1(-1 * \2',
+        r'\1(-1) * \2',
         factor_expression
     )
     
@@ -323,19 +331,21 @@ def preprocess_unary_minus(factor_expression):
     # "+ -(" or "- -("
     factor_expression = re.sub(
         r'(\+\s*)-(\s*\()',
-        r'\1(-1 * \2',
+        r'\1(-1) * \2',
         factor_expression
     )
     factor_expression = re.sub(
         r'(-\s*)-(\s*\()',
-        r'\1(-1 * \2',
+        r'\1(-1) * \2',
         factor_expression
     )
     
-    open_count = factor_expression.count('(')
-    close_count = factor_expression.count(')')
-    if open_count > close_count:
-        factor_expression += ')' * (open_count - close_count)
+    # Safety assertion: regex substitutions above should never change bracket balance.
+    # If this fires, it indicates a regression in the regex patterns.
+    assert factor_expression.count('(') == factor_expression.count(')'), (
+        f"preprocess_unary_minus introduced bracket imbalance: "
+        f"{factor_expression.count('(')} open vs {factor_expression.count(')')} close"
+    )
     
     return factor_expression
 
