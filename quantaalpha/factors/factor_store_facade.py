@@ -22,6 +22,28 @@ from quantaalpha.factors.parquet_library import ParquetFactorLibrary, REQUIRED_C
 from quantaalpha.factors.status_rules import update_factor_status
 
 
+def _default_data_requirements() -> dict[str, Any]:
+    """Return default data_requirements structure for metadata_json."""
+    return {
+        "dimensions": ["price_volume"],
+        "fields": [],
+        "data_frequency": "daily",
+    }
+
+
+DEFAULT_BACKTEST_RESULT_KEYS = {
+    "IC": None,
+    "ICIR": None,
+    "Rank IC": None,
+    "Rank ICIR": None,
+    "positive_ratio": None,
+    "turnover_rate": None,
+    "lag_ic_1d": None,
+    "lag_ic_2d": None,
+    "validation_elapsed_ms": None,
+}
+
+
 class FactorStoreFacade:
     """统一因子存储入口，向业务层提供稳定 API"""
 
@@ -151,6 +173,26 @@ class FactorStoreFacade:
         except (TypeError, json.JSONDecodeError):
             return default
 
+    @staticmethod
+    def _ensure_backtest_result_keys(results: dict[str, Any]) -> dict[str, Any]:
+        """Ensure backtest_results_json has all field extension keys at top level."""
+        merged = dict(results or {})
+        for key, default in DEFAULT_BACKTEST_RESULT_KEYS.items():
+            merged.setdefault(key, default)
+        return merged
+
+    @staticmethod
+    def _ensure_metadata_keys(metadata: dict[str, Any]) -> dict[str, Any]:
+        """Ensure metadata_json has all field extension keys at top level."""
+        merged = dict(metadata or {})
+        merged.setdefault("field_schema_version", "1.0")
+        merged.setdefault("llm_model_version", None)
+        merged.setdefault("prompt_template_hash", None)
+        merged.setdefault("parent_factor_id", None)
+        merged.setdefault("source", None)
+        merged.setdefault("data_requirements", _default_data_requirements())
+        return merged
+
     def _legacy_entry_from_record(self, record: dict[str, Any]) -> dict[str, Any]:
         """Convert a Parquet row/event into the legacy nested factor entry shape."""
         if "evaluation" in record:
@@ -209,6 +251,10 @@ class FactorStoreFacade:
         tags = legacy_entry.get("tags", self._loads_json(source_record.get("tags_json"), {}))
         results = backtest_results if backtest_results is not None else legacy_entry.get("backtest_results", {})
         factor_expression = legacy_entry.get("factor_expression", source_record.get("factor_expression", ""))
+
+        # Apply field extension defaults before serialization
+        results = self._ensure_backtest_result_keys(results)
+        metadata = self._ensure_metadata_keys(metadata)
 
         return {
             "factor_id": legacy_entry.get("factor_id", source_record.get("factor_id", "")),

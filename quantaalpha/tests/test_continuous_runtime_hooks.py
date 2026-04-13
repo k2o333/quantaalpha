@@ -12,6 +12,7 @@ These tests verify that stubs are replaced with real integration behavior.
 
 import json
 import logging
+import sys
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -19,6 +20,15 @@ from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
+
+
+def _ensure_repo_root_importable():
+    repo_root = Path(__file__).resolve().parents[4]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+
+_ensure_repo_root_importable()
 
 
 class TestRunFactorBacktest:
@@ -309,7 +319,6 @@ class TestValidateFactor:
         lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
 
         scheduler = DefaultMiningScheduler(library_path=str(lib_path))
-
         with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
             mock_instance = MagicMock()
             mock_result = MagicMock()
@@ -340,7 +349,6 @@ class TestValidateFactor:
         lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
 
         scheduler = DefaultMiningScheduler(library_path=str(lib_path))
-
         with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
             mock_instance = MagicMock()
             mock_result = MagicMock()
@@ -854,7 +862,6 @@ class TestValidationResultContract:
         lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
 
         scheduler = DefaultMiningScheduler(library_path=str(lib_path))
-
         with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
             mock_instance = MagicMock()
             mock_result = MagicMock()
@@ -887,7 +894,6 @@ class TestValidationResultContract:
         lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
 
         scheduler = DefaultMiningScheduler(library_path=str(lib_path))
-
         with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
             mock_instance = MagicMock()
             mock_result = MagicMock()
@@ -3624,3 +3630,82 @@ def test_parquet_revalidation_respects_days_threshold_before_limit():
     assert len(captured) <= 1, (
         f"candidates must be truncated to max_revalidation_per_run=1 after days filtering, got {len(captured)} items: {captured_ids}"
     )
+
+
+class TestValidationEnrichment:
+    """Test flat field enrichment in validation results."""
+
+    def test_validate_factor_enriches_success_with_flat_field_metrics(self, tmp_path):
+        """_validate_factor success path returns flat IC, ICIR, Rank IC, Rank ICIR, positive_ratio,
+        and validation_elapsed_ms at the top level, while preserving the summary structure."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.6
+            mock_result.ic_result.icir = 1.5
+            mock_result.ic_result.rank_ic_mean = 0.04
+            mock_result.ic_result.rank_icir = 1.2
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "test_factor",
+                {"factor_id": "test_factor", "factor_expression": "$close"}
+            )
+
+            assert result["status"] == "success"
+            assert "summary" in result
+            assert "IC" in result, "Top-level IC should be present"
+            assert "ICIR" in result, "Top-level ICIR should be present"
+            assert "Rank IC" in result, "Top-level Rank IC should be present"
+            assert "positive_ratio" in result, "Top-level positive_ratio should be present"
+            assert "validation_elapsed_ms" in result, "Top-level validation_elapsed_ms should be present"
+            assert result["IC"] == 0.05
+            assert isinstance(result["validation_elapsed_ms"], (int, float))
+            assert result["validation_elapsed_ms"] >= 0
+
+    def test_validate_factor_enriches_failure_with_flat_field_metrics(self, tmp_path):
+        """_validate_factor failure path (IC below threshold) returns flat fields where available,
+        including validation_elapsed_ms, while preserving the summary structure."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.005  # Below threshold
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.4
+            mock_result.ic_result.icir = 0.2
+            mock_result.ic_result.rank_ic_mean = 0.003
+            mock_result.ic_result.rank_icir = 0.1
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "weak_factor",
+                {"factor_id": "weak_factor", "factor_expression": "$volume"}
+            )
+
+            assert result["status"] == "failure"
+            assert "summary" in result
+            assert "IC" in result, "Top-level IC should be present"
+            assert "validation_elapsed_ms" in result, "Top-level validation_elapsed_ms should be present"
+            assert result["IC"] == 0.005
+            assert isinstance(result["validation_elapsed_ms"], (int, float))
+            assert result["validation_elapsed_ms"] >= 0

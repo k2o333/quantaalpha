@@ -2,6 +2,7 @@
 Tests for FactorStoreFacade - thin storage facade over ParquetFactorLibrary.
 """
 
+import json
 import uuid
 import shutil
 from datetime import datetime
@@ -213,6 +214,124 @@ class TestFactorStoreFacadeStatusAndDelete:
         assert facade.read_effective_factor_records() == []
         assert facade.delta_file_count() == 2
         assert not list(Path(tmp_store).rglob("*.json"))
+
+
+class TestFactorStoreFacadeFieldExtensions:
+    """Test field extension defaults and preservation in FactorStoreFacade."""
+
+    def test_write_status_update_persists_field_extension_defaults(self, tmp_store):
+        """A validation status update writes default field extension keys to both
+        backtest_results_json and metadata_json when they are not already present."""
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        facade = FactorStoreFacade(store_path=tmp_store)
+        entry = _make_factor_entry(
+            factor_id="field_ext_factor",
+            factor_name="field_ext_factor",
+            factor_expression="STD($close, 20)",
+            expression_hash="field_ext_hash",
+            sequence=10,
+        )
+        facade.write_factor(entry)
+
+        validation_result = {
+            "status": "success",
+            "summary": {
+                "stability_score": 0.7,
+                "validation_summary": "test validation",
+                "ic_mean": 0.12,
+                "rank_ic_mean": 0.08,
+                "positive_ratio": 0.6,
+            },
+        }
+
+        facade.write_status_update(entry, validation_result, sequence=11)
+
+        records = facade.read_effective_factor_records()
+        assert len(records) == 1
+        record = records[0]
+
+        backtest = json.loads(record["backtest_results_json"])
+        metadata = json.loads(record["metadata_json"])
+
+        # backtest_results_json should have default field extension keys
+        assert "IC" in backtest
+        assert "ICIR" in backtest
+        assert "Rank IC" in backtest
+        assert "Rank ICIR" in backtest
+        assert "positive_ratio" in backtest
+        assert "turnover_rate" in backtest
+        assert "lag_ic_1d" in backtest
+        assert "lag_ic_2d" in backtest
+        assert "validation_elapsed_ms" in backtest
+
+        # metadata_json should have default field extension keys
+        assert metadata["field_schema_version"] == "1.0"
+        assert "data_requirements" in metadata
+        assert "dimensions" in metadata["data_requirements"]
+        assert "fields" in metadata["data_requirements"]
+        assert "data_frequency" in metadata["data_requirements"]
+        assert "llm_model_version" in metadata
+        assert "prompt_template_hash" in metadata
+        assert "parent_factor_id" in metadata
+        assert "source" in metadata
+
+    def test_write_status_update_preserves_existing_field_extension_values(self, tmp_store):
+        """A validation status update does NOT overwrite existing field extension values."""
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        facade = FactorStoreFacade(store_path=tmp_store)
+        entry = _make_factor_entry(
+            factor_id="preserve_factor",
+            factor_name="preserve_factor",
+            factor_expression="STD($close, 20)",
+            expression_hash="preserve_hash",
+            sequence=20,
+        )
+        facade.write_factor(entry)
+
+        validation_result = {
+            "status": "success",
+            "summary": {
+                "stability_score": 0.8,
+                "validation_summary": "test",
+                "ic_mean": 0.15,
+                "rank_ic_mean": 0.10,
+                "positive_ratio": 0.7,
+            },
+            "IC": 0.15,
+            "ICIR": 0.5,
+            "Rank IC": 0.10,
+            "Rank ICIR": 0.4,
+            "positive_ratio": 0.7,
+            "turnover_rate": 0.3,
+            "lag_ic_1d": 0.05,
+            "lag_ic_2d": 0.04,
+            "validation_elapsed_ms": 250,
+        }
+
+        facade.write_status_update(entry, validation_result, sequence=21)
+
+        records = facade.read_effective_factor_records()
+        assert len(records) == 1
+        record = records[0]
+
+        backtest = json.loads(record["backtest_results_json"])
+        metadata = json.loads(record["metadata_json"])
+
+        # Existing values should be preserved
+        assert backtest["IC"] == 0.15
+        assert backtest["ICIR"] == 0.5
+        assert backtest["Rank IC"] == 0.10
+        assert backtest["Rank ICIR"] == 0.4
+        assert backtest["positive_ratio"] == 0.7
+        assert backtest["turnover_rate"] == 0.3
+        assert backtest["lag_ic_1d"] == 0.05
+        assert backtest["lag_ic_2d"] == 0.04
+        assert backtest["validation_elapsed_ms"] == 250
+
+        # summary should still exist
+        assert "summary" in backtest
 
 
 class TestFactorStoreFacadeEncapsulation:

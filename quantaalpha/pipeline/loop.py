@@ -2,6 +2,7 @@
 Model workflow with session control.
 """
 
+import re
 import time
 import hashlib
 import json
@@ -120,6 +121,20 @@ def maybe_compact_after_save(store, compact_config: dict | None) -> dict:
     }
 
 
+def _parse_data_requirements(expression: str) -> dict[str, Any]:
+    """Parse $field references from a factor expression.
+
+    Extracts all $field references and returns a data_requirements dict
+    with dimensions, fields, and data_frequency.
+    """
+    fields = sorted(set(re.findall(r"\$([A-Za-z_][A-Za-z0-9_]*)", expression or "")))
+    return {
+        "dimensions": ["price_volume"],
+        "fields": fields,
+        "data_frequency": "daily",
+    }
+
+
 def save_factors_to_parquet(
     experiment,
     parquet_store_path: str,
@@ -190,6 +205,13 @@ def save_factors_to_parquet(
             "planning_direction": planning_direction or "",
             "created_at": now_iso,
             "factor_description": factor_desc,
+            # Field extension metadata (phase 2)
+            "field_schema_version": "1.0",
+            "source": evolution_phase or "unknown",
+            "data_requirements": _parse_data_requirements(factor_expr),
+            "llm_model_version": "unknown",
+            "prompt_template_hash": None,
+            "parent_factor_id": None,
         }
 
         entry = {

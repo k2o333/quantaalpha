@@ -1436,6 +1436,41 @@ class DefaultMiningScheduler(MiningScheduler):
                 f"Monitor hook failed for {factor_id}: {e}\n{traceback.format_exc()}"
             )
 
+    def _enrich_validation_result(
+        self,
+        result: dict | None,
+        *,
+        elapsed_ms: int | None = None,
+        ic_result: object | None = None,
+    ) -> dict | None:
+        """Enrich validation result with flat field metrics for consumers.
+
+        Adds top-level IC, ICIR, Rank IC, Rank ICIR, positive_ratio, and
+        validation_elapsed_ms while preserving the existing summary structure.
+        """
+        if result is None:
+            return None
+        enriched = dict(result)
+        summary = dict(enriched.get("summary", {}) or {})
+
+        ic_mean = summary.get("ic_mean")
+        rank_ic_mean = summary.get("rank_ic_mean")
+        positive_ratio = summary.get("positive_ratio")
+        if positive_ratio is None and ic_result is not None:
+            positive_ratio = getattr(ic_result, "positive_ratio", None)
+
+        enriched.setdefault("IC", ic_mean)
+        enriched.setdefault(
+            "ICIR", getattr(ic_result, "icir", None) if ic_result is not None else None
+        )
+        enriched.setdefault("Rank IC", rank_ic_mean)
+        if ic_result is not None and hasattr(ic_result, "rank_icir"):
+            enriched.setdefault("Rank ICIR", getattr(ic_result, "rank_icir"))
+        enriched.setdefault("positive_ratio", positive_ratio)
+        if elapsed_ms is not None:
+            enriched.setdefault("validation_elapsed_ms", elapsed_ms)
+        return enriched
+
     def _validate_factor(self, factor_id: str, factor_entry: dict) -> Optional[dict]:
         """
         Validate a single factor via backtest.
@@ -1450,6 +1485,7 @@ class DefaultMiningScheduler(MiningScheduler):
             Validation result dict with 'status' key ('success' or 'failure').
             None indicates error/uncertain result.
         """
+        validation_started = time.time()
         logger.info(f"Validating factor {factor_id}")
 
         # Use injected validator if provided
@@ -1476,7 +1512,9 @@ class DefaultMiningScheduler(MiningScheduler):
                         f"Monitor hook failed for {factor_id}: {e}\n{traceback.format_exc()}"
                     )
 
-            return result
+            # Enrich injected validator result with timing
+            elapsed_ms = int((time.time() - validation_started) * 1000)
+            return self._enrich_validation_result(result, elapsed_ms=elapsed_ms)
 
         # Default validation path using FactorExecutor
         try:
@@ -1487,15 +1525,19 @@ class DefaultMiningScheduler(MiningScheduler):
 
             expression = factor_entry.get("factor_expression", "")
             if not expression:
-                return {
-                    "status": "failure",
-                    "summary": {
-                        "stability_score": None,
-                        "validation_summary": f"No expression for {factor_id}",
-                        "ic_mean": None,
-                        "rank_ic_mean": None,
+                elapsed_ms = int((time.time() - validation_started) * 1000)
+                return self._enrich_validation_result(
+                    {
+                        "status": "failure",
+                        "summary": {
+                            "stability_score": None,
+                            "validation_summary": f"No expression for {factor_id}",
+                            "ic_mean": None,
+                            "rank_ic_mean": None,
+                        },
                     },
-                }
+                    elapsed_ms=elapsed_ms,
+                )
             translated_expression, translation_warnings = _translate_factor_expression(expression)
             if translation_warnings:
                 logger.info(
@@ -1520,15 +1562,19 @@ class DefaultMiningScheduler(MiningScheduler):
             # When bridge is not configured, use empty placeholder for backward compatibility
             if self._data_bridge is not None and (df is None or df.is_empty()):
                 logger.warning(f"No data available from bridge for validation of {factor_id}")
-                return {
-                    "status": "failure",
-                    "summary": {
-                        "stability_score": None,
-                        "validation_summary": f"No data available for validation of {factor_id}",
-                        "ic_mean": None,
-                        "rank_ic_mean": None,
+                elapsed_ms = int((time.time() - validation_started) * 1000)
+                return self._enrich_validation_result(
+                    {
+                        "status": "failure",
+                        "summary": {
+                            "stability_score": None,
+                            "validation_summary": f"No data available for validation of {factor_id}",
+                            "ic_mean": None,
+                            "rank_ic_mean": None,
+                        },
                     },
-                }
+                    elapsed_ms=elapsed_ms,
+                )
 
             executor = FactorExecutor(
                 df=df,
@@ -1589,16 +1635,21 @@ class DefaultMiningScheduler(MiningScheduler):
                                 f"Monitor hook failed for {factor_id}: {e}\n{traceback.format_exc()}"
                             )
 
-                    return {
-                        "status": "success",
-                        "summary": {
-                            "stability_score": stability_score,
-                            "validation_summary": f"Factor {factor_id} passed with IC={ic_mean:.4f}",
-                            "ic_mean": ic_mean,
-                            "rank_ic_mean": rank_ic_mean,
-                            "positive_ratio": ic_result.positive_ratio if ic_result else None,
+                    elapsed_ms = int((time.time() - validation_started) * 1000)
+                    return self._enrich_validation_result(
+                        {
+                            "status": "success",
+                            "summary": {
+                                "stability_score": stability_score,
+                                "validation_summary": f"Factor {factor_id} passed with IC={ic_mean:.4f}",
+                                "ic_mean": ic_mean,
+                                "rank_ic_mean": rank_ic_mean,
+                                "positive_ratio": ic_result.positive_ratio if ic_result else None,
+                            },
                         },
-                    }
+                        elapsed_ms=elapsed_ms,
+                        ic_result=ic_result,
+                    )
                 else:
                     logger.info(
                         f"profile.validation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} ic_value={ic_mean:.6f}"
@@ -1608,52 +1659,69 @@ class DefaultMiningScheduler(MiningScheduler):
                         failure_reason = f"IC={ic_mean:.4f} < {min_ic}"
                     else:
                         failure_reason = f"rank_ic={rank_ic_mean:.4f} < {min_rank_ic}"
-                    return {
-                        "status": "failure",
-                        "summary": {
-                            "stability_score": stability_score,
-                            "validation_summary": f"Factor {factor_id} failed {failure_reason}",
-                            "ic_mean": ic_mean,
-                            "rank_ic_mean": rank_ic_mean,
+                    elapsed_ms = int((time.time() - validation_started) * 1000)
+                    return self._enrich_validation_result(
+                        {
+                            "status": "failure",
+                            "summary": {
+                                "stability_score": stability_score,
+                                "validation_summary": f"Factor {factor_id} failed {failure_reason}",
+                                "ic_mean": ic_mean,
+                                "rank_ic_mean": rank_ic_mean,
+                            },
                         },
-                    }
+                        elapsed_ms=elapsed_ms,
+                        ic_result=ic_result,
+                    )
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
                 logger.info(
                     f"profile.validation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} error={error_msg}"
                 )
-                return {
-                    "status": "failure",
-                    "summary": {
-                        "stability_score": None,
-                        "validation_summary": f"Execution error: {error_msg}",
-                        "ic_mean": None,
-                        "rank_ic_mean": None,
+                elapsed_ms = int((time.time() - validation_started) * 1000)
+                return self._enrich_validation_result(
+                    {
+                        "status": "failure",
+                        "summary": {
+                            "stability_score": None,
+                            "validation_summary": f"Execution error: {error_msg}",
+                            "ic_mean": None,
+                            "rank_ic_mean": None,
+                        },
                     },
-                }
+                    elapsed_ms=elapsed_ms,
+                )
 
         except ImportError as e:
             logger.warning(f"FactorExecutor not available: {e}, validation returning failure")
-            return {
-                "status": "failure",
-                "summary": {
-                    "stability_score": None,
-                    "validation_summary": f"Validation unavailable: {e}",
-                    "ic_mean": None,
-                    "rank_ic_mean": None,
+            elapsed_ms = int((time.time() - validation_started) * 1000)
+            return self._enrich_validation_result(
+                {
+                    "status": "failure",
+                    "summary": {
+                        "stability_score": None,
+                        "validation_summary": f"Validation unavailable: {e}",
+                        "ic_mean": None,
+                        "rank_ic_mean": None,
+                    },
                 },
-            }
+                elapsed_ms=elapsed_ms,
+            )
         except Exception as e:
             logger.error(f"Error validating factor {factor_id}: {e}")
-            return {
-                "status": "failure",
-                "summary": {
-                    "stability_score": None,
-                    "validation_summary": f"Validation error: {str(e)}",
-                    "ic_mean": None,
-                    "rank_ic_mean": None,
+            elapsed_ms = int((time.time() - validation_started) * 1000)
+            return self._enrich_validation_result(
+                {
+                    "status": "failure",
+                    "summary": {
+                        "stability_score": None,
+                        "validation_summary": f"Validation error: {str(e)}",
+                        "ic_mean": None,
+                        "rank_ic_mean": None,
+                    },
                 },
-            }
+                elapsed_ms=elapsed_ms,
+            )
 
     def _validate_with_timeout(
         self,

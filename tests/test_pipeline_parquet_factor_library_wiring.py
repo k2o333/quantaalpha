@@ -4,6 +4,7 @@ Tests for pipeline Parquet factor library wiring.
 Verifies that the pipeline save branch uses FactorStoreFacade, not JSON FactorLibraryManager.
 """
 
+import json
 import os
 import tempfile
 import shutil
@@ -347,3 +348,60 @@ class TestSaveFactorsToParquetHelper:
 
         finally:
             FactorStoreFacade.compact = original_compact
+
+
+class TestPipelineFieldExtensionMetadata:
+    """Test field extension metadata in pipeline save_factors_to_parquet."""
+
+    def test_save_factors_to_parquet_writes_field_extension_metadata(self, tmp_factorlib_dir):
+        """save_factors_to_parquet writes field_schema_version, source, data_requirements,
+        and other field extension metadata keys for new factor writes."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+
+        experiment = _make_mock_experiment()
+        # Set expression with $field references
+        experiment.sub_tasks[0].factor_expression = "ts_mean($close, 20) / $volume"
+
+        store_path = Path(tmp_factorlib_dir) / "field_ext_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            experiment_id="exp_field_ext",
+            round_number=0,
+            hypothesis="Test",
+            feedback=None,
+            initial_direction="dir",
+            user_initial_direction="dir",
+            planning_direction="dir",
+            evolution_phase="mutation",
+            trajectory_id="t_field_ext",
+            parent_trajectory_ids=[],
+        )
+
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        assert len(delta_files) == 1, "One delta Parquet file should be created"
+
+        # Read the parquet file and check metadata
+        import polars as pl
+        df = pl.read_parquet(str(delta_files[0]))
+        assert len(df) == 1
+
+        metadata = json.loads(df["metadata_json"][0])
+
+        # Field extension metadata should be present
+        assert metadata["field_schema_version"] == "1.0"
+        assert metadata["source"] == "mutation"
+        assert "data_requirements" in metadata
+        assert "fields" in metadata["data_requirements"]
+        # The parser should extract $close and $volume
+        assert "close" in metadata["data_requirements"]["fields"]
+        assert "volume" in metadata["data_requirements"]["fields"]
+        assert "llm_model_version" in metadata
+        assert "prompt_template_hash" in metadata
+        assert "parent_factor_id" in metadata
+
+        # Existing metadata should be preserved
+        assert metadata["evolution_phase"] == "mutation"
+        assert metadata["trajectory_id"] == "t_field_ext"
