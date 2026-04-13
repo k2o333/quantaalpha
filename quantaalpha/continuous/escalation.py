@@ -61,6 +61,7 @@ class EscalationState:
         self.current_tier = new_tier
         self.total_escalations += 1
         self.consecutive_failures = 0
+        self.failed_trajectories.clear()  # Reset trajectories along with counter for semantic consistency
         logger.info(f"Escalation: tier increased to {self.current_tier} (total escalations: {self.total_escalations})")
         return True
 

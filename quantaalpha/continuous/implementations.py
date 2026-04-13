@@ -677,6 +677,108 @@ class DefaultMiningScheduler(MiningScheduler):
             "parquet_compact_config": self.parquet_compact_config,
         }
 
+    def _resolve_escalated_routing(
+        self,
+        escalation_state,
+        base_routing: dict,
+    ) -> dict:
+        """Return step_model_routing, overridden if escalation is active.
+
+        - tier == start_tier → return base_routing unchanged.
+        - API failures (529 etc.) → min_tier=1, pick any available provider.
+        - Capability failures → min_tier=current_tier, pick a stronger provider.
+
+        Falls back to base_routing on any error so the pipeline never breaks.
+        """
+        if escalation_state.current_tier <= 1 or not self._provider_pool_cfg.get("enabled"):
+            return base_routing
+
+        try:
+            pool = self._get_or_build_provider_pool()
+            if pool is None:
+                return base_routing
+
+            # Only check the most recent failure to avoid stale decisions (#3).
+            last_traj = escalation_state.failed_trajectories[-1] if escalation_state.failed_trajectories else {}
+            is_api_failure = last_traj.get("error_type") == "api"
+            effective_min_tier = 1 if is_api_failure else escalation_state.current_tier
+
+            candidates = pool.get_by_capability(min_tier=effective_min_tier)
+            if not candidates:
+                logger.warning(
+                    f"[escalation] No provider with tier>={effective_min_tier}; keeping original routing"
+                )
+                return base_routing
+
+            fallback = candidates[0]
+            logger.info(
+                f"[escalation] Routing override: tier>={effective_min_tier} → "
+                f"provider={fallback.name} model={fallback.model}"
+            )
+            # Override each step key to the fallback provider, preserving step keys.
+            return {step: fallback.name for step in base_routing}
+
+        except Exception as exc:
+            logger.warning(f"[escalation] ProviderPool override failed: {exc}; keeping original routing")
+            return base_routing
+
+    def _get_or_build_provider_pool(self):
+        """Lazily build and cache a ProviderPool from _provider_pool_cfg.
+
+        Returns the cached instance on subsequent calls so that latency
+        statistics accumulate across loops (fixes least_latency cold-start).
+        Returns None if no providers are configured.
+        """
+        if getattr(self, "_cached_provider_pool", None) is not None:
+            return self._cached_provider_pool
+
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        providers = self._provider_pool_cfg.get("providers", [])
+        if not providers:
+            return None
+
+        pool = ProviderPool(routing="least_latency")
+        for p in providers:
+            pool.add_provider(
+                name=p["name"],
+                api_keys=p.get("api_keys", []),
+                base_url=p.get("base_url"),
+                model=p.get("model"),
+                tags=p.get("tags", []),
+                tier=p.get("tier", 2),
+            )
+        self._cached_provider_pool = pool
+        return pool
+
+    def _build_escalated_direction(
+        self,
+        direction: Optional[str],
+        escalation_state,
+    ) -> Optional[str]:
+        """Append failed-trajectory context to mining direction when escalated.
+
+        Activates the previously-dormant get_escalation_context_prompt() method
+        so the replacement model can learn from prior failures.
+
+        NOTE: This is safe from prompt accumulation because `direction` is
+        freshly obtained from _get_mining_direction() each cycle, and
+        escalate() now clears failed_trajectories on tier change.
+        """
+        if escalation_state.current_tier <= 1 or not escalation_state.failed_trajectories:
+            return direction
+
+        failure_ctx = escalation_state.get_escalation_context_prompt()
+        if not failure_ctx:
+            return direction
+
+        logger.info(
+            f"[escalation] Injected {len(escalation_state.failed_trajectories)} "
+            "failure trajectories into direction prompt"
+        )
+        return ((direction or "") + "\n\n" + failure_ctx).strip()
+
+
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
         if self._scheduler_thread and self._scheduler_thread.is_alive():
@@ -1992,13 +2094,24 @@ class DefaultMiningScheduler(MiningScheduler):
             for loop_idx in range(max_loops):
                 try:
                     steps = self._state_cfg.get("steps_per_mining", 5)
+
+                    # Resolve escalation-aware routing (returns originals if tier==1)
+                    effective_step_model_routing = self._resolve_escalated_routing(
+                        escalation_state, self._agent_loop_cfg.get("step_model_routing") or {},
+                    )
+
+                    # Build direction with optional failure-trajectory injection
+                    effective_direction = self._build_escalated_direction(
+                        direction, escalation_state,
+                    )
+
                     loop = AlphaAgentLoop(
                         ALPHA_AGENT_FACTOR_PROP_SETTING,
-                        potential_direction=direction,
+                        potential_direction=effective_direction,
                         stop_event=self._stop_event,
                         use_local=True,
                         quality_gate_config=self._quality_gate_config,
-                        step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
+                        step_model_routing=effective_step_model_routing,
                         ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
                         provider_pool_cfg=self._provider_pool_cfg,
                         **self._build_alpha_agent_loop_storage_kwargs(),
@@ -2020,11 +2133,15 @@ class DefaultMiningScheduler(MiningScheduler):
                             {
                                 "error": "No factors generated",
                                 "step": "AlphaAgentLoop",
+                                "error_type": "capability",
                             }
                         )
                         if escalation_state.should_escalate(escalation_config):
                             escalation_state.escalate(escalation_config)
-                            logger.info(f"Escalation triggered: tier={escalation_state.current_tier}")
+                            logger.info(
+                                f"[escalation] Tier escalated to {escalation_state.current_tier}; "
+                                "next loop will use higher-tier provider"
+                            )
 
                 except Exception as e:
                     import traceback
@@ -2036,8 +2153,15 @@ class DefaultMiningScheduler(MiningScheduler):
                         {
                             "error": str(e),
                             "step": "AlphaAgentLoop",
+                            "error_type": "api",  # Structured flag: exceptions are availability issues
                         }
                     )
+                    if escalation_state.should_escalate(escalation_config):
+                        escalation_state.escalate(escalation_config)
+                        logger.info(
+                            f"[escalation] Tier escalated to {escalation_state.current_tier} "
+                            f"(api error); next loop will try fallback provider"
+                        )
 
         # Save state after mining
         self._persist_state()
