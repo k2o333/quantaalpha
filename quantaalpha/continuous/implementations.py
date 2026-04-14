@@ -738,7 +738,7 @@ class DefaultMiningScheduler(MiningScheduler):
         if not providers:
             return None
 
-        pool = ProviderPool(routing="least_latency")
+        pool = ProviderPool(routing=self._provider_pool_cfg.get("routing", "least_latency"))
         for p in providers:
             pool.add_provider(
                 name=p["name"],

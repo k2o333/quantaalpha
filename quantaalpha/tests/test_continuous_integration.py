@@ -405,3 +405,40 @@ class TestOrchestrationPhase1Forwarding:
         assert scheduler._orchestration_cfg["mode"] == "conditional_flow"
         assert scheduler._orchestration_cfg["max_steps_per_cycle"] == 6
         assert scheduler._orchestration_cfg["start_node"] == "original"
+
+
+class TestProviderPoolYamlRouting:
+    """Test that ProviderPool routing is taken from YAML config, not hardcoded."""
+
+    def test_provider_pool_uses_yaml_routing(self):
+        """Test that _get_or_build_provider_pool respects routing from config."""
+        from types import SimpleNamespace
+
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        provider_pool_cfg = {
+            "enabled": True,
+            "routing": "round_robin",
+            "providers": [
+                {"name": "p1", "api_keys": ["k1"], "model": "m1"},
+                {"name": "p2", "api_keys": ["k2"], "model": "m2"},
+            ],
+        }
+
+        # Create a minimal object that has the attribute _get_or_build_provider_pool expects
+        mock_scheduler = SimpleNamespace(
+            _provider_pool_cfg=provider_pool_cfg,
+            _cached_provider_pool=None,
+        )
+        # Bind the real method to our mock
+        mock_scheduler._get_or_build_provider_pool = (
+            DefaultMiningScheduler._get_or_build_provider_pool.__get__(mock_scheduler)
+        )
+
+        pool: ProviderPool = mock_scheduler._get_or_build_provider_pool()
+
+        assert pool is not None
+        assert pool.routing == "round_robin", (
+            f"Expected routing='round_robin' from config, got routing='{pool.routing}'"
+        )
