@@ -976,6 +976,18 @@ class APIBackend:
             max_retries=LLM_SETTINGS.openai_sdk_max_retries,
         )
 
+    def _get_provider_name_for_model(self, model: str | None) -> str | None:
+        """Return the first provider whose configured model matches the request model."""
+        pool = getattr(self, "_provider_pool", None)
+        if pool is None or not model:
+            return None
+
+        for provider_name in pool.get_providers():
+            provider_config = pool.get_provider(provider_name)
+            if provider_config and provider_config.model == model:
+                return provider_name
+        return None
+
     def _get_encoder(self):
         """
         tiktoken.encoding_for_model(self.chat_model) does not cover all cases it should consider.
@@ -1611,8 +1623,10 @@ class APIBackend:
             pool_api_key = None
             if getattr(self, "_provider_pool", None) is not None:
                 try:
-                    retry_provider_name = getattr(self, "_current_retry_provider_name", None)
-                    api_key, provider_config = self._provider_pool.get_key_and_provider(provider_name=retry_provider_name)
+                    provider_name = getattr(self, "_current_retry_provider_name", None)
+                    if provider_name is None:
+                        provider_name = self._get_provider_name_for_model(model)
+                    api_key, provider_config = self._provider_pool.get_key_and_provider(provider_name=provider_name)
                     if api_key:
                         pool_provider = provider_config.name
                         pool_api_key = api_key

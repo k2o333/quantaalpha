@@ -116,6 +116,61 @@ class TestOpenAIClientRetryBoundary:
             for message in log_messages
         )
 
+    def test_provider_pool_request_uses_provider_matching_current_model_before_switch_threshold(self):
+        """Normal retries must not round-robin to a provider whose model differs from the current model."""
+        from quantaalpha.llm.provider_pool import ProviderPool
+        from quantaalpha.llm.client import LLM_SETTINGS, openai
+
+        pool = ProviderPool(routing="round_robin")
+        pool.add_provider("litellm_Kimi-K2.5", api_keys=["key-kimi"], base_url="https://kimi.test/v1", model="Kimi-K2.5")
+        pool.add_provider("litellm_glm47f", api_keys=["key-glm"], base_url="https://glm.test/v1", model="glm-4.7-flash")
+
+        backend = _make_minimal_backend()
+        backend.chat_model = "glm-4.7-flash"
+        backend._provider_pool = pool
+
+        client_base_urls = []
+        requested_models = []
+        call_count_holder = {"count": 0}
+
+        def track_create(**kwargs):
+            requested_models.append(kwargs.get("model"))
+            call_count_holder["count"] += 1
+            if call_count_holder["count"] < 3:
+                raise RuntimeError(f"Failure {call_count_holder['count']}")
+            mock_resp = MagicMock()
+            mock_resp.choices = [MagicMock()]
+            mock_resp.choices[0].message.content = "ok"
+            mock_resp.choices[0].finish_reason = "stop"
+            return mock_resp
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = track_create
+
+        def capture_openai_client(**kwargs):
+            client_base_urls.append(kwargs.get("base_url"))
+            return mock_client
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "max_retry", 3), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "model_switch_threshold", 3), \
+             patch.object(openai, "OpenAI", side_effect=capture_openai_client):
+
+            backend._try_create_chat_completion_or_embedding(
+                messages=[{"role": "user", "content": "test"}],
+                chat_completion=True,
+                max_retry=3,
+                reasoning_flag=False,
+            )
+
+        assert requested_models == ["glm-4.7-flash", "glm-4.7-flash", "glm-4.7-flash"]
+        assert client_base_urls == ["https://glm.test/v1", "https://glm.test/v1", "https://glm.test/v1"]
+
 
 class TestProviderSwitchAfterThreeFailures:
     """Test that after 3 consecutive API failures, ProviderPool switching is attempted."""
