@@ -26,6 +26,52 @@ class SchedulerEvent(str, Enum):
 
 
 @dataclass
+class LLMRetryConfig:
+    max_attempts: int = 30
+    wait_seconds: int = 15
+    model_switch_threshold: int = 3
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "LLMRetryConfig":
+        if not d:
+            return cls()
+        return cls(
+            max_attempts=d.get("max_attempts", 30),
+            wait_seconds=d.get("wait_seconds", 15),
+            model_switch_threshold=d.get("model_switch_threshold", 3),
+        )
+
+
+@dataclass
+class LLMRuntimeConfig:
+    openai_base_url: str = ""
+    chat_model: str = "gpt-4-turbo"
+    reasoning_model: str = ""
+    embedding_model: str = ""
+    embedding_base_url: str = ""
+    chat_max_tokens: int = 3000
+    chat_temperature: float = 0.5
+    factor_mining_timeout: int = 999999
+    retry: LLMRetryConfig = field(default_factory=LLMRetryConfig)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "LLMRuntimeConfig":
+        if not d:
+            return cls()
+        return cls(
+            openai_base_url=d.get("openai_base_url", ""),
+            chat_model=d.get("chat_model", "gpt-4-turbo"),
+            reasoning_model=d.get("reasoning_model", ""),
+            embedding_model=d.get("embedding_model", ""),
+            embedding_base_url=d.get("embedding_base_url", ""),
+            chat_max_tokens=d.get("chat_max_tokens", 3000),
+            chat_temperature=d.get("chat_temperature", 0.5),
+            factor_mining_timeout=d.get("factor_mining_timeout", 999999),
+            retry=LLMRetryConfig.from_dict(d.get("retry", {})),
+        )
+
+
+@dataclass
 class App4BridgeConfig:
     """App4 bridge configuration for data monitoring."""
 
@@ -543,6 +589,9 @@ class PipelineConfig:
     # Mining
     mining: MiningConfig = field(default_factory=MiningConfig)
 
+    # LLM runtime
+    llm: LLMRuntimeConfig = field(default_factory=LLMRuntimeConfig)
+
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "PipelineConfig":
         """
@@ -637,6 +686,10 @@ class PipelineConfig:
         mining_data = data.get("mining", {})
         mining = MiningConfig.from_dict(mining_data)
 
+        # Parse llm section
+        llm_data = data.get("llm", {})
+        llm = LLMRuntimeConfig.from_dict(llm_data)
+
         return cls(
             data_check_interval_seconds=data_check_interval,
             revalidation_interval_hours=revalidation_interval,
@@ -653,6 +706,7 @@ class PipelineConfig:
             enable_mining=features.get("enable_mining", True),
             circuit_breaker=cb_config,
             mining=mining,
+            llm=llm,
         )
 
     @classmethod

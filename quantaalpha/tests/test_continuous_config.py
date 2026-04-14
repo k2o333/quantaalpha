@@ -1496,3 +1496,39 @@ def test_pipeline_yaml_declares_distinct_revalidation_and_mining_quality_gate_mi
     sched = SchedulerConfig.from_pipeline_config(cfg)
     assert sched.min_ic == 0.02
     assert sched.mining.quality_gate.min_ic == 0.02
+
+
+def test_pipeline_config_parses_llm_runtime_section(tmp_path):
+    from quantaalpha.continuous.scheduler import PipelineConfig
+
+    yaml_path = tmp_path / "pipeline.yaml"
+    yaml_path.write_text(
+        """
+llm:
+  openai_base_url: "http://litellm.local/v1"
+  chat_model: "minimax-m2.7"
+  reasoning_model: "minimax-m2.7"
+  embedding_model: "codestral-embed"
+  embedding_base_url: "http://litellm.local/v1"
+  chat_max_tokens: 64000
+  chat_temperature: 0.4
+  retry:
+    max_attempts: 5
+    wait_seconds: 5
+    model_switch_threshold: 3
+""",
+        encoding="utf-8",
+    )
+
+    cfg = PipelineConfig.from_yaml(str(yaml_path))
+
+    assert cfg.llm.openai_base_url == "http://litellm.local/v1"
+    assert cfg.llm.chat_model == "minimax-m2.7"
+    assert cfg.llm.reasoning_model == "minimax-m2.7"
+    assert cfg.llm.embedding_model == "codestral-embed"
+    assert cfg.llm.embedding_base_url == "http://litellm.local/v1"
+    assert cfg.llm.chat_max_tokens == 64000
+    assert cfg.llm.chat_temperature == 0.4
+    assert cfg.llm.retry.max_attempts == 5
+    assert cfg.llm.retry.wait_seconds == 5
+    assert cfg.llm.retry.model_switch_threshold == 3
