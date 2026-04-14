@@ -106,3 +106,50 @@ def test_apply_pipeline_llm_config_empty_string_skipped(monkeypatch):
     apply_pipeline_llm_config(EmptyStrCfg())
 
     assert LLM_SETTINGS.chat_model == original
+
+
+def test_apply_pipeline_llm_config_warns_on_env_vars_present(monkeypatch, caplog):
+    """When non-secret LLM env vars are present, a warning should be emitted."""
+    import logging
+    from quantaalpha.llm.config import LLM_SETTINGS
+    from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
+
+    # Set up conflicting env vars
+    monkeypatch.setenv("CHAT_MODEL", "env-model")
+    monkeypatch.setenv("MAX_RETRY", "10")
+
+    caplog.set_level(logging.WARNING, logger="quantaalpha.llm.pipeline_config")
+
+    apply_pipeline_llm_config(LLMCfg())
+
+    # Verify warning was emitted
+    assert len(caplog.records) == 1
+    assert "Non-secret LLM environment variables are set but will be ignored" in caplog.text
+    assert "CHAT_MODEL" in caplog.text
+    assert "MAX_RETRY" in caplog.text
+
+
+def test_apply_pipeline_llm_config_no_warning_when_no_env_vars(monkeypatch, caplog):
+    """When no non-secret LLM env vars are present, no warning should be emitted."""
+    import logging
+    from quantaalpha.llm.config import LLM_SETTINGS
+    from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
+
+    # Ensure env vars are not set
+    monkeypatch.delenv("CHAT_MODEL", raising=False)
+    monkeypatch.delenv("MAX_RETRY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("REASONING_MODEL", raising=False)
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.delenv("RETRY_WAIT_SECONDS", raising=False)
+    monkeypatch.delenv("FACTOR_MINING_TIMEOUT", raising=False)
+    monkeypatch.delenv("CHAT_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("CHAT_TEMPERATURE", raising=False)
+
+    caplog.set_level(logging.WARNING, logger="quantaalpha.llm.pipeline_config")
+
+    apply_pipeline_llm_config(LLMCfg())
+
+    # Verify no warning was emitted
+    assert len(caplog.records) == 0
