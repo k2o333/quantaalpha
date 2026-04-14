@@ -37,5 +37,5 @@ def apply_pipeline_llm_config(llm_cfg: Any) -> None:
         }
         for cfg_name, settings_name in retry_map.items():
             value = getattr(retry, cfg_name, None)
-            if value is not None:
+            if _has_value(value):
                 setattr(LLM_SETTINGS, settings_name, max(1, value) if cfg_name != "wait_seconds" else value)
