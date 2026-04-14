@@ -38,20 +38,71 @@ def test_apply_pipeline_llm_config_updates_llm_settings(monkeypatch):
         "retry_wait_seconds": LLM_SETTINGS.retry_wait_seconds,
         "model_switch_threshold": LLM_SETTINGS.model_switch_threshold,
     }
-    try:
-        apply_pipeline_llm_config(LLMCfg())
 
-        assert LLM_SETTINGS.openai_base_url == "http://litellm.local/v1"
-        assert LLM_SETTINGS.chat_model == "minimax-m2.7"
-        assert LLM_SETTINGS.reasoning_model == "minimax-m2.7"
-        assert LLM_SETTINGS.embedding_model == "codestral-embed"
-        assert LLM_SETTINGS.embedding_base_url == "http://litellm.local/v1"
-        assert LLM_SETTINGS.chat_max_tokens == 64000
-        assert LLM_SETTINGS.chat_temperature == 0.4
-        assert LLM_SETTINGS.factor_mining_timeout == 999999
-        assert LLM_SETTINGS.max_retry == 5
-        assert LLM_SETTINGS.retry_wait_seconds == 5
-        assert LLM_SETTINGS.model_switch_threshold == 3
-    finally:
-        for key, value in old_values.items():
-            setattr(LLM_SETTINGS, key, value)
+    for key, value in old_values.items():
+        monkeypatch.setattr(LLM_SETTINGS, key, value)
+
+    apply_pipeline_llm_config(LLMCfg())
+
+    assert LLM_SETTINGS.openai_base_url == "http://litellm.local/v1"
+    assert LLM_SETTINGS.chat_model == "minimax-m2.7"
+    assert LLM_SETTINGS.reasoning_model == "minimax-m2.7"
+    assert LLM_SETTINGS.embedding_model == "codestral-embed"
+    assert LLM_SETTINGS.embedding_base_url == "http://litellm.local/v1"
+    assert LLM_SETTINGS.chat_max_tokens == 64000
+    assert LLM_SETTINGS.chat_temperature == 0.4
+    assert LLM_SETTINGS.factor_mining_timeout == 999999
+    assert LLM_SETTINGS.max_retry == 5
+    assert LLM_SETTINGS.retry_wait_seconds == 5
+    assert LLM_SETTINGS.model_switch_threshold == 3
+
+
+def test_apply_pipeline_llm_config_none_returns_early(monkeypatch):
+    """Passing None should return immediately without modifying any settings."""
+    from quantaalpha.llm.config import LLM_SETTINGS
+    from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
+
+    sentinel = "original-value"
+    monkeypatch.setattr(LLM_SETTINGS, "chat_model", sentinel)
+
+    apply_pipeline_llm_config(None)
+
+    assert LLM_SETTINGS.chat_model == sentinel
+
+
+def test_apply_pipeline_llm_config_partial_config(monkeypatch):
+    """Fields not present in the config should NOT be overwritten."""
+    from quantaalpha.llm.config import LLM_SETTINGS
+    from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
+
+    sentinel_url = "http://should-not-change.local/v1"
+    sentinel_model = "should-not-change"
+    monkeypatch.setattr(LLM_SETTINGS, "openai_base_url", sentinel_url)
+    monkeypatch.setattr(LLM_SETTINGS, "chat_model", sentinel_model)
+
+    @dataclass
+    class PartialCfg:
+        chat_model: str = "new-model"
+        # openai_base_url is intentionally missing
+
+    apply_pipeline_llm_config(PartialCfg())
+
+    assert LLM_SETTINGS.chat_model == "new-model"
+    assert LLM_SETTINGS.openai_base_url == sentinel_url
+
+
+def test_apply_pipeline_llm_config_empty_string_skipped(monkeypatch):
+    """Empty string values should be skipped, preserving the original setting."""
+    from quantaalpha.llm.config import LLM_SETTINGS
+    from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
+
+    original = "original-model"
+    monkeypatch.setattr(LLM_SETTINGS, "chat_model", original)
+
+    @dataclass
+    class EmptyStrCfg:
+        chat_model: str = ""
+
+    apply_pipeline_llm_config(EmptyStrCfg())
+
+    assert LLM_SETTINGS.chat_model == original

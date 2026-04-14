@@ -10,6 +10,16 @@ def _has_value(value: Any) -> bool:
 
 
 def apply_pipeline_llm_config(llm_cfg: Any) -> None:
+    """Apply LLM configuration from a pipeline config object to the global LLM_SETTINGS.
+
+    Copies scalar fields (API URLs, model names, hyperparameters) and retry
+    settings from ``llm_cfg`` into ``LLM_SETTINGS``. Fields that are None or
+    empty strings are skipped, leaving existing settings unchanged.
+
+    Args:
+        llm_cfg: A configuration object with LLM-related attributes, or None
+            to perform a no-op.
+    """
     if llm_cfg is None:
         return
 
