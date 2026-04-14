@@ -466,3 +466,43 @@ class TestProviderPoolYamlRouting:
         pool = scheduler._get_or_build_provider_pool()
 
         assert pool.routing == "least_latency", f"Expected default routing 'least_latency', got {pool.routing}"
+
+    def test_original_action_registers_provider_pool_before_alpha_agent_loop(self, monkeypatch):
+        """Original orchestration path must register ProviderPool for nested APIBackend retry switching."""
+        import sys
+        from types import ModuleType
+        from unittest.mock import MagicMock, patch
+
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        from quantaalpha.llm.client import get_default_provider_pool, set_default_provider_pool
+
+        provider_pool_cfg = {
+            "enabled": True,
+            "routing": "round_robin",
+            "providers": [
+                {"name": "p1", "api_keys": ["k1"], "model": "m1"},
+                {"name": "p2", "api_keys": ["k2"], "model": "m2"},
+            ],
+        }
+        scheduler = DefaultMiningScheduler(
+            pipeline_mode=True,
+            provider_pool_cfg=provider_pool_cfg,
+            state_cfg={"steps_per_mining": 1},
+            orchestration_cfg={"enabled": True},
+        )
+
+        loop = MagicMock()
+        loop._get_successful_factor_ids.return_value = []
+        fake_loop_module = ModuleType("quantaalpha.pipeline.loop")
+        fake_loop_module.AlphaAgentLoop = MagicMock(return_value=loop)
+        monkeypatch.setitem(sys.modules, "quantaalpha.pipeline.loop", fake_loop_module)
+        set_default_provider_pool(None)
+        try:
+            with patch("quantaalpha.pipeline.loop.AlphaAgentLoop", return_value=loop):
+                scheduler._execute_original_action({}, "original")
+
+            pool = get_default_provider_pool()
+            assert pool is not None
+            assert pool.routing == "round_robin"
+        finally:
+            set_default_provider_pool(None)

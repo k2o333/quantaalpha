@@ -1221,6 +1221,7 @@ class APIBackend:
         self,
         *,
         avoid_provider_name: str | None = None,
+        avoid_model: str | None = None,
     ) -> _ProviderAttempt | None:
         """Select a provider from the pool, optionally avoiding a specific provider."""
         pool = getattr(self, "_provider_pool", None)
@@ -1237,6 +1238,8 @@ class APIBackend:
                 continue
             api_key, provider_config = pool.get_key_and_provider(provider_name=provider_name)
             if api_key and provider_config:
+                if avoid_model and provider_config.model == avoid_model:
+                    continue
                 return _ProviderAttempt(
                     provider_name=provider_config.name,
                     api_key=api_key,
@@ -1278,6 +1281,7 @@ class APIBackend:
         self,
         *,
         current_provider_name: str | None = None,
+        current_model: str | None = None,
     ) -> str | None:
         """Attempt to switch to a different provider for retry.
 
@@ -1288,7 +1292,10 @@ class APIBackend:
             logger.warning("No ProviderPool configured; continue retrying current model.")
             return None
 
-        attempt = self._select_provider_attempt(avoid_provider_name=current_provider_name)
+        attempt = self._select_provider_attempt(
+            avoid_provider_name=current_provider_name,
+            avoid_model=current_model,
+        )
         if attempt is None:
             logger.warning("ProviderPool cannot produce another provider; continue retrying current model.")
             return None
@@ -1351,7 +1358,14 @@ class APIBackend:
 
                 # Check if we should switch providers
                 if attempt_count >= threshold and i < max_retry - 1:
-                    new_provider_name = self._switch_to_next_provider_for_retry(current_provider_name=current_provider_name)
+                    current_model = self.get_model_for_task(
+                        task_type=mutable_retry_kwargs.get("task_type"),
+                        tag=mutable_retry_kwargs.get("tag"),
+                    )
+                    new_provider_name = self._switch_to_next_provider_for_retry(
+                        current_provider_name=current_provider_name,
+                        current_model=current_model,
+                    )
                     if new_provider_name is not None:
                         # Reset counter after successful switch
                         attempt_count = 0

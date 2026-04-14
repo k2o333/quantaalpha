@@ -2109,6 +2109,8 @@ class DefaultMiningScheduler(MiningScheduler):
                         direction, escalation_state,
                     )
 
+                    self._get_or_build_provider_pool()
+
                     loop = AlphaAgentLoop(
                         ALPHA_AGENT_FACTOR_PROP_SETTING,
                         potential_direction=effective_direction,
@@ -2557,6 +2559,8 @@ class DefaultMiningScheduler(MiningScheduler):
 
             steps = self._state_cfg.get("steps_per_mining", 5)
             direction = self._get_mining_direction()
+
+            self._get_or_build_provider_pool()
 
             loop = AlphaAgentLoop(
                 ALPHA_AGENT_FACTOR_PROP_SETTING,

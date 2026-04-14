@@ -165,6 +165,57 @@ class TestProviderSwitchAppliesModel:
             f"After provider switch, model-a should be used, got: {requested_models}"
         )
 
+    def test_provider_switch_skips_same_model_when_first_provider_matches_current_model(self):
+        """When current model is the first provider model, retry switch must choose another model."""
+        from quantaalpha.llm.provider_pool import ProviderPool
+        from quantaalpha.llm.client import LLM_SETTINGS, openai
+
+        pool = ProviderPool(routing="round_robin")
+        pool.add_provider("provider-current", api_keys=["key-a"], base_url="https://a.com", model="minimax-m2.7")
+        pool.add_provider("provider-next", api_keys=["key-b"], base_url="https://b.com", model="codestral-latest")
+
+        backend = _make_minimal_backend()
+        backend.chat_model = "minimax-m2.7"
+        backend._provider_pool = pool
+
+        requested_models = []
+        call_count_holder = {"count": 0}
+
+        def track_create(**kwargs):
+            requested_models.append(kwargs.get("model"))
+            call_count_holder["count"] += 1
+            if call_count_holder["count"] < 4:
+                raise RuntimeError(f"Failure {call_count_holder['count']}")
+            mock_resp = MagicMock()
+            mock_resp.choices = [MagicMock()]
+            mock_resp.choices[0].message.content = "ok"
+            mock_resp.choices[0].finish_reason = "stop"
+            return mock_resp
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = track_create
+        backend.chat_client = mock_client
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "max_retry", 10), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "model_switch_threshold", 3), \
+             patch.object(openai, "OpenAI", return_value=mock_client):
+
+            backend._try_create_chat_completion_or_embedding(
+                messages=[{"role": "user", "content": "test"}],
+                chat_completion=True,
+                max_retry=10,
+                reasoning_flag=False,
+            )
+
+        assert requested_models[:3] == ["minimax-m2.7", "minimax-m2.7", "minimax-m2.7"]
+        assert requested_models[3] == "codestral-latest"
+
 class TestProviderSwitchWithTaskTypeRouting:
     """Test that provider switching works even when task_type routing overrides chat_model."""
 
