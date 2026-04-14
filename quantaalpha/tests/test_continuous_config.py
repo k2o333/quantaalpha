@@ -1489,7 +1489,7 @@ def test_pipeline_yaml_declares_distinct_revalidation_and_mining_quality_gate_mi
 
     # Raw YAML assertions
     assert raw["validation"]["min_ic"] == 0.02
-    assert raw["mining"]["quality_gate"]["min_ic"] == 0.02
+    assert raw["mining"]["quality_gate"]["min_ic"] == 0.018
     assert raw["mining"]["quality_gate"]["min_rank_ic"] == 0.03
     assert raw["mining"]["quality_gate"]["max_correlation"] == 0.7
     assert raw["mining"]["quality_gate"]["min_sharpe"] == 0.3
@@ -1497,12 +1497,12 @@ def test_pipeline_yaml_declares_distinct_revalidation_and_mining_quality_gate_mi
     # Parsed PipelineConfig assertions
     cfg = PipelineConfig.from_yaml(str(path))
     assert cfg.validation.min_ic == 0.02
-    assert cfg.mining.quality_gate.min_ic == 0.02
+    assert cfg.mining.quality_gate.min_ic == 0.018
 
     # SchedulerConfig assertions
     sched = SchedulerConfig.from_pipeline_config(cfg)
     assert sched.min_ic == 0.02
-    assert sched.mining.quality_gate.min_ic == 0.02
+    assert sched.mining.quality_gate.min_ic == 0.018
 
 
 def test_pipeline_config_parses_llm_runtime_section(tmp_path):

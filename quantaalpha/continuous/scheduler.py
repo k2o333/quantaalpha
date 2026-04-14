@@ -44,6 +44,7 @@ class LLMRetryConfig:
 
 @dataclass
 class LLMRuntimeConfig:
+    configured: bool = False
     openai_base_url: str = ""
     chat_model: str = "gpt-4-turbo"
     reasoning_model: str = ""
@@ -59,6 +60,7 @@ class LLMRuntimeConfig:
         if not d:
             return cls()
         return cls(
+            configured=True,
             openai_base_url=d.get("openai_base_url", ""),
             chat_model=d.get("chat_model", "gpt-4-turbo"),
             reasoning_model=d.get("reasoning_model", ""),

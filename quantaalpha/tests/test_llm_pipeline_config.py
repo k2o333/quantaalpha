@@ -70,6 +70,25 @@ def test_apply_pipeline_llm_config_none_returns_early(monkeypatch):
     assert LLM_SETTINGS.chat_model == sentinel
 
 
+def test_apply_pipeline_llm_config_unconfigured_yaml_object_returns_early(monkeypatch, caplog):
+    """PipelineConfig's default llm object should preserve existing env-derived settings."""
+    import logging
+
+    from quantaalpha.continuous.scheduler import LLMRuntimeConfig
+    from quantaalpha.llm.config import LLM_SETTINGS
+    from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
+
+    sentinel = "env-derived-model"
+    monkeypatch.setattr(LLM_SETTINGS, "chat_model", sentinel)
+    monkeypatch.setenv("CHAT_MODEL", sentinel)
+    caplog.set_level(logging.WARNING, logger="quantaalpha.llm.pipeline_config")
+
+    apply_pipeline_llm_config(LLMRuntimeConfig())
+
+    assert LLM_SETTINGS.chat_model == sentinel
+    assert len(caplog.records) == 0
+
+
 def test_apply_pipeline_llm_config_partial_config(monkeypatch):
     """Fields not present in the config should NOT be overwritten."""
     from quantaalpha.llm.config import LLM_SETTINGS

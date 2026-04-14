@@ -60,6 +60,8 @@ def apply_pipeline_llm_config(llm_cfg: Any) -> None:
     """
     if llm_cfg is None:
         return
+    if getattr(llm_cfg, "configured", True) is False:
+        return
 
     # Check for non-secret LLM env vars that may conflict with pipeline.yaml
     _warn_about_conflicting_env_vars(llm_cfg)

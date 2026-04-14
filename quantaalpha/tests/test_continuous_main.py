@@ -458,7 +458,7 @@ class TestContinuousOrchestrator:
     def test_orchestrator_passes_bridge_and_periods_to_lazy_schedulers(self, tmp_path):
         """Verify lazy schedulers receive the wired bridge and configured execution periods."""
         from quantaalpha.continuous.main import ContinuousOrchestrator
-        from quantaalpha.continuous.scheduler import PipelineConfig
+        from quantaalpha.continuous.scheduler import FactorConfig, PipelineConfig
 
         config = PipelineConfig(
             enable_data_monitor=False,
@@ -468,7 +468,7 @@ class TestContinuousOrchestrator:
         config.validation = MagicMock()
         config.validation.max_revalidation_per_run = 10
         config.validation.max_mining_per_run = 5
-        config.factor = MagicMock()
+        config.factor = FactorConfig()
         config.factor.library_path = str(tmp_path / "lib.json")
         config.execution.train.start = "2020-01-01"
         config.execution.train.end = "2022-12-31"
@@ -1497,6 +1497,7 @@ class TestCycleBudgetAndAdaptiveSleep:
         # Create a real RunStore in tmp_path
         runs_dir = tmp_path / "runs"
         runs_dir.mkdir()
+        mock_orchestrator.run_store = RunStore(runs_dir)
 
         # Clear any previous stop event state for test isolation
         _stop_event.clear()
