@@ -442,3 +442,27 @@ class TestProviderPoolYamlRouting:
         assert pool.routing == "round_robin", (
             f"Expected routing='round_robin' from config, got routing='{pool.routing}'"
         )
+
+    def test_provider_pool_defaults_to_least_latency_when_routing_not_configured(self):
+        """Test that ProviderPool defaults to least_latency when routing is not in config."""
+        from types import SimpleNamespace
+
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        provider_pool_cfg = {
+            "enabled": True,
+            # Note: no "routing" key - should default to least_latency
+            "providers": [
+                {"name": "p1", "api_keys": ["k1"], "model": "m1"},
+            ],
+        }
+
+        scheduler = SimpleNamespace()
+        scheduler._provider_pool_cfg = provider_pool_cfg
+        scheduler._provider_pool = None
+        scheduler._get_or_build_provider_pool = DefaultMiningScheduler._get_or_build_provider_pool.__get__(scheduler)
+
+        pool = scheduler._get_or_build_provider_pool()
+
+        assert pool.routing == "least_latency", f"Expected default routing 'least_latency', got {pool.routing}"
