@@ -134,6 +134,7 @@ features:
         assert "validation" in config_dict
         assert "execution" in config_dict
         assert "features" in config_dict
+        assert "llm" in config_dict
 
         # Verify nested structure
         assert config_dict["runtime"]["data_check_interval_seconds"] == 300
@@ -142,6 +143,12 @@ features:
         assert config_dict["app4_bridge"]["max_update_interfaces_per_cycle"] == 3
         assert config_dict["app4_bridge"]["python_executable"] == "/root/miniforge3/envs/get/bin/python"
         assert config_dict["validation"]["min_ic"] == 0.02
+
+        # Verify llm structure
+        assert "openai_base_url" in config_dict["llm"]
+        assert "chat_model" in config_dict["llm"]
+        assert "retry" in config_dict["llm"]
+        assert "max_attempts" in config_dict["llm"]["retry"]
 
     def test_pipeline_config_defaults(self):
         """Test PipelineConfig with default values."""

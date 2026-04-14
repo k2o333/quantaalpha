@@ -815,6 +815,21 @@ class PipelineConfig:
                     "last_failed_within_hours": self.mining.direction_planner.last_failed_within_hours,
                 },
             },
+            "llm": {
+                "openai_base_url": self.llm.openai_base_url,
+                "chat_model": self.llm.chat_model,
+                "reasoning_model": self.llm.reasoning_model,
+                "embedding_model": self.llm.embedding_model,
+                "embedding_base_url": self.llm.embedding_base_url,
+                "chat_max_tokens": self.llm.chat_max_tokens,
+                "chat_temperature": self.llm.chat_temperature,
+                "factor_mining_timeout": self.llm.factor_mining_timeout,
+                "retry": {
+                    "max_attempts": self.llm.retry.max_attempts,
+                    "wait_seconds": self.llm.retry.wait_seconds,
+                    "model_switch_threshold": self.llm.retry.model_switch_threshold,
+                },
+            },
         }
 
 
