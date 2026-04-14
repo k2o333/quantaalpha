@@ -749,6 +749,10 @@ class DefaultMiningScheduler(MiningScheduler):
                 tier=p.get("tier", 2),
             )
         self._cached_provider_pool = pool
+        # Register as default pool for all new APIBackend instances
+        from quantaalpha.llm.client import set_default_provider_pool
+        set_default_provider_pool(pool)
+        logger.info(f"Default ProviderPool registered with {len(providers)} provider(s)")
         return pool
 
     def _build_escalated_direction(

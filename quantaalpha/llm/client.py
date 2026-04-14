@@ -14,7 +14,8 @@ import urllib.request
 import uuid
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
 
 import numpy as np
 import tiktoken
@@ -26,12 +27,47 @@ from quantaalpha.llm.config import LLM_SETTINGS
 from quantaalpha.llm.structured_normalizer import normalize_and_parse
 
 # ---------------------------------------------------------------------------
+# Default ProviderPool registry
+# ---------------------------------------------------------------------------
+_DEFAULT_PROVIDER_POOL: "ProviderPool | None" = None
+_DEFAULT_POOL_LOCK = threading.Lock()
+
+
+def set_default_provider_pool(pool: "ProviderPool | None") -> None:
+    """Set the default ProviderPool for all new APIBackend instances."""
+    global _DEFAULT_PROVIDER_POOL
+    with _DEFAULT_POOL_LOCK:
+        _DEFAULT_PROVIDER_POOL = pool
+
+
+def get_default_provider_pool() -> "ProviderPool | None":
+    """Get the current default ProviderPool."""
+    with _DEFAULT_POOL_LOCK:
+        return _DEFAULT_PROVIDER_POOL
+
+
+# ---------------------------------------------------------------------------
 # Process-local model-level degradation state for tool-call capability failures
 # ---------------------------------------------------------------------------
 # Key: model name (str)
 # Value: {"tool_call_failure_count": int, "force_text_json_fallback": bool}
 _MODEL_DEGRADATION_STATE: dict[str, dict[str, Any]] = {}
 _DEGRADATION_LOCK = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Provider attempt context for retry model switching
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _ProviderAttempt:
+    """Context for a single provider attempt during retry."""
+
+    provider_name: str | None
+    api_key: str | None
+    base_url: str | None
+    model: str | None
+
 
 _TOOL_CALL_CAPABILITY_FAILURE_PATTERNS = (
     "does not support function calling",
@@ -421,51 +457,67 @@ def call_structured(
     # This applies to both tool-call and degraded text-json structured paths.
     if original_chat_stream is not None:
         api.chat_stream = LLM_SETTINGS.structured_streaming_mode
-    try:
-        raw = api._try_create_chat_completion_or_embedding(
-            messages=messages,
-            chat_completion=True,
-            chat_cache_prefix=chat_cache_prefix,
-            json_mode=effective_json_mode,
-            reasoning_flag=reasoning_flag,
-            task_type=task_type,
-            tools=effective_tools,
-            tool_choice=effective_tool_choice,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            frequency_penalty=frequency_penalty,
-            presence_penalty=presence_penalty,
-            seed=seed,
-            add_json_in_prompt=add_json_in_prompt,
-        )
-    except Exception as exc:
-        # --- Stage 3 (exception path): record capability failure if applicable ---
-        if tools is not None and LLM_SETTINGS.use_tool_calling:
-            if _is_tool_call_capability_failure(exc):
+
+    # Preserve None fallback semantic: if LLM_SETTINGS.max_retry is None,
+    # fall back to the default (30) like _try_create_chat_completion_or_embedding does.
+    settings_max_retry = LLM_SETTINGS.max_retry
+    max_retry = settings_max_retry if settings_max_retry is not None else 30
+
+    def _call_structured_once() -> dict[str, Any]:
+        """Execute a single raw call + parse, without retry."""
+        try:
+            raw = api._create_chat_completion_or_embedding_once(
+                messages=messages,
+                chat_completion=True,
+                chat_cache_prefix=chat_cache_prefix,
+                json_mode=effective_json_mode,
+                reasoning_flag=reasoning_flag,
+                task_type=task_type,
+                tools=effective_tools,
+                tool_choice=effective_tool_choice,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                seed=seed,
+                add_json_in_prompt=add_json_in_prompt,
+            )
+        except Exception as exc:
+            # --- Stage 3 (exception path): record capability failure if applicable ---
+            if tools is not None and LLM_SETTINGS.use_tool_calling:
+                if _is_tool_call_capability_failure(exc):
+                    degradation_state = _get_model_degradation_state(model_name)
+                    current_count = degradation_state["tool_call_failure_count"] + 1
+                    logger.warning(
+                        f"[call_structured] CAPABILITY_FAILURE: model={model_name} "
+                        f"tool-call capability error (count={current_count}/3); error={exc}"
+                    )
+                    _record_tool_call_capability_failure(model_name)
+            raise
+
+        # --- Stage 3 (response path): detect capability failure from response ---
+        if tools is not None and LLM_SETTINGS.use_tool_calling and effective_tools is not None:
+            if _detect_tool_call_capability_failure_from_response(raw):
                 degradation_state = _get_model_degradation_state(model_name)
                 current_count = degradation_state["tool_call_failure_count"] + 1
                 logger.warning(
                     f"[call_structured] CAPABILITY_FAILURE: model={model_name} "
-                    f"tool-call capability error (count={current_count}/3); error={exc}"
+                    f"tool-call capability failure detected in response (count={current_count}/3)."
                 )
                 _record_tool_call_capability_failure(model_name)
-        raise
+
+        return parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
+
+    try:
+        return api._run_with_retry_and_model_switch(
+            _call_structured_once,
+            max_retry=max_retry,
+            retry_label="call_structured",
+            chat_completion=True,
+        )
     finally:
         if original_chat_stream is not None:
             api.chat_stream = original_chat_stream
-
-    # --- Stage 3 (response path): detect capability failure from response ---
-    if tools is not None and LLM_SETTINGS.use_tool_calling and effective_tools is not None:
-        if _detect_tool_call_capability_failure_from_response(raw):
-            degradation_state = _get_model_degradation_state(model_name)
-            current_count = degradation_state["tool_call_failure_count"] + 1
-            logger.warning(
-                f"[call_structured] CAPABILITY_FAILURE: model={model_name} "
-                f"tool-call capability failure detected in response (count={current_count}/3)."
-            )
-            _record_tool_call_capability_failure(model_name)
-
-    return parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
 
 
 def parse_chat_completion_json_response(
@@ -912,7 +964,8 @@ class APIBackend:
         self.use_llama2 = LLM_SETTINGS.use_llama2
         self.use_gcr_endpoint = LLM_SETTINGS.use_gcr_endpoint
         self.retry_wait_seconds = LLM_SETTINGS.retry_wait_seconds
-        self._provider_pool = provider_pool
+        # Use explicit pool, or fall back to default ProviderPool
+        self._provider_pool = provider_pool if provider_pool is not None else get_default_provider_pool()
 
     def _get_encoder(self):
         """
@@ -970,6 +1023,12 @@ class APIBackend:
         Returns:
             Model name string.
         """
+        # Retry model switching override: when a provider switch has occurred,
+        # use the new provider's model for ALL subsequent calls in this retry cycle.
+        retry_model = getattr(self, "_current_retry_model", None)
+        if retry_model:
+            return retry_model
+
         # Capability-aware routing
         if required_capabilities and hasattr(self, "_provider_pool") and self._provider_pool is not None:
             matching = self._provider_pool.get_by_capability(
@@ -1144,6 +1203,178 @@ class APIBackend:
             return response + new_response
         return response
 
+    def _create_chat_completion_or_embedding_once(
+        self,
+        *,
+        chat_completion: bool = False,
+        embedding: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a single chat/embedding attempt without retry logic."""
+        if embedding:
+            return self._create_embedding_inner_function(**kwargs)
+        if chat_completion:
+            return self._create_chat_completion_auto_continue(**kwargs)
+        raise ValueError("Either chat_completion or embedding must be True")
+
+    def _select_provider_attempt(
+        self,
+        *,
+        avoid_provider_name: str | None = None,
+    ) -> _ProviderAttempt | None:
+        """Select a provider from the pool, optionally avoiding a specific provider."""
+        pool = getattr(self, "_provider_pool", None)
+        if pool is None:
+            return None
+
+        providers = pool.get_providers()
+        if not providers:
+            return None
+
+        # Try to find a different provider
+        for provider_name in providers:
+            if avoid_provider_name and provider_name == avoid_provider_name:
+                continue
+            api_key, provider_config = pool.get_key_and_provider(provider_name=provider_name)
+            if api_key and provider_config:
+                return _ProviderAttempt(
+                    provider_name=provider_config.name,
+                    api_key=api_key,
+                    base_url=provider_config.base_url,
+                    model=provider_config.model,
+                )
+
+        # Fall back to any provider if no different one found
+        api_key, provider_config = pool.get_key_and_provider()
+        if api_key and provider_config:
+            return _ProviderAttempt(
+                provider_name=provider_config.name,
+                api_key=api_key,
+                base_url=provider_config.base_url,
+                model=provider_config.model,
+            )
+        return None
+
+    def _apply_provider_attempt_to_chat_kwargs(
+        self,
+        attempt: _ProviderAttempt,
+    ) -> None:
+        """Apply a provider attempt to the backend state and recreate the client."""
+        if attempt.model:
+            # Override the chat_model for subsequent calls
+            self.chat_model = attempt.model
+            # CRITICAL: Also set the retry model override so get_model_for_task
+            # returns this model even when task_type or tag-based routing is used.
+            self._current_retry_model = attempt.model
+        if attempt.provider_name:
+            self._current_retry_provider_name = attempt.provider_name
+        if attempt.api_key:
+            self.chat_client = openai.OpenAI(
+                api_key=attempt.api_key,
+                base_url=attempt.base_url or self.base_url,
+            )
+
+    def _switch_to_next_provider_for_retry(
+        self,
+        *,
+        current_provider_name: str | None = None,
+    ) -> str | None:
+        """Attempt to switch to a different provider for retry.
+
+        Returns the new provider name if switched, None otherwise.
+        """
+        pool = getattr(self, "_provider_pool", None)
+        if pool is None:
+            logger.warning("No ProviderPool configured; continue retrying current model.")
+            return None
+
+        attempt = self._select_provider_attempt(avoid_provider_name=current_provider_name)
+        if attempt is None:
+            logger.warning("ProviderPool cannot produce another provider; continue retrying current model.")
+            return None
+
+        # Apply the new provider
+        self._apply_provider_attempt_to_chat_kwargs(attempt)
+        logger.info(
+            f"[retry] Switched provider for retry: "
+            f"from={current_provider_name} to={attempt.provider_name} model={attempt.model}"
+        )
+        return attempt.provider_name
+
+    def _run_with_retry_and_model_switch(
+        self,
+        operation: Callable[[], Any],
+        *,
+        max_retry: int,
+        retry_label: str,
+        chat_completion: bool = False,
+        embedding: bool = False,
+        retry_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute an operation with retry logic and model switching.
+
+        This is the unified retry helper that handles both API failures
+        and structured parse failures through the same counter.
+        """
+        threshold = max(1, getattr(LLM_SETTINGS, "model_switch_threshold", 3))
+        current_provider_name: str | None = None
+        attempt_count = 0
+        previous_retry_model = getattr(self, "_current_retry_model", None)
+        previous_retry_provider_name = getattr(self, "_current_retry_provider_name", None)
+        mutable_retry_kwargs = retry_kwargs if retry_kwargs is not None else kwargs
+
+        try:
+            for i in range(max_retry):
+                try:
+                    attempt_count += 1
+                    return operation()
+                except openai.BadRequestError as e:  # noqa: PERF203
+                    error_str = str(e)
+                    logger.warning(e)
+                    # Unrecoverable: invalid model name — fail fast, no retry
+                    if "Invalid model" in error_str:
+                        failing_model = self.embedding_model if embedding else self.chat_model
+                        logger.error(f"Unrecoverable BadRequest: invalid model '{failing_model}'. Check model configuration.")
+                        raise
+                    logger.warning(f"Retrying {i + 1}th time...")
+                    if "'messages' must contain the word 'json' in some form" in error_str:
+                        mutable_retry_kwargs["add_json_in_prompt"] = True
+                    elif embedding and "maximum context length" in error_str:
+                        mutable_retry_kwargs["input_content_list"] = [
+                            content[: len(content) // 2]
+                            for content in mutable_retry_kwargs.get("input_content_list", [])
+                        ]
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(e)
+                    logger.warning(f"Retrying {i + 1}th time...")
+
+                # Check if we should switch providers
+                if attempt_count >= threshold and i < max_retry - 1:
+                    new_provider_name = self._switch_to_next_provider_for_retry(current_provider_name=current_provider_name)
+                    if new_provider_name is not None:
+                        # Reset counter after successful switch
+                        attempt_count = 0
+                        current_provider_name = new_provider_name
+
+                # Wait before retry
+                if i < max_retry - 1:
+                    time.sleep(getattr(self, "retry_wait_seconds", 15))
+
+            error_message = f"Failed to create {retry_label} after {max_retry} retries."
+            raise RuntimeError(error_message)
+        finally:
+            if previous_retry_model is None:
+                if hasattr(self, "_current_retry_model"):
+                    delattr(self, "_current_retry_model")
+            else:
+                self._current_retry_model = previous_retry_model
+            if previous_retry_provider_name is None:
+                if hasattr(self, "_current_retry_provider_name"):
+                    delattr(self, "_current_retry_provider_name")
+            else:
+                self._current_retry_provider_name = previous_retry_provider_name
+
     def _try_create_chat_completion_or_embedding(
         self,
         max_retry: int = 10,
@@ -1154,36 +1385,23 @@ class APIBackend:
     ) -> Any:
         assert not (chat_completion and embedding), "chat_completion and embedding cannot be True at the same time"
         max_retry = LLM_SETTINGS.max_retry if LLM_SETTINGS.max_retry is not None else max_retry
-        for i in range(max_retry):
-            try:
-                # import pdb; pdb.set_trace()
-                if embedding:
-                    return self._create_embedding_inner_function(**kwargs)
-                if chat_completion:
-                    return self._create_chat_completion_auto_continue(**kwargs)
-            except openai.BadRequestError as e:  # noqa: PERF203
-                error_str = str(e)
-                logger.warning(e)
-                # Unrecoverable: invalid model name — fail fast, no retry
-                if "Invalid model" in error_str:
-                    failing_model = self.embedding_model if embedding else self.chat_model
-                    logger.error(f"Unrecoverable BadRequest: invalid model '{failing_model}'. Check model configuration.")
-                    raise
-                logger.warning(f"Retrying {i + 1}th time...")
-                if "'messages' must contain the word 'json' in some form" in error_str:
-                    kwargs["add_json_in_prompt"] = True
-                elif embedding and "maximum context length" in error_str:
-                    kwargs["input_content_list"] = [content[: len(content) // 2] for content in kwargs.get("input_content_list", [])]
-                # Wait before retry to avoid rate limit
-                if i < max_retry - 1:
-                    time.sleep(self.retry_wait_seconds)
-            except Exception as e:  # noqa: BLE001
-                logger.warning(e)
-                logger.warning(f"Retrying {i + 1}th time...")
-                if i < max_retry - 1:
-                    time.sleep(self.retry_wait_seconds)
-        error_message = f"Failed to create chat completion after {max_retry} retries."
-        raise RuntimeError(error_message)
+
+        def operation() -> Any:
+            return self._create_chat_completion_or_embedding_once(
+                chat_completion=chat_completion,
+                embedding=embedding,
+                **kwargs,
+            )
+
+        return self._run_with_retry_and_model_switch(
+            operation,
+            max_retry=max_retry,
+            retry_label="chat completion" if chat_completion else "embedding",
+            chat_completion=chat_completion,
+            embedding=embedding,
+            retry_kwargs=kwargs,
+            **kwargs,
+        )
 
     def _create_embedding_inner_function(self, input_content_list: list[str], **kwargs: Any) -> list[Any]:  # noqa: ARG002
         content_to_embedding_dict = {}
@@ -1370,7 +1588,8 @@ class APIBackend:
             pool_api_key = None
             if getattr(self, "_provider_pool", None) is not None:
                 try:
-                    api_key, provider_config = self._provider_pool.get_key_and_provider()
+                    retry_provider_name = getattr(self, "_current_retry_provider_name", None)
+                    api_key, provider_config = self._provider_pool.get_key_and_provider(provider_name=retry_provider_name)
                     if api_key:
                         pool_provider = provider_config.name
                         pool_api_key = api_key

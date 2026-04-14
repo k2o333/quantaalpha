@@ -49,16 +49,18 @@ class TestUnifiedStructuredEntry(unittest.TestCase):
         self.assertIn("tool_choice", params)
 
     def test_call_structured_forwards_tools_to_backend(self):
-        """call_structured must pass tools through to _try_create_chat_completion_or_embedding."""
+        """call_structured must pass tools through to the backend call."""
         from quantaalpha.llm.client import call_structured, APIBackend
 
         api = object.__new__(APIBackend)
         api.use_chat_cache = False
+        api._provider_pool = None
+        api.retry_wait_seconds = 0
 
         tools = [{"type": "function", "function": {"name": "test_tool"}}]
         messages = [{"role": "user", "content": "test"}]
 
-        with patch.object(api, "_try_create_chat_completion_or_embedding") as mock_call:
+        with patch.object(api, "_create_chat_completion_or_embedding_once") as mock_call:
             mock_call.return_value = {
                 "content": '{"hypothesis": "test"}',
                 "finish_reason": "stop",
@@ -204,15 +206,15 @@ class TestLoopEnsembleUsesCallStructured(unittest.TestCase):
         self.assertTrue(hasattr(loop, "call_structured"))
 
     def test_propose_with_ensemble_uses_call_structured(self):
-        """AlphaAgentLoop._propose_with_ensemble must use call_structured."""
+        """AlphaAgentLoop._call_ensemble_model must use call_structured."""
         from quantaalpha.pipeline.loop import AlphaAgentLoop
         import inspect
 
-        source = inspect.getsource(AlphaAgentLoop._propose_with_ensemble)
+        source = inspect.getsource(AlphaAgentLoop._call_ensemble_model)
         self.assertIn(
             "call_structured",
             source,
-            "AlphaAgentLoop._propose_with_ensemble must use call_structured, not ad hoc build_messages_and_create_chat_completion",
+            "AlphaAgentLoop._call_ensemble_model must use call_structured",
         )
 
 
@@ -428,7 +430,7 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
         from quantaalpha.llm.client import call_structured
 
         backend = self._make_backend()
-        backend._try_create_chat_completion_or_embedding = MagicMock(
+        backend._create_chat_completion_or_embedding_once = MagicMock(
             return_value={
                 "content": '{"result": "test"}',
                 "finish_reason": "stop",
@@ -439,6 +441,8 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
         with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
             mock_settings.log_llm_chat_content = False
             mock_settings.use_tool_calling = True
+            mock_settings.model_switch_threshold = 3
+            mock_settings.max_retry = 30
 
             result = backend.build_messages_and_create_chat_completion_json(
                 user_prompt="test",
@@ -458,6 +462,7 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
         _MODEL_DEGRADATION_STATE.clear()
 
         backend = self._make_backend()
+        backend.retry_wait_seconds = 0  # No sleep in tests
         captured_kwargs_list = []
 
         def _capture(**kwargs):
@@ -467,13 +472,15 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
         with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
             mock_settings.log_llm_chat_content = False
             mock_settings.use_tool_calling = True
+            mock_settings.model_switch_threshold = 3
+            mock_settings.max_retry = 5
 
             # Degrade the model first with 3 failures
             for i in range(3):
-                backend._try_create_chat_completion_or_embedding = MagicMock(
+                backend._create_chat_completion_or_embedding_once = MagicMock(
                     side_effect=Exception("tools parameter is not supported")
                 )
-                with pytest.raises(Exception, match="tools parameter is not supported"):
+                with pytest.raises(RuntimeError, match="Failed to create call_structured after 5 retries"):
                     call_structured(
                         backend,
                         [{"role": "user", "content": f"degrade {i}"}],
@@ -484,7 +491,7 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
 
             # Now use the compatibility wrapper
             captured_kwargs_list.clear()
-            backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=_capture)
+            backend._create_chat_completion_or_embedding_once = MagicMock(side_effect=_capture)
 
             result = backend.build_messages_and_create_chat_completion_json(
                 user_prompt="test after degradation",

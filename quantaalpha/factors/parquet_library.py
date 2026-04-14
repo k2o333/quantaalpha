@@ -131,11 +131,11 @@ class ParquetFactorLibrary:
             "metadata_json": pl.String,
             "backtest_results_json": pl.String,
         }
-        
+
         # Ensure sequence is int
         data = {col: [entry.get(col, "")] for col in REQUIRED_COLUMNS}
         data["sequence"] = [int(entry.get("sequence", 0))]
-        
+
         df = pl.DataFrame(data, schema=schema)
         return df
 
@@ -182,6 +182,11 @@ class ParquetFactorLibrary:
         if df.is_empty():
             return df
 
+        # Fix empty expression_hash by computing from factor_expression
+        import hashlib
+
+        df = df.with_columns(pl.when(pl.col("expression_hash") == "").then(pl.col("factor_expression").map_elements(lambda x: hashlib.sha256(x.encode()).hexdigest()[:16] if x else "")).otherwise(pl.col("expression_hash")).alias("expression_hash"))
+
         df_sorted = df.sort(
             ["expression_hash", "sequence", "updated_at", "created_at"],
             descending=[False, True, True, True],
@@ -226,6 +231,9 @@ class ParquetFactorLibrary:
 
             combined = pl.concat(frames)
             effective = self._deduplicate_and_filter(combined)
+
+            # Ensure column order matches required schema before writing
+            effective = effective.select(REQUIRED_COLUMNS)
 
             tmp_path = self.compacted_dir / "factors.tmp.parquet"
             final_path = self.compacted_dir / "factors.parquet"

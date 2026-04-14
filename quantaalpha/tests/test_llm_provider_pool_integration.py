@@ -20,8 +20,10 @@ class TestProviderPoolIntegration:
 
     def test_api_backend_without_pool(self):
         """APIBackend works without provider_pool (backward compat)."""
-        from quantaalpha.llm.client import APIBackend
+        from quantaalpha.llm.client import APIBackend, set_default_provider_pool
 
+        # Ensure no default pool
+        set_default_provider_pool(None)
         with patch("quantaalpha.llm.client.openai.OpenAI", return_value=MagicMock()):
             backend = APIBackend()
             assert backend._provider_pool is None

@@ -74,5 +74,9 @@ class LLMSettings(ExtendedBaseSettings):
     # to preserve tool_calls payloads reliably across providers.
     structured_streaming_mode: bool = False
 
+    # Retry model switching: after this many consecutive attempts on the same
+    # effective model/provider, try a different ProviderPool provider/model.
+    model_switch_threshold: int = 3
+
 
 LLM_SETTINGS = LLMSettings()
