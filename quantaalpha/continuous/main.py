@@ -222,6 +222,12 @@ def _load_config_and_paths(config_path: str):
 
     pipeline_config = PipelineConfig.from_yaml_dict(config_for_pipeline)
 
+    # Apply LLM config from pipeline.yaml to global runtime settings
+    # before any LLM backend is constructed.
+    from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
+
+    apply_pipeline_llm_config(pipeline_config.llm)
+
     logger.info(
         "[PATH-INIT] all paths resolved: project_root=%s log_root=%s mining_log_root=%s runs_dir=%s pool_save_path=%s factor_library=%s monitoring=%s",
         resolved["project_root"],

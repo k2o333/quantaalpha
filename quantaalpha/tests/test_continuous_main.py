@@ -1747,3 +1747,32 @@ class TestDataUpdateFieldsPassthrough:
                 "advanced_interfaces missing from data_update - upstream value not preserved"
             assert result["data_update"]["advanced_interfaces"] == ["adj"], \
                 "advanced_interfaces value not preserved from run_update result"
+
+
+class TestLoadConfigAppliesLLMConfig:
+    """Tests for _load_config_and_paths applying LLM config."""
+
+    def test_load_config_applies_pipeline_llm_config(self, tmp_path):
+        from unittest.mock import patch
+        from quantaalpha.continuous.main import _load_config_and_paths
+
+        config_path = tmp_path / "pipeline.yaml"
+        config_path.write_text(
+            """
+workspace:
+  project_root: /home/quan/testdata/aspipe_v4
+llm:
+  chat_model: "minimax-m2.7"
+  retry:
+    max_attempts: 5
+    wait_seconds: 5
+    model_switch_threshold: 3
+""",
+            encoding="utf-8",
+        )
+
+        with patch("quantaalpha.llm.pipeline_config.apply_pipeline_llm_config") as apply_config:
+            pipeline_config, _ = _load_config_and_paths(str(config_path))
+
+        apply_config.assert_called_once()
+        assert apply_config.call_args.args[0] is pipeline_config.llm
