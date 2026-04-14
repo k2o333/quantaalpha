@@ -949,8 +949,8 @@ class APIBackend:
                         azure_endpoint=self.embedding_api_base,
                     )
             else:
-                self.chat_client = openai.OpenAI(api_key=self.chat_api_key, base_url=self.base_url)
-                self.embedding_client = openai.OpenAI(api_key=self.embedding_api_key, base_url=self.embedding_base_url)
+                self.chat_client = self._create_openai_client(api_key=self.chat_api_key, base_url=self.base_url)
+                self.embedding_client = self._create_openai_client(api_key=self.embedding_api_key, base_url=self.embedding_base_url)
 
         self.dump_chat_cache = LLM_SETTINGS.dump_chat_cache if dump_chat_cache is None else dump_chat_cache
         self.use_chat_cache = LLM_SETTINGS.use_chat_cache if use_chat_cache is None else use_chat_cache
@@ -966,6 +966,15 @@ class APIBackend:
         self.retry_wait_seconds = LLM_SETTINGS.retry_wait_seconds
         # Use explicit pool, or fall back to default ProviderPool
         self._provider_pool = provider_pool if provider_pool is not None else get_default_provider_pool()
+
+    def _create_openai_client(self, *, api_key: str | None, base_url: str | None):
+        """Create an OpenAI-compatible client governed by our retry loop."""
+        return openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=LLM_SETTINGS.openai_request_timeout_seconds,
+            max_retries=LLM_SETTINGS.openai_sdk_max_retries,
+        )
 
     def _get_encoder(self):
         """
@@ -1272,7 +1281,7 @@ class APIBackend:
         if attempt.provider_name:
             self._current_retry_provider_name = attempt.provider_name
         if attempt.api_key:
-            self.chat_client = openai.OpenAI(
+            self.chat_client = self._create_openai_client(
                 api_key=attempt.api_key,
                 base_url=attempt.base_url or self.base_url,
             )
@@ -1608,7 +1617,7 @@ class APIBackend:
                         pool_provider = provider_config.name
                         pool_api_key = api_key
                         pool_base_url = provider_config.base_url or self.base_url
-                        self.chat_client = openai.OpenAI(
+                        self.chat_client = self._create_openai_client(
                             api_key=api_key,
                             base_url=pool_base_url,
                         )
@@ -1618,6 +1627,11 @@ class APIBackend:
             else:
                 start_time = time.time()
 
+            logger.info(
+                f"[llm-request] start model={model} "
+                f"provider={pool_provider or getattr(self, '_current_retry_provider_name', None)} "
+                f"thread={threading.get_ident()} stream={self.chat_stream}"
+            )
             response = self.chat_client.chat.completions.create(**kwargs)
 
             if self.chat_stream:

@@ -20,6 +20,8 @@ _NON_SECRET_ENV_NAMES = [
     "FACTOR_MINING_TIMEOUT",
     "CHAT_MAX_TOKENS",
     "CHAT_TEMPERATURE",
+    "OPENAI_REQUEST_TIMEOUT_SECONDS",
+    "OPENAI_SDK_MAX_RETRIES",
 ]
 
 
@@ -74,6 +76,8 @@ def apply_pipeline_llm_config(llm_cfg: Any) -> None:
         "embedding_base_url": "embedding_base_url",
         "chat_max_tokens": "chat_max_tokens",
         "chat_temperature": "chat_temperature",
+        "openai_request_timeout_seconds": "openai_request_timeout_seconds",
+        "openai_sdk_max_retries": "openai_sdk_max_retries",
         "factor_mining_timeout": "factor_mining_timeout",
     }
     for cfg_name, settings_name in scalar_map.items():

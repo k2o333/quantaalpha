@@ -58,6 +58,65 @@ def _mock_create_fn(call_count_holder, fail_until=3, success_response=None):
     return mock_create
 
 
+class TestOpenAIClientRetryBoundary:
+    """Test the boundary between our retry logic and the OpenAI SDK retry logic."""
+
+    def test_openai_client_uses_our_timeout_and_disables_sdk_retries(self):
+        """OpenAI SDK retries must be disabled so failures return to our model-switch retry loop."""
+        from quantaalpha.llm.client import LLM_SETTINGS, openai
+
+        backend = _make_minimal_backend()
+
+        with patch.object(LLM_SETTINGS, "openai_request_timeout_seconds", 17, create=True), \
+             patch.object(LLM_SETTINGS, "openai_sdk_max_retries", 0, create=True), \
+             patch.object(openai, "OpenAI") as openai_client:
+            backend._create_openai_client(api_key="key-a", base_url="https://a.test/v1")
+
+        openai_client.assert_called_once_with(
+            api_key="key-a",
+            base_url="https://a.test/v1",
+            timeout=17,
+            max_retries=0,
+        )
+
+    def test_chat_completion_logs_request_boundary_with_model_and_provider(self):
+        """The HTTP boundary log should identify the model/provider before SDK execution."""
+        from quantaalpha.llm.client import LLM_SETTINGS
+
+        backend = _make_minimal_backend()
+        backend._current_retry_provider_name = "provider-a"
+
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock()]
+        mock_resp.choices[0].message.content = "ok"
+        mock_resp.choices[0].finish_reason = "stop"
+        backend.chat_client.chat.completions.create.return_value = mock_resp
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "max_retry", 1), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0), \
+             patch("quantaalpha.llm.client.logger") as mock_logger:
+
+            backend._try_create_chat_completion_or_embedding(
+                messages=[{"role": "user", "content": "test"}],
+                chat_completion=True,
+                max_retry=1,
+                reasoning_flag=False,
+            )
+
+        log_messages = [str(call.args[0]) for call in mock_logger.info.call_args_list if call.args]
+        assert any(
+            "[llm-request] start" in message
+            and "model=gpt-4-turbo" in message
+            and "provider=provider-a" in message
+            for message in log_messages
+        )
+
+
 class TestProviderSwitchAfterThreeFailures:
     """Test that after 3 consecutive API failures, ProviderPool switching is attempted."""
 

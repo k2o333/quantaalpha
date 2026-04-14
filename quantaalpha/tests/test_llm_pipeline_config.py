@@ -17,6 +17,8 @@ class LLMCfg:
     embedding_base_url: str = "http://litellm.local/v1"
     chat_max_tokens: int = 64000
     chat_temperature: float = 0.4
+    openai_request_timeout_seconds: int = 17
+    openai_sdk_max_retries: int = 0
     factor_mining_timeout: int = 999999
     retry: RetryCfg = field(default_factory=RetryCfg)
 
@@ -33,6 +35,8 @@ def test_apply_pipeline_llm_config_updates_llm_settings(monkeypatch):
         "embedding_base_url": LLM_SETTINGS.embedding_base_url,
         "chat_max_tokens": LLM_SETTINGS.chat_max_tokens,
         "chat_temperature": LLM_SETTINGS.chat_temperature,
+        "openai_request_timeout_seconds": LLM_SETTINGS.openai_request_timeout_seconds,
+        "openai_sdk_max_retries": LLM_SETTINGS.openai_sdk_max_retries,
         "factor_mining_timeout": LLM_SETTINGS.factor_mining_timeout,
         "max_retry": LLM_SETTINGS.max_retry,
         "retry_wait_seconds": LLM_SETTINGS.retry_wait_seconds,
@@ -51,6 +55,8 @@ def test_apply_pipeline_llm_config_updates_llm_settings(monkeypatch):
     assert LLM_SETTINGS.embedding_base_url == "http://litellm.local/v1"
     assert LLM_SETTINGS.chat_max_tokens == 64000
     assert LLM_SETTINGS.chat_temperature == 0.4
+    assert LLM_SETTINGS.openai_request_timeout_seconds == 17
+    assert LLM_SETTINGS.openai_sdk_max_retries == 0
     assert LLM_SETTINGS.factor_mining_timeout == 999999
     assert LLM_SETTINGS.max_retry == 5
     assert LLM_SETTINGS.retry_wait_seconds == 5

@@ -52,6 +52,8 @@ class LLMRuntimeConfig:
     embedding_base_url: str = ""
     chat_max_tokens: int = 3000
     chat_temperature: float = 0.5
+    openai_request_timeout_seconds: int = 60
+    openai_sdk_max_retries: int = 0
     factor_mining_timeout: int = 999999
     retry: LLMRetryConfig = field(default_factory=LLMRetryConfig)
 
@@ -68,6 +70,8 @@ class LLMRuntimeConfig:
             embedding_base_url=d.get("embedding_base_url", ""),
             chat_max_tokens=d.get("chat_max_tokens", 3000),
             chat_temperature=d.get("chat_temperature", 0.5),
+            openai_request_timeout_seconds=d.get("openai_request_timeout_seconds", 60),
+            openai_sdk_max_retries=d.get("openai_sdk_max_retries", 0),
             factor_mining_timeout=d.get("factor_mining_timeout", 999999),
             retry=LLMRetryConfig.from_dict(d.get("retry", {})),
         )
@@ -825,6 +829,8 @@ class PipelineConfig:
                 "embedding_base_url": self.llm.embedding_base_url,
                 "chat_max_tokens": self.llm.chat_max_tokens,
                 "chat_temperature": self.llm.chat_temperature,
+                "openai_request_timeout_seconds": self.llm.openai_request_timeout_seconds,
+                "openai_sdk_max_retries": self.llm.openai_sdk_max_retries,
                 "factor_mining_timeout": self.llm.factor_mining_timeout,
                 "retry": {
                     "max_attempts": self.llm.retry.max_attempts,
