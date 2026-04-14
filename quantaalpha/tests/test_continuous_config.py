@@ -1539,3 +1539,23 @@ llm:
     assert cfg.llm.retry.max_attempts == 5
     assert cfg.llm.retry.wait_seconds == 5
     assert cfg.llm.retry.model_switch_threshold == 3
+
+
+class TestRealPipelineYamlLlmConfig:
+    """Audit tests for the real config/pipeline.yaml LLM configuration."""
+
+    def test_real_pipeline_yaml_parses_llm_config(self):
+        """Test that the real config/pipeline.yaml has valid llm section."""
+        import os
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config_path = "/home/quan/testdata/aspipe_v4/config/pipeline.yaml"
+        assert os.path.exists(config_path), f"Config file not found: {config_path}"
+
+        cfg = PipelineConfig.from_yaml(config_path)
+
+        assert cfg.llm.retry.max_attempts == 5
+        assert cfg.llm.retry.model_switch_threshold == 3
+        assert cfg.llm.chat_model == "minimax-m2.7"
+        assert cfg.llm.openai_base_url == "http://192.168.88.7:4000/v1"
+        assert cfg.llm.chat_max_tokens == 64000
