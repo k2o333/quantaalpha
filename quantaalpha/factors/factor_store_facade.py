@@ -1,5 +1,4 @@
-"""
-FactorStoreFacade - 统一因子存储入口
+"""FactorStoreFacade - 统一因子存储入口.
 
 职责:
 - 封装 ParquetFactorLibrary 的读写操作
@@ -11,14 +10,14 @@ FactorStoreFacade - 统一因子存储入口
 - compact 只合并文件，不承担"修改老记录"语义
 """
 
-from pathlib import Path
-from datetime import datetime, timezone
 import json
-from typing import Any, List
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
-from quantaalpha.factors.parquet_library import ParquetFactorLibrary, REQUIRED_COLUMNS
+from quantaalpha.factors.parquet_library import REQUIRED_COLUMNS, ParquetFactorLibrary
 from quantaalpha.factors.status_rules import update_factor_status
 
 
@@ -45,10 +44,10 @@ DEFAULT_BACKTEST_RESULT_KEYS = {
 
 
 class FactorStoreFacade:
-    """统一因子存储入口，向业务层提供稳定 API"""
+    """统一因子存储入口，向业务层提供稳定 API."""
 
     def __init__(self, store_path: str | Path):
-        """初始化 FactorStoreFacade
+        """初始化 FactorStoreFacade.
 
         Args:
             store_path: Parquet store 根目录的绝对或相对路径
@@ -56,8 +55,26 @@ class FactorStoreFacade:
         self.store_path = Path(store_path)
         self._parquet = ParquetFactorLibrary(str(self.store_path))
 
+    @staticmethod
+    def _compute_expression_hash(factor_expression: str) -> str:
+        """从 factor_expression 计算 expression_hash。.
+
+        这是系统中唯一允许计算 expression_hash 的地方。
+
+        Args:
+            factor_expression: 因子表达式字符串。
+
+        Returns:
+            16 位十六进制字符串，如果输入为空则返回空字符串。
+        """
+        import hashlib
+
+        if not factor_expression:
+            return ""
+        return hashlib.sha256(factor_expression.encode()).hexdigest()[:16]
+
     def write_factor(self, entry: dict) -> None:
-        """写入单个因子到 delta 目录
+        """写入单个因子到 delta 目录.
 
         Args:
             entry: 因子 entry dict，包含 required schema 的所有字段
@@ -103,7 +120,7 @@ class FactorStoreFacade:
         self.write_factor(event)
 
     def read_effective_factors(self) -> pd.DataFrame:
-        """读取有效因子列表（compacted + delta，已去重）
+        """读取有效因子列表（compacted + delta，已去重）.
 
         Returns:
             pandas DataFrame，包含所有有效因子记录
@@ -114,7 +131,7 @@ class FactorStoreFacade:
         return df.to_pandas()
 
     def read_effective_factor_records(self) -> list[dict]:
-        """读取有效因子记录列表
+        """读取有效因子记录列表.
 
         Returns:
             list of dict，每个 dict 代表一条因子记录
@@ -130,7 +147,7 @@ class FactorStoreFacade:
         return {"metadata": {"version": "parquet-facade"}, "factors": factors}
 
     def to_factor_zoo_frame(self) -> pd.DataFrame:
-        """返回因子动物园视图（factor_name, factor_expression）
+        """返回因子动物园视图（factor_name, factor_expression）.
 
         Returns:
             pandas DataFrame，仅包含 factor_name 和 factor_expression 列
@@ -141,7 +158,7 @@ class FactorStoreFacade:
         return df[["factor_name", "factor_expression"]].copy()
 
     def delta_file_count(self) -> int:
-        """返回 delta 目录中的 parquet 文件数量
+        """返回 delta 目录中的 parquet 文件数量.
 
         Returns:
             delta 目录中的 .parquet 文件数
@@ -152,7 +169,7 @@ class FactorStoreFacade:
         return len(list(delta_dir.glob("*.parquet")))
 
     def compact(self, *, archive_retention: int | None = None) -> None:
-        """执行 compact 操作，合并 delta 到 compacted"""
+        """执行 compact 操作，合并 delta 到 compacted."""
         before_count = self.delta_file_count()
         if before_count == 0:
             return
@@ -252,6 +269,13 @@ class FactorStoreFacade:
         results = backtest_results if backtest_results is not None else legacy_entry.get("backtest_results", {})
         factor_expression = legacy_entry.get("factor_expression", source_record.get("factor_expression", ""))
 
+        # 计算 expression_hash：优先信任已有值，缺失时从表达式重算，而非回落到空字符串
+        expr_hash = (
+            source_record.get("expression_hash")
+            or legacy_entry.get("expression_hash")
+            or self._compute_expression_hash(factor_expression)
+        )
+
         # Apply field extension defaults before serialization
         results = self._ensure_backtest_result_keys(results)
         metadata = self._ensure_metadata_keys(metadata)
@@ -264,7 +288,7 @@ class FactorStoreFacade:
                 "factor_expression_normalized",
                 source_record.get("factor_expression_normalized", factor_expression),
             ),
-            "expression_hash": source_record.get("expression_hash") or legacy_entry.get("expression_hash", ""),
+            "expression_hash": expr_hash,
             "evaluation_status": evaluation.get("status", source_record.get("evaluation_status", "pending_validation")),
             "created_at": source_record.get("created_at") or now_iso,
             "updated_at": now_iso,

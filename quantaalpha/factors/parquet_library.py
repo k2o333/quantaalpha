@@ -1,5 +1,4 @@
-"""
-Parquet-native factor library storage.
+"""Parquet-native factor library storage.
 
 Provides atomic delta writes, compacted + delta reads, deduplication,
 and short-lock compaction for QuantaAlpha factor persistence.
@@ -7,12 +6,11 @@ and short-lock compaction for QuantaAlpha factor persistence.
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import os
 import shutil
-import tempfile
 import uuid
-import fcntl
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -113,6 +111,14 @@ class ParquetFactorLibrary:
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
 
+        # expression_hash 不允许为空（有 expression 的情况下）
+        if entry.get("factor_expression") and not entry.get("expression_hash"):
+            raise ValueError(
+                f"expression_hash is empty for factor {entry.get('factor_id')!r} "
+                f"with non-empty factor_expression. "
+                f"Compute it via FactorStoreFacade._compute_expression_hash() before writing."
+            )
+
     def _entry_to_dataframe(self, entry: Dict[str, Any]) -> pl.DataFrame:
         """Convert factor entry dict to Polars DataFrame with fixed schema."""
         # Build schema with correct types
@@ -182,10 +188,21 @@ class ParquetFactorLibrary:
         if df.is_empty():
             return df
 
-        # Fix empty expression_hash by computing from factor_expression
+        # 修复空 expression_hash：发出 WARNING 并兜底修复
         import hashlib
 
-        df = df.with_columns(pl.when(pl.col("expression_hash") == "").then(pl.col("factor_expression").map_elements(lambda x: hashlib.sha256(x.encode()).hexdigest()[:16] if x else "")).otherwise(pl.col("expression_hash")).alias("expression_hash"))
+        empty_hash_count = df.filter(pl.col("expression_hash") == "").height
+        if empty_hash_count > 0:
+            logger.warning(
+                f"Found {empty_hash_count} records with empty expression_hash. "
+                f"This indicates a write-path bug. Applying read-time fix as fallback."
+            )
+            df = df.with_columns(
+                pl.when(pl.col("expression_hash") == "")
+                .then(pl.col("factor_expression").map_elements(lambda x: hashlib.sha256(x.encode()).hexdigest()[:16] if x else ""))
+                .otherwise(pl.col("expression_hash"))
+                .alias("expression_hash")
+            )
 
         df_sorted = df.sort(
             ["expression_hash", "sequence", "updated_at", "created_at"],
