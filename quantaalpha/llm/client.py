@@ -969,10 +969,12 @@ class APIBackend:
 
     def _create_openai_client(self, *, api_key: str | None, base_url: str | None):
         """Create an OpenAI-compatible client governed by our retry loop."""
+        timeout_value = LLM_SETTINGS.openai_request_timeout_seconds
+        logger.info(f"[_create_openai_client] Creating client with timeout={timeout_value}s, model={getattr(self, 'chat_model', 'N/A')}")
         return openai.OpenAI(
             api_key=api_key,
             base_url=base_url,
-            timeout=LLM_SETTINGS.openai_request_timeout_seconds,
+            timeout=timeout_value,
             max_retries=LLM_SETTINGS.openai_sdk_max_retries,
         )
 
