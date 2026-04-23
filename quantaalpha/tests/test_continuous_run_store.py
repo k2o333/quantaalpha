@@ -285,6 +285,49 @@ class TestRunSummaryBudgetFields:
 class TestRunSummary:
     """Tests for RunSummary dataclass."""
 
+    def test_training_summary_roundtrip_is_preserved(self):
+        """Verify RunSummary persists training summary and keeps old payloads compatible."""
+        from quantaalpha.continuous.run_store import RunSummary
+
+        summary = RunSummary(
+            cycle_timestamp="2026-03-27T10:00:00",
+            cycle_type="once",
+            training_summary={
+                "hosted": True,
+                "triggered": True,
+                "errors": [],
+            },
+        )
+
+        payload = summary.to_dict()
+        loaded = RunSummary.from_dict(payload)
+
+        assert payload["training_summary"] == {
+            "hosted": True,
+            "triggered": True,
+            "errors": [],
+        }
+        assert loaded.training_summary == payload["training_summary"]
+
+    def test_training_summary_from_dict_defaults_when_missing(self):
+        """Verify older artifacts without training_summary still deserialize cleanly."""
+        from quantaalpha.continuous.run_store import RunSummary
+
+        summary = RunSummary.from_dict(
+            {
+                "schema_version": "1.0",
+                "cycle_timestamp": "2026-03-27T10:00:00",
+                "cycle_type": "once",
+                "run_summary": {"duration_seconds": 1.5, "errors": []},
+            }
+        )
+
+        assert summary.training_summary == {
+            "hosted": False,
+            "triggered": False,
+            "errors": [],
+        }
+
     def test_to_dict_contains_required_keys(self):
         """Verify to_dict produces all required artifact keys."""
         from quantaalpha.continuous.run_store import (

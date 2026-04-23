@@ -561,6 +561,29 @@ class MiningConfig:
 
 
 @dataclass
+class TrainingConfig:
+    """Configuration for hosted training workflow triggers."""
+
+    enable_training: bool = False
+    trigger_on_once: bool = False
+    trigger_on_start: bool = False
+    trigger_on_data_update: bool = False
+    trigger_on_degradation: bool = False
+
+    @classmethod
+    def from_dict(cls, d: dict | None) -> "TrainingConfig":
+        if not d:
+            return cls()
+        return cls(
+            enable_training=d.get("enable_training", False),
+            trigger_on_once=d.get("trigger_on_once", False),
+            trigger_on_start=d.get("trigger_on_start", False),
+            trigger_on_data_update=d.get("trigger_on_data_update", False),
+            trigger_on_degradation=d.get("trigger_on_degradation", False),
+        )
+
+
+@dataclass
 class PipelineConfig:
     """Full pipeline configuration parsed from pipeline.yaml."""
 
@@ -594,6 +617,9 @@ class PipelineConfig:
 
     # Mining
     mining: MiningConfig = field(default_factory=MiningConfig)
+
+    # Training
+    training: TrainingConfig = field(default_factory=TrainingConfig)
 
     # LLM runtime
     llm: LLMRuntimeConfig = field(default_factory=LLMRuntimeConfig)
@@ -695,6 +721,7 @@ class PipelineConfig:
         # Parse llm section
         llm_data = data.get("llm", {})
         llm = LLMRuntimeConfig.from_dict(llm_data)
+        training = TrainingConfig.from_dict(data.get("training", {}))
 
         return cls(
             data_check_interval_seconds=data_check_interval,
@@ -712,6 +739,7 @@ class PipelineConfig:
             enable_mining=features.get("enable_mining", True),
             circuit_breaker=cb_config,
             mining=mining,
+            training=training,
             llm=llm,
         )
 
@@ -820,6 +848,13 @@ class PipelineConfig:
                     "diversity_window": self.mining.direction_planner.diversity_window,
                     "last_failed_within_hours": self.mining.direction_planner.last_failed_within_hours,
                 },
+            },
+            "training": {
+                "enable_training": self.training.enable_training,
+                "trigger_on_once": self.training.trigger_on_once,
+                "trigger_on_start": self.training.trigger_on_start,
+                "trigger_on_data_update": self.training.trigger_on_data_update,
+                "trigger_on_degradation": self.training.trigger_on_degradation,
             },
             "llm": {
                 "openai_base_url": self.llm.openai_base_url,

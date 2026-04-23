@@ -224,6 +224,7 @@ class TestMiningOrchestrator:
 
         assert stats.total_revalidations == 0
         assert stats.total_mining_runs == 0
+        assert stats.total_training_runs == 0
         assert stats.error_count == 0
 
     def test_get_health_report(self):
@@ -237,8 +238,29 @@ class TestMiningOrchestrator:
         assert "data_monitor" in health
         assert "revalidation" in health
         assert "mining" in health
+        assert "training" in health
         assert "errors" in health
         assert health["status"] == "stopped"
+        assert health["training"]["enabled"] is False
+
+    def test_training_scheduler_is_enabled_when_injected(self):
+        """Training workflow is enabled by explicit scheduler injection."""
+        from quantaalpha.continuous import MiningOrchestrator, SchedulerConfig
+
+        training_scheduler = MagicMock()
+        config = SchedulerConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+
+        orch = MiningOrchestrator(
+            config,
+            training_scheduler=training_scheduler,
+        )
+
+        assert orch.training_scheduler is training_scheduler
+        assert orch.get_health_report()["training"]["enabled"] is True
 
     def test_run_revalidation_not_enabled(self):
         """Test running revalidation when not enabled."""
@@ -260,6 +282,20 @@ class TestMiningOrchestrator:
 
         assert result.errors == ["Mining scheduler not enabled"]
 
+    def test_run_training_not_enabled(self):
+        """Test running training when no training scheduler is configured."""
+        from quantaalpha.continuous import MiningOrchestrator, SchedulerConfig
+
+        config = SchedulerConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        orch = MiningOrchestrator(config)
+        result = orch.run_training_cycle(request=object(), trigger="manual")
+
+        assert result == {"errors": ["Training scheduler not enabled"]}
+
     def test_check_data_updates_no_monitor(self):
         """Test checking data updates when monitor not available."""
         from quantaalpha.continuous import MiningOrchestrator, SchedulerConfig
@@ -269,6 +305,51 @@ class TestMiningOrchestrator:
         events = orch.check_data_updates()
 
         assert events == []
+
+    def test_start_and_stop_manage_injected_training_scheduler(self):
+        """Start/stop should include the injected training scheduler."""
+        from quantaalpha.continuous import MiningOrchestrator, SchedulerConfig
+
+        training_scheduler = MagicMock()
+        config = SchedulerConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        orch = MiningOrchestrator(config, training_scheduler=training_scheduler)
+
+        orch.start()
+        orch.stop()
+
+        training_scheduler.start.assert_called_once()
+        training_scheduler.stop.assert_called_once()
+
+    def test_run_training_cycle_updates_stats(self):
+        """Manual training cycles should update training stats."""
+        from quantaalpha.continuous import MiningOrchestrator, SchedulerConfig
+
+        request = object()
+        training_result = MagicMock()
+        training_scheduler = MagicMock()
+        training_scheduler.run_training_cycle.return_value = training_result
+        config = SchedulerConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        orch = MiningOrchestrator(config, training_scheduler=training_scheduler)
+
+        result = orch.run_training_cycle(request=request, trigger="manual", dry_run=True)
+
+        assert result is training_result
+        assert orch.stats.total_training_runs == 1
+        assert orch.stats.last_training_result is training_result
+        assert orch.stats.last_training_run is not None
+        training_scheduler.run_training_cycle.assert_called_once_with(
+            request=request,
+            trigger="manual",
+            dry_run=True,
+        )
 
 
 class TestDefaultDataMonitor:

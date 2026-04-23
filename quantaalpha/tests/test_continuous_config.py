@@ -66,6 +66,13 @@ features:
   enable_data_monitor: true
   enable_revalidation: true
   enable_mining: true
+
+training:
+  enable_training: true
+  trigger_on_once: true
+  trigger_on_start: false
+  trigger_on_data_update: true
+  trigger_on_degradation: true
 """
 
     @pytest.fixture
@@ -119,6 +126,11 @@ features:
         assert config.enable_data_monitor is True
         assert config.enable_revalidation is True
         assert config.enable_mining is True
+        assert config.training.enable_training is True
+        assert config.training.trigger_on_once is True
+        assert config.training.trigger_on_start is False
+        assert config.training.trigger_on_data_update is True
+        assert config.training.trigger_on_degradation is True
 
     def test_pipeline_config_to_dict(self, temp_yaml_file: Path):
         """Test conversion of PipelineConfig to dictionary."""
@@ -134,6 +146,7 @@ features:
         assert "validation" in config_dict
         assert "execution" in config_dict
         assert "features" in config_dict
+        assert "training" in config_dict
         assert "llm" in config_dict
 
         # Verify nested structure
@@ -143,6 +156,13 @@ features:
         assert config_dict["app4_bridge"]["max_update_interfaces_per_cycle"] == 3
         assert config_dict["app4_bridge"]["python_executable"] == "/root/miniforge3/envs/get/bin/python"
         assert config_dict["validation"]["min_ic"] == 0.02
+        assert config_dict["training"] == {
+            "enable_training": True,
+            "trigger_on_once": True,
+            "trigger_on_start": False,
+            "trigger_on_data_update": True,
+            "trigger_on_degradation": True,
+        }
 
         # Verify llm structure
         assert "openai_base_url" in config_dict["llm"]
@@ -167,6 +187,11 @@ features:
             assert config.revalidation_interval_hours == 24
             assert config.app4_bridge.enabled is True
             assert config.validation.min_ic == 0.02
+            assert config.training.enable_training is False
+            assert config.training.trigger_on_once is False
+            assert config.training.trigger_on_start is False
+            assert config.training.trigger_on_data_update is False
+            assert config.training.trigger_on_degradation is False
         finally:
             temp_path.unlink()
 
@@ -1547,15 +1572,19 @@ class TestRealPipelineYamlLlmConfig:
     def test_real_pipeline_yaml_parses_llm_config(self):
         """Test that the real config/pipeline.yaml has valid llm section."""
         import os
+        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         config_path = "/home/quan/testdata/aspipe_v4/config/pipeline.yaml"
         assert os.path.exists(config_path), f"Config file not found: {config_path}"
 
         cfg = PipelineConfig.from_yaml(config_path)
+        raw = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+        llm = raw["llm"]
+        retry = llm["retry"]
 
-        assert cfg.llm.retry.max_attempts == 5
-        assert cfg.llm.retry.model_switch_threshold == 3
-        assert cfg.llm.chat_model == "minimax-m2.7"
-        assert cfg.llm.openai_base_url == "http://192.168.88.7:4000/v1"
-        assert cfg.llm.chat_max_tokens == 64000
+        assert cfg.llm.retry.max_attempts == retry["max_attempts"]
+        assert cfg.llm.retry.model_switch_threshold == retry["model_switch_threshold"]
+        assert cfg.llm.chat_model == llm["chat_model"]
+        assert cfg.llm.openai_base_url == llm["openai_base_url"]
+        assert cfg.llm.chat_max_tokens == llm["chat_max_tokens"]

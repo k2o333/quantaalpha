@@ -366,7 +366,10 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
 
     try:
         # Execute the once cycle
-        cycle_result = orchestrator.run_once_cycle(skip_update=skip_update)
+        cycle_result = orchestrator.run_once_cycle(
+            skip_update=skip_update,
+            trigger_source="once",
+        )
 
         # Populate summary from cycle result
         if cycle_result.get("data_update"):
@@ -401,6 +404,14 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
                 added=m.get("added", 0),
                 errors=m.get("errors", []),
             )
+
+        if cycle_result.get("training"):
+            t = cycle_result["training"]
+            summary.training_summary = {
+                "hosted": t.get("hosted", False),
+                "triggered": t.get("triggered", False),
+                "errors": t.get("errors", []),
+            }
 
         if cycle_result.get("candidate_factors") is not None:
             summary.candidate_factors_count = cycle_result["candidate_factors"]
@@ -466,7 +477,10 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
         )
 
         try:
-            cycle_result = orchestrator.run_once_cycle(skip_update=skip_update)
+            cycle_result = orchestrator.run_once_cycle(
+                skip_update=skip_update,
+                trigger_source="start",
+            )
 
             # Populate from cycle result
             if cycle_result.get("data_update"):
@@ -501,6 +515,14 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
                     added=m.get("added", 0),
                     errors=m.get("errors", []),
                 )
+
+            if cycle_result.get("training"):
+                t = cycle_result["training"]
+                summary.training_summary = {
+                    "hosted": t.get("hosted", False),
+                    "triggered": t.get("triggered", False),
+                    "errors": t.get("errors", []),
+                }
 
             if cycle_result.get("candidate_factors") is not None:
                 summary.candidate_factors_count = cycle_result["candidate_factors"]
@@ -627,6 +649,7 @@ class ContinuousOrchestrator:
         config,
         run_store=None,
         alert_dispatcher=None,
+        training_scheduler=None,
     ):
         """
         Initialize the continuous orchestrator.
@@ -636,6 +659,9 @@ class ContinuousOrchestrator:
             run_store: Optional RunStore instance for persistence.
             alert_dispatcher: Optional AlertDispatcher for sending alerts on circuit breaker
                 and degradation events. If not provided, alerts are disabled.
+            training_scheduler: Optional training workflow host forwarded to
+                the underlying MiningOrchestrator. This host is held by the
+                runtime wrapper but not auto-triggered by once-cycle.
         """
         from quantaalpha.continuous.orchestrator import MiningOrchestrator, SchedulerConfig
         from quantaalpha.continuous.run_store import RunStore
@@ -676,6 +702,7 @@ class ContinuousOrchestrator:
             execution_periods=execution_periods,
             library_path=config.factor.library_path,
             monitor_engine=self._monitor_engine,
+            training_scheduler=training_scheduler,
         )
 
         # Wire impact classifier
@@ -783,7 +810,7 @@ class ContinuousOrchestrator:
             if scheduler and hasattr(scheduler, "clear_execution_dataframe_cache"):
                 scheduler.clear_execution_dataframe_cache()
 
-    def run_once_cycle(self, skip_update: bool = False) -> dict:
+    def run_once_cycle(self, skip_update: bool = False, trigger_source: str = "once") -> dict:
         """
         Execute one complete cycle covering:
         1. Data freshness inspection
@@ -809,6 +836,12 @@ class ContinuousOrchestrator:
             "impact_groups": [],
             "validation": {"total": 0, "passed": 0, "failed": 0, "errors": []},
             "mining": {"generated": 0, "validated": 0, "added": 0, "errors": []},
+            "training": {
+                "hosted": hasattr(self._orchestrator, "run_training_cycle"),
+                "triggered": False,
+                "next_run": getattr(self._orchestrator.training_scheduler, "next_run", None),
+                "errors": [],
+            },
             "candidate_factors": 0,
             "candidate_factors_source": "",
             "budget_exhausted": False,
@@ -822,6 +855,7 @@ class ContinuousOrchestrator:
         # Track whether cache was invalidated this cycle
         # Only invalidate when data actually advances, not unconditionally
         cache_invalidated = False
+        training_trigger = trigger_source
 
         # Step 1: Data inspection
         if self._bridge:
@@ -857,6 +891,11 @@ class ContinuousOrchestrator:
                             logger.info("Data update completed but no freshness advancement, keeping DataFrame cache")
                         if update_result.get("errors"):
                             result["errors"].extend(update_result["errors"])
+                        if self._should_trigger_training(
+                            "data_update",
+                            data_update=result["data_update"],
+                        ):
+                            training_trigger = "data_update"
 
             except Exception as e:
                 logger.error(f"Data inspection failed: {e}")
@@ -881,6 +920,11 @@ class ContinuousOrchestrator:
                     result["candidate_factors"] = revalidation_result["candidate_factors"]
                 if revalidation_result.get("candidate_factors_source"):
                     result["candidate_factors_source"] = revalidation_result["candidate_factors_source"]
+                if self._should_trigger_training(
+                    "degradation",
+                    validation_result=revalidation_result,
+                ):
+                    training_trigger = "degradation"
             except Exception as e:
                 logger.error(f"Revalidation failed: {e}")
                 result["errors"].append(f"revalidation: {str(e)}")
@@ -908,9 +952,72 @@ class ContinuousOrchestrator:
                 logger.error(f"Mining failed: {e}")
                 result["errors"].append(f"mining: {str(e)}")
 
+        if self._should_trigger_training(
+            training_trigger,
+            data_update=result["data_update"],
+            validation_result=result["validation"],
+        ):
+            try:
+                training_result = self._orchestrator.run_training_cycle(trigger=training_trigger)
+                if isinstance(training_result, dict):
+                    result["training"].update(training_result)
+                result["training"]["hosted"] = True
+                result["training"]["triggered"] = True
+                result["training"].setdefault("errors", [])
+            except Exception as e:
+                logger.error(f"Training failed: {e}")
+                result["training"]["hosted"] = hasattr(self._orchestrator, "run_training_cycle")
+                result["training"]["triggered"] = True
+                result["training"]["errors"] = [str(e)]
+                result["errors"].append(f"training: {str(e)}")
+
         # Record cache state in result
         result["cache_invalidated"] = cache_invalidated
         return result
+
+    def _should_trigger_training(
+        self,
+        trigger_source: str,
+        *,
+        data_update: dict | None = None,
+        validation_result: dict | None = None,
+    ) -> bool:
+        training_config = getattr(self.config, "training", None)
+        if training_config is None or not training_config.enable_training:
+            return False
+        if not hasattr(self._orchestrator, "run_training_cycle"):
+            return False
+        if trigger_source == "once":
+            return training_config.trigger_on_once
+        if trigger_source == "start":
+            return training_config.trigger_on_start
+        if trigger_source == "data_update":
+            if not training_config.trigger_on_data_update:
+                return False
+            data_update = data_update or {}
+            return bool(
+                data_update.get("updated")
+                or data_update.get("advanced_interfaces")
+            )
+        if trigger_source == "degradation":
+            if not training_config.trigger_on_degradation:
+                return False
+            validation_result = validation_result or {}
+            return self._has_degradation_signal(validation_result)
+        return False
+
+    @staticmethod
+    def _has_degradation_signal(validation_result: dict | None) -> bool:
+        if not validation_result:
+            return False
+        if validation_result.get("degradation") is True:
+            return True
+        errors = validation_result.get("errors", [])
+        if isinstance(errors, list):
+            for error in errors:
+                if isinstance(error, str) and "degradation" in error.lower():
+                    return True
+        return False
 
     def _run_revalidation(self) -> dict:
         """Run revalidation cycle with impact classifier integration."""

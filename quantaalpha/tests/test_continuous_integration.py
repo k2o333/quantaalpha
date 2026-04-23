@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -405,6 +406,32 @@ class TestOrchestrationPhase1Forwarding:
         assert scheduler._orchestration_cfg["mode"] == "conditional_flow"
         assert scheduler._orchestration_cfg["max_steps_per_cycle"] == 6
         assert scheduler._orchestration_cfg["start_node"] == "original"
+
+
+class TestTrainingWorkflowIntegration:
+    """Integration coverage for the optional training workflow host slot."""
+
+    def test_orchestrator_enables_training_from_injected_scheduler_without_config_flag(self):
+        """Minimal enable strategy: injected training scheduler turns on the workflow."""
+        from quantaalpha.continuous.scheduler import SchedulerConfig
+        from quantaalpha.continuous.orchestrator import MiningOrchestrator
+
+        training_scheduler = MagicMock()
+        config = SchedulerConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+
+        orchestrator = MiningOrchestrator(
+            config=config,
+            training_scheduler=training_scheduler,
+        )
+        health = orchestrator.get_health_report()
+
+        assert orchestrator.training_scheduler is training_scheduler
+        assert health["training"]["enabled"] is True
+        assert health["training"]["running"] is True
 
 
 class TestProviderPoolYamlRouting:

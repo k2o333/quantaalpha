@@ -16,7 +16,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from .scheduler import (
     MiningResult,
@@ -52,6 +52,11 @@ class OrchestratorStats:
     last_mining_run: Optional[datetime] = None
     last_mining_result: Optional[MiningResult] = None
 
+    # Training stats
+    total_training_runs: int = 0
+    last_training_run: Optional[datetime] = None
+    last_training_result: Optional[Any] = None
+
     # Data monitor stats
     total_data_updates_detected: int = 0
     last_data_check: Optional[datetime] = None
@@ -85,6 +90,7 @@ class MiningOrchestrator:
         data_monitor=None,
         revalidation_scheduler=None,
         mining_scheduler=None,
+        training_scheduler=None,
         data_bridge=None,
         execution_periods: Optional[dict] = None,
         library_path: Optional[str] = None,
@@ -108,6 +114,7 @@ class MiningOrchestrator:
         self._data_monitor = data_monitor
         self._revalidation_scheduler = revalidation_scheduler
         self._mining_scheduler = mining_scheduler
+        self._training_scheduler = training_scheduler
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {}
         self._library_path = library_path
@@ -270,6 +277,19 @@ class MiningOrchestrator:
             )
         return self._mining_scheduler
 
+    @property
+    def training_scheduler(self):
+        """Return the optional training scheduler when enabled."""
+        if self._training_scheduler is not None:
+            return self._training_scheduler
+        if getattr(self.config, "enable_training", False):
+            logger.warning("Training enabled in config, but no training scheduler was provided")
+        return None
+
+    def _training_enabled(self) -> bool:
+        """Training is enabled by explicit injection or an optional config flag."""
+        return self.training_scheduler is not None or getattr(self.config, "enable_training", False)
+
     def start(self) -> None:
         """Start all enabled schedulers."""
         if self.status == OrchestratorStatus.RUNNING:
@@ -290,6 +310,10 @@ class MiningOrchestrator:
             if self.config.enable_mining and self.mining_scheduler:
                 self.mining_scheduler.start()
                 logger.info("Mining scheduler started")
+
+            if self._training_enabled() and self.training_scheduler:
+                self.training_scheduler.start()
+                logger.info("Training scheduler started")
 
             self.status = OrchestratorStatus.RUNNING
             logger.info("MiningOrchestrator started successfully")
@@ -320,6 +344,12 @@ class MiningOrchestrator:
                 self.mining_scheduler.stop()
             except Exception as e:
                 logger.error(f"Error stopping mining scheduler: {e}")
+
+        if self.training_scheduler:
+            try:
+                self.training_scheduler.stop()
+            except Exception as e:
+                logger.error(f"Error stopping training scheduler: {e}")
 
         self.status = OrchestratorStatus.STOPPED
         logger.info("MiningOrchestrator stopped")
@@ -369,6 +399,29 @@ class MiningOrchestrator:
 
         if result.errors:
             self.stats.error_count += len(result.errors)
+
+        return result
+
+    def run_training_cycle(self, **kwargs):
+        """
+        Manually trigger a training cycle.
+
+        Returns:
+            The training scheduler result, or an error payload when disabled.
+        """
+        if not self.training_scheduler:
+            return {"errors": ["Training scheduler not enabled"]}
+
+        logger.info("Running manual training cycle")
+        result = self.training_scheduler.run_training_cycle(**kwargs)
+
+        self.stats.total_training_runs += 1
+        self.stats.last_training_run = datetime.now()
+        self.stats.last_training_result = result
+
+        errors = getattr(result, "errors", None)
+        if errors:
+            self.stats.error_count += len(errors)
 
         return result
 
@@ -427,6 +480,13 @@ class MiningOrchestrator:
                 "total_runs": self.stats.total_mining_runs,
                 "last_run": (self.stats.last_mining_run.isoformat() if self.stats.last_mining_run else None),
                 "next_run": (self._get_next_run_safe(self.mining_scheduler)),
+            },
+            "training": {
+                "enabled": self._training_enabled(),
+                "running": self.training_scheduler is not None,
+                "total_runs": self.stats.total_training_runs,
+                "last_run": (self.stats.last_training_run.isoformat() if self.stats.last_training_run else None),
+                "next_run": (self._get_next_run_safe(self.training_scheduler)),
             },
             "errors": {
                 "count": self.stats.error_count,

@@ -15,6 +15,60 @@ import pytest
 class TestContinuousOrchestrator:
     """Tests for ContinuousOrchestrator wiring and cycle execution."""
 
+    def test_orchestrator_forwards_training_scheduler_to_base_orchestrator(self, tmp_path):
+        """ContinuousOrchestrator should preserve an injected training scheduler host slot."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        training_scheduler = MagicMock()
+        orchestrator = ContinuousOrchestrator(
+            config,
+            training_scheduler=training_scheduler,
+        )
+
+        assert orchestrator._orchestrator.training_scheduler is training_scheduler
+
+    def test_start_and_stop_preserve_injected_training_scheduler(self, tmp_path):
+        """ContinuousOrchestrator lifecycle should keep training start/stop forwarding intact."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        training_scheduler = MagicMock()
+        orchestrator = ContinuousOrchestrator(
+            config,
+            training_scheduler=training_scheduler,
+        )
+
+        orchestrator.start()
+        orchestrator.stop()
+
+        training_scheduler.start.assert_called_once()
+        training_scheduler.stop.assert_called_once()
+
     def test_orchestrator_initializes_with_config(self, tmp_path):
         """Verify orchestrator initializes with PipelineConfig."""
         from quantaalpha.continuous.main import ContinuousOrchestrator
@@ -116,8 +170,192 @@ class TestContinuousOrchestrator:
         assert "impact_groups" in result
         assert "validation" in result
         assert "mining" in result
+        assert "training" in result
         assert "candidate_factors" in result
         assert "errors" in result
+
+    def test_run_once_cycle_exposes_training_host_without_running_training(self, tmp_path):
+        """Once-cycle should surface the hosted training workflow without auto-triggering it."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        training_scheduler = MagicMock()
+        training_scheduler.next_run = "2026-04-23T00:00:00"
+        orchestrator = ContinuousOrchestrator(
+            config,
+            training_scheduler=training_scheduler,
+        )
+
+        result = orchestrator.run_once_cycle()
+
+        assert result["training"] == {
+            "hosted": True,
+            "triggered": False,
+            "next_run": "2026-04-23T00:00:00",
+            "errors": [],
+        }
+        training_scheduler.run_training_cycle.assert_not_called()
+
+    def test_run_once_cycle_triggers_training_when_once_flag_enabled(self, tmp_path):
+        """Once-cycle should call the base training cycle only when explicitly enabled."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.training.enable_training = True
+        config.training.trigger_on_once = True
+        config.training.trigger_on_start = False
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        orchestrator = ContinuousOrchestrator(config)
+        orchestrator._orchestrator.run_training_cycle = MagicMock(
+            return_value={"hosted": True, "triggered": True, "errors": []}
+        )
+
+        result = orchestrator.run_once_cycle()
+
+        orchestrator._orchestrator.run_training_cycle.assert_called_once_with(trigger="once")
+        assert result["training"]["hosted"] is True
+        assert result["training"]["triggered"] is True
+        assert result["training"]["errors"] == []
+
+    def test_run_once_cycle_skips_training_when_not_enabled_for_trigger(self, tmp_path):
+        """Start-trigger disabled should keep the hosted workflow visible but not run it."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.training.enable_training = True
+        config.training.trigger_on_once = False
+        config.training.trigger_on_start = False
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        orchestrator = ContinuousOrchestrator(config)
+        orchestrator._orchestrator.run_training_cycle = MagicMock()
+
+        result = orchestrator.run_once_cycle()
+
+        orchestrator._orchestrator.run_training_cycle.assert_not_called()
+        assert result["training"]["hosted"] is True
+        assert result["training"]["triggered"] is False
+        assert result["training"]["errors"] == []
+
+    def test_run_once_cycle_triggers_training_on_data_update_when_enabled(self, tmp_path):
+        """Data advancement should trigger training when trigger_on_data_update is enabled."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=False,
+            enable_mining=False,
+        )
+        config.training.enable_training = True
+        config.training.trigger_on_once = False
+        config.training.trigger_on_start = False
+        config.training.trigger_on_data_update = True
+        config.training.trigger_on_degradation = False
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        orchestrator = ContinuousOrchestrator(config)
+        orchestrator._bridge = MagicMock()
+        inspection = {
+            "stale_interfaces": ["daily"],
+            "latest_dates": {"daily": "20260422"},
+        }
+        orchestrator._bridge.inspect.return_value = inspection
+        orchestrator._bridge.should_update.return_value = True
+        orchestrator._bridge.run_update.return_value = {
+            "updated": True,
+            "updated_interfaces": ["daily"],
+            "advanced_interfaces": ["daily"],
+            "errors": [],
+        }
+        orchestrator._orchestrator.run_training_cycle = MagicMock(
+            return_value={"hosted": True, "triggered": True, "errors": []}
+        )
+
+        result = orchestrator.run_once_cycle()
+
+        orchestrator._orchestrator.run_training_cycle.assert_called_once_with(trigger="data_update")
+        assert result["training"]["triggered"] is True
+        assert result["data_update"]["advanced_interfaces"] == ["daily"]
+
+    def test_run_once_cycle_triggers_training_on_degradation_signal_when_enabled(self, tmp_path):
+        """Degradation signals from validation should trigger training when configured."""
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(
+            enable_data_monitor=False,
+            enable_revalidation=True,
+            enable_mining=False,
+        )
+        config.training.enable_training = True
+        config.training.trigger_on_once = False
+        config.training.trigger_on_start = False
+        config.training.trigger_on_data_update = False
+        config.training.trigger_on_degradation = True
+        config.validation = MagicMock()
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+        config.factor = MagicMock()
+        config.factor.library_path = str(tmp_path / "lib.json")
+        config.app4_bridge.enabled = False
+
+        orchestrator = ContinuousOrchestrator(config)
+        orchestrator._run_revalidation = MagicMock(
+            return_value={
+                "total_candidates": 2,
+                "revalidated_count": 1,
+                "errors": ["degradation: factor_123"],
+                "degradation": True,
+            }
+        )
+        orchestrator._orchestrator.run_training_cycle = MagicMock(
+            return_value={"hosted": True, "triggered": True, "errors": []}
+        )
+
+        result = orchestrator.run_once_cycle()
+
+        orchestrator._orchestrator.run_training_cycle.assert_called_once_with(trigger="degradation")
+        assert result["training"]["triggered"] is True
+        assert result["validation"]["errors"] == ["degradation: factor_123"]
 
     def test_run_once_cycle_handles_bridge_inspection(self, tmp_path):
         """Verify run_once_cycle calls bridge.inspect when app4_bridge is enabled."""
@@ -273,6 +511,53 @@ class TestContinuousOrchestrator:
         orchestrator._orchestrator.run_mining_cycle.assert_called_once()
         assert result["mining"]["generated"] == 3
         assert result["mining"]["added"] == 1
+
+    def test_start_cycle_persists_training_summary_when_start_trigger_enabled(self, tmp_path):
+        """Runtime once-persistence helper should include training summary in saved artifacts."""
+        from quantaalpha.continuous.main import _run_continuous_loop
+        from quantaalpha.continuous.run_store import RunStore
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig()
+        config.data_check_interval_seconds = 1
+        config.cycle_budget_seconds = 60
+        config.training.enable_training = True
+        config.training.trigger_on_once = False
+        config.training.trigger_on_start = True
+        config.validation.min_ic = 0.02
+        config.validation.max_revalidation_per_run = 10
+        config.validation.max_mining_per_run = 5
+
+        run_store = RunStore(str(tmp_path / "runs"))
+        orchestrator = MagicMock()
+        orchestrator.run_store = run_store
+
+        from quantaalpha.continuous import main as main_module
+
+        main_module._stop_event.set()
+        main_module._stop_event.clear()
+
+        def run_once_and_stop(*args, **kwargs):
+            main_module._stop_event.set()
+            return {
+                "data_update": {},
+                "impact_groups": [],
+                "validation": {"total": 0, "passed": 0, "failed": 0, "errors": []},
+                "mining": {"generated": 0, "validated": 0, "added": 0, "errors": []},
+                "training": {"hosted": True, "triggered": True, "errors": []},
+                "candidate_factors": 0,
+                "errors": [],
+            }
+
+        orchestrator.run_once_cycle.side_effect = run_once_and_stop
+
+        _run_continuous_loop(orchestrator, config)
+
+        latest_run = run_store.get_latest_run()
+        assert latest_run is not None
+        assert latest_run.training_summary["hosted"] is True
+        assert latest_run.training_summary["triggered"] is True
+        assert latest_run.training_summary["errors"] == []
 
     def test_create_bridge_passes_configured_runtime_controls(self, tmp_path):
         """Verify _create_bridge passes freshness, timeout, budget and python path from config."""

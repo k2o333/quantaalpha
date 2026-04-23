@@ -42,6 +42,11 @@ Artifact format (schema_version=1.0):
         "added": int,
         "errors": list[str],
     },
+    "training_summary": {
+        "hosted": bool,
+        "triggered": bool,
+        "errors": list[str],
+    },
     "run_summary": {
         "duration_seconds": float,
         "errors": list[str],
@@ -68,6 +73,14 @@ SCHEMA_VERSION = "1.0"
 
 # Default run store directory
 DEFAULT_RUNS_DIR = "log/continuous/runs"
+
+
+def _default_training_summary() -> dict[str, Any]:
+    return {
+        "hosted": False,
+        "triggered": False,
+        "errors": [],
+    }
 
 
 @dataclass
@@ -150,6 +163,7 @@ class RunSummary:
     candidate_factors_source: str = ""  # "revalidation" or "mining"
     validation_summary: ValidationSummary = field(default_factory=ValidationSummary)
     mining_summary: MiningSummary = field(default_factory=MiningSummary)
+    training_summary: dict[str, Any] = field(default_factory=_default_training_summary)
     duration_seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
     # Wave A/B budget fields
@@ -187,6 +201,11 @@ class RunSummary:
                 "added": self.mining_summary.added,
                 "errors": self.mining_summary.errors,
             },
+            "training_summary": {
+                "hosted": self.training_summary.get("hosted", False),
+                "triggered": self.training_summary.get("triggered", False),
+                "errors": self.training_summary.get("errors", []),
+            },
             "run_summary": {
                 "duration_seconds": self.duration_seconds,
                 "errors": self.errors,
@@ -219,6 +238,12 @@ class RunSummary:
             added=mining_data.get("added", 0),
             errors=mining_data.get("errors", []),
         )
+        training_data = data.get("training_summary", {})
+        training_summary = {
+            "hosted": training_data.get("hosted", False),
+            "triggered": training_data.get("triggered", False),
+            "errors": training_data.get("errors", []),
+        }
         run_summary = data.get("run_summary", {})
         cb_data = run_summary.get("circuit_breaker", {
             "active": False,
@@ -236,6 +261,7 @@ class RunSummary:
             candidate_factors_source=data.get("candidate_factors", {}).get("source", ""),
             validation_summary=validation_summary,
             mining_summary=mining_summary,
+            training_summary=training_summary,
             duration_seconds=run_summary.get("duration_seconds", 0.0),
             errors=run_summary.get("errors", []),
             budget_exhausted=run_summary.get("budget_exhausted", False),
