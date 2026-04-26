@@ -1,5 +1,4 @@
-"""
-QuantaAlpha LLM configuration.
+"""QuantaAlpha LLM configuration.
 
 All LLM-related settings; loaded from env via Pydantic-settings (e.g. CHAT_MODEL).
 """
@@ -9,6 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from quantaalpha.core.conf import ExtendedBaseSettings
+
+# ruff: noqa: D101
 
 
 class LLMSettings(ExtendedBaseSettings):
@@ -79,6 +80,9 @@ class LLMSettings(ExtendedBaseSettings):
     # Retry model switching: after this many consecutive attempts on the same
     # effective model/provider, try a different ProviderPool provider/model.
     model_switch_threshold: int = 3
+    # Per request, limit total attempts on one provider/model. None preserves
+    # legacy behavior where a provider can be revisited after switching away.
+    max_attempts_per_provider: int | None = None
 
 
 LLM_SETTINGS = LLMSettings()

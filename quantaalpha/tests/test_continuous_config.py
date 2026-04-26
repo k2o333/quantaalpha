@@ -1,11 +1,11 @@
-"""
-Tests for continuous pipeline configuration.
+"""Tests for continuous pipeline configuration.
 
 Verifies:
 - YAML configuration parsing
 - SchedulerConfig creation from PipelineConfig
 - Configuration contract compliance
 """
+# ruff: noqa: D102, D103
 
 import tempfile
 from pathlib import Path
@@ -793,7 +793,6 @@ class TestMiningConfig:
 
     def test_pipeline_config_mining_section(self, tmp_path):
         """PipelineConfig parses mining section from YAML."""
-        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         yaml_content = """
@@ -893,7 +892,6 @@ class TestEscalationConfig:
 
     def test_pipeline_config_parses_escalation(self, tmp_path):
         """PipelineConfig parses mining.escalation section from YAML."""
-        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         yaml_content = """
@@ -957,7 +955,6 @@ class TestAgentLoopConfig:
 
     def test_pipeline_config_parses_agent_loop(self, tmp_path):
         """PipelineConfig parses mining.agent_loop section from YAML."""
-        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         yaml_content = """
@@ -1035,7 +1032,6 @@ class TestEnsembleConfig:
         assert config.ensemble.enabled is False
 
     def test_pipeline_config_parses_ensemble(self, tmp_path):
-        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         yaml_content = """
@@ -1062,7 +1058,6 @@ mining:
 
     def test_pipeline_config_parses_ensemble_max_workers(self, tmp_path):
         """PipelineConfig parses ensemble max_workers from YAML."""
-        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         yaml_content = """
@@ -1125,7 +1120,6 @@ class TestProviderPoolConfig:
         assert config.provider_pool.enabled is False
 
     def test_pipeline_config_parses_provider_pool(self, tmp_path):
-        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         yaml_content = """
@@ -1184,7 +1178,6 @@ class TestDirectionPlannerConfig:
         assert config.direction_planner.enabled is False
 
     def test_pipeline_config_parses_direction_planner(self, tmp_path):
-        import yaml
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         yaml_content = """
@@ -1548,6 +1541,7 @@ llm:
     max_attempts: 5
     wait_seconds: 5
     model_switch_threshold: 3
+    max_attempts_per_provider: 3
 """,
         encoding="utf-8",
     )
@@ -1564,6 +1558,7 @@ llm:
     assert cfg.llm.retry.max_attempts == 5
     assert cfg.llm.retry.wait_seconds == 5
     assert cfg.llm.retry.model_switch_threshold == 3
+    assert cfg.llm.retry.max_attempts_per_provider == 3
 
 
 class TestRealPipelineYamlLlmConfig:
@@ -1572,7 +1567,9 @@ class TestRealPipelineYamlLlmConfig:
     def test_real_pipeline_yaml_parses_llm_config(self):
         """Test that the real config/pipeline.yaml has valid llm section."""
         import os
+
         import yaml
+
         from quantaalpha.continuous.scheduler import PipelineConfig
 
         config_path = "/home/quan/testdata/aspipe_v4/config/pipeline.yaml"
@@ -1585,6 +1582,7 @@ class TestRealPipelineYamlLlmConfig:
 
         assert cfg.llm.retry.max_attempts == retry["max_attempts"]
         assert cfg.llm.retry.model_switch_threshold == retry["model_switch_threshold"]
+        assert cfg.llm.retry.max_attempts_per_provider == retry["max_attempts_per_provider"]
         assert cfg.llm.chat_model == llm["chat_model"]
         assert cfg.llm.openai_base_url == llm["openai_base_url"]
         assert cfg.llm.chat_max_tokens == llm["chat_max_tokens"]

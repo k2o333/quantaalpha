@@ -6,8 +6,8 @@ These tests verify:
 3. Structured parse failures count toward the switch threshold.
 4. Without ProviderPool, retry still works but no switching occurs.
 """
+# ruff: noqa: D205
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -118,8 +118,8 @@ class TestOpenAIClientRetryBoundary:
 
     def test_provider_pool_request_uses_provider_matching_current_model_before_switch_threshold(self):
         """Normal retries must not round-robin to a provider whose model differs from the current model."""
-        from quantaalpha.llm.provider_pool import ProviderPool
         from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool(routing="round_robin")
         pool.add_provider("litellm_Kimi-K2.5", api_keys=["key-kimi"], base_url="https://kimi.test/v1", model="Kimi-K2.5")
@@ -177,8 +177,8 @@ class TestProviderSwitchAfterThreeFailures:
 
     def test_switches_provider_after_three_api_failures(self):
         """After 3 failures on the same model, the next retry must attempt ProviderPool switching."""
-        from quantaalpha.llm.provider_pool import ProviderPool
         from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool(routing="round_robin")
         pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
@@ -225,8 +225,8 @@ class TestProviderSwitchAppliesModel:
 
     def test_provider_switch_applies_provider_model_to_request(self):
         """When ProviderPool switches to a provider with model='m2', the actual request must use model='m2'."""
-        from quantaalpha.llm.provider_pool import ProviderPool
         from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool(routing="round_robin")
         pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
@@ -281,8 +281,8 @@ class TestProviderSwitchAppliesModel:
 
     def test_provider_switch_skips_same_model_when_first_provider_matches_current_model(self):
         """When current model is the first provider model, retry switch must choose another model."""
-        from quantaalpha.llm.provider_pool import ProviderPool
         from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool(routing="round_robin")
         pool.add_provider("provider-current", api_keys=["key-a"], base_url="https://a.com", model="minimax-m2.7")
@@ -337,8 +337,8 @@ class TestProviderSwitchWithTaskTypeRouting:
         """When call_structured uses task_type='factor_construction', the provider switch
         must still apply the provider's model, not the task_model_map or routing_default.
         """
-        from quantaalpha.llm.provider_pool import ProviderPool
         from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool(routing="round_robin")
         pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
@@ -402,8 +402,8 @@ class TestRetryContextCleanup:
 
     def test_retry_model_override_is_cleared_after_success(self):
         """A successful switched retry must not force later calls onto the retry model."""
-        from quantaalpha.llm.provider_pool import ProviderPool
         from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool(routing="round_robin")
         pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
@@ -461,8 +461,8 @@ class TestStructuredParseFailuresCountTowardSwitch:
 
     def test_structured_parse_failures_count_toward_switch(self):
         """When call_structured JSON/tool-args parse fails repeatedly, provider switching must be attempted."""
-        from quantaalpha.llm.provider_pool import ProviderPool
         from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool(routing="round_robin")
         pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
@@ -563,12 +563,216 @@ class TestNoProviderPoolPreservesRetry:
         assert failure_count == 5
 
 
+class TestProviderAttemptLimit:
+    """Test per-provider attempt caps within one retry operation."""
+
+    def test_provider_attempt_limit_prevents_reusing_exhausted_provider(self):
+        """A provider must not be used more than max_attempts_per_provider times in one request."""
+        from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        pool = ProviderPool(routing="round_robin")
+        pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
+        pool.add_provider("provider-b", api_keys=["key-b"], base_url="https://b.com", model="model-b")
+        pool.add_provider("provider-c", api_keys=["key-c"], base_url="https://c.com", model="model-c")
+
+        backend = _make_minimal_backend()
+        backend.chat_model = "model-a"
+        backend._provider_pool = pool
+
+        requested_models = []
+
+        def track_create(**kwargs):
+            requested_models.append(kwargs.get("model"))
+            raise RuntimeError(f"Failure on {kwargs.get('model')}")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = track_create
+        backend.chat_client = mock_client
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "max_retry", 10), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "model_switch_threshold", 3), \
+             patch.object(LLM_SETTINGS, "max_attempts_per_provider", 3, create=True), \
+             patch.object(openai, "OpenAI", return_value=mock_client):
+
+            with pytest.raises(RuntimeError, match="all retry providers exhausted"):
+                backend._try_create_chat_completion_or_embedding(
+                    messages=[{"role": "user", "content": "test"}],
+                    chat_completion=True,
+                    max_retry=10,
+                    reasoning_flag=False,
+                )
+
+        assert requested_models.count("model-a") <= 3
+        assert requested_models.count("model-b") <= 3
+        assert requested_models.count("model-c") <= 3
+
+    def test_exhausted_providers_are_skipped_when_another_provider_remains(self):
+        """Retry switching should move to an unexhausted provider instead of cycling back."""
+        from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        pool = ProviderPool(routing="round_robin")
+        pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
+        pool.add_provider("provider-b", api_keys=["key-b"], base_url="https://b.com", model="model-b")
+        pool.add_provider("provider-c", api_keys=["key-c"], base_url="https://c.com", model="model-c")
+
+        backend = _make_minimal_backend()
+        backend.chat_model = "model-a"
+        backend._provider_pool = pool
+
+        requested_models = []
+
+        def track_create(**kwargs):
+            requested_models.append(kwargs.get("model"))
+            raise RuntimeError(f"Failure on {kwargs.get('model')}")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = track_create
+        backend.chat_client = mock_client
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "max_retry", 7), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "model_switch_threshold", 3), \
+             patch.object(LLM_SETTINGS, "max_attempts_per_provider", 3, create=True), \
+             patch.object(openai, "OpenAI", return_value=mock_client):
+
+            with pytest.raises(RuntimeError):
+                backend._try_create_chat_completion_or_embedding(
+                    messages=[{"role": "user", "content": "test"}],
+                    chat_completion=True,
+                    max_retry=7,
+                    reasoning_flag=False,
+                )
+
+        assert requested_models == [
+            "model-a",
+            "model-a",
+            "model-a",
+            "model-b",
+            "model-b",
+            "model-b",
+            "model-c",
+        ]
+
+    def test_all_providers_exhausted_fails_before_total_retry_budget(self):
+        """When every provider is exhausted, retry should fail with provider counts."""
+        from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        pool = ProviderPool(routing="round_robin")
+        pool.add_provider("litellm_minimax", api_keys=["key-a"], base_url="https://a.com", model="minimax-m2.7")
+        pool.add_provider("litellm_glm47f", api_keys=["key-b"], base_url="https://b.com", model="glm-4.7-flash")
+
+        backend = _make_minimal_backend()
+        backend.chat_model = "minimax-m2.7"
+        backend._provider_pool = pool
+
+        requested_models = []
+
+        def track_create(**kwargs):
+            requested_models.append(kwargs.get("model"))
+            raise RuntimeError(f"Failure on {kwargs.get('model')}")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = track_create
+        backend.chat_client = mock_client
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "max_retry", 18), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "model_switch_threshold", 3), \
+             patch.object(LLM_SETTINGS, "max_attempts_per_provider", 3, create=True), \
+             patch.object(openai, "OpenAI", return_value=mock_client):
+
+            with pytest.raises(RuntimeError) as exc_info:
+                backend._try_create_chat_completion_or_embedding(
+                    messages=[{"role": "user", "content": "test"}],
+                    chat_completion=True,
+                    max_retry=18,
+                    reasoning_flag=False,
+                )
+
+        assert requested_models == [
+            "minimax-m2.7",
+            "minimax-m2.7",
+            "minimax-m2.7",
+            "glm-4.7-flash",
+            "glm-4.7-flash",
+            "glm-4.7-flash",
+        ]
+        error_message = str(exc_info.value)
+        assert "all retry providers exhausted" in error_message
+        assert "max_attempts_per_provider=3" in error_message
+        assert "'litellm_minimax': 3" in error_message
+        assert "'litellm_glm47f': 3" in error_message
+
+    def test_unset_provider_attempt_limit_preserves_existing_retry_behavior(self):
+        """Without max_attempts_per_provider, retry may revisit a provider after switching."""
+        from quantaalpha.llm.client import LLM_SETTINGS, openai
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        pool = ProviderPool(routing="round_robin")
+        pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.com", model="model-a")
+        pool.add_provider("provider-b", api_keys=["key-b"], base_url="https://b.com", model="model-b")
+
+        backend = _make_minimal_backend()
+        backend.chat_model = "model-a"
+        backend._provider_pool = pool
+
+        requested_models = []
+
+        def track_create(**kwargs):
+            requested_models.append(kwargs.get("model"))
+            raise RuntimeError(f"Failure on {kwargs.get('model')}")
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = track_create
+        backend.chat_client = mock_client
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "max_retry", 7), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "model_switch_threshold", 3), \
+             patch.object(LLM_SETTINGS, "max_attempts_per_provider", None, create=True), \
+             patch.object(openai, "OpenAI", return_value=mock_client):
+
+            with pytest.raises(RuntimeError, match="Failed to create chat completion after 7 retries"):
+                backend._try_create_chat_completion_or_embedding(
+                    messages=[{"role": "user", "content": "test"}],
+                    chat_completion=True,
+                    max_retry=7,
+                    reasoning_flag=False,
+                )
+
+        assert requested_models.count("model-a") > 3
+
+
 class TestDefaultProviderPoolInjection:
     """Test that default ProviderPool is used when not explicitly passed."""
 
     def test_default_pool_used_by_new_backend(self):
         """After set_default_provider_pool, new APIBackend instances use the default pool."""
-        from quantaalpha.llm.client import APIBackend, set_default_provider_pool, get_default_provider_pool
+        from quantaalpha.llm.client import APIBackend, get_default_provider_pool, set_default_provider_pool
         from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool()

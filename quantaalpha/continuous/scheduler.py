@@ -1,11 +1,11 @@
-"""
-Scheduling interfaces for the 24H orchestration center.
+"""Scheduling interfaces for the 24H orchestration center.
 
 Defines the contract for three scheduler types:
 - DataMonitorTrigger: Monitors app4 data updates
 - RevalidationScheduler: Handles periodic factor revalidation ("温故")
 - MiningScheduler: Triggers new factor mining ("知新")
 """
+# ruff: noqa: D101, D102
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ class LLMRetryConfig:
     max_attempts: int = 30
     wait_seconds: int = 15
     model_switch_threshold: int = 3
+    max_attempts_per_provider: int | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "LLMRetryConfig":
@@ -39,6 +40,7 @@ class LLMRetryConfig:
             max_attempts=d.get("max_attempts", 30),
             wait_seconds=d.get("wait_seconds", 15),
             model_switch_threshold=d.get("model_switch_threshold", 3),
+            max_attempts_per_provider=d.get("max_attempts_per_provider"),
         )
 
 
@@ -626,8 +628,7 @@ class PipelineConfig:
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "PipelineConfig":
-        """
-        Load pipeline configuration from a YAML file.
+        """Load pipeline configuration from a YAML file.
 
         Args:
             yaml_path: Path to the pipeline.yaml file.
@@ -871,6 +872,7 @@ class PipelineConfig:
                     "max_attempts": self.llm.retry.max_attempts,
                     "wait_seconds": self.llm.retry.wait_seconds,
                     "model_switch_threshold": self.llm.retry.model_switch_threshold,
+                    "max_attempts_per_provider": self.llm.retry.max_attempts_per_provider,
                 },
             },
         }
@@ -914,8 +916,7 @@ class SchedulerConfig:
 
     @classmethod
     def from_pipeline_config(cls, pipeline_config: PipelineConfig) -> "SchedulerConfig":
-        """
-        Create SchedulerConfig from a PipelineConfig.
+        """Create SchedulerConfig from a PipelineConfig.
 
         Args:
             pipeline_config: Full pipeline configuration.
@@ -957,8 +958,7 @@ class SchedulerContext:
 
 
 class DataMonitorTrigger(ABC):
-    """
-    Monitors data directory for updates.
+    """Monitors data directory for updates.
 
     Implementations should:
     1. Watch configured directories for new/modified Parquet files
@@ -978,8 +978,7 @@ class DataMonitorTrigger(ABC):
 
     @abstractmethod
     def check_for_updates(self) -> list[SchedulerContext]:
-        """
-        Check for data updates and return list of events.
+        """Check for data updates and return list of events.
 
         Returns:
             List of SchedulerContext with DATA_UPDATE events for each detected change.
@@ -993,8 +992,7 @@ class DataMonitorTrigger(ABC):
 
 
 class RevalidationScheduler(ABC):
-    """
-    Schedules periodic factor revalidation.
+    """Schedules periodic factor revalidation.
 
     Implementations should:
     1. Query factor library for candidates needing revalidation
@@ -1014,8 +1012,7 @@ class RevalidationScheduler(ABC):
 
     @abstractmethod
     def run_revalidation(self) -> RevalidationResult:
-        """
-        Run one revalidation cycle.
+        """Run one revalidation cycle.
 
         Returns:
             RevalidationResult with statistics.
@@ -1041,8 +1038,7 @@ class RevalidationResult:
 
 
 class MiningScheduler(ABC):
-    """
-    Schedules periodic new factor mining.
+    """Schedules periodic new factor mining.
 
     Implementations should:
     1. Trigger RAG retrieval for context
@@ -1063,8 +1059,7 @@ class MiningScheduler(ABC):
 
     @abstractmethod
     def run_mining(self) -> MiningResult:
-        """
-        Run one mining cycle.
+        """Run one mining cycle.
 
         Returns:
             MiningResult with statistics.

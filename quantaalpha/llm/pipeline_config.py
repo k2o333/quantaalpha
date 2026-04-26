@@ -22,6 +22,7 @@ _NON_SECRET_ENV_NAMES = [
     "CHAT_TEMPERATURE",
     "OPENAI_REQUEST_TIMEOUT_SECONDS",
     "OPENAI_SDK_MAX_RETRIES",
+    "MAX_ATTEMPTS_PER_PROVIDER",
 ]
 
 
@@ -91,6 +92,7 @@ def apply_pipeline_llm_config(llm_cfg: Any) -> None:
             "max_attempts": "max_retry",
             "wait_seconds": "retry_wait_seconds",
             "model_switch_threshold": "model_switch_threshold",
+            "max_attempts_per_provider": "max_attempts_per_provider",
         }
         for cfg_name, settings_name in retry_map.items():
             value = getattr(retry, cfg_name, None)

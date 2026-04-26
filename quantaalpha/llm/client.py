@@ -4,7 +4,6 @@ import hashlib
 import inspect
 import json
 import os
-import random
 import re
 import sqlite3
 import ssl
@@ -13,18 +12,22 @@ import time
 import urllib.request
 import uuid
 from copy import deepcopy
-from pathlib import Path
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import numpy as np
 import tiktoken
 
 from quantaalpha.core.utils import LLM_CACHE_SEED_GEN, SingletonBaseClass
-from quantaalpha.log import LogColors, logger
-from quantaalpha.log import logger
 from quantaalpha.llm.config import LLM_SETTINGS
 from quantaalpha.llm.structured_normalizer import normalize_and_parse
+from quantaalpha.log import LogColors, logger
+
+if TYPE_CHECKING:
+    from quantaalpha.llm.provider_pool import ProviderPool
+
+# ruff: noqa: D101, D102, D103, D107, D205, D415
 
 # ---------------------------------------------------------------------------
 # Default ProviderPool registry
@@ -582,8 +585,7 @@ except ImportError:
 
 
 class ConvManager:
-    """
-    This is a conversation manager of LLM
+    """This is a conversation manager of LLM
     It is for convenience of exporting conversation for debugging.
     """
 
@@ -714,7 +716,7 @@ class SQliteLazyCache(SingletonBaseClass):
 
 class SessionChatHistoryCache(SingletonBaseClass):
     def __init__(self) -> None:
-        """load all history conversation json file from self.session_cache_location"""
+        """Load all history conversation json file from self.session_cache_location"""
         self.cache = SQliteLazyCache(cache_location=LLM_SETTINGS.prompt_cache_path)
 
     def message_get(self, conversation_id: str) -> list[str]:
@@ -748,8 +750,7 @@ class ChatSession:
         return self.api_backend.calculate_token_from_messages(messages)
 
     def build_chat_completion(self, user_prompt: str, **kwargs: Any) -> str:
-        """
-        this function is to build the session messages
+        """This function is to build the session messages
         user prompt should always be provided
         """
         messages = self.build_chat_completion_message(user_prompt)
@@ -794,8 +795,7 @@ class ChatSession:
 
 
 class APIBackend:
-    """
-    This is a unified interface for different backends.
+    """This is a unified interface for different backends.
 
     (xiao) thinks integrate all kinds of API in a single class is not a good design.
     So we should split them into different classes in `oai/backends/` in the future.
@@ -991,16 +991,14 @@ class APIBackend:
         return None
 
     def _get_encoder(self):
-        """
-        tiktoken.encoding_for_model(self.chat_model) does not cover all cases it should consider.
+        """tiktoken.encoding_for_model(self.chat_model) does not cover all cases it should consider.
 
         This function attempts to handle several edge cases.
         """
 
         # 1) cases
         def _azure_patch(model: str) -> str:
-            """
-            When using Azure API, self.chat_model is the deployment name that can be any string.
+            """When using Azure API, self.chat_model is the deployment name that can be any string.
             For example, it may be `gpt-4o_2024-08-06`. But tiktoken.encoding_for_model can't handle this.
             """
             return model.replace("_", "-")
@@ -1021,8 +1019,7 @@ class APIBackend:
         conversation_id: str | None = None,
         session_system_prompt: str | None = None,
     ) -> ChatSession:
-        """
-        conversation_id is a 256-bit string created by uuid.uuid4() and is also
+        """conversation_id is a 256-bit string created by uuid.uuid4() and is also
         the file name under session_cache_folder/ for each conversation
         """
         return ChatSession(self, conversation_id, session_system_prompt)
@@ -1034,8 +1031,7 @@ class APIBackend:
         required_capabilities: list[str] | None = None,
         max_tier: int = 3,
     ) -> str:
-        """
-        Get the model for a task, optionally filtering by capabilities.
+        """Get the model for a task, optionally filtering by capabilities.
 
         Args:
             task_type: Task type for legacy routing
@@ -1087,8 +1083,7 @@ class APIBackend:
         shrink_multiple_break: bool = False,
         tool_results: list[dict] | None = None,
     ) -> list[dict]:
-        """
-        build the messages to avoid implementing several redundant lines of code
+        """Build the messages to avoid implementing several redundant lines of code
 
         tool_results: list of {"tool_call_id": str, "name": str, "content": str}
         """
@@ -1192,8 +1187,7 @@ class APIBackend:
         return resp
 
     def _create_chat_completion_auto_continue(self, messages: list, **kwargs: dict) -> str | dict:
-        """
-        Call the chat completion function and automatically continue the conversation if the finish_reason is length.
+        """Call the chat completion function and automatically continue the conversation if the finish_reason is length.
         TODO: This function only continues once, maybe need to continue more than once in the future.
         """
         result = self._create_chat_completion_inner_function(messages=messages, **kwargs)
@@ -1245,6 +1239,8 @@ class APIBackend:
         *,
         avoid_provider_name: str | None = None,
         avoid_model: str | None = None,
+        avoid_provider_names: set[str] | None = None,
+        avoid_models: set[str] | None = None,
     ) -> _ProviderAttempt | None:
         """Select a provider from the pool, optionally avoiding a specific provider."""
         pool = getattr(self, "_provider_pool", None)
@@ -1259,9 +1255,13 @@ class APIBackend:
         for provider_name in providers:
             if avoid_provider_name and provider_name == avoid_provider_name:
                 continue
+            if avoid_provider_names and provider_name in avoid_provider_names:
+                continue
             api_key, provider_config = pool.get_key_and_provider(provider_name=provider_name)
             if api_key and provider_config:
                 if avoid_model and provider_config.model == avoid_model:
+                    continue
+                if avoid_models and provider_config.model in avoid_models:
                     continue
                 return _ProviderAttempt(
                     provider_name=provider_config.name,
@@ -1270,7 +1270,10 @@ class APIBackend:
                     model=provider_config.model,
                 )
 
-        # Fall back to any provider if no different one found
+        if avoid_provider_name or avoid_model or avoid_provider_names or avoid_models:
+            return None
+
+        # Fall back to any provider if no constraints were requested.
         api_key, provider_config = pool.get_key_and_provider()
         if api_key and provider_config:
             return _ProviderAttempt(
@@ -1305,6 +1308,8 @@ class APIBackend:
         *,
         current_provider_name: str | None = None,
         current_model: str | None = None,
+        exhausted_provider_names: set[str] | None = None,
+        exhausted_models: set[str] | None = None,
     ) -> str | None:
         """Attempt to switch to a different provider for retry.
 
@@ -1318,6 +1323,8 @@ class APIBackend:
         attempt = self._select_provider_attempt(
             avoid_provider_name=current_provider_name,
             avoid_model=current_model,
+            avoid_provider_names=exhausted_provider_names,
+            avoid_models=exhausted_models,
         )
         if attempt is None:
             logger.warning("ProviderPool cannot produce another provider; continue retrying current model.")
@@ -1330,6 +1337,20 @@ class APIBackend:
             f"from={current_provider_name} to={attempt.provider_name} model={attempt.model}"
         )
         return attempt.provider_name
+
+    def _get_retry_provider_key(
+        self,
+        *,
+        task_type: str | None = None,
+        tag: str | None = None,
+    ) -> tuple[str, str | None]:
+        """Return the provider/model identity for per-request retry accounting."""
+        provider_name = getattr(self, "_current_retry_provider_name", None)
+        model = self.get_model_for_task(task_type=task_type, tag=tag)
+        if provider_name:
+            return provider_name, model
+        resolved_provider = self._get_provider_name_for_model(model)
+        return resolved_provider or model or "<unknown>", model
 
     def _run_with_retry_and_model_switch(
         self,
@@ -1350,14 +1371,62 @@ class APIBackend:
         threshold = max(1, getattr(LLM_SETTINGS, "model_switch_threshold", 3))
         current_provider_name: str | None = None
         attempt_count = 0
+        max_attempts_per_provider = getattr(LLM_SETTINGS, "max_attempts_per_provider", None)
+        attempts_by_provider: dict[str, int] = {}
+        exhausted_provider_names: set[str] = set()
+        exhausted_models: set[str] = set()
         previous_retry_model = getattr(self, "_current_retry_model", None)
         previous_retry_provider_name = getattr(self, "_current_retry_provider_name", None)
         mutable_retry_kwargs = retry_kwargs if retry_kwargs is not None else kwargs
 
+        def _provider_exhaustion_error() -> RuntimeError:
+            return RuntimeError(
+                f"Failed to create {retry_label}: all retry providers exhausted "
+                f"before {max_retry} total retries. "
+                f"max_attempts_per_provider={max_attempts_per_provider}, "
+                f"provider_attempts={attempts_by_provider}"
+            )
+
+        def _mark_provider_exhausted(provider_key: str, model: str | None) -> None:
+            if not max_attempts_per_provider:
+                return
+            if attempts_by_provider.get(provider_key, 0) < max_attempts_per_provider:
+                return
+            exhausted_provider_names.add(provider_key)
+            if model:
+                exhausted_models.add(model)
+            logger.warning(
+                f"[retry] Provider exhausted for this request: "
+                f"provider={provider_key} model={model} "
+                f"attempts={attempts_by_provider.get(provider_key)} "
+                f"max_attempts_per_provider={max_attempts_per_provider}"
+            )
+
         try:
             for i in range(max_retry):
+                provider_key, provider_model = self._get_retry_provider_key(
+                    task_type=mutable_retry_kwargs.get("task_type"),
+                    tag=mutable_retry_kwargs.get("tag"),
+                )
+                if max_attempts_per_provider and provider_key in exhausted_provider_names:
+                    new_provider_name = self._switch_to_next_provider_for_retry(
+                        current_provider_name=current_provider_name,
+                        current_model=provider_model,
+                        exhausted_provider_names=exhausted_provider_names,
+                        exhausted_models=exhausted_models,
+                    )
+                    if new_provider_name is None:
+                        raise _provider_exhaustion_error()
+                    attempt_count = 0
+                    current_provider_name = new_provider_name
+                    provider_key, provider_model = self._get_retry_provider_key(
+                        task_type=mutable_retry_kwargs.get("task_type"),
+                        tag=mutable_retry_kwargs.get("tag"),
+                    )
+
                 try:
                     attempt_count += 1
+                    attempts_by_provider[provider_key] = attempts_by_provider.get(provider_key, 0) + 1
                     return operation()
                 except openai.BadRequestError as e:  # noqa: PERF203
                     error_str = str(e)
@@ -1379,8 +1448,11 @@ class APIBackend:
                     logger.warning(e)
                     logger.warning(f"Retrying {i + 1}th time...")
 
+                _mark_provider_exhausted(provider_key, provider_model)
+
                 # Check if we should switch providers
-                if attempt_count >= threshold and i < max_retry - 1:
+                provider_exhausted = max_attempts_per_provider and provider_key in exhausted_provider_names
+                if (attempt_count >= threshold or provider_exhausted) and i < max_retry - 1:
                     current_model = self.get_model_for_task(
                         task_type=mutable_retry_kwargs.get("task_type"),
                         tag=mutable_retry_kwargs.get("tag"),
@@ -1388,11 +1460,15 @@ class APIBackend:
                     new_provider_name = self._switch_to_next_provider_for_retry(
                         current_provider_name=current_provider_name,
                         current_model=current_model,
+                        exhausted_provider_names=exhausted_provider_names,
+                        exhausted_models=exhausted_models,
                     )
                     if new_provider_name is not None:
                         # Reset counter after successful switch
                         attempt_count = 0
                         current_provider_name = new_provider_name
+                    elif provider_exhausted:
+                        raise _provider_exhaustion_error()
 
                 # Wait before retry
                 if i < max_retry - 1:
@@ -1517,11 +1593,10 @@ class APIBackend:
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
     ) -> tuple[str, str | None] | tuple[str, str | None, list[dict] | None]:
-        """
-        seed : Optional[int]
-            When retrying with cache enabled, it will keep returning the same results.
-            To make retries useful, we need to enable a seed.
-            This seed is different from `self.chat_seed` for GPT. It is for the local cache mechanism enabled by QuantaAlpha locally.
+        """Seed : Optional[int]
+        When retrying with cache enabled, it will keep returning the same results.
+        To make retries useful, we need to enable a seed.
+        This seed is different from `self.chat_seed` for GPT. It is for the local cache mechanism enabled by QuantaAlpha locally.
         """
         if seed is None and LLM_SETTINGS.use_auto_chat_cache_seed_gen:
             seed = LLM_CACHE_SEED_GEN.get_next_seed()
@@ -1733,10 +1808,7 @@ class APIBackend:
                 # Try parse JSON; on failure try to fix
                 try:
                     json.loads(resp)
-                except json.JSONDecodeError as e:
-                    import re
-
-                    error_msg = str(e).lower()
+                except json.JSONDecodeError:
                     # Fix common JSON format issues
                     fixed_resp = resp
 

@@ -1,3 +1,5 @@
+# ruff: noqa: D101, D103
+
 from dataclasses import dataclass, field
 
 
@@ -6,6 +8,7 @@ class RetryCfg:
     max_attempts: int = 5
     wait_seconds: int = 5
     model_switch_threshold: int = 3
+    max_attempts_per_provider: int = 3
 
 
 @dataclass
@@ -41,6 +44,7 @@ def test_apply_pipeline_llm_config_updates_llm_settings(monkeypatch):
         "max_retry": LLM_SETTINGS.max_retry,
         "retry_wait_seconds": LLM_SETTINGS.retry_wait_seconds,
         "model_switch_threshold": LLM_SETTINGS.model_switch_threshold,
+        "max_attempts_per_provider": LLM_SETTINGS.max_attempts_per_provider,
     }
 
     for key, value in old_values.items():
@@ -61,6 +65,7 @@ def test_apply_pipeline_llm_config_updates_llm_settings(monkeypatch):
     assert LLM_SETTINGS.max_retry == 5
     assert LLM_SETTINGS.retry_wait_seconds == 5
     assert LLM_SETTINGS.model_switch_threshold == 3
+    assert LLM_SETTINGS.max_attempts_per_provider == 3
 
 
 def test_apply_pipeline_llm_config_none_returns_early(monkeypatch):
@@ -136,12 +141,13 @@ def test_apply_pipeline_llm_config_empty_string_skipped(monkeypatch):
 def test_apply_pipeline_llm_config_warns_on_env_vars_present(monkeypatch, caplog):
     """When non-secret LLM env vars are present, a warning should be emitted."""
     import logging
-    from quantaalpha.llm.config import LLM_SETTINGS
+
     from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
 
     # Set up conflicting env vars
     monkeypatch.setenv("CHAT_MODEL", "env-model")
     monkeypatch.setenv("MAX_RETRY", "10")
+    monkeypatch.setenv("MAX_ATTEMPTS_PER_PROVIDER", "3")
 
     caplog.set_level(logging.WARNING, logger="quantaalpha.llm.pipeline_config")
 
@@ -152,12 +158,13 @@ def test_apply_pipeline_llm_config_warns_on_env_vars_present(monkeypatch, caplog
     assert "Non-secret LLM environment variables are set but will be ignored" in caplog.text
     assert "CHAT_MODEL" in caplog.text
     assert "MAX_RETRY" in caplog.text
+    assert "MAX_ATTEMPTS_PER_PROVIDER" in caplog.text
 
 
 def test_apply_pipeline_llm_config_no_warning_when_no_env_vars(monkeypatch, caplog):
     """When no non-secret LLM env vars are present, no warning should be emitted."""
     import logging
-    from quantaalpha.llm.config import LLM_SETTINGS
+
     from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config
 
     # Ensure env vars are not set
@@ -168,6 +175,7 @@ def test_apply_pipeline_llm_config_no_warning_when_no_env_vars(monkeypatch, capl
     monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
     monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
     monkeypatch.delenv("RETRY_WAIT_SECONDS", raising=False)
+    monkeypatch.delenv("MAX_ATTEMPTS_PER_PROVIDER", raising=False)
     monkeypatch.delenv("FACTOR_MINING_TIMEOUT", raising=False)
     monkeypatch.delenv("CHAT_MAX_TOKENS", raising=False)
     monkeypatch.delenv("CHAT_TEMPERATURE", raising=False)
