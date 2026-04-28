@@ -168,6 +168,36 @@ class EmptyLLMResponseError(RuntimeError):
     """Raised when the provider returns an empty chat completion payload."""
 
 
+class StructuredSchemaError(RuntimeError):
+    """Structured LLM response parsed as JSON but did not match the expected object shape."""
+
+    def __init__(self, message: str, *, top_level_type: str) -> None:
+        super().__init__(message)
+        self.top_level_type = top_level_type
+
+
+def _ensure_structured_object_payload(payload: Any) -> dict[str, Any]:
+    """Require current structured callers to receive a JSON object."""
+    if isinstance(payload, dict):
+        return payload
+    top_level_type = type(payload).__name__
+    raise StructuredSchemaError(
+        f"Structured LLM response must be a JSON object; got {top_level_type}",
+        top_level_type=top_level_type,
+    )
+
+
+def _coerce_int_setting(value: Any, default: int | None, *, minimum: int | None = None) -> int | None:
+    """Return integer settings only when the loaded value is concrete."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    if minimum is not None:
+        return max(minimum, value)
+    return value
+
+
 def md5_hash(input_string: str) -> str:
     hash_md5 = hashlib.md5(usedforsecurity=False)
     input_bytes = input_string.encode("utf-8")
@@ -463,13 +493,15 @@ def call_structured(
 
     # Preserve None fallback semantic: if LLM_SETTINGS.max_retry is None,
     # fall back to the default (30) like _try_create_chat_completion_or_embedding does.
-    settings_max_retry = LLM_SETTINGS.max_retry
-    max_retry = settings_max_retry if settings_max_retry is not None else 30
+    max_retry = _coerce_int_setting(getattr(LLM_SETTINGS, "max_retry", None), 30, minimum=1)
 
     def _call_structured_once() -> dict[str, Any]:
         """Execute a single raw call + parse, without retry."""
         try:
-            raw = api._create_chat_completion_or_embedding_once(
+            raw_call = api.__dict__.get("_try_create_chat_completion_or_embedding")
+            if raw_call is None:
+                raw_call = api._create_chat_completion_or_embedding_once
+            raw = raw_call(
                 messages=messages,
                 chat_completion=True,
                 chat_cache_prefix=chat_cache_prefix,
@@ -509,7 +541,8 @@ def call_structured(
                 )
                 _record_tool_call_capability_failure(model_name)
 
-        return parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
+        parsed = parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
+        return _ensure_structured_object_payload(parsed)
 
     try:
         return api._run_with_retry_and_model_switch(
@@ -1368,10 +1401,15 @@ class APIBackend:
         This is the unified retry helper that handles both API failures
         and structured parse failures through the same counter.
         """
-        threshold = max(1, getattr(LLM_SETTINGS, "model_switch_threshold", 3))
+        retry_call_id = uuid.uuid4().hex[:8]
+        threshold = _coerce_int_setting(getattr(LLM_SETTINGS, "model_switch_threshold", 3), 3, minimum=1)
         current_provider_name: str | None = None
         attempt_count = 0
-        max_attempts_per_provider = getattr(LLM_SETTINGS, "max_attempts_per_provider", None)
+        max_attempts_per_provider = _coerce_int_setting(
+            getattr(LLM_SETTINGS, "max_attempts_per_provider", None),
+            None,
+            minimum=1,
+        )
         attempts_by_provider: dict[str, int] = {}
         exhausted_provider_names: set[str] = set()
         exhausted_models: set[str] = set()
@@ -1382,6 +1420,7 @@ class APIBackend:
         def _provider_exhaustion_error() -> RuntimeError:
             return RuntimeError(
                 f"Failed to create {retry_label}: all retry providers exhausted "
+                f"retry_call_id={retry_call_id} "
                 f"before {max_retry} total retries. "
                 f"max_attempts_per_provider={max_attempts_per_provider}, "
                 f"provider_attempts={attempts_by_provider}"
@@ -1397,6 +1436,7 @@ class APIBackend:
                 exhausted_models.add(model)
             logger.warning(
                 f"[retry] Provider exhausted for this request: "
+                f"retry_call_id={retry_call_id} "
                 f"provider={provider_key} model={model} "
                 f"attempts={attempts_by_provider.get(provider_key)} "
                 f"max_attempts_per_provider={max_attempts_per_provider}"
@@ -1436,7 +1476,10 @@ class APIBackend:
                         failing_model = self.embedding_model if embedding else self.chat_model
                         logger.error(f"Unrecoverable BadRequest: invalid model '{failing_model}'. Check model configuration.")
                         raise
-                    logger.warning(f"Retrying {i + 1}th time...")
+                    logger.warning(
+                        f"[retry] Retrying {i + 1}th time... "
+                        f"retry_call_id={retry_call_id} provider={provider_key} model={provider_model}"
+                    )
                     if "'messages' must contain the word 'json' in some form" in error_str:
                         mutable_retry_kwargs["add_json_in_prompt"] = True
                     elif embedding and "maximum context length" in error_str:
@@ -1444,9 +1487,24 @@ class APIBackend:
                             content[: len(content) // 2]
                             for content in mutable_retry_kwargs.get("input_content_list", [])
                         ]
+                except StructuredSchemaError as e:
+                    logger.warning(
+                        f"[retry] Structured schema failure: "
+                        f"retry_call_id={retry_call_id} provider={provider_key} model={provider_model} "
+                        f"top_level_type={e.top_level_type}; retrying {i + 1}th time..."
+                    )
                 except Exception as e:  # noqa: BLE001
+                    if _is_tool_call_capability_failure(e):
+                        logger.warning(
+                            f"[retry] Tool-call capability failure is not retried in this call: "
+                            f"retry_call_id={retry_call_id} provider={provider_key} model={provider_model}"
+                        )
+                        raise
                     logger.warning(e)
-                    logger.warning(f"Retrying {i + 1}th time...")
+                    logger.warning(
+                        f"[retry] Retrying {i + 1}th time... "
+                        f"retry_call_id={retry_call_id} provider={provider_key} model={provider_model}"
+                    )
 
                 _mark_provider_exhausted(provider_key, provider_model)
 
@@ -1474,7 +1532,7 @@ class APIBackend:
                 if i < max_retry - 1:
                     time.sleep(getattr(self, "retry_wait_seconds", 15))
 
-            error_message = f"Failed to create {retry_label} after {max_retry} retries."
+            error_message = f"Failed to create {retry_label} after {max_retry} retries. retry_call_id={retry_call_id}"
             raise RuntimeError(error_message)
         finally:
             if previous_retry_model is None:
@@ -1497,7 +1555,7 @@ class APIBackend:
         **kwargs: Any,
     ) -> Any:
         assert not (chat_completion and embedding), "chat_completion and embedding cannot be True at the same time"
-        max_retry = LLM_SETTINGS.max_retry if LLM_SETTINGS.max_retry is not None else max_retry
+        max_retry = _coerce_int_setting(getattr(LLM_SETTINGS, "max_retry", None), max_retry, minimum=1)
 
         def operation() -> Any:
             return self._create_chat_completion_or_embedding_once(
