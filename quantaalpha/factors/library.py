@@ -14,7 +14,7 @@ import fcntl
 import struct
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -66,8 +66,9 @@ class FactorLibraryManager:
 
     _lock_dir = Path(tempfile.gettempdir()) / "quantaalpha_locks"
 
-    def __init__(self, library_path: str):
+    def __init__(self, library_path: str, factor_values_path: str | None = None):
         self.library_path = Path(library_path)
+        self.factor_values_path = Path(factor_values_path) if factor_values_path else None
         self.data = self._load()
         self._dirty = False
         self._dirty_factor_ids = set()
@@ -854,6 +855,29 @@ class FactorLibraryManager:
             return self._normalize_factor_entry(entry)
         return None
 
+    def get_factor_meta(self, factor_id: str) -> Optional[dict[str, Any]]:
+        """Return normalized metadata for a single factor."""
+        entry = self.get_factor(factor_id)
+        if entry is None:
+            return None
+
+        evaluation = entry.get("evaluation", {})
+        metadata = entry.get("metadata", {})
+        factor_version = metadata.get("factor_version") or metadata.get("version")
+        return {
+            "factor_id": entry.get("factor_id"),
+            "factor_name": entry.get("factor_name"),
+            "factor_expression": entry.get("factor_expression"),
+            "factor_version": factor_version,
+            "status": evaluation.get("status"),
+            "stability_score": evaluation.get("stability_score"),
+            "universe": metadata.get("universe"),
+            "horizon": metadata.get("horizon"),
+            "tags": entry.get("tags", {}),
+            "metadata": metadata,
+            "data_requirements": entry.get("data_requirements", {}),
+        }
+
     def list_factor_ids(self, status: Optional[str] = None) -> list[str]:
         """List all factor IDs, optionally filtered by status."""
         factors = self.data.get("factors", {})
@@ -864,6 +888,60 @@ class FactorLibraryManager:
             for fid, entry in factors.items()
             if entry.get("evaluation", {}).get("status") == status
         ]
+
+    def list_active_factors(
+        self,
+        universe: str | None = None,
+        horizon: str | None = None,
+        status: str = "active",
+    ) -> list[str]:
+        """List factor IDs matching status and optional universe/horizon filters."""
+        selected: list[str] = []
+        for factor_id, raw_entry in self.data.get("factors", {}).items():
+            entry = self._normalize_factor_entry(raw_entry)
+            if entry.get("evaluation", {}).get("status") != status:
+                continue
+            if universe and entry.get("metadata", {}).get("universe") != universe:
+                continue
+            if horizon and not self._factor_matches_horizon(entry, horizon):
+                continue
+            selected.append(factor_id)
+        return selected
+
+    def get_factor_values(
+        self,
+        factor_ids: Sequence[str],
+        trade_date: str,
+        instruments: Sequence[str],
+        factor_values_path: str | None = None,
+    ):
+        """Read long-form parquet factor values for one trade date and universe."""
+        import polars as pl
+
+        values_path = Path(factor_values_path) if factor_values_path else self.factor_values_path
+        if values_path is None:
+            raise ValueError("factor_values_path must be configured or provided.")
+        if not values_path.exists():
+            raise FileNotFoundError(f"factor values path not found: {values_path}")
+
+        parquet_glob = str(values_path / "*.parquet") if values_path.is_dir() else str(values_path)
+        normalized_trade_date = str(trade_date).replace("-", "")
+        lazy_frame = pl.scan_parquet(parquet_glob)
+        return (
+            lazy_frame.with_columns(pl.col("trade_date").cast(pl.Utf8).str.replace_all("-", ""))
+            .filter(pl.col("trade_date") == normalized_trade_date)
+            .filter(pl.col("factor_id").is_in(list(factor_ids)))
+            .filter(pl.col("instrument").is_in(list(instruments)))
+            .select(["trade_date", "instrument", "factor_id", "value"])
+            .collect()
+        )
+
+    @staticmethod
+    def _factor_matches_horizon(entry: dict[str, Any], horizon: str) -> bool:
+        metadata_horizon = entry.get("metadata", {}).get("horizon")
+        if metadata_horizon == horizon:
+            return True
+        return horizon in entry.get("tags", {}).get("time_horizon", [])
 
     def check_redundancy(
         self,
