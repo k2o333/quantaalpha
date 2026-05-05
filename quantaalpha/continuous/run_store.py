@@ -175,6 +175,7 @@ class RunSummary:
         "consecutive_zero_pass": 0,
         "cooldown_count": 0,
     })
+    factor_ops: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -213,6 +214,7 @@ class RunSummary:
                 "budget_remaining_seconds": self.budget_remaining_seconds,
                 "circuit_breaker": self.circuit_breaker,
             },
+            "factor_ops": self.factor_ops,
         }
         return result
 
@@ -267,6 +269,7 @@ class RunSummary:
             budget_exhausted=run_summary.get("budget_exhausted", False),
             budget_remaining_seconds=run_summary.get("budget_remaining_seconds", 0.0),
             circuit_breaker=cb_data,
+            factor_ops=data.get("factor_ops", {}),
         )
 
 

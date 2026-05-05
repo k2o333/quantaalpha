@@ -31,6 +31,45 @@ def _ensure_repo_root_importable():
 _ensure_repo_root_importable()
 
 
+def test_factor_ops_cycle_hook_uses_app5_and_returns_structured_summary(tmp_path):
+    from types import SimpleNamespace
+
+    from quantaalpha.continuous.factor_ops_hook import run_factor_ops_cycle
+
+    library_path = tmp_path / "library.json"
+    library_path.write_text(
+        json.dumps(
+            {
+                "metadata": {},
+                "factors": {
+                    "factor_001": {
+                        "factor_id": "factor_001",
+                        "metadata": {"ops": {"status": "candidate", "tier": "C"}},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = SimpleNamespace(
+        factor=SimpleNamespace(library_path=str(library_path)),
+        app5_data={"enabled": True, "data_root": str(tmp_path / "app5"), "groups": ["daily"]},
+        factor_ops={"storage_root": str(tmp_path / "ops"), "dry_run": True},
+    )
+
+    result = run_factor_ops_cycle(
+        config,
+        {"data_update": {"updated": False}, "mining": {"added": 0}},
+        skip_update=True,
+        trigger_source="once",
+    )
+
+    assert result["data_backend"] == "app5"
+    assert result["uses_app4_bridge"] is False
+    assert result["app5_data"]["source"] == "app5"
+    assert "daily" in result
+
+
 class TestRunFactorBacktest:
     """Tests for _run_factor_backtest seam."""
 

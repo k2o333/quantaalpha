@@ -7,8 +7,10 @@ Commands:
   quantaalpha ui         - start log Web UI
   quantaalpha health_check - environment health check
 """
+# ruff: noqa: E402
 
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load .env (prefer project root, fallback to cwd)
@@ -20,11 +22,13 @@ else:
     load_dotenv(".env")
 
 import fire
-from quantaalpha.pipeline.factor_mining import main as mine
-from quantaalpha.pipeline.factor_backtest import main as backtest
+
 from quantaalpha.app.utils.health_check import health_check
 from quantaalpha.app.utils.info import collect_info
+from quantaalpha.factor_ops.commands import factor_ops_commands
 from quantaalpha.factors.library import FactorLibraryManager
+from quantaalpha.pipeline.factor_backtest import main as backtest
+from quantaalpha.pipeline.factor_mining import main as mine
 
 
 def _default_backtest_config_path() -> str | None:
@@ -360,6 +364,7 @@ def app(argv=None):
             "health_check": health_check,
             "collect_info": collect_info,
             "continuous": continuous,
+            "factor-ops": factor_ops_commands,
         },
         command=argv,
     )

@@ -221,6 +221,8 @@ def _load_config_and_paths(config_path: str):
         config_for_pipeline["factor"]["parquet_library_dir"] = resolved["parquet_library_dir"]
 
     pipeline_config = PipelineConfig.from_yaml_dict(config_for_pipeline)
+    pipeline_config.app5_data = config_for_pipeline.get("app5_data", {})
+    pipeline_config.factor_ops = config_for_pipeline.get("factor_ops", {})
 
     # Apply LLM config from pipeline.yaml to global runtime settings
     # before any LLM backend is constructed.
@@ -420,6 +422,15 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
         if cycle_result.get("errors"):
             summary.errors = cycle_result["errors"]
 
+        from quantaalpha.continuous.factor_ops_hook import run_factor_ops_cycle
+
+        summary.factor_ops = run_factor_ops_cycle(
+            pipeline_config,
+            cycle_result,
+            skip_update=skip_update,
+            trigger_source="once",
+        )
+
     except Exception as e:
         logger.error(f"Error during once cycle: {e}")
         summary.errors.append(str(e))
@@ -530,6 +541,15 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
 
             if cycle_result.get("errors"):
                 summary.errors = cycle_result["errors"]
+
+            from quantaalpha.continuous.factor_ops_hook import run_factor_ops_cycle
+
+            summary.factor_ops = run_factor_ops_cycle(
+                pipeline_config,
+                cycle_result,
+                skip_update=skip_update,
+                trigger_source="start",
+            )
 
         except Exception as e:
             logger.error(f"Error during cycle {cycle_count}: {e}")
