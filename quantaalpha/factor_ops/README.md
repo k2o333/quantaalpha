@@ -32,7 +32,9 @@ mining 产生候选因子
   --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml --skip-update
 ```
 
-`continuous.main once/start` 每轮通过 `quantaalpha.continuous.factor_ops_hook.run_factor_ops_cycle()` 调用共享 workflow runner，并把结构化结果写入 continuous run summary 的 `factor_ops` 字段。
+这里的 `--skip-update` 表示跳过真实 app5 fetch/update，适合冒烟和性能测试；它不会跳过 app5 manifest、schema、freshness evidence 检查，也不会跳过 factor_ops hook。
+
+`continuous.main once/start` 每轮通过 `quantaalpha.continuous.factor_ops_hook.run_factor_ops_cycle()` 调用共享 workflow runner，并把结构化结果写入 continuous run summary 的 `factor_ops` 字段。app4 bridge 只作为旧 continuous 链路的迁移期配置存在，不是 factor_ops 的推荐数据入口。
 
 ## CLI Commands
 
@@ -59,7 +61,7 @@ factor-ops acceptance
 
 ```bash
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops status \
-  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store
 ```
 
 运行 Gate：
@@ -76,7 +78,7 @@ factor-ops acceptance
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops evaluate factor_001 \
   --factor-values /path/to/factor_001.parquet \
   --returns /path/to/returns.parquet \
-  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json \
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store \
   --no-write
 ```
 
@@ -84,7 +86,7 @@ factor-ops acceptance
 
 ```bash
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops post-mining \
-  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json \
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store \
   --factor-values /path/to/factor_values.parquet \
   --returns /path/to/returns.parquet \
   --storage-root /home/quan/testdata/aspipe_v4/log/factor_ops \
@@ -95,7 +97,7 @@ factor-ops acceptance
 
 ```bash
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops apply-status factor_001 \
-  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json \
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store \
   --storage-root /home/quan/testdata/aspipe_v4/log/factor_ops \
   --to candidate \
   --tier C \
@@ -108,7 +110,7 @@ factor-ops acceptance
 
 ```bash
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops monthly-report \
-  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json \
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store \
   --storage-root /home/quan/testdata/aspipe_v4/log/factor_ops \
   --month 2026-05 \
   --format markdown \
@@ -143,7 +145,7 @@ factor_ops 数据自动化目标是 app5，不是 app4。
 `config/pipeline.yaml` 中相关配置：
 
 - `app5_data`: app5 `data_root`、`interface_dir`、`groups`、freshness threshold、python executable、transport。
-- `factor_ops`: storage root、library path、factor values、returns、dry-run 默认行为。
+- `factor_ops`: storage root、parquet factor library path、factor values、returns、dry-run 默认行为。
 
 `--skip-update` 只跳过真实 app5 fetch/update，不跳过 evidence 检查。workflow 仍会读取 app5 `manifest/current.json`、active parquet schema、latest date、row count、schema hash 和 manifest drift。
 

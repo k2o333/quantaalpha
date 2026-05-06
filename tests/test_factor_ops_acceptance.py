@@ -29,6 +29,21 @@ def test_factor_ops_status_summary_counts_ops_status_and_tier() -> None:
     }
 
 
+def test_factor_ops_status_summary_infers_ops_status_from_legacy_evaluation_status() -> None:
+    registry = pl.DataFrame(
+        {
+            "factor_id": ["f1", "f2", "f3"],
+            "evaluation_status": ["pending_validation", "active", "deprecated"],
+            "metadata_json": ["{}", "{}", "{}"],
+        }
+    )
+
+    summary = build_status_summary(registry)
+
+    assert summary["status_counts"] == {"testing": 1, "candidate": 1, "retired": 1}
+    assert summary["model_eligible_count"] == 1
+
+
 def test_factor_ops_acceptance_runner_executes_minimal_closed_loop(tmp_path) -> None:
     result = FactorOpsAcceptanceRunner(tmp_path).run_minimal_loop(
         factor_id="factor_001",

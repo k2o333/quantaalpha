@@ -32,8 +32,8 @@ class ApplyStatusWorkflowRunner:
         no_write: bool = False,
     ) -> dict[str, Any]:
         """执行状态写回或返回 dry-run 摘要。"""
-        store = _JsonLibraryStore(library_path)
-        record = store.find(factor_id)
+        store = _open_factor_store(library_path)
+        record = _find_record(store, factor_id)
         if record is None:
             return {"success": False, "factor_id": factor_id, "error": "factor not found", "written": False}
         ops = _ops(record)
@@ -118,3 +118,22 @@ def _ops(record: dict[str, Any]) -> dict[str, Any]:
     if isinstance(metadata, str):
         metadata = json.loads(metadata or "{}")
     return dict((metadata.get("ops") or {}))
+
+
+def _open_factor_store(library_path: str | Path) -> Any:
+    """按路径类型打开 parquet store 或 legacy JSON store。"""
+    path = Path(library_path)
+    if path.is_dir():
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        return FactorStoreFacade(path)
+    return _JsonLibraryStore(path)
+
+
+def _find_record(store: Any, factor_id: str) -> dict[str, Any] | None:
+    if hasattr(store, "find"):
+        return store.find(factor_id)
+    for record in store.read_effective_factor_records():
+        if str(record.get("factor_id")) == factor_id:
+            return record
+    return None

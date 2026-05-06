@@ -145,6 +145,48 @@ def test_status_gate_evaluate_apply_and_post_mining_workflows(tmp_path) -> None:
     assert post["applied_count"] == 0
 
 
+def test_apply_status_workflow_writes_parquet_factor_store(tmp_path) -> None:
+    from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+    store_dir = tmp_path / "parquet_store"
+    storage_root = tmp_path / "ops"
+    facade = FactorStoreFacade(store_dir)
+    facade.write_factor(
+        {
+            "factor_id": "factor_001",
+            "factor_name": "factor_001",
+            "factor_expression": "close / open",
+            "factor_expression_normalized": "close / open",
+            "expression_hash": FactorStoreFacade._compute_expression_hash("close / open"),
+            "evaluation_status": "pending_validation",
+            "created_at": "2026-05-01T00:00:00",
+            "updated_at": "2026-05-01T00:00:00",
+            "sequence": 1,
+            "op": "upsert",
+            "tags_json": "{}",
+            "metadata_json": json.dumps({"ops": {"status": "testing", "tier": "", "version": 0}}),
+            "backtest_results_json": "{}",
+        }
+    )
+
+    result = ApplyStatusWorkflowRunner(storage_root=storage_root).run(
+        "factor_001",
+        library_path=store_dir,
+        to_status="candidate",
+        tier="C",
+        health_score=55.0,
+        expected_version=0,
+        reason="parquet apply",
+    )
+    records = FactorStoreFacade(store_dir).read_effective_factor_records()
+    metadata = json.loads(records[0]["metadata_json"])
+
+    assert result["success"] is True
+    assert result["written"] is True
+    assert metadata["ops"]["status"] == "candidate"
+    assert metadata["ops"]["tier"] == "C"
+
+
 def test_factor_ops_data_input_resolver(tmp_path) -> None:
     data_root = tmp_path / "app5"
     active = data_root / "daily" / "clean" / "active.parquet"

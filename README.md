@@ -111,10 +111,10 @@ quantaalpha mine --help
 ### 因子重验
 
 ```bash
-quantaalpha revalidate data/factorlib/all_factors_library.json --dry_run
-quantaalpha revalidate data/factorlib/all_factors_library.json --days 21
-quantaalpha revalidate data/factorlib/all_factors_library.json --factor_ids f1,f2
-quantaalpha revalidate data/factorlib/all_factors_library.json --status active --no_write
+# parquet 因子池重验走 continuous backend，FactorStoreFacade 读取 parquet_store
+/root/miniforge3/envs/mining/bin/python -m quantaalpha.continuous.main once \
+  --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml \
+  --skip-update
 ```
 
 ### 独立回测
@@ -122,13 +122,10 @@ quantaalpha revalidate data/factorlib/all_factors_library.json --status active -
 ```bash
 python -m quantaalpha.backtest.run_backtest \
   -c configs/backtest.yaml \
-  --factor-source custom \
-  --factor-json data/factorlib/all_factors_library.json
+  --factor-source alpha158_20
 
-python -m quantaalpha.backtest.run_backtest \
-  -c configs/backtest.yaml \
-  --factor-source combined \
-  --factor-json data/factorlib/all_factors_library.json
+# 旧 `--factor-json` 入口只用于历史 JSON 文件排查；生产因子池以
+# data/factorlib/parquet_store 为事实源。
 ```
 
 ### 连续运行模式
@@ -138,26 +135,29 @@ python -m quantaalpha.backtest.run_backtest \
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.continuous.main start \
   --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml
 
-# 跳过 App4 数据拉取（适用于冒烟/性能测试）
+# 跳过真实 app5 fetch/update（适用于冒烟/性能测试）
+# 仍会读取 app5 manifest/schema/freshness evidence，并写入 factor_ops run summary。
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.continuous.main start \
   --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml \
   --skip-update
 
-# 单次执行
+# 单次执行，同样走 app5 evidence 和 factor_ops hook
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.continuous.main once \
   --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml
 ```
+
+说明：`app4_bridge` 仅是旧 continuous 链路的迁移期配置；新接入的 `factor_ops` 自动化运营路径使用 `app5_data` evidence，不再把 App4 作为推荐数据入口。
 
 ### 因子自动化运营
 
 ```bash
 # 因子池运营状态
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops status \
-  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store
 
 # 挖掘后批处理，默认建议先 dry-run
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops post-mining \
-  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json \
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/parquet_store \
   --factor-values /path/to/factor_values.parquet \
   --returns /path/to/returns.parquet \
   --storage-root /home/quan/testdata/aspipe_v4/log/factor_ops \
@@ -183,7 +183,7 @@ bash start.sh
 
 常见输出位置：
 
-- 因子库: `data/factorlib/all_factors_library*.json`
+- 因子库: `data/factorlib/parquet_store`
 - 回测指标: `data/results/backtest_v2_results/*_backtest_metrics.json`
 - 回测汇总: `data/results/backtest_v2_results/batch_summary.json`
 - 日志: `log/`
@@ -192,16 +192,13 @@ bash start.sh
 ## Python API 示例
 
 ```python
-from quantaalpha.factors.library import FactorLibraryManager
+from quantaalpha.factors.factor_store_facade import FactorStoreFacade
 
-manager = FactorLibraryManager("data/factorlib/all_factors_library.json")
-summary = manager.get_summary()
+store = FactorStoreFacade("data/factorlib/parquet_store")
+records = store.read_effective_factor_records()
 
-print(f"总因子数: {summary['total_factors']}")
-print(f"活跃因子数: {summary['active_count']}")
-
-candidates = manager.select_revalidation_candidates(days=21)
-print(f"待重验因子数: {len(candidates)}")
+print(f"总因子数: {len(records)}")
+print(f"delta 文件数: {store.delta_file_count()}")
 ```
 
 ## 配置说明
@@ -215,7 +212,7 @@ print(f"待重验因子数: {len(candidates)}")
 - `.env`
   环境变量与路径配置。
 - `/home/quan/testdata/aspipe_v4/config/pipeline.yaml`
-  连续运行模式的统一配置，涵盖 LLM、运行时、App4 Bridge、app5 data automation、factor_ops workflow、验证、熔断、退化检测、挖掘策略等。
+  连续运行模式的统一配置，涵盖 LLM、运行时、app5 data automation、factor_ops workflow、验证、熔断、退化检测、挖掘策略等；旧 `app4_bridge` 仅作为迁移期配置保留。
 
 ## 开发提示
 
@@ -437,7 +434,7 @@ QuantaAlpha 有两种主要运行方式：**单次挖掘模式** 和 **连续运
 |------|--------------------------|------------------------|
 | 执行模式 | 一次性，运行后退出 | 无限循环守护进程 |
 | 配置文件 | `configs/experiment.yaml` | `config/pipeline.yaml` |
-| 数据更新 | 无 | 有（App4 Bridge, 9 个接口） |
+| 数据更新 | 无 | 有（目标数据 evidence 为 app5；旧 App4 Bridge 仅迁移期保留） |
 | 因子重验 | 无 | 有（温故：定期重验已入库因子） |
 | 因子挖掘 | 有（AlphaAgentLoop） | 有（AlphaAgentLoop） |
 | 进化编排 | Original→Mutation→Crossover | DAG: original→mutation→[llm_decide]→crossover→stop |
@@ -450,20 +447,20 @@ QuantaAlpha 有两种主要运行方式：**单次挖掘模式** 和 **连续运
 | 时间切分 | 2016-2019 / 2020 / 2021-2025 | 2020-2022 / 2023 / 2024 |
 | 质量门控 | 基础 (MIN_VALID_RATIO 等) | 增强 (min_ic=0.018, min_rank_ic=0.03, max_correlation=0.7, min_sharpe=0.3) |
 | LLM 模型池 | 单一模型 | 多模型池 + 共识机制 + 相似度引擎 |
-| `--skip-update` | 不适用 | 跳过 App4 数据拉取，保留数据检查，挖掘和重验仍正常执行 |
+| `--skip-update` | 不适用 | 跳过真实 app5 fetch/update，保留 app5 evidence 检查、factor_ops hook、挖掘和重验 |
 
 ### 连续运行的三阶段自治循环
 
-每个周期（cycle）执行以下 4 个步骤：
+每个周期（cycle）执行以下步骤：
 
 ```
 1. 数据检查 (Data Inspection)
-   → 检查 App4 各数据接口的新鲜度
-   → 根据优先级分类（critical/normal/deferred）
+   → 检查 app5 manifest、active parquet、schema、freshness、coverage evidence
+   → 根据 app5_data.groups 和接口 evidence 形成数据摘要
 
 2. 数据更新 (Data Update)
-   → 拉取过期的数据接口
-   → --skip-update 时跳过此步
+   → 通过 app5 更新过期接口
+   → --skip-update 时仅跳过真实 fetch/update，不跳过 evidence 检查
 
 3. 重验 (Revalidation, "温故")
    → 对已有因子在新数据上重新验证
@@ -474,13 +471,18 @@ QuantaAlpha 有两种主要运行方式：**单次挖掘模式** 和 **连续运
    → 执行因子挖掘
    → 进化 DAG 编排
    → 质量门控过滤
+
+5. 因子运营 (Factor Ops)
+   → post-mining / daily workflow 处理候选因子和复验触发
+   → 结构化结果写入 continuous run summary 的 factor_ops 字段
 ```
 
 ### `--skip-update` 标志
 
-- **跳过**: App4 数据拉取步骤
-- **保留**: 数据检查/监控、因子重验、因子挖掘
+- **跳过**: 真实 app5 fetch/update
+- **保留**: app5 manifest/schema/freshness evidence 检查、factor_ops hook、数据监控、因子重验、因子挖掘
 - **用途**: 冒烟测试、性能测试、数据已是最新的场景
+- **边界**: app4 bridge 只属于旧 continuous 链路迁移期，不是 factor_ops 新入口的数据事实源
 
 ### 连续运行模块架构
 
@@ -559,10 +561,12 @@ CLI (continuous/main.py)
 | 运行时 | 挖掘间隔 | 12h |
 | 运行时 | 周期预算 | 3600s (1h) |
 | 运行时 | 单因子超时 | 300s (5min) |
-| App4 Bridge | 接口数 | 9 (daily, daily_basic, moneyflow, financials) |
-| App4 Bridge | 优先级分层 | critical / normal / deferred |
-| App4 Bridge | 新鲜度阈值 | 24h |
-| App4 Bridge | Python 路径 | /root/miniforge3/envs/get/bin/python |
+| app5_data | groups | daily / daily_basic / moneyflow |
+| app5_data | interface_dir | /home/quan/testdata/aspipe_v4/app5/config/interfaces |
+| app5_data | 新鲜度阈值 | 24h |
+| app5_data | Python 路径 | /root/miniforge3/envs/app5/bin/python |
+| factor_ops | storage_root | /home/quan/testdata/aspipe_v4/log/factor_ops |
+| factor_ops | dry_run | true |
 | 验证 | min_ic | 0.02 |
 | 验证 | min_rank_ic | 0.01 |
 | 验证 | 最大重验次数/轮 | 10 |

@@ -8,6 +8,13 @@ from typing import Any
 import polars as pl
 
 MODEL_ELIGIBLE_STATUSES = {"candidate", "core", "satellite", "degraded"}
+LEGACY_EVALUATION_STATUS_TO_OPS_STATUS = {
+    "pending_validation": "testing",
+    "active": "candidate",
+    "stale": "watchlist",
+    "degraded": "degraded",
+    "deprecated": "retired",
+}
 
 
 def build_status_summary(registry: pl.DataFrame) -> dict[str, Any]:
@@ -17,7 +24,7 @@ def build_status_summary(registry: pl.DataFrame) -> dict[str, Any]:
     eligible = 0
     for row in registry.to_dicts():
         ops = _ops(row.get("metadata_json"))
-        status = str(ops.get("status", "unknown"))
+        status = _ops_status(ops, row.get("evaluation_status"))
         tier = str(ops.get("tier", ""))
         status_counts[status] = status_counts.get(status, 0) + 1
         if tier:
@@ -35,3 +42,10 @@ def build_status_summary(registry: pl.DataFrame) -> dict[str, Any]:
 def _ops(metadata_json: Any) -> dict[str, Any]:
     metadata = json.loads(metadata_json or "{}") if isinstance(metadata_json, str) else metadata_json or {}
     return dict(metadata.get("ops", {}) or {})
+
+
+def _ops_status(ops: dict[str, Any], evaluation_status: Any) -> str:
+    status = ops.get("status")
+    if status:
+        return str(status)
+    return LEGACY_EVALUATION_STATUS_TO_OPS_STATUS.get(str(evaluation_status or ""), "unknown")
