@@ -758,6 +758,22 @@ class FactorLibraryManager:
             "version": self.data.get("metadata", {}).get("version"),
         }
 
+    def get_status_summary(self) -> dict:
+        """返回 unified3 runbook 兼容的状态摘要。
+
+        在 get_summary() 基础上补全 pending_count 和 candidate_count，
+        确保 unified3 文档引用的字段全部可用。
+
+        Returns:
+            包含 total_factors, active_count, candidate_count, pending_count,
+            degraded_count, last_validated, last_updated, status_distribution 的 dict
+        """
+        summary = self.get_summary()
+        status_dist = summary.get("status_distribution", {})
+        summary["pending_count"] = status_dist.get("pending_validation", 0)
+        summary["candidate_count"] = status_dist.get("candidate", 0)
+        return summary
+
     def get_audit_trail(
         self,
         factor_id: Optional[str] = None,
