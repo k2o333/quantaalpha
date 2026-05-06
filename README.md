@@ -6,7 +6,7 @@ QuantaAlpha 是一个面向量化因子研究的自动化挖掘模块，覆盖�
 
 ## 模块闭环
 
-QuantaAlpha 当前主要由 8 个闭环组成：
+QuantaAlpha 当前主要由 9 个闭环组成：
 
 1. 数据下载与能力注入
    Parquet 数据经过 `data_capability.py` 做 schema 注册、`available_from` 推断与 PIT 对齐，最终注入因子挖掘 prompt。
@@ -32,6 +32,9 @@ QuantaAlpha 当前主要由 8 个闭环组成：
 8. 进化探索
    Original / Mutation / Crossover 的进化式探索由 `pipeline/evolution/*` 控制。
 
+9. 因子自动化运营
+   挖掘后的候选因子由 `factor_ops` 串接 Gate、Evaluate、Lifecycle、Consumer、daily workflow 和 monthly report。模块说明见 [factor_ops README](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factor_ops/README.md)，操作手册见 [Runbook.md](/home/quan/testdata/aspipe_v4/docs/tasks/factor-ops-cli-workflow/Runbook.md)。
+
 ## 关键入口
 
 如果你只想快速找到主入口，优先看这些文件：
@@ -47,6 +50,9 @@ QuantaAlpha 当前主要由 8 个闭环组成：
 - Few-shot / RAG 注入: [fewshot.py](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factors/fewshot.py)
 - 持续运行主入口: [main.py](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/continuous/main.py)
 - 连续调度设计说明: [DESIGN.md](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/continuous/DESIGN.md)
+- factor_ops CLI 命令组: [commands.py](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factor_ops/commands.py)
+- factor_ops workflow runners: [workflows/](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factor_ops/workflows)
+- factor_ops continuous hook: [factor_ops_hook.py](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/continuous/factor_ops_hook.py)
 
 ## 目录结构
 
@@ -58,6 +64,8 @@ QuantaAlpha 当前主要由 8 个闭环组成：
   因子表达式、因子库、标签、RAG、质量门控、加载器。
 - `quantaalpha/continuous/`
   连续运行、调度、熔断、影响分桶、告警。
+- `quantaalpha/factor_ops/`
+  因子挖掘后的 Gate、Evaluate、Lifecycle、Consumer、daily workflow 和 report 自动化运营层。
 - `quantaalpha/llm/`
   Provider 池、客户端与模型相关配置。
 - `quantaalpha/tests/`
@@ -140,6 +148,28 @@ python -m quantaalpha.backtest.run_backtest \
   --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml
 ```
 
+### 因子自动化运营
+
+```bash
+# 因子池运营状态
+/root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops status \
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json
+
+# 挖掘后批处理，默认建议先 dry-run
+/root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops post-mining \
+  --library-path /home/quan/testdata/aspipe_v4/third_party/quantaalpha/data/factorlib/all_factors_library.json \
+  --factor-values /path/to/factor_values.parquet \
+  --returns /path/to/returns.parquet \
+  --storage-root /home/quan/testdata/aspipe_v4/log/factor_ops \
+  --dry-run
+
+# 最小闭环验收
+/root/miniforge3/envs/mining/bin/python -m quantaalpha.cli factor-ops acceptance \
+  --storage-root /home/quan/testdata/aspipe_v4/log/factor_ops
+```
+
+完整命令、输入要求、dry-run/no-write 语义和输出路径见 [factor_ops README](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factor_ops/README.md)。
+
 ### Web 界面
 
 ```bash
@@ -185,7 +215,7 @@ print(f"待重验因子数: {len(candidates)}")
 - `.env`
   环境变量与路径配置。
 - `/home/quan/testdata/aspipe_v4/config/pipeline.yaml`
-  连续运行模式的统一配置，涵盖 LLM、运行时、App4 Bridge、验证、熔断、退化检测、挖掘策略等。
+  连续运行模式的统一配置，涵盖 LLM、运行时、App4 Bridge、app5 data automation、factor_ops workflow、验证、熔断、退化检测、挖掘策略等。
 
 ## 开发提示
 
