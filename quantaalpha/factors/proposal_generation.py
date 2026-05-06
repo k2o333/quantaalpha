@@ -1,0 +1,593 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, List, Tuple
+
+from jinja2 import Environment, StrictUndefined
+
+from quantaalpha.factors.coder.factor import FactorExperiment, FactorTask
+from quantaalpha.components.proposal import FactorHypothesis2Experiment, FactorHypothesisGen
+from quantaalpha.core.prompts import Prompts
+from quantaalpha.core.proposal import Hypothesis, Scenario, Trace
+from quantaalpha.core.experiment import Experiment
+from quantaalpha.factors.experiment import QlibFactorExperiment
+from quantaalpha.llm.client import APIBackend, call_structured, robust_json_parse
+import os
+import pandas as pd
+from quantaalpha.log import logger
+from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+from quantaalpha.factors.data_capability import get_data_capabilities, render_financial_pit_panel_preview
+from quantaalpha.llm.tool_schemas import (
+    PROPOSE_FACTORS_TOOL,
+    CONSTRUCT_FACTORS_TOOL,
+    FEEDBACK_TOOL,
+)
+
+DEFAULT_HISTORY_LIMIT = 6
+MIN_HISTORY_LIMIT = 1
+
+
+def build_financial_pit_context_hint(capabilities: dict | None) -> str:
+    """Build a compact financial PIT usage hint for proposal-level context."""
+    if not capabilities:
+        return ""
+
+    registry = get_data_capabilities(capabilities)
+    hints: list[str] = []
+    for name, spec in registry.items():
+        if spec.get("layer") != "financial_pit":
+            continue
+        fields = ", ".join(spec.get("fields", [])) or "(unspecified)"
+        preview = render_financial_pit_panel_preview(name, spec, aliases=list(spec.get("fields", []))[:2] or None)
+        hint = f"Financial PIT capability available: {name}; use disclosure-date as-of semantics; fields={fields}."
+        if preview:
+            hint = f"{hint}\n{preview}"
+        hints.append(hint)
+    return "\n\n".join(hints)
+
+
+def normalize_corrected_expression(expression) -> str:
+    """Normalize quality-gate corrected expressions to a parser-safe string.
+
+    Handles: dict payloads (code/expression key extraction),
+    fenced code blocks, // and # comments, variable assignments
+    (extracts RHS), multi-line input (picks first DSL line),
+    and DSL pattern fallback.
+    """
+    import re
+
+    # Handle non-string inputs — dict payloads handled first
+    if isinstance(expression, dict):
+        for key in ("code", "expression", "factor", "formula"):
+            if key in expression:
+                expression = str(expression[key])
+                break
+        else:
+            expression = str(expression)
+
+    if not isinstance(expression, str):
+        return str(expression)
+
+    # Handle string dict payloads — if the entire string looks like a JSON dict
+    stripped = expression.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                for key in ("code", "expression", "factor", "formula"):
+                    if key in parsed:
+                        expression = str(parsed[key])
+                        break
+                else:
+                    expression = str(parsed)
+        except (json.JSONDecodeError, ValueError):
+            pass  # Fall through to string processing
+
+    # Step 1: Strip fenced code blocks (any fence variant)
+    text = re.sub(r"```[\w]*\n?.*?```", "", expression, flags=re.DOTALL)
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)  # inline code
+
+    # Step 2: Process each line
+    lines = text.split("\n")
+    valid_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Skip pure comment lines
+        if line.startswith("//") or line.startswith("#"):
+            continue
+
+        # Strip // comments (must be on the same line)
+        if "//" in line:
+            line = line[: line.index("//")]
+            line = line.strip()
+            if not line:
+                continue
+
+        # Strip # comments
+        if "#" in line:
+            line = line[: line.index("#")]
+            line = line.strip()
+            if not line:
+                continue
+
+        # Handle variable assignment: extract RHS
+        # Match: identifier = expression
+        # Valid LHS: starts with letter/underscore, contains only word chars and spaces before =
+        assign_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_\s]*?)\s*=\s*(.+)$", line)
+        if assign_match:
+            lhs = assign_match.group(1).strip()
+            rhs = assign_match.group(2).strip()
+            # Only extract if LHS looks like a simple variable name (no operators)
+            if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", lhs):
+                line = rhs
+
+        if line:
+            valid_lines.append(line)
+
+    # Step 3: Return single-line result
+    if not valid_lines:
+        # Fallback: extract first DSL pattern FUNC(...) from original text
+        dsl_match = re.search(r"\b([A-Z][A-Z_]*)\s*\([^)]+\)", expression)
+        if dsl_match:
+            return dsl_match.group(0)
+        return expression.strip()
+
+    # Prefer lines that look like DSL expressions (uppercase func)
+    for candidate in valid_lines:
+        if re.match(r"^[A-Z][A-Z_]*\s*\(", candidate):
+            return candidate
+
+    # Strip non-DSL prefixes from lines (e.g. "Option A: STD(...)" -> "STD(...)")
+    for candidate in valid_lines:
+        dsl_match = re.search(r"([A-Z][A-Z_]*\s*\([^)]+\))", candidate)
+        if dsl_match:
+            return dsl_match.group(1)
+
+    # Fall back to first valid line
+    return valid_lines[0]
+
+
+def render_hypothesis_and_feedback(prompt_dict, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> str:
+    """Render hypothesis_and_feedback with configurable history limit."""
+    if len(trace.hist) > 0:
+        limited_trace = Trace(scen=trace.scen)
+        limited_trace.hist = trace.hist[-history_limit:] if history_limit > 0 else trace.hist
+        return Environment(undefined=StrictUndefined).from_string(prompt_dict["hypothesis_and_feedback"]).render(trace=limited_trace)
+    else:
+        return "No previous hypothesis and feedback available since it's the first round."
+
+
+def is_input_length_error(error_msg: str) -> bool:
+    """Check if error is due to input length limit or persistent empty responses.
+
+    Extended to recognize persistent empty-response failures that can plausibly
+    be context-length fallbacks, enabling outer history_limit degradation.
+    """
+    error_indicators = [
+        "input length",
+        "context length",
+        "maximum context",
+        "token limit",
+        "InvalidParameter",
+        "Range of input length",
+        "max_tokens",
+        "too long",
+        # Empty response indicators — persistent empty responses may indicate
+        # context overflow or model degradation, triggering history fallback.
+        "empty response",
+        "persistent empty",
+        "emptyllmresponseerror",
+    ]
+    error_str = str(error_msg).lower()
+    return any(indicator.lower() in error_str for indicator in error_indicators)
+
+
+QlibFactorHypothesis = Hypothesis
+
+
+class AlphaAgentHypothesis(Hypothesis):
+    """
+    AlphaAgentHypothesis extends the Hypothesis class to include a potential_direction,
+    which represents the initial idea or starting point for the hypothesis.
+    """
+
+    def __init__(self, hypothesis: str, concise_observation: str, concise_justification: str, concise_knowledge: str, concise_specification: str) -> None:
+        super().__init__(
+            hypothesis,
+            "",
+            "",
+            concise_observation,
+            concise_justification,
+            concise_knowledge,
+        )
+        self.concise_specification = concise_specification
+
+    def __str__(self) -> str:
+        return f"""Hypothesis: {self.hypothesis}
+                Concise Observation: {self.concise_observation}
+                Concise Justification: {self.concise_justification}
+                Concise Knowledge: {self.concise_knowledge}
+                concise Specification: {self.concise_specification}
+                """
+
+
+class EnsembleHypothesisBundle(AlphaAgentHypothesis):
+    """Hypothesis-compatible wrapper for multi-model ensemble outputs."""
+
+    def __init__(
+        self,
+        hypothesis: str,
+        concise_observation: str,
+        concise_knowledge: str,
+        concise_justification: str,
+        concise_specification: str,
+        hypotheses: list[dict[str, Any]],
+        ensemble_strategy: str,
+        num_models: int,
+        primary_hypothesis_index: int = 0,
+    ) -> None:
+        super().__init__(
+            hypothesis=hypothesis,
+            concise_observation=concise_observation,
+            concise_knowledge=concise_knowledge,
+            concise_justification=concise_justification,
+            concise_specification=concise_specification,
+        )
+        self.hypotheses = hypotheses
+        self.ensemble_strategy = ensemble_strategy
+        self.num_models = num_models
+        self.primary_hypothesis_index = primary_hypothesis_index
+
+    @property
+    def primary_hypothesis(self) -> dict[str, Any]:
+        if not self.hypotheses:
+            return {}
+        index = min(max(self.primary_hypothesis_index, 0), len(self.hypotheses) - 1)
+        return self.hypotheses[index]
+
+
+def build_ensemble_hypothesis_bundle(
+    aggregate_payload: dict[str, Any],
+    preferred_model: str | None = None,
+) -> EnsembleHypothesisBundle:
+    """Convert collect_all aggregate output into a Hypothesis-compatible bundle."""
+    hypotheses = list(aggregate_payload.get("hypotheses", []))
+    num_models = int(aggregate_payload.get("num_models", len(hypotheses)))
+    ensemble_strategy = str(aggregate_payload.get("strategy", "collect_all"))
+
+    primary_index = 0
+    if preferred_model:
+        for idx, item in enumerate(hypotheses):
+            if item.get("model") == preferred_model:
+                primary_index = idx
+                break
+
+    primary_payload = hypotheses[primary_index].get("hypothesis", {}) if hypotheses else {}
+    if isinstance(primary_payload, str):
+        try:
+            primary_payload = robust_json_parse(primary_payload)
+        except Exception:
+            primary_payload = {"hypothesis": primary_payload}
+    if not isinstance(primary_payload, dict):
+        primary_payload = {"hypothesis": str(primary_payload)}
+
+    model_names = ", ".join(str(item.get("model", "unknown")) for item in hypotheses) or "none"
+    summary = primary_payload.get("hypothesis", "") or f"Ensemble bundle from {model_names}"
+    summary = f"[ensemble:{ensemble_strategy}] {summary}"
+
+    return EnsembleHypothesisBundle(
+        hypothesis=summary,
+        concise_observation=primary_payload.get("concise_observation", ""),
+        concise_knowledge=primary_payload.get("concise_knowledge", ""),
+        concise_justification=primary_payload.get("concise_justification", ""),
+        concise_specification=primary_payload.get("concise_specification", ""),
+        hypotheses=hypotheses,
+        ensemble_strategy=ensemble_strategy,
+        num_models=num_models,
+        primary_hypothesis_index=primary_index,
+    )
+
+
+base_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
+
+
+class QlibFactorHypothesisGen(FactorHypothesisGen):
+    def __init__(self, scen: Scenario) -> Tuple[dict, bool]:
+        super().__init__(scen)
+
+    def prepare_context(self, trace: Trace) -> Tuple[dict, bool]:
+        hypothesis_and_feedback = (Environment(undefined=StrictUndefined).from_string(base_prompt_dict["hypothesis_and_feedback"]).render(trace=trace)) if len(trace.hist) > 0 else "No previous hypothesis and feedback available since it's the first round."
+        context_dict = {
+            "hypothesis_and_feedback": hypothesis_and_feedback,
+            "RAG": None,
+            "hypothesis_output_format": base_prompt_dict["hypothesis_output_format"],
+            "hypothesis_specification": base_prompt_dict["factor_hypothesis_specification"],
+            "function_lib_description": base_prompt_dict["function_lib_description"],
+        }
+        return context_dict, True
+
+    def convert_response(self, response: str) -> Hypothesis:
+        response_dict = robust_json_parse(response)
+        hypothesis = QlibFactorHypothesis(
+            hypothesis=response_dict.get("hypothesis", ""),
+            reason=response_dict.get("reason", ""),
+            concise_reason=response_dict.get("concise_reason", ""),
+            concise_observation=response_dict.get("concise_observation", ""),
+            concise_justification=response_dict.get("concise_justification", ""),
+            concise_knowledge=response_dict.get("concise_knowledge", ""),
+        )
+        return hypothesis
+
+
+class QlibFactorHypothesis2Experiment(FactorHypothesis2Experiment):
+    def prepare_context(self, hypothesis: Hypothesis, trace: Trace) -> Tuple[dict | bool]:
+        scenario = trace.scen.get_scenario_all_desc()
+        experiment_output_format = base_prompt_dict["factor_experiment_output_format"]
+
+        hypothesis_and_feedback = (Environment(undefined=StrictUndefined).from_string(base_prompt_dict["hypothesis_and_feedback"]).render(trace=trace)) if len(trace.hist) > 0 else "No previous hypothesis and feedback available since it's the first round."
+
+        experiment_list: List[FactorExperiment] = [t[1] for t in trace.hist]
+
+        factor_list = []
+        for experiment in experiment_list:
+            factor_list.extend(experiment.sub_tasks)
+
+        return {
+            "target_hypothesis": str(hypothesis),
+            "scenario": scenario,
+            "hypothesis_and_feedback": hypothesis_and_feedback,
+            "experiment_output_format": experiment_output_format,
+            "target_list": factor_list,
+            "RAG": None,
+        }, True
+
+    def convert_response(self, response: str, trace: Trace) -> FactorExperiment:
+        response_dict = robust_json_parse(response)
+        tasks = []
+
+        for factor_name in response_dict:
+            factor_data = response_dict.get(factor_name, {})
+            if not isinstance(factor_data, dict):
+                continue
+            description = factor_data.get("description", "")
+            formulation = factor_data.get("formulation", "")
+            # expression = factor_data.get("expression", "")
+            variables = factor_data.get("variables", {})
+            tasks.append(
+                FactorTask(
+                    factor_name=factor_name,
+                    factor_description=description,
+                    factor_formulation=formulation,
+                    # factor_expression=expression,
+                    variables=variables,
+                )
+            )
+
+        exp = QlibFactorExperiment(tasks)
+        exp.based_experiments = [QlibFactorExperiment(sub_tasks=[])] + [t[1] for t in trace.hist if t[2]]
+
+        unique_tasks = []
+
+        for task in tasks:
+            duplicate = False
+            for based_exp in exp.based_experiments:
+                for sub_task in based_exp.sub_tasks:
+                    if task.factor_name == sub_task.factor_name:
+                        duplicate = True
+                        break
+                if duplicate:
+                    break
+            if not duplicate:
+                unique_tasks.append(task)
+
+        exp.tasks = unique_tasks
+        return exp
+
+
+qa_prompt_dict = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
+
+# Constants for bounded feedback accumulation
+# Reduced from 5 to 3 to keep only the most recent actionable items
+MAX_FEEDBACK_ITEMS = 3
+MAX_FEEDBACK_TOTAL_CHARS = 8000
+
+
+def _bound_feedback_accumulation(current: str | None, new_item: str) -> str:
+    """Accumulate feedback with a bounded recent window and total character cap.
+
+    Args:
+        current: Previously accumulated feedback string, or None.
+        new_item: New feedback item to append.
+
+    Returns:
+        Bounded feedback string that retains only recent items and stays
+        within the total character length cap.
+    """
+    if current is None or not current.strip():
+        result = new_item.strip()
+        if len(result) > MAX_FEEDBACK_TOTAL_CHARS:
+            return result[-MAX_FEEDBACK_TOTAL_CHARS:]
+        return result
+
+    # Split into items, keep only the most recent MAX_FEEDBACK_ITEMS - 1, then append new
+    items = [item.strip() for item in current.split("\n\n") if item.strip()]
+    items.append(new_item.strip())
+
+    # Keep only the most recent MAX_FEEDBACK_ITEMS
+    if len(items) > MAX_FEEDBACK_ITEMS:
+        items = items[-MAX_FEEDBACK_ITEMS:]
+
+    result = "\n\n".join(items)
+
+    # Hard cap on total length — truncate from the beginning if needed
+    if len(result) > MAX_FEEDBACK_TOTAL_CHARS:
+        result = result[-MAX_FEEDBACK_TOTAL_CHARS:]
+        # Find a safe cut point (after a newline)
+        newline_idx = result.find("\n")
+        if newline_idx > 0:
+            result = result[newline_idx:]
+
+    return result
+
+
+# prompt_dict not as attribute: class instance is pickled later, prompt_dict cannot be pickled
+class AlphaAgentHypothesisGen(FactorHypothesisGen):
+    def __init__(self, scen: Scenario, potential_direction: str = None) -> Tuple[dict, bool]:
+        super().__init__(scen)
+        self.potential_direction = potential_direction
+
+    def _build_fallback_hypothesis(self) -> AlphaAgentHypothesis:
+        direction = (self.potential_direction or "daily price-volume relationship").strip()
+        return AlphaAgentHypothesis(
+            hypothesis=(f"Construct a daily factor from {direction}, using only daily price and volume fields with short rolling windows and cross-sectional normalization."),
+            concise_observation=("The current LLM response was empty or unparsable, so a conservative daily price-volume hypothesis is used."),
+            concise_knowledge=("If intraday or microstructure data is unavailable, daily price-volume proxies with rolling normalization can still express short-horizon trading pressure."),
+            concise_justification=("A constrained daily hypothesis keeps the pipeline executable while remaining aligned with the requested direction."),
+            concise_specification=("Use only daily OHLCV-style inputs, avoid intraday or order-book assumptions, and keep the hypothesis testable."),
+        )
+
+    def prepare_context(self, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict, bool]:
+
+        if len(trace.hist) > 0:
+            hypothesis_and_feedback = render_hypothesis_and_feedback(qa_prompt_dict, trace, history_limit)
+
+        elif self.potential_direction is not None:
+            hypothesis_and_feedback = (
+                Environment(undefined=StrictUndefined)
+                .from_string(qa_prompt_dict["potential_direction_transformation"])
+                .render(
+                    potential_direction=self.potential_direction,
+                    function_lib_description=qa_prompt_dict["function_lib_description"],
+                )
+            )  #
+        else:
+            hypothesis_and_feedback = "No previous hypothesis and feedback available since it's the first round. You are encouraged to propose an innovative hypothesis that diverges significantly from existing perspectives."
+
+        context_dict = {
+            "hypothesis_and_feedback": hypothesis_and_feedback,
+            "RAG": None,
+            "hypothesis_output_format": qa_prompt_dict["hypothesis_output_format"],
+            "hypothesis_specification": qa_prompt_dict["factor_hypothesis_specification"],
+            "function_lib_description": qa_prompt_dict["function_lib_description"],
+        }
+        return context_dict, True
+
+    def convert_response(self, response: str) -> AlphaAgentHypothesis:
+        """
+        Convert LLM JSON to AlphaAgentHypothesis; use default empty string for missing fields to avoid KeyError.
+        """
+        if not response or not response.strip():
+            raise ValueError("Empty hypothesis response from LLM")
+        response_dict = robust_json_parse(response)
+        # Use get to avoid KeyError on missing fields
+        hypothesis = AlphaAgentHypothesis(
+            hypothesis=response_dict.get("hypothesis", ""),
+            concise_observation=response_dict.get("concise_observation", ""),
+            concise_knowledge=response_dict.get("concise_knowledge", ""),
+            concise_justification=response_dict.get("concise_justification", ""),
+            concise_specification=response_dict.get("concise_specification", ""),
+        )
+        return hypothesis
+
+    def render_generation_prompts(self, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> tuple[str, str, bool]:
+        """Render the structured prompt pair used for hypothesis generation."""
+        context_dict, json_flag = self.prepare_context(trace, history_limit)
+        system_prompt = (
+            Environment(undefined=StrictUndefined)
+            .from_string(qa_prompt_dict["hypothesis_gen"]["system_prompt"])
+            .render(
+                targets=self.targets,
+                scenario=self.scen.get_scenario_all_desc(filtered_tag="hypothesis_and_experiment"),
+                hypothesis_output_format=context_dict["hypothesis_output_format"],
+                hypothesis_specification=context_dict["hypothesis_specification"],
+                function_lib_description=context_dict["function_lib_description"],
+            )
+        )
+        user_prompt = (
+            Environment(undefined=StrictUndefined)
+            .from_string(qa_prompt_dict["hypothesis_gen"]["user_prompt"])
+            .render(
+                targets=self.targets,
+                hypothesis_and_feedback=context_dict["hypothesis_and_feedback"],
+                RAG=context_dict["RAG"],
+                round=len(trace.hist),
+            )
+        )
+        return system_prompt, user_prompt, json_flag
+
+    def gen(self, trace: Trace) -> AlphaAgentHypothesis:
+        """Generate hypothesis; supports dynamic history limit for input length."""
+        history_limit = DEFAULT_HISTORY_LIMIT
+
+        while history_limit >= MIN_HISTORY_LIMIT:
+            try:
+                system_prompt, user_prompt, json_flag = self.render_generation_prompts(trace, history_limit)
+
+                resp = ""
+                for attempt in range(3):
+                    api = APIBackend() if attempt == 0 else APIBackend(use_chat_cache=False)
+                    messages = api.build_messages(user_prompt, system_prompt)
+                    resp_dict = call_structured(
+                        api,
+                        messages,
+                        tools=[PROPOSE_FACTORS_TOOL],
+                        tool_choice="required",
+                        json_mode=json_flag,
+                        task_type="hypothesis_generation",
+                    )
+                    resp = json.dumps(resp_dict) if resp_dict else ""
+                    if resp and resp.strip():
+                        break
+                    logger.warning(f"Empty hypothesis response, retrying... attempt={attempt + 1}")
+                hypothesis = self.convert_response(resp)
+                return hypothesis
+
+            except Exception as e:
+                if is_input_length_error(str(e)) and history_limit > MIN_HISTORY_LIMIT:
+                    history_limit -= 1
+                    logger.warning(f"Input length exceeded, retrying with history_limit={history_limit}...")
+                else:
+                    logger.warning(f"Hypothesis generation failed, falling back to deterministic hypothesis: {e}")
+                    return self._build_fallback_hypothesis()
+
+        # Last attempt with minimum history limit
+        system_prompt, user_prompt, json_flag = self.render_generation_prompts(trace, MIN_HISTORY_LIMIT)
+        api = APIBackend()
+        messages = api.build_messages(user_prompt, system_prompt)
+        resp_dict = call_structured(
+            api,
+            messages,
+            tools=[PROPOSE_FACTORS_TOOL],
+            tool_choice="required",
+            json_mode=json_flag,
+            task_type="hypothesis_generation",
+        )
+        resp = json.dumps(resp_dict) if resp_dict else ""
+        try:
+            hypothesis = self.convert_response(resp)
+            return hypothesis
+        except Exception as e:
+            logger.warning(f"Final hypothesis generation attempt failed, using fallback hypothesis: {e}")
+            return self._build_fallback_hypothesis()
+
+
+class EmptyHypothesisGen(FactorHypothesisGen):
+    def __init__(self, scen: Scenario) -> Tuple[dict, bool]:
+        super().__init__(scen)
+
+    def convert_response(self, *args, **kwargs) -> AlphaAgentHypothesis:
+        return super().convert_response(*args, **kwargs)
+
+    def prepare_context(self, *args, **kwargs) -> Tuple[dict | bool]:
+        return super().prepare_context(*args, **kwargs)
+
+    def gen(self, trace: Trace) -> AlphaAgentHypothesis:
+
+        hypothesis = AlphaAgentHypothesis(hypothesis="", concise_observation="", concise_justification="", concise_knowledge="", concise_specification="")
+
+        return hypothesis

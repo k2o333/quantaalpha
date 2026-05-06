@@ -22,6 +22,7 @@ import yaml
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from backend_metrics import load_backtest_results, update_mining_metrics
 
 # ---------------------------------------------------------------------------
 # Resolve project root (two levels up from this file: frontend-v2/backend/)
@@ -40,8 +41,10 @@ app = FastAPI(title="QuantaAlpha API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000", "http://127.0.0.1:3000",
-        "http://localhost:3001", "http://127.0.0.1:3001",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -53,6 +56,7 @@ app.add_middleware(
 
 class MiningStartRequest(BaseModel):
     """Request to start a factor mining experiment."""
+
     direction: str = Field(..., description="Research direction, e.g. '价量因子挖掘'")
     numDirections: Optional[int] = Field(2, description="Parallel exploration directions")
     maxRounds: Optional[int] = Field(3, description="Evolution rounds")
@@ -65,6 +69,7 @@ class MiningStartRequest(BaseModel):
 
 class BacktestStartRequest(BaseModel):
     """Request to start an independent backtest."""
+
     factorJson: str = Field(..., description="Path to factor library JSON")
     factorSource: str = Field("custom", description="custom | combined")
     configPath: Optional[str] = Field(None, description="Path to backtest config")
@@ -72,6 +77,7 @@ class BacktestStartRequest(BaseModel):
 
 class SystemConfigUpdate(BaseModel):
     """Partial update to system configuration (.env)."""
+
     QLIB_DATA_DIR: Optional[str] = None
     DATA_RESULTS_DIR: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
@@ -94,6 +100,7 @@ ws_connections: Dict[str, List[WebSocket]] = {}  # task_id -> list of WS
 
 
 # ========================== Utility Helpers ==========================
+
 
 def _gen_id() -> str:
     return str(uuid.uuid4())[:8]
@@ -145,8 +152,7 @@ def _classify_quality(backtest_results: Dict[str, Any]) -> str:
         return "low"
     # Use information ratio or IC-related metrics
     ic = None
-    for key in ["1day.excess_return_without_cost.information_ratio",
-                 "1day.excess_return_with_cost.information_ratio"]:
+    for key in ["1day.excess_return_without_cost.information_ratio", "1day.excess_return_with_cost.information_ratio"]:
         if key in backtest_results:
             ic = backtest_results[key]
             break
@@ -181,6 +187,7 @@ async def _broadcast(task_id: str, message: Dict[str, Any]):
 
 # ========================== Mining Process ==========================
 
+
 async def _run_mining(task_id: str, req: MiningStartRequest):
     """
     Launch the actual QuantaAlpha mining experiment as a subprocess
@@ -197,13 +204,13 @@ async def _run_mining(task_id: str, req: MiningStartRequest):
         # Use experiment_id as suffix to guarantee isolation
         experiment_id = f"exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         env["EXPERIMENT_ID"] = experiment_id
-        
+
         # Enforce unique library suffix if not provided
         if not req.librarySuffix:
             req.librarySuffix = experiment_id
             # Update task config so frontend knows the suffix
             task["config"]["librarySuffix"] = req.librarySuffix
-            
+
         env["FACTOR_LIBRARY_SUFFIX"] = req.librarySuffix
 
         results_base = dotenv.get("DATA_RESULTS_DIR", str(PROJECT_ROOT / "data" / "results"))
@@ -272,13 +279,19 @@ async def _run_mining(task_id: str, req: MiningStartRequest):
         except Exception as cfg_err:
             # Fall back to original config if anything fails
             import traceback
+
             traceback.print_exc()
 
         # Build CLI args
         cmd = [
-            sys.executable, "-m", "quantaalpha.cli", "mine",
-            "--direction", req.direction,
-            "--config_path", config_path_to_use,
+            sys.executable,
+            "-m",
+            "quantaalpha.cli",
+            "mine",
+            "--direction",
+            req.direction,
+            "--config_path",
+            config_path_to_use,
         ]
 
         task["status"] = "running"
@@ -286,12 +299,15 @@ async def _run_mining(task_id: str, req: MiningStartRequest):
         task["progress"]["message"] = "正在启动实验..."
         task["updatedAt"] = _now()
 
-        await _broadcast(task_id, {
-            "type": "progress",
-            "taskId": task_id,
-            "data": task["progress"],
-            "timestamp": _now(),
-        })
+        await _broadcast(
+            task_id,
+            {
+                "type": "progress",
+                "taskId": task_id,
+                "data": task["progress"],
+                "timestamp": _now(),
+            },
+        )
 
         # Launch subprocess
         proc = await asyncio.create_subprocess_exec(
@@ -352,12 +368,15 @@ async def _run_mining(task_id: str, req: MiningStartRequest):
                 task["progress"]["phase"] = current_phase
                 task["progress"]["message"] = line[:200]
                 task["progress"]["timestamp"] = _now()
-                await _broadcast(task_id, {
-                    "type": "progress",
-                    "taskId": task_id,
-                    "data": task["progress"],
-                    "timestamp": _now(),
-                })
+                await _broadcast(
+                    task_id,
+                    {
+                        "type": "progress",
+                        "taskId": task_id,
+                        "data": task["progress"],
+                        "timestamp": _now(),
+                    },
+                )
 
             # Send log every line (throttle to avoid flooding)
             if line_count % 3 == 0 or "INFO" in line or "ERROR" in line or "WARNING" in line:
@@ -380,37 +399,46 @@ async def _run_mining(task_id: str, req: MiningStartRequest):
                 if len(task["logs"]) > 500:
                     task["logs"] = task["logs"][-500:]
 
-                await _broadcast(task_id, {
-                    "type": "log",
-                    "taskId": task_id,
-                    "data": log_entry,
-                    "timestamp": _now(),
-                })
+                await _broadcast(
+                    task_id,
+                    {
+                        "type": "log",
+                        "taskId": task_id,
+                        "data": log_entry,
+                        "timestamp": _now(),
+                    },
+                )
 
             # Extract metrics from log lines like "RankIC=0.0016"
             if "RankIC=" in line:
                 try:
                     rank_ic_str = line.split("RankIC=")[1].split(",")[0].split(")")[0]
                     task["metrics"]["rankIc"] = float(rank_ic_str)
-                    await _broadcast(task_id, {
-                        "type": "metrics",
-                        "taskId": task_id,
-                        "data": task["metrics"],
-                        "timestamp": _now(),
-                    })
+                    await _broadcast(
+                        task_id,
+                        {
+                            "type": "metrics",
+                            "taskId": task_id,
+                            "data": task["metrics"],
+                            "timestamp": _now(),
+                        },
+                    )
                 except Exception:
                     pass
-            
+
             # Check for factor saving to update top factors list
             if "已保存" in line or "因子" in line:
                 _update_mining_metrics(task)
                 if task.get("metrics"):
-                     await _broadcast(task_id, {
-                        "type": "result",
-                        "taskId": task_id,
-                        "data": {"status": task["status"], "metrics": task["metrics"]},
-                        "timestamp": _now(),
-                    })
+                    await _broadcast(
+                        task_id,
+                        {
+                            "type": "result",
+                            "taskId": task_id,
+                            "data": {"status": task["status"], "metrics": task["metrics"]},
+                            "timestamp": _now(),
+                        },
+                    )
 
         exit_code = await proc.wait()
         task["pid"] = None
@@ -430,26 +458,33 @@ async def _run_mining(task_id: str, req: MiningStartRequest):
         # Prefer the library file matching the librarySuffix for this experiment
         _update_mining_metrics(task)
 
-        await _broadcast(task_id, {
-            "type": "result",
-            "taskId": task_id,
-            "data": {"status": task["status"], "metrics": task["metrics"]},
-            "timestamp": _now(),
-        })
+        await _broadcast(
+            task_id,
+            {
+                "type": "result",
+                "taskId": task_id,
+                "data": {"status": task["status"], "metrics": task["metrics"]},
+                "timestamp": _now(),
+            },
+        )
 
     except Exception as e:
         task["status"] = "failed"
         task["progress"]["message"] = f"Error: {str(e)}"
         task["updatedAt"] = _now()
-        await _broadcast(task_id, {
-            "type": "error",
-            "taskId": task_id,
-            "data": {"error": str(e)},
-            "timestamp": _now(),
-        })
+        await _broadcast(
+            task_id,
+            {
+                "type": "error",
+                "taskId": task_id,
+                "data": {"error": str(e)},
+                "timestamp": _now(),
+            },
+        )
 
 
 # ========================== API Endpoints ==========================
+
 
 @app.get("/")
 async def root():
@@ -462,6 +497,7 @@ async def health_check():
 
 
 # ---- Mining endpoints ----
+
 
 @app.post("/api/v1/mining/start", response_model=ApiResponse)
 async def start_mining(req: MiningStartRequest):
@@ -481,10 +517,17 @@ async def start_mining(req: MiningStartRequest):
         },
         "logs": [],
         "metrics": {
-            "ic": 0, "icir": 0, "rankIc": 0, "rankIcir": 0,
-            "annualReturn": 0, "sharpeRatio": 0, "maxDrawdown": 0,
-            "totalFactors": 0, "highQualityFactors": 0,
-            "mediumQualityFactors": 0, "lowQualityFactors": 0,
+            "ic": 0,
+            "icir": 0,
+            "rankIc": 0,
+            "rankIcir": 0,
+            "annualReturn": 0,
+            "sharpeRatio": 0,
+            "maxDrawdown": 0,
+            "totalFactors": 0,
+            "highQualityFactors": 0,
+            "mediumQualityFactors": 0,
+            "lowQualityFactors": 0,
         },
         "result": None,
         "pid": None,
@@ -522,15 +565,15 @@ async def cancel_mining(task_id: str):
             pid = task["pid"]
             # Try graceful termination first
             os.kill(pid, signal.SIGTERM)
-            
+
             # Wait briefly for cleanup (0.5s)
             for _ in range(5):
                 try:
-                    os.kill(pid, 0) # Check if alive
+                    os.kill(pid, 0)  # Check if alive
                     await asyncio.sleep(0.1)
                 except ProcessLookupError:
                     break
-            
+
             # Force kill if still running
             try:
                 os.kill(pid, 0)
@@ -541,12 +584,15 @@ async def cancel_mining(task_id: str):
             pass
     task["status"] = "cancelled"
     task["updatedAt"] = _now()
-    await _broadcast(task_id, {
-        "type": "result",
-        "taskId": task_id,
-        "data": {"status": "cancelled"},
-        "timestamp": _now(),
-    })
+    await _broadcast(
+        task_id,
+        {
+            "type": "result",
+            "taskId": task_id,
+            "data": {"status": "cancelled"},
+            "timestamp": _now(),
+        },
+    )
     return ApiResponse(success=True, message="任务已取消")
 
 
@@ -558,6 +604,7 @@ async def list_tasks():
 
 
 # ---- Factor library endpoints ----
+
 
 @app.get("/api/v1/factors", response_model=ApiResponse)
 async def get_factors(
@@ -581,8 +628,7 @@ async def get_factors(
         if not jsons:
             return ApiResponse(
                 success=True,
-                data={"factors": [], "total": 0, "limit": limit, "offset": offset,
-                      "libraries": []},
+                data={"factors": [], "total": 0, "limit": limit, "offset": offset, "libraries": []},
             )
         lib_path = jsons[0]
 
@@ -607,7 +653,7 @@ async def get_factors(
         icir = bt.get("ICIR", bt.get("1day.excess_return_without_cost.information_coefficient_ir", 0))
         rank_ic = bt.get("Rank IC", bt.get("rank_ic", bt.get("1day.excess_return_without_cost.rank_ic", 0)))
         rank_icir = bt.get("Rank ICIR", bt.get("rank_ic_ir", bt.get("1day.excess_return_without_cost.rank_ic_ir", 0)))
-        
+
         factor_entry = {
             "factorId": factor_info.get("factor_id", factor_id),
             "factorName": factor_info.get("factor_name", "Unknown"),
@@ -621,16 +667,11 @@ async def get_factors(
             "icir": icir,
             "rankIc": rank_ic,
             "rankIcir": rank_icir,
-            "annualReturn": bt.get("1day.excess_return_with_cost.annualized_return", 
-                                  bt.get("1day.excess_return_without_cost.annualized_return", 0)),
-            "maxDrawdown": bt.get("1day.excess_return_with_cost.max_drawdown", 
-                                 bt.get("1day.excess_return_without_cost.max_drawdown", 0)),
-            "sharpeRatio": bt.get("1day.excess_return_with_cost.information_ratio", 
-                                bt.get("1day.excess_return_without_cost.information_ratio", 0)),
-            "round": factor_info.get("evolution_metadata", {}).get("round", 0)
-            if isinstance(factor_info.get("evolution_metadata"), dict) else 0,
-            "direction": factor_info.get("evolution_metadata", {}).get("direction_index", "")
-            if isinstance(factor_info.get("evolution_metadata"), dict) else "",
+            "annualReturn": bt.get("1day.excess_return_with_cost.annualized_return", bt.get("1day.excess_return_without_cost.annualized_return", 0)),
+            "maxDrawdown": bt.get("1day.excess_return_with_cost.max_drawdown", bt.get("1day.excess_return_without_cost.max_drawdown", 0)),
+            "sharpeRatio": bt.get("1day.excess_return_with_cost.information_ratio", bt.get("1day.excess_return_without_cost.information_ratio", 0)),
+            "round": factor_info.get("evolution_metadata", {}).get("round", 0) if isinstance(factor_info.get("evolution_metadata"), dict) else 0,
+            "direction": factor_info.get("evolution_metadata", {}).get("direction_index", "") if isinstance(factor_info.get("evolution_metadata"), dict) else "",
             "createdAt": factor_info.get("added_at", ""),
         }
         factors_list.append(factor_entry)
@@ -640,15 +681,10 @@ async def get_factors(
         factors_list = [f for f in factors_list if f["quality"] == quality]
     if search:
         search_lower = search.lower()
-        factors_list = [
-            f for f in factors_list
-            if search_lower in f["factorName"].lower()
-            or search_lower in f.get("factorDescription", "").lower()
-            or search_lower in f.get("factorExpression", "").lower()
-        ]
+        factors_list = [f for f in factors_list if search_lower in f["factorName"].lower() or search_lower in f.get("factorDescription", "").lower() or search_lower in f.get("factorExpression", "").lower()]
 
     total = len(factors_list)
-    paginated = factors_list[offset: offset + limit]
+    paginated = factors_list[offset : offset + limit]
 
     # Available library files
     all_libs = [Path(p).name for p in _find_factor_jsons()]
@@ -670,6 +706,7 @@ async def get_factors(
 # IMPORTANT: These must be registered BEFORE /api/v1/factors/{factor_id}
 # otherwise FastAPI matches "cache-status" as a factor_id parameter.
 
+
 @app.get("/api/v1/factors/cache-status", response_model=ApiResponse)
 async def get_cache_status(
     library: Optional[str] = Query(None, description="Factor library JSON filename"),
@@ -684,10 +721,16 @@ async def get_cache_status(
     else:
         jsons = _find_factor_jsons()
         if not jsons:
-            return ApiResponse(success=True, data={
-                "total": 0, "h5_cached": 0, "md5_cached": 0,
-                "need_compute": 0, "factors": [],
-            })
+            return ApiResponse(
+                success=True,
+                data={
+                    "total": 0,
+                    "h5_cached": 0,
+                    "md5_cached": 0,
+                    "need_compute": 0,
+                    "factors": [],
+                },
+            )
         lib_path = jsons[0]
 
     if not Path(lib_path).exists():
@@ -695,6 +738,7 @@ async def get_cache_status(
 
     # Import from core library
     from quantaalpha.factors.library import FactorLibraryManager
+
     result = FactorLibraryManager.check_cache_status(lib_path)
     return ApiResponse(success=True, data=result)
 
@@ -720,16 +764,17 @@ async def warm_cache(
         raise HTTPException(status_code=404, detail=f"Factor library not found: {library}")
 
     from quantaalpha.factors.library import FactorLibraryManager
+
     result = FactorLibraryManager.warm_cache_from_json(lib_path)
     # Build a clear message
     parts = []
-    if result['synced']:
+    if result["synced"]:
         parts.append(f"新同步 {result['synced']} 个")
-    if result.get('already_cached'):
+    if result.get("already_cached"):
         parts.append(f"已有缓存 {result['already_cached']} 个")
-    if result.get('no_source'):
+    if result.get("no_source"):
         parts.append(f"无H5源 {result['no_source']} 个(回测时从表达式计算)")
-    if result['failed']:
+    if result["failed"]:
         parts.append(f"失败 {result['failed']} 个")
     msg = "，".join(parts) if parts else "无需操作"
     return ApiResponse(
@@ -740,6 +785,7 @@ async def warm_cache(
 
 
 # ---- Factor library list endpoint (must be BEFORE {factor_id} route) ----
+
 
 @app.get("/api/v1/factors/libraries", response_model=ApiResponse)
 async def list_factor_libraries():
@@ -765,6 +811,7 @@ async def get_factor_detail(factor_id: str):
 
 
 # ---- Backtest endpoints ----
+
 
 @app.post("/api/v1/backtest/start", response_model=ApiResponse)
 async def start_backtest(req: BacktestStartRequest):
@@ -824,12 +871,15 @@ async def cancel_backtest(task_id: str):
             pass
     task["status"] = "cancelled"
     task["updatedAt"] = _now()
-    await _broadcast(task_id, {
-        "type": "result",
-        "taskId": task_id,
-        "data": {"status": "cancelled"},
-        "timestamp": _now(),
-    })
+    await _broadcast(
+        task_id,
+        {
+            "type": "result",
+            "taskId": task_id,
+            "data": {"status": "cancelled"},
+            "timestamp": _now(),
+        },
+    )
     return ApiResponse(success=True, message="回测已取消")
 
 
@@ -869,9 +919,8 @@ async def _run_backtest(task_id: str, req: BacktestStartRequest, config_path: st
         conda_prefixes = [os.path.expanduser(f"~/.conda/envs/{conda_env}")]
         try:
             import subprocess as _sp
-            conda_base = _sp.check_output(
-                ["conda", "info", "--base"], text=True, timeout=5
-            ).strip()
+
+            conda_base = _sp.check_output(["conda", "info", "--base"], text=True, timeout=5).strip()
             conda_prefixes.insert(0, os.path.join(conda_base, "envs", conda_env))
         except Exception:
             pass
@@ -887,10 +936,15 @@ async def _run_backtest(task_id: str, req: BacktestStartRequest, config_path: st
 
         # Build CLI command
         cmd = [
-            python_bin, "-m", "quantaalpha.backtest.run_backtest",
-            "-c", config_path,
-            "--factor-source", req.factorSource,
-            "--factor-json", factor_json_str,
+            python_bin,
+            "-m",
+            "quantaalpha.backtest.run_backtest",
+            "-c",
+            config_path,
+            "--factor-source",
+            req.factorSource,
+            "--factor-json",
+            factor_json_str,
             "--skip-uncached",
             "-v",
         ]
@@ -950,16 +1004,18 @@ async def _run_backtest(task_id: str, req: BacktestStartRequest, config_path: st
                 task["logs"] = task["logs"][-2000:]
 
             # Broadcast log to WebSocket
-            await _broadcast(task_id, {
-                "type": "log",
-                "taskId": task_id,
-                "data": log_entry,
-                "timestamp": _now(),
-            })
+            await _broadcast(
+                task_id,
+                {
+                    "type": "log",
+                    "taskId": task_id,
+                    "data": log_entry,
+                    "timestamp": _now(),
+                },
+            )
 
             # Update progress for meaningful lines
-            if any(kw in line for kw in ["因子", "回测", "模型", "训练", "完成", "加载",
-                                          "[1/4]", "[2/4]", "[3/4]", "[4/4]", "结果"]):
+            if any(kw in line for kw in ["因子", "回测", "模型", "训练", "完成", "加载", "[1/4]", "[2/4]", "[3/4]", "[4/4]", "结果"]):
                 task["progress"]["message"] = line[:200]
 
                 # Estimate progress from run_backtest step markers
@@ -975,12 +1031,15 @@ async def _run_backtest(task_id: str, req: BacktestStartRequest, config_path: st
                     task["progress"]["progress"] = 95
 
                 task["progress"]["timestamp"] = _now()
-                await _broadcast(task_id, {
-                    "type": "progress",
-                    "taskId": task_id,
-                    "data": task["progress"],
-                    "timestamp": _now(),
-                })
+                await _broadcast(
+                    task_id,
+                    {
+                        "type": "progress",
+                        "taskId": task_id,
+                        "data": task["progress"],
+                        "timestamp": _now(),
+                    },
+                )
 
         # --- Process exit ---
         exit_code = await proc.wait()
@@ -997,85 +1056,43 @@ async def _run_backtest(task_id: str, req: BacktestStartRequest, config_path: st
         else:
             task["progress"]["message"] = f"回测失败 (exit code: {exit_code})"
 
-        await _broadcast(task_id, {
-            "type": "result",
-            "taskId": task_id,
-            "data": {
-                "status": task["status"],
-                "metrics": task.get("metrics", {}),
+        await _broadcast(
+            task_id,
+            {
+                "type": "result",
+                "taskId": task_id,
+                "data": {
+                    "status": task["status"],
+                    "metrics": task.get("metrics", {}),
+                },
+                "timestamp": _now(),
             },
-            "timestamp": _now(),
-        })
+        )
 
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         task["status"] = "failed"
         task["progress"]["message"] = str(e)
         task["updatedAt"] = _now()
-        await _broadcast(task_id, {
-            "type": "error",
-            "taskId": task_id,
-            "data": {"error": str(e)},
-            "timestamp": _now(),
-        })
+        await _broadcast(
+            task_id,
+            {
+                "type": "error",
+                "taskId": task_id,
+                "data": {"error": str(e)},
+                "timestamp": _now(),
+            },
+        )
 
 
 def _load_backtest_results(task: Dict[str, Any]):
-    """Try to load backtest result metrics from the output directory."""
-    try:
-        config_path = task.get("config", {}).get("configPath") or str(
-            PROJECT_ROOT / "configs" / "backtest.yaml"
-        )
-        with open(config_path, "r") as f:
-            bt_config = yaml.safe_load(f)
-        output_dir_raw = bt_config.get("experiment", {}).get(
-            "output_dir", "data/results/backtest_v2_results"
-        )
-        # Resolve relative output_dir against PROJECT_ROOT (run_backtest runs with cwd=PROJECT_ROOT)
-        output_dir = Path(output_dir_raw)
-        if not output_dir.is_absolute():
-            output_dir = PROJECT_ROOT / output_dir
-        output_dir_str = str(output_dir)
-
-        # Look for most recent metrics JSON
-        metrics_files = sorted(
-            glob.glob(os.path.join(output_dir_str, "*_backtest_metrics.json")),
-            key=os.path.getmtime, reverse=True,
-        )
-        if metrics_files:
-            with open(metrics_files[0], "r") as f:
-                metrics_data = json.load(f)
-            # The JSON has a nested structure: { metrics: {...}, config: {...}, ... }
-            # Flatten: put the inner metrics dict at the top level for the frontend,
-            # but also keep meta fields like experiment_name and elapsed_seconds.
-            inner_metrics = metrics_data.get("metrics", {})
-            flat = {**inner_metrics}
-            # Carry over useful metadata
-            for key in ("experiment_name", "factor_source", "num_factors",
-                        "config", "elapsed_seconds"):
-                if key in metrics_data:
-                    flat[f"__{key}"] = metrics_data[key]
-            
-            # Load cumulative excess return data from CSV
-            csv_path = metrics_files[0].replace("_backtest_metrics.json", "_cumulative_excess.csv")
-            if os.path.exists(csv_path):
-                import pandas as pd
-                df = pd.read_csv(csv_path)
-                if 'date' in df.columns and 'cumulative_excess_return' in df.columns:
-                    cumulative_data = df[['date', 'cumulative_excess_return']].to_dict('records')
-                    flat["cumulative_curve"] = [
-                        {"date": r["date"], "value": r["cumulative_excess_return"]} 
-                        for r in cumulative_data
-                    ]
-
-            task["metrics"] = flat
-    except Exception as e:
-        import traceback
-        traceback.print_exc()  # print for debugging, but don't crash
+    load_backtest_results(task, PROJECT_ROOT)
 
 
 # ---- System config endpoints ----
+
 
 @app.get("/api/v1/system/config", response_model=ApiResponse)
 async def get_system_config():
@@ -1116,6 +1133,7 @@ async def update_system_config(update: SystemConfigUpdate):
     updates = {k: v for k, v in update.model_dump().items() if v is not None}
 
     import re
+
     for key, val in updates.items():
         # Replace existing line or append
         pattern = rf"^{re.escape(key)}\s*=.*$"
@@ -1132,6 +1150,7 @@ async def update_system_config(update: SystemConfigUpdate):
 
 # ---- WebSocket endpoint ----
 
+
 @app.websocket("/ws/mining/{task_id}")
 async def ws_mining(websocket: WebSocket, task_id: str):
     """WebSocket for real-time experiment updates."""
@@ -1144,20 +1163,24 @@ async def ws_mining(websocket: WebSocket, task_id: str):
     # Send current state immediately
     if task_id in tasks:
         try:
-            await websocket.send_json({
-                "type": "progress",
-                "taskId": task_id,
-                "data": tasks[task_id].get("progress", {}),
-                "timestamp": _now(),
-            })
+            await websocket.send_json(
+                {
+                    "type": "progress",
+                    "taskId": task_id,
+                    "data": tasks[task_id].get("progress", {}),
+                    "timestamp": _now(),
+                }
+            )
             # Send recent logs
             for log in tasks[task_id].get("logs", [])[-20:]:
-                await websocket.send_json({
-                    "type": "log",
-                    "taskId": task_id,
-                    "data": log,
-                    "timestamp": _now(),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "log",
+                        "taskId": task_id,
+                        "data": log,
+                        "timestamp": _now(),
+                    }
+                )
         except Exception:
             pass
 
@@ -1166,10 +1189,12 @@ async def ws_mining(websocket: WebSocket, task_id: str):
             data = await websocket.receive_text()
             # Heartbeat
             if data == "ping":
-                await websocket.send_json({
-                    "type": "heartbeat",
-                    "timestamp": _now(),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "heartbeat",
+                        "timestamp": _now(),
+                    }
+                )
     except WebSocketDisconnect:
         if task_id in ws_connections:
             try:
@@ -1180,160 +1205,20 @@ async def ws_mining(websocket: WebSocket, task_id: str):
 
 # ========================== Entry Point ==========================
 
+
 def _update_mining_metrics(task: Dict[str, Any]):
-    """
-    Update mining task metrics from the generated factor library.
-    Calculates best factor stats and extracts top 10 factors.
-    """
-    jsons = _find_factor_jsons()
-    # Prefer library with matching suffix if configured
-    target_lib = None
-    config = task.get("config", {})
-    suffix = config.get("librarySuffix")
-    
-    if suffix:
-        candidate = PROJECT_ROOT / "data" / "factorlib" / f"all_factors_library_{suffix}.json"
-        # Fix: If suffix is specified, we ONLY look at this file.
-        # If it doesn't exist yet, it means no factors have been mined yet for this task.
-        if candidate.exists():
-            target_lib = str(candidate)
-        else:
-            # Task specific file not found -> assume empty state
-            return
-            
-    elif jsons:
-        # No suffix provided, fallback to latest existing library (legacy behavior)
-        target_lib = jsons[0]
-        
-    if not target_lib:
-        return
+    update_mining_metrics(
+        task,
+        PROJECT_ROOT,
+        _find_factor_jsons,
+        _load_factor_library,
+        _classify_quality,
+    )
 
-    # Check modification time
-    try:
-        mtime = os.path.getmtime(target_lib)
-        created_at_str = task.get("createdAt")
-        if created_at_str:
-            created_at_dt = datetime.fromisoformat(created_at_str)
-            # Add a small buffer (e.g. 1 second) to avoid race conditions where file is created immediately
-            if mtime < created_at_dt.timestamp():
-                # File is older than the task -> ignore it
-                return
-    except Exception:
-        pass
-
-    try:
-        lib = _load_factor_library(target_lib)
-        factors = lib.get("factors", {})
-        
-        # 1. Update basic stats
-        total = len(factors)
-        task["metrics"]["totalFactors"] = total
-        
-        high = medium = low = 0
-        factor_list = []
-        
-        for f_id, f_info in factors.items():
-            # Check if this factor was created after task start
-            # If we are using a shared library file (unlikely with new logic, but possible if user forces it),
-            # we must ensure we don't display old factors.
-            try:
-                added_at_str = f_info.get("added_at", "")
-                created_at_str = task.get("createdAt", "")
-                if added_at_str and created_at_str:
-                    # Parse timestamps
-                    # added_at usually in isoformat
-                    added_at_dt = datetime.fromisoformat(added_at_str)
-                    created_at_dt = datetime.fromisoformat(created_at_str)
-                    if added_at_dt < created_at_dt:
-                        continue
-            except Exception:
-                pass # If date parsing fails, be permissive or conservative? Permissive for now.
-
-            bt = f_info.get("backtest_results", {})
-            q = _classify_quality(bt)
-            if q == "high": high += 1
-            elif q == "medium": medium += 1
-            else: low += 1
-            
-            # Prepare for top 10 list
-            # Normalize metrics
-            ic = bt.get("IC", bt.get("1day.excess_return_without_cost.information_coefficient", 0))
-            icir = bt.get("ICIR", bt.get("1day.excess_return_without_cost.information_coefficient_ir", 0))
-            rank_ic = bt.get("Rank IC", bt.get("rank_ic", bt.get("1day.excess_return_without_cost.rank_ic", 0)))
-            rank_icir = bt.get("Rank ICIR", bt.get("rank_ic_ir", bt.get("1day.excess_return_without_cost.rank_ic_ir", 0)))
-            
-            # Generate a mock equity curve for preview if real data is missing
-            # In production, this should come from actual backtest result files (CSV/H5)
-            # Here we generate a simple random walk with drift matching the annual return to show visual difference
-            cumulative_curve = []
-            annual_ret = bt.get("1day.excess_return_without_cost.annualized_return", 0)
-            max_dd = bt.get("1day.excess_return_with_cost.max_drawdown", 
-                                    bt.get("1day.excess_return_without_cost.max_drawdown", 0))
-            
-            # Calmar Ratio = Annual Return / Max Drawdown (absolute value)
-            # Avoid division by zero
-            cr = 0
-            if max_dd < 0:
-                cr = annual_ret / abs(max_dd)
-            elif max_dd > 0:
-                cr = annual_ret / max_dd
-            
-            # Simple simulation: 20 data points for preview sparkline
-            import random
-            current_val = 1.0
-            # Daily drift approx
-            drift = (1 + annual_ret) ** (1/252) - 1 if annual_ret else 0
-            vol = 0.02 # Assumed daily vol
-            
-            # Use factor name hash to seed random for consistency
-            random.seed(hash(f_info.get("factor_name", f_id)))
-            
-            for i in range(20):
-                 # Generate last 20 points
-                 ret = random.gauss(drift, vol)
-                 current_val *= (1 + ret)
-                 cumulative_curve.append({"value": current_val, "date": f"Day {i+1}"})
-            
-            factor_list.append({
-                "factorName": f_info.get("factor_name", f_id),
-                "factorExpression": f_info.get("factor_expression", ""),
-                "rankIc": rank_ic,
-                "rankIcir": rank_icir,
-                "ic": ic,
-                "icir": icir,
-                "annualReturn": annual_ret,
-                "sharpeRatio": bt.get("1day.excess_return_with_cost.information_ratio", 
-                                    bt.get("1day.excess_return_without_cost.information_ratio", 0)),
-                "maxDrawdown": max_dd,
-                "calmarRatio": cr,
-                "cumulativeCurve": cumulative_curve
-            })
-
-        task["metrics"]["highQualityFactors"] = high
-        task["metrics"]["mediumQualityFactors"] = medium
-        task["metrics"]["lowQualityFactors"] = low
-        
-        # 2. Find best factor
-        if factor_list:
-            # Sort by RankIC desc
-            factor_list.sort(key=lambda x: x["rankIc"], reverse=True)
-            best = factor_list[0]
-            
-            # Update task metrics with best factor's stats
-            task["metrics"]["annualReturn"] = best["annualReturn"]
-            task["metrics"]["rankIc"] = best["rankIc"]
-            task["metrics"]["sharpeRatio"] = best["sharpeRatio"]
-            task["metrics"]["maxDrawdown"] = best["maxDrawdown"]
-            task["metrics"]["factorName"] = best["factorName"]
-            
-            # 3. Top 10 Factors
-            task["metrics"]["top10Factors"] = factor_list[:10]
-            
-    except Exception:
-        pass # Best effort
 
 if __name__ == "__main__":
     import uvicorn
+
     host = os.environ.get("BACKEND_HOST", "0.0.0.0")
     port = int(os.environ.get("BACKEND_PORT", "8000"))
     uvicorn.run(app, host=host, port=port, log_level="info")
