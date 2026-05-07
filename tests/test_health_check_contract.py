@@ -1,4 +1,4 @@
-# ruff: noqa: D100,D101,D102,D103,D415
+# ruff: noqa: D100,D101,D102,D103,D212,D403,D415
 """
 quantaalpha health_check 契约测试。
 
