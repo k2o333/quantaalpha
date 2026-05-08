@@ -26,6 +26,7 @@ class DailyWorkflowRunner:
         returns: str | Path | None = None,
         data_root: str | Path | None = None,
         data_update: dict[str, Any] | None = None,
+        regime_switch: dict[str, Any] | None = None,
         cycle_result: dict[str, Any] | None = None,
         run_date: str = "2026-05-05",
         skip_update: bool = True,
@@ -40,6 +41,7 @@ class DailyWorkflowRunner:
         revalidation_ids = RevalidationPlanner().select_candidates(records)
         trigger = TriggerConditionEvaluator().evaluate(
             data_update=route,
+            regime_switch=regime_switch,
             new_factor_count=int((cycle_result.get("mining") or {}).get("added", 0) or len(revalidation_ids)),
             mining_new_factor_threshold=1,
         )

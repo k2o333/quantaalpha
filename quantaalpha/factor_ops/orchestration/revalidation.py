@@ -34,12 +34,15 @@ class RevalidationPlanner:
         records: list[dict[str, Any]],
         *,
         eligible_statuses: set[str] | None = None,
+        regime_fragile_only: bool = False,
     ) -> list[str]:
         """返回需要复验的 factor_id 列表。"""
         eligible = eligible_statuses or self.DEFAULT_ELIGIBLE_STATUSES
         selected: list[str] = []
         for record in records:
             status = _ops(record).get("status")
+            if regime_fragile_only and not _is_regime_fragile(record):
+                continue
             if status in eligible:
                 selected.append(str(record.get("factor_id")))
         return selected
@@ -82,3 +85,14 @@ def _ops(record: dict[str, Any]) -> dict[str, Any]:
     if isinstance(metadata, str):
         metadata = json.loads(metadata or "{}")
     return dict(metadata.get("ops", {}) or {})
+
+
+def _is_regime_fragile(record: dict[str, Any]) -> bool:
+    metadata = record.get("metadata_json", {})
+    if isinstance(metadata, str):
+        metadata = json.loads(metadata or "{}")
+    tags = metadata.get("tags", []) or metadata.get("factor_tags", [])
+    if "regime_fragile" in tags:
+        return True
+    ops = dict(metadata.get("ops", {}) or {})
+    return bool(ops.get("regime_fragile"))

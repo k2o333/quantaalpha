@@ -13,6 +13,7 @@ class TriggerConditionEvaluator:
 
     PRIORITIES = {
         "manual": 1,
+        "regime_switch": 2,
         "fhi_drop": 2,
         "data_update": 3,
         "revalidation_decay": 4,
@@ -38,6 +39,7 @@ class TriggerConditionEvaluator:
         manual_requested: bool = False,
         fhi_history: list[float] | None = None,
         data_update: dict[str, Any] | None = None,
+        regime_switch: dict[str, Any] | None = None,
         revalidation_decay_count: int = 0,
         new_factor_count: int = 0,
         mining_new_factor_threshold: int = 5,
@@ -51,6 +53,8 @@ class TriggerConditionEvaluator:
         candidates: list[str] = []
         if manual_requested:
             candidates.append("manual")
+        if _regime_switch_triggered(regime_switch):
+            candidates.append("regime_switch")
         if self.fhi_computer.detect_drop_trigger(fhi_history or [])["triggered"]:
             candidates.append("fhi_drop")
         if data_update and "training_evaluation" in data_update.get("workflows", []):
@@ -71,3 +75,13 @@ class TriggerConditionEvaluator:
             return False
         elapsed_minutes = (now - last_triggered_at).total_seconds() / 60
         return elapsed_minutes < self.cooldown_minutes
+
+
+def _regime_switch_triggered(regime_switch: dict[str, Any] | None) -> bool:
+    if not regime_switch:
+        return False
+    if bool(regime_switch.get("triggered")):
+        return True
+    switch_rate = float(regime_switch.get("switch_rate", 0.0) or 0.0)
+    threshold = float(regime_switch.get("threshold", 0.15) or 0.15)
+    return switch_rate >= threshold

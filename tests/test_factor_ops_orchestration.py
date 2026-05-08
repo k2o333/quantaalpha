@@ -47,6 +47,15 @@ def test_revalidation_planner_filters_by_ops_status_and_maps_failures() -> None:
     assert result.health_recompute_required
 
 
+def test_revalidation_planner_can_filter_regime_fragile_candidates() -> None:
+    records = [
+        {"factor_id": "f1", "metadata_json": {"ops": {"status": "core", "regime_fragile": True}}},
+        {"factor_id": "f2", "metadata_json": {"ops": {"status": "core"}}},
+    ]
+
+    assert RevalidationPlanner().select_candidates(records, regime_fragile_only=True) == ["f1"]
+
+
 def test_trigger_condition_evaluator_prioritizes_manual_and_respects_cooldown() -> None:
     """统一触发条件支持优先级、FHI 下降、数据/复验/挖掘联动和冷却期。"""
     evaluator = TriggerConditionEvaluator(cooldown_minutes=60)
@@ -79,5 +88,6 @@ def test_trigger_condition_evaluator_detects_fhi_and_revalidation_without_manual
     evaluator = TriggerConditionEvaluator()
 
     assert evaluator.evaluate(fhi_history=[90.0, 89.0, 79.0])["reason"] == "fhi_drop"
+    assert evaluator.evaluate(regime_switch={"switch_rate": 0.20, "threshold": 0.15})["reason"] == "regime_switch"
     assert evaluator.evaluate(revalidation_decay_count=1)["reason"] == "revalidation_decay"
     assert evaluator.evaluate(new_factor_count=10, mining_new_factor_threshold=5)["reason"] == "new_factor_threshold"

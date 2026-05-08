@@ -4,6 +4,7 @@ import polars as pl
 from quantaalpha.factor_ops.contrib import (
     DowngradeRuleEngine,
     ModelContributionEvaluator,
+    ModelContributionWorkflowRunner,
 )
 
 
@@ -75,3 +76,29 @@ def test_downgrade_rule_engine_flags_low_contribution_and_ts_gru_failures() -> N
     assert by_factor["ts_gru_bad"].new_status == "watchlist"
     assert "ts-gru contribution failed" in by_factor["ts_gru_bad"].reason
     assert "ts_gru_good" not in by_factor
+
+
+def test_model_contribution_workflow_runner_executes_ablation_plan() -> None:
+    registry = pl.DataFrame(
+        {
+            "factor_id": ["core_a", "candidate_bad"],
+            "ops_status": ["core", "candidate"],
+            "data_source_type": ["manual", "manual"],
+        }
+    )
+
+    def metric_runner(features: tuple[str, ...]) -> dict[str, float]:
+        if features == ("core_a",):
+            return {"rank_ic": 0.050}
+        if features == ("core_a", "candidate_bad"):
+            return {"rank_ic": 0.051}
+        return {"rank_ic": 0.049}
+
+    result = ModelContributionWorkflowRunner(registry, metric_runner=metric_runner).run(
+        shap_rank_pct={"candidate_bad": 0.9}
+    )
+
+    assert result.report.baseline["features"] == ["core_a"]
+    assert result.report.candidate_added[0]["factor_id"] == "candidate_bad"
+    assert result.report.drop_one["candidate_bad"]["ic_change"] == 0.001
+    assert result.suggestions[0].factor_id == "candidate_bad"
