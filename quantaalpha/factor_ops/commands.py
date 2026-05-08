@@ -46,6 +46,8 @@ class FactorOpsCommands:
         returns: str,
         library_path: str | None = None,
         registry_path: str | None = None,
+        regime_labels: str | None = None,
+        regime_column: str = "regime_label",
         no_write: bool = False,
         dry_run: bool = False,
     ):
@@ -55,6 +57,8 @@ class FactorOpsCommands:
             factor_values=factor_values,
             returns=returns,
             registry_path=registry_path or library_path,
+            regime_labels=regime_labels,
+            regime_column=regime_column,
             no_write=no_write,
             dry_run=dry_run,
         )

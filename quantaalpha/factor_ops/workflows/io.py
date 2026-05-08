@@ -52,6 +52,11 @@ def load_returns(path: str | Path) -> pl.DataFrame:
     return pl.read_parquet(Path(path))
 
 
+def load_regime_labels(path: str | Path) -> pl.DataFrame:
+    """使用 Polars 读取 regime 标签 Parquet。"""
+    return pl.read_parquet(Path(path))
+
+
 def write_json_report(
     payload: dict[str, Any],
     output: str | Path | None,

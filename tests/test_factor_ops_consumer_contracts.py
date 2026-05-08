@@ -56,6 +56,13 @@ def test_portfolio_weight_mapper_combines_health_and_dynamic_weights() -> None:
     assert result["sat_b"] <= 0.5
 
 
+def test_portfolio_weight_mapper_derives_regime_scale() -> None:
+    mapper = PortfolioWeightMapper()
+
+    assert mapper.regime_scale_from_probability(high_vol_probability=0.7) == pytest.approx(0.3)
+    assert mapper.regime_scale_from_probability(crisis_probability=0.9, min_scale=0.25) == pytest.approx(0.25)
+
+
 def test_portfolio_weight_mapper_builds_market_neutral_stock_weights() -> None:
     factor_values = pl.DataFrame(
         {

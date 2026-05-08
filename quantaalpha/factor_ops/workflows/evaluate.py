@@ -21,6 +21,7 @@ from quantaalpha.factor_ops.utils import RankICCalculator
 from quantaalpha.factor_ops.workflows.io import (
     factor_column_frame,
     load_factor_values,
+    load_regime_labels,
     load_registry_frame,
     load_returns,
     normalize_factor_values,
@@ -37,6 +38,8 @@ class EvaluateWorkflowRunner:
         factor_values: str | Path,
         returns: str | Path,
         registry_path: str | Path | None = None,
+        regime_labels: str | Path | None = None,
+        regime_column: str = "regime_label",
         no_write: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
@@ -48,9 +51,15 @@ class EvaluateWorkflowRunner:
         ic_values = [float(value) for value in daily_ic["ic"].to_list() if isinstance(value, (int, float))]
         mean_ic = sum(ic_values) / len(ic_values) if ic_values else 0.0
         decay = DecayProfileComputer().compute(values, returns_df, horizons=[1])
+        regime_label_frame, effective_regime_column, regime_source = _load_effective_regime_labels(
+            daily_ic,
+            regime_labels=regime_labels,
+            regime_column=regime_column,
+        )
         regime = RegimeICComputer().summarize_daily_ic(
             daily_ic,
-            pl.DataFrame({"date": daily_ic["date"].to_list(), "combined_regime": ["default"] * daily_ic.height}),
+            regime_label_frame,
+            regime_column=effective_regime_column,
         )
         cluster = RedundancyClusterer().compute_candidate_cluster(
             factor_id,
@@ -103,6 +112,8 @@ class EvaluateWorkflowRunner:
                 "ts_gru_allowed": decay.ts_gru_allowed,
             },
             "regime_ic": regime.regime_ic,
+            "regime_source": regime_source,
+            "regime_column": effective_regime_column,
             "cluster": {
                 "cluster_id": cluster.cluster_id,
                 "nearest_factor_id": cluster.nearest_factor_id,
@@ -150,3 +161,26 @@ def _compute_fhi(registry_path: str | Path, factor_id: str, score: float, confid
         "foundation_health_index": result.foundation_health_index,
         "foundation_factor_count": result.foundation_factor_count,
     }
+
+
+def _load_effective_regime_labels(
+    daily_ic: pl.DataFrame,
+    *,
+    regime_labels: str | Path | None,
+    regime_column: str,
+) -> tuple[pl.DataFrame, str, str]:
+    if regime_labels is None:
+        return (
+            pl.DataFrame({"date": daily_ic["date"].to_list(), "combined_regime": ["default"] * daily_ic.height}),
+            "combined_regime",
+            "default",
+        )
+    frame = load_regime_labels(regime_labels)
+    if "date" not in frame.columns:
+        raise ValueError("regime_labels missing column: date")
+    if regime_column not in frame.columns:
+        if regime_column == "regime_label" and "combined_regime" in frame.columns:
+            regime_column = "combined_regime"
+        else:
+            raise ValueError(f"regime_labels missing column: {regime_column}")
+    return frame.select(["date", regime_column]), regime_column, str(regime_labels)

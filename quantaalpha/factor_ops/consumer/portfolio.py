@@ -16,12 +16,15 @@ class PortfolioWeightMapper:
         health_scores: dict[str, float],
         dynamic_weights: dict[str, float],
         tier_caps: dict[str, float] | None = None,
+        regime_scale: float = 1.0,
     ) -> dict[str, float]:
         """health softmax × dynamic weights，再应用 tier cap 并归一。"""
+        if regime_scale < 0:
+            raise ValueError("regime_scale must be non-negative")
         tier_caps = tier_caps or {}
         priorities = _softmax(health_scores)
         raw = {
-            factor_id: priorities.get(factor_id, 0.0) * float(dynamic_weights.get(factor_id, 0.0))
+            factor_id: priorities.get(factor_id, 0.0) * float(dynamic_weights.get(factor_id, 0.0)) * regime_scale
             for factor_id in health_scores
         }
         capped = {factor_id: min(value, tier_caps.get(factor_id, 1.0)) for factor_id, value in raw.items()}
@@ -53,6 +56,24 @@ class PortfolioWeightMapper:
             drift = sum(weights) / len(weights)
             weights = [weight - drift for weight in weights]
         return pl.DataFrame({"stock_id": factor_values["stock_id"].to_list(), "weight": weights})
+
+    def regime_scale_from_probability(
+        self,
+        *,
+        high_vol_probability: float = 0.0,
+        crisis_probability: float = 0.0,
+        min_scale: float = 0.25,
+    ) -> float:
+        """用 high-vol/crisis probability 生成组合风险预算缩放。"""
+        for field_name, value in {
+            "high_vol_probability": high_vol_probability,
+            "crisis_probability": crisis_probability,
+            "min_scale": min_scale,
+        }.items():
+            if value < 0:
+                raise ValueError(f"{field_name} must be non-negative")
+        risk_probability = min(1.0, max(high_vol_probability, crisis_probability))
+        return max(min_scale, 1.0 - risk_probability)
 
 
 def _softmax(values: dict[str, float]) -> dict[str, float]:
