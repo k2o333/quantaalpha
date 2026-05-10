@@ -22,6 +22,8 @@ def export_oracle(
     instruments: list[str],
     start_time: str,
     end_time: str,
+    market_start_time: str | None = None,
+    market_end_time: str | None = None,
     factor_source: str = "alpha158_20",
     region: str = "cn",
 ) -> dict[str, Any]:
@@ -40,7 +42,9 @@ def export_oracle(
     }
     factors, _custom = FactorLoader(config).load_factors()
     market_fields = ["$open", "$high", "$low", "$close", "$volume", "$vwap"]
-    market = D.features(instruments, market_fields, start_time=start_time, end_time=end_time, freq="day")
+    market_start = market_start_time or start_time
+    market_end = market_end_time or end_time
+    market = D.features(instruments, market_fields, start_time=market_start, end_time=market_end, freq="day")
     features = D.features(instruments, list(factors.values()), start_time=start_time, end_time=end_time, freq="day")
     features.columns = list(factors.keys())
     label = D.features(instruments, [config["dataset"]["label"]], start_time=start_time, end_time=end_time, freq="day")
@@ -62,6 +66,8 @@ def export_oracle(
         "instruments": instruments,
         "start_time": start_time,
         "end_time": end_time,
+        "market_start_time": market_start,
+        "market_end_time": market_end,
         "files": {key: path.name for key, path in paths.items()},
         "row_counts": {
             "market": int(len(market)),
@@ -89,6 +95,8 @@ def main() -> None:
     parser.add_argument("--instrument", action="append", required=True, help="Instrument code; repeatable")
     parser.add_argument("--start-time", required=True)
     parser.add_argument("--end-time", required=True)
+    parser.add_argument("--market-start-time", default=None, help="Optional earlier market start for rolling warmup")
+    parser.add_argument("--market-end-time", default=None, help="Optional later market end for label lookahead")
     parser.add_argument("--factor-source", default="alpha158_20")
     parser.add_argument("--region", default="cn")
     args = parser.parse_args()
@@ -98,6 +106,8 @@ def main() -> None:
         instruments=args.instrument,
         start_time=args.start_time,
         end_time=args.end_time,
+        market_start_time=args.market_start_time,
+        market_end_time=args.market_end_time,
         factor_source=args.factor_source,
         region=args.region,
     )
@@ -106,4 +116,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

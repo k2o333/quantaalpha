@@ -25,41 +25,77 @@ class NoQlibTopkDropoutBacktester:
         end = pd.Timestamp(bt_cfg.get("end_time"))
         topk = int(st_cfg.get("topk", 50))
         n_drop = int(st_cfg.get("n_drop", 5))
+        account = float(bt_cfg.get("account", 100000000))
+        risk_degree = float(st_cfg.get("risk_degree", 0.95))
         open_cost = float(bt_cfg.get("exchange_kwargs", {}).get("open_cost", 0.0))
         close_cost = float(bt_cfg.get("exchange_kwargs", {}).get("close_cost", 0.0))
-        pred = prediction.loc[(prediction.index.get_level_values("datetime") >= start) & (prediction.index.get_level_values("datetime") <= end)]
-        dates = sorted(pred.index.get_level_values("datetime").unique())
+        min_cost = float(bt_cfg.get("exchange_kwargs", {}).get("min_cost", 0.0))
+        benchmark = bt_cfg.get("benchmark")
+        pred = prediction.sort_index()
+        dates = sorted(
+            dt
+            for dt in self.market_data.index.get_level_values("datetime").unique()
+            if start <= dt <= end
+        )
+        pred_dates = sorted(pred.index.get_level_values("datetime").unique())
         holdings: list[str] = []
+        amounts: dict[str, float] = {}
+        cash = account
+        previous_account_value = account
         report_rows = []
         position_rows = []
-        close_returns = self.market_data["$return"]
         for dt in dates:
-            day_pred = pred.xs(dt, level="datetime").dropna().sort_values(ascending=False)
-            ranked = list(day_pred.index.astype(str))
-            if not holdings:
-                next_holdings = ranked[:topk]
+            signal_dt = _previous_signal_date(pred_dates, dt)
+            if signal_dt is None:
+                next_holdings = list(holdings)
             else:
-                keep = [inst for inst in holdings if inst in ranked]
-                rank_pos = {inst: i for i, inst in enumerate(ranked)}
-                sells = sorted(keep, key=lambda inst: rank_pos.get(inst, 10**9), reverse=True)[:n_drop]
-                keep = [inst for inst in keep if inst not in set(sells)]
-                buys = [inst for inst in ranked if inst not in keep][: max(topk - len(keep), n_drop)]
-                next_holdings = (keep + buys)[:topk]
-            turnover = _turnover(holdings, next_holdings)
-            day_returns = []
-            for inst in next_holdings:
-                try:
-                    day_returns.append(float(close_returns.loc[(dt, inst)]))
-                except KeyError:
-                    day_returns.append(0.0)
-            portfolio_return = float(np.mean(day_returns)) if day_returns else 0.0
-            bench_return = _benchmark_return(self.market_data, dt)
-            cost = turnover * (open_cost + close_cost)
+                day_pred = pred.xs(signal_dt, level="datetime").dropna()
+                next_holdings = _next_topk_dropout_holdings(
+                    holdings=holdings,
+                    pred_score=day_pred,
+                    topk=topk,
+                    n_drop=n_drop,
+                )
+            sell_set = set(holdings) - set(next_holdings)
+            buy_list = [stock for stock in next_holdings if stock not in set(holdings)]
+            total_cost_value = 0.0
+            for inst in list(sell_set):
+                amount = amounts.pop(inst, 0.0)
+                if amount <= 0:
+                    continue
+                trade_value = amount * _price(self.market_data, dt, inst, "$open")
+                trade_cost = _trade_cost(trade_value, close_cost, min_cost)
+                cash += trade_value - trade_cost
+                total_cost_value += trade_cost
+            buy_budget = cash * risk_degree / len(buy_list) if buy_list else 0.0
+            for inst in buy_list:
+                open_price = _price(self.market_data, dt, inst, "$open")
+                if open_price <= 0 or not np.isfinite(open_price):
+                    continue
+                trade_value = buy_budget
+                trade_cost = _trade_cost(trade_value, open_cost, min_cost)
+                if trade_value + trade_cost > cash:
+                    trade_value = max(cash / (1.0 + open_cost), 0.0)
+                    trade_cost = _trade_cost(trade_value, open_cost, min_cost)
+                amount = trade_value / open_price
+                amounts[inst] = amounts.get(inst, 0.0) + amount
+                cash -= trade_value + trade_cost
+                total_cost_value += trade_cost
+            holdings = [stock for stock in next_holdings if stock in amounts]
+            stock_value = {
+                inst: amount * _price(self.market_data, dt, inst, "$close")
+                for inst, amount in amounts.items()
+            }
+            account_value = cash + float(sum(stock_value.values()))
+            pre_cost_account_value = account_value + total_cost_value
+            portfolio_return = pre_cost_account_value / previous_account_value - 1.0 if previous_account_value else 0.0
+            bench_return = _benchmark_return(self.market_data, dt, benchmark=benchmark)
+            cost = total_cost_value / previous_account_value if previous_account_value else 0.0
             report_rows.append({"date": dt, "return": portfolio_return, "bench": bench_return, "cost": cost})
-            weight = 1.0 / len(next_holdings) if next_holdings else 0.0
-            for inst in next_holdings:
+            for inst in holdings:
+                weight = stock_value.get(inst, 0.0) / account_value if account_value else 0.0
                 position_rows.append({"date": dt, "instrument": inst, "weight": weight})
-            holdings = next_holdings
+            previous_account_value = account_value
         report = pd.DataFrame(report_rows).set_index("date") if report_rows else pd.DataFrame(columns=["return", "bench", "cost"])
         positions = pd.DataFrame(position_rows)
         if report.empty:
@@ -69,18 +105,57 @@ class NoQlibTopkDropoutBacktester:
         return metrics, report, positions
 
 
-def _turnover(old: list[str], new: list[str]) -> float:
-    if not old and not new:
-        return 0.0
-    old_set = set(old)
-    new_set = set(new)
-    return len(old_set.symmetric_difference(new_set)) / max(len(old_set | new_set), 1)
+def _previous_signal_date(pred_dates: list[pd.Timestamp], trade_date: pd.Timestamp) -> pd.Timestamp | None:
+    previous = [dt for dt in pred_dates if dt < trade_date]
+    if not previous:
+        return None
+    return previous[-1]
 
 
-def _benchmark_return(market_data: pd.DataFrame, dt: pd.Timestamp) -> float:
+def _next_topk_dropout_holdings(
+    *,
+    holdings: list[str],
+    pred_score: pd.Series,
+    topk: int,
+    n_drop: int,
+) -> list[str]:
+    """Match qlib TopkDropoutStrategy's deterministic buy/sell selection."""
+    current = pd.Index([stock for stock in holdings if stock in pred_score.index])
+    last = pred_score.reindex(current).sort_values(ascending=False).index
+    today = pred_score[~pred_score.index.isin(last)].sort_values(ascending=False).index[
+        : n_drop + topk - len(last)
+    ]
+    comb = pred_score.reindex(last.union(pd.Index(today))).sort_values(ascending=False).index
+    sell = last[last.isin(list(comb[-n_drop:]))] if n_drop > 0 else pd.Index([])
+    buy = today[: len(sell) + topk - len(last)]
+    next_holdings = [stock for stock in holdings if stock not in set(sell)]
+    next_holdings.extend([str(stock) for stock in buy if stock not in next_holdings])
+    return next_holdings[:topk]
+
+
+def _benchmark_return(market_data: pd.DataFrame, dt: pd.Timestamp, benchmark: str | None = None) -> float:
+    if benchmark and str(benchmark).lower() != "mean":
+        for candidate in {str(benchmark), str(benchmark).lower()}:
+            try:
+                return float(market_data.loc[(dt, candidate), "$return"])
+            except KeyError:
+                continue
+        raise KeyError(f"benchmark {benchmark} is missing from noqlib market data at {dt}")
     try:
         values = market_data.xs(dt, level="datetime")["$return"]
     except KeyError:
         return 0.0
     return float(values.mean()) if len(values) else 0.0
 
+
+def _price(market_data: pd.DataFrame, dt: pd.Timestamp, instrument: str, field: str) -> float:
+    try:
+        return float(market_data.loc[(dt, instrument), field])
+    except KeyError:
+        return float("nan")
+
+
+def _trade_cost(trade_value: float, rate: float, min_cost: float) -> float:
+    if trade_value <= 0 or rate <= 0:
+        return 0.0
+    return max(trade_value * rate, min_cost)

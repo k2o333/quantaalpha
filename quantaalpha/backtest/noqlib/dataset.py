@@ -17,11 +17,14 @@ class NoQlibDataset:
     feature_columns: list[str]
     label_column: str
     segments: dict[str, tuple[str, str]]
+    learn_combined: pd.DataFrame | None = None
+    raw_labels: pd.Series | None = None
 
     def segment(self, name: str) -> pd.DataFrame:
+        source = self.learn_combined if name in {"train", "valid"} and self.learn_combined is not None else self.combined
         start, end = self.segments[name]
-        dates = self.combined.index.get_level_values("datetime")
-        return self.combined.loc[(dates >= pd.Timestamp(start)) & (dates <= pd.Timestamp(end))]
+        dates = source.index.get_level_values("datetime")
+        return source.loc[(dates >= pd.Timestamp(start)) & (dates <= pd.Timestamp(end))]
 
 
 class NoQlibDatasetBuilder:
@@ -43,15 +46,22 @@ class NoQlibDatasetBuilder:
         label_column = "LABEL0"
         features.columns = feature_columns
         labels.columns = [label_column]
-        features = features.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        features = _cross_section_rank_norm(features)
-        combined = pd.concat([features, labels], axis=1).dropna(subset=[label_column])
+        infer_features = features.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        infer_features = _cross_section_rank_norm(infer_features)
+        combined = pd.concat([infer_features, labels], axis=1)
         combined[[label_column]] = _cross_section_rank_norm(combined[[label_column]])
+
+        learn_combined = pd.concat([features, labels], axis=1).dropna(subset=[label_column])
+        learn_combined[feature_columns] = learn_combined[feature_columns].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        learn_combined[feature_columns] = _cross_section_rank_norm(learn_combined[feature_columns])
+        learn_combined[[label_column]] = _cross_section_rank_norm(learn_combined[[label_column]])
         return NoQlibDataset(
             combined=combined.sort_index(),
             feature_columns=feature_columns,
             label_column=label_column,
             segments=_segments(self.config),
+            learn_combined=learn_combined.sort_index(),
+            raw_labels=labels[label_column].sort_index(),
         )
 
 
@@ -66,10 +76,9 @@ def _normalize_index(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _cross_section_rank_norm(frame: pd.DataFrame) -> pd.DataFrame:
-    return frame.groupby(level="datetime").rank(pct=True) - 0.5
+    return (frame.groupby(level="datetime").rank(pct=True) - 0.5) * 3.46
 
 
 def _segments(config: dict[str, Any]) -> dict[str, tuple[str, str]]:
     raw_segments = config.get("dataset", {}).get("segments", {})
     return {name: (str(value[0]), str(value[1])) for name, value in raw_segments.items()}
-

@@ -19,23 +19,38 @@ class NoQlibModelRunner:
         """训练模型并预测所有可用样本。"""
         import lightgbm as lgb
 
-        train = dataset.segment("train")
-        valid = dataset.segment("valid") if "valid" in dataset.segments else None
+        train = dataset.segment("train").dropna(subset=[dataset.label_column])
+        valid = dataset.segment("valid").dropna(subset=[dataset.label_column]) if "valid" in dataset.segments else None
         model_cfg = self.config.get("model", {})
-        params = dict(model_cfg.get("params", {}))
+        raw_params = dict(model_cfg.get("params", {}))
+        loss = raw_params.pop("loss", "mse")
+        if loss not in {"mse", "binary"}:
+            raise NotImplementedError(f"Unsupported LightGBM loss: {loss}")
+        params = {"objective": loss, "verbosity": -1}
+        params.update(raw_params)
         num_boost_round = int(params.pop("num_boost_round", 100))
-        early_stopping_round = params.pop("early_stopping_round", None)
-        params.setdefault("objective", "regression")
-        params.setdefault("metric", "l2")
-        params.setdefault("verbose", -1)
-        train_set = lgb.Dataset(train[dataset.feature_columns], label=train[dataset.label_column])
-        valid_sets = None
-        callbacks = None
+        early_stopping_round = params.pop("early_stopping_rounds", params.pop("early_stopping_round", 50))
+        train_set = lgb.Dataset(train[dataset.feature_columns].values, label=train[dataset.label_column].values)
+        valid_sets = [train_set]
+        valid_names = ["train"]
+        callbacks = [lgb.early_stopping(int(early_stopping_round)), lgb.log_evaluation(period=20)]
         if valid is not None and not valid.empty:
-            valid_sets = [lgb.Dataset(valid[dataset.feature_columns], label=valid[dataset.label_column], reference=train_set)]
-            if early_stopping_round:
-                callbacks = [lgb.early_stopping(int(early_stopping_round), verbose=False)]
-        model = lgb.train(params, train_set, num_boost_round=num_boost_round, valid_sets=valid_sets, callbacks=callbacks)
-        values = model.predict(dataset.combined[dataset.feature_columns])
-        return pd.Series(values, index=dataset.combined.index, name="score")
-
+            valid_sets.append(
+                lgb.Dataset(
+                    valid[dataset.feature_columns].values,
+                    label=valid[dataset.label_column].values,
+                    reference=train_set,
+                )
+            )
+            valid_names.append("valid")
+        model = lgb.train(
+            params,
+            train_set,
+            num_boost_round=num_boost_round,
+            valid_sets=valid_sets,
+            valid_names=valid_names,
+            callbacks=callbacks,
+        )
+        predict_frame = dataset.segment("test")
+        values = model.predict(predict_frame[dataset.feature_columns].values)
+        return pd.Series(values, index=predict_frame.index, name="score")

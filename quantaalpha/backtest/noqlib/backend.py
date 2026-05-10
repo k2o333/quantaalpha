@@ -52,12 +52,14 @@ class NoQlibBacktestBackend:
         if not factor_defs:
             raise ValueError("no factors available for noqlib backtest")
         market = NoQlibMarketDataProvider(self.config).load_market_data()
-        expression_engine = NoQlibExpressionEngine(market)
+        feature_market = _filter_feature_market(market, self.config)
+        expression_engine = NoQlibExpressionEngine(feature_market)
         features = expression_engine.compute(factor_defs)
         labels = expression_engine.compute_label(self.config.get("dataset", {}).get("label", "Ref($close, -2) / Ref($close, -1) - 1"))
         dataset = NoQlibDatasetBuilder(self.config).build(features, labels)
         prediction = NoQlibModelRunner(self.config).fit_predict(dataset)
-        metrics = signal_metrics(prediction, dataset.combined[dataset.label_column])
+        label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
+        metrics = signal_metrics(prediction, label_for_signal)
         portfolio_metrics, daily_report, _positions = NoQlibTopkDropoutBacktester(self.config, market).run(prediction)
         metrics.update(portfolio_metrics)
         save_results(
@@ -111,3 +113,12 @@ class NoQlibBacktestBackend:
             if tmp_path.exists():
                 tmp_path.unlink()
 
+
+def _filter_feature_market(market, config: dict[str, Any]):
+    noqlib_cfg = config.get("backtest_runtime", {}).get("noqlib", {})
+    instruments = noqlib_cfg.get("instruments")
+    if not instruments:
+        return market
+    keep = {str(item) for item in instruments}
+    mask = market.index.get_level_values("instrument").astype(str).isin(keep)
+    return market.loc[mask]

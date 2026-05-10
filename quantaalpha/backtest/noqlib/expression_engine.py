@@ -87,8 +87,8 @@ def _evaluate_native_expression(market_data: pd.DataFrame, expr: str) -> pd.Seri
     if isinstance(result, pd.DataFrame):
         result = result.iloc[:, 0]
     if isinstance(result, pd.Series):
-        return result.astype(float).sort_index()
-    return pd.Series(float(result), index=market_data.index)
+        return result.astype("float32").sort_index()
+    return pd.Series(float(result), index=market_data.index).astype("float32")
 
 
 def _normalize_field_names(expr: str) -> tuple[str, dict[str, str]]:
@@ -115,6 +115,9 @@ def _native_globals(market_data: pd.DataFrame, field_map: dict[str, str]) -> dic
         "IdxMax": _rolling_idxmax,
         "IdxMin": _rolling_idxmin,
         "Corr": _rolling_corr,
+        "Slope": _rolling_slope,
+        "Rsquare": _rolling_rsquare,
+        "Resi": _rolling_resi,
         "Abs": lambda value: value.abs(),
         "Log": lambda value: np.log(value),
         "Greater": lambda left, right: np.maximum(left, right),
@@ -123,7 +126,7 @@ def _native_globals(market_data: pd.DataFrame, field_map: dict[str, str]) -> dic
     for field, name in field_map.items():
         if field not in market_data.columns:
             raise KeyError(field)
-        globals_map[name] = market_data[field].astype(float)
+        globals_map[name] = market_data[field].astype("float32")
     return globals_map
 
 
@@ -167,19 +170,75 @@ def _rolling_quantile(series: pd.Series, window: int, q: float) -> pd.Series:
 
 
 def _rolling_idxmax(series: pd.Series, window: int) -> pd.Series:
-    return _rolling(series, window).apply(lambda values: len(values) - int(np.argmax(values)) - 1, raw=True).droplevel(0)
+    return _rolling(series, window).apply(lambda values: int(np.argmax(values)) + 1, raw=True).droplevel(0)
 
 
 def _rolling_idxmin(series: pd.Series, window: int) -> pd.Series:
-    return _rolling(series, window).apply(lambda values: len(values) - int(np.argmin(values)) - 1, raw=True).droplevel(0)
+    return _rolling(series, window).apply(lambda values: int(np.argmin(values)) + 1, raw=True).droplevel(0)
 
 
 def _rolling_corr(left: pd.Series, right: pd.Series, window: int) -> pd.Series:
-    return _by_instrument(left).rolling(int(window), min_periods=1).corr(right).droplevel(0)
+    window = int(window)
+    pieces = []
+    for instrument, left_part in left.groupby(level="instrument", group_keys=False):
+        try:
+            right_part = right.xs(instrument, level="instrument")
+        except KeyError:
+            continue
+        left_by_date = left_part.droplevel("instrument")
+        corr = left_by_date.rolling(window, min_periods=window).corr(right_part)
+        corr.index = pd.MultiIndex.from_arrays(
+            [corr.index, [instrument] * len(corr)], names=["datetime", "instrument"]
+        )
+        pieces.append(corr)
+    if not pieces:
+        return pd.Series(dtype=float, index=left.index)
+    return pd.concat(pieces).sort_index()
+
+
+def _rolling_slope(series: pd.Series, window: int) -> pd.Series:
+    return _rolling_regression_stat(series, window, "slope")
+
+
+def _rolling_rsquare(series: pd.Series, window: int) -> pd.Series:
+    result = _rolling_regression_stat(series, window, "rsquare")
+    rolling_std = _rolling(series, int(window)).std().droplevel(0)
+    return result.mask(np.isclose(rolling_std, 0, atol=2e-05))
+
+
+def _rolling_resi(series: pd.Series, window: int) -> pd.Series:
+    return _rolling_regression_stat(series, window, "resi")
+
+
+def _rolling_regression_stat(series: pd.Series, window: int, stat: str) -> pd.Series:
+    def calc(values: np.ndarray) -> float:
+        if np.isnan(values).any():
+            return np.nan
+        x = np.arange(1, len(values) + 1, dtype=float)
+        x_mean = x.mean()
+        y_mean = values.mean()
+        denom = float(((x - x_mean) ** 2).sum())
+        if denom <= 0:
+            return np.nan
+        slope = float(((x - x_mean) * (values - y_mean)).sum() / denom)
+        intercept = y_mean - slope * x_mean
+        fitted = slope * x + intercept
+        if stat == "slope":
+            return slope
+        residual = values - fitted
+        if stat == "resi":
+            return float(residual[-1])
+        total = float(((values - y_mean) ** 2).sum())
+        if total <= 0:
+            return np.nan
+        return float(1.0 - ((residual**2).sum() / total))
+
+    return _rolling(series, int(window)).apply(calc, raw=True).droplevel(0)
 
 
 def _rolling(series: pd.Series, window: int):
-    return _by_instrument(series).rolling(int(window), min_periods=1)
+    window = int(window)
+    return _by_instrument(series).rolling(window, min_periods=window)
 
 
 def _prepare_expression(expr: str) -> str:

@@ -58,13 +58,21 @@ class NoQlibMarketDataProvider:
             "trade_date": "datetime",
             "date": "datetime",
             "vol": "volume",
+            "$open": "open",
+            "$high": "high",
+            "$low": "low",
+            "$close": "close",
+            "$volume": "volume",
+            "$vwap": "vwap",
         }
         for old, new in rename_map.items():
             if old in frame.columns and new not in frame.columns:
                 frame = frame.rename({old: new})
         instruments = self.noqlib_config.get("instruments")
         if instruments:
-            frame = frame.filter(pl.col("instrument").cast(pl.Utf8).is_in([str(item) for item in instruments]))
+            keep = [str(item) for item in instruments]
+            keep.extend(str(item) for item in self.noqlib_config.get("benchmark_instruments", []))
+            frame = frame.filter(pl.col("instrument").cast(pl.Utf8).is_in(keep))
         required = {"datetime", "instrument", "open", "high", "low", "close"}
         missing = sorted(required - set(frame.columns))
         if missing:
@@ -84,18 +92,20 @@ class NoQlibMarketDataProvider:
         if "pct_chg" in frame.columns:
             pct = pl.col("pct_chg").cast(pl.Float64).fill_null(0.0)
             ret_expr = pl.when(pct.abs() > 1.0).then(pct / 100.0).otherwise(pct)
+        elif "$return" in frame.columns:
+            ret_expr = pl.col("$return").cast(pl.Float64).fill_null(0.0)
         else:
             ret_expr = (
                 pl.col("close").cast(pl.Float64) / pl.col("close").cast(pl.Float64).shift(1).over("instrument") - 1.0
             ).fill_null(0.0)
+        datetime_expr = _datetime_expr(frame)
         return (
             frame.with_columns(
-                pl.col("datetime").cast(pl.Utf8).str.replace_all("-", "").alias("_date_text"),
                 pl.col("instrument").cast(pl.Utf8),
                 ret_expr.alias("$return"),
             )
             .with_columns(
-                pl.col("_date_text").str.strptime(pl.Date, "%Y%m%d", strict=False).alias("datetime"),
+                datetime_expr.alias("datetime"),
                 pl.col("open").cast(pl.Float64).alias("$open"),
                 pl.col("high").cast(pl.Float64).alias("$high"),
                 pl.col("low").cast(pl.Float64).alias("$low"),
@@ -123,3 +133,16 @@ def _ensure_project_root_on_path(noqlib_config: dict[str, Any]) -> None:
         if (candidate / "training").exists() and str(candidate) not in sys.path:
             sys.path.insert(0, str(candidate))
             return
+
+
+def _datetime_expr(frame: pl.DataFrame) -> pl.Expr:
+    dtype = frame.schema.get("datetime")
+    if dtype in (pl.Date, pl.Datetime, pl.Datetime("ns"), pl.Datetime("us"), pl.Datetime("ms")):
+        return pl.col("datetime").cast(pl.Date)
+    return (
+        pl.col("datetime")
+        .cast(pl.Utf8)
+        .str.replace_all(r"\D", "")
+        .str.slice(0, 8)
+        .str.strptime(pl.Date, "%Y%m%d", strict=False)
+    )
