@@ -34,6 +34,7 @@ class MiningSetupMixin:
         direction_planner_cfg: Optional[dict] = None,
         similarity_engine_cfg: Optional[dict] = None,
         orchestration_cfg: Optional[dict] = None,
+        performance_history_config: Optional[dict] = None,
     ):
         import os
 
@@ -75,6 +76,21 @@ class MiningSetupMixin:
         self._direction_planner = None
         self._similarity_engine_cfg = similarity_engine_cfg or {}
         self._orchestration_cfg = orchestration_cfg or {}
+        self._performance_history_config = performance_history_config or {}
+        self._performance_history_store = None
+        if self._performance_history_config.get("enabled", False):
+            try:
+                from quantaalpha.factor_ops.performance_history import PerformanceHistoryStore
+
+                self._performance_history_store = PerformanceHistoryStore(
+                    self._performance_history_config.get(
+                        "root",
+                        "third_party/quantaalpha/data/factorlib/performance_history",
+                    ),
+                    compression=self._performance_history_config.get("compression", "zstd"),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize PerformanceHistoryStore: {e}")
 
         # 初始化统一相似度引擎
         self._similarity_engine = None
@@ -93,10 +109,15 @@ class MiningSetupMixin:
         """Build factor-store kwargs for AlphaAgentLoop."""
         if self.library_backend != "parquet":
             return {}
-        return {
+        kwargs = {
             "parquet_store_path": self.parquet_library_dir,
             "parquet_compact_config": self.parquet_compact_config,
         }
+        if self._performance_history_config.get("enabled", False):
+            perf_config = dict(self._performance_history_config)
+            perf_config["execution_periods"] = self._execution_periods
+            kwargs["performance_history_config"] = perf_config
+        return kwargs
 
     def _resolve_escalated_routing(
         self,

@@ -9,7 +9,7 @@ import json
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
-from typing import Any, List
+from typing import Any, List, TYPE_CHECKING
 
 from quantaalpha.pipeline.settings import BaseFacSetting
 from quantaalpha.core.developer import Developer
@@ -34,6 +34,9 @@ from quantaalpha.factors.proposal import (
 )
 from quantaalpha.llm.client import APIBackend, call_structured
 import threading
+
+if TYPE_CHECKING:
+    from quantaalpha.llm.ensemble import ModelResponse
 
 
 import datetime
@@ -133,6 +136,123 @@ def _parse_data_requirements(expression: str) -> dict[str, Any]:
         "fields": fields,
         "data_frequency": "daily",
     }
+
+
+def _extract_metric(result: Any, metric_name: str) -> float | None:
+    """Extract one scalar metric from a qlib result DataFrame or Series."""
+
+    if result is None:
+        return None
+    try:
+        if isinstance(result, pd.Series):
+            value = result.get(metric_name)
+        elif isinstance(result, pd.DataFrame):
+            if metric_name not in result.index:
+                return None
+            row = result.loc[metric_name]
+            if isinstance(row, pd.Series):
+                value = row.get("value", row.iloc[0] if len(row) else None)
+            else:
+                value = row
+        else:
+            return None
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def append_combined_backtest_performance_history(
+    *,
+    experiment,
+    store,
+    performance_history_config: dict,
+    execution_periods: dict[str, tuple[str, str]] | None = None,
+    round_summary=None,
+    evolution_phase: str = "original",
+    trajectory_id: str = "",
+    round_number: int = 0,
+) -> int:
+    """Persist combined-backtest metrics for every factor in an experiment.
+
+    These rows are intentionally marked as combined backtest history. They do
+    not replace single-factor validation rows from mining_validation/revalidation.
+    """
+
+    if experiment is None or store is None:
+        return 0
+
+    sub_tasks = getattr(experiment, "sub_tasks", []) or []
+    if not sub_tasks:
+        return 0
+
+    result = getattr(experiment, "result", None)
+    metrics = {
+        "IC": _extract_metric(result, "IC"),
+        "ICIR": _extract_metric(result, "ICIR"),
+        "Rank IC": _extract_metric(result, "Rank IC"),
+        "Rank ICIR": _extract_metric(result, "Rank ICIR"),
+        "annualized_return": _extract_metric(result, "1day.excess_return_with_cost.annualized_return"),
+        "information_ratio": _extract_metric(result, "1day.excess_return_with_cost.information_ratio"),
+        "max_drawdown": _extract_metric(result, "1day.excess_return_with_cost.max_drawdown"),
+    }
+
+    successful_ids = set(getattr(round_summary, "successful_factor_ids", []) or [])
+    failed_ids = set(getattr(round_summary, "failed_factor_ids", []) or [])
+    failed_reasons = getattr(round_summary, "failed_reasons", {}) or {}
+
+    from quantaalpha.factor_ops.performance_history import build_summary_row
+
+    written = 0
+    for idx, task in enumerate(sub_tasks):
+        factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
+        factor_expression = getattr(task, "factor_expression", "")
+        factor_id = hashlib.md5(f"{factor_name}_{factor_expression}".encode()).hexdigest()[:16]
+        if factor_id in successful_ids:
+            status = "success"
+            error_message = None
+        elif factor_id in failed_ids:
+            status = "failure"
+            error_message = "; ".join(failed_reasons.get(factor_id, [])) or "factor failed before combined backtest"
+        else:
+            status = "success" if result is not None else "failure"
+            error_message = None if result is not None else "combined backtest result missing"
+
+        row = build_summary_row(
+            factor_id=factor_id,
+            factor_name=factor_name,
+            factor_expression=factor_expression,
+            translated_expression=factor_expression,
+            source="mining_combined_backtest",
+            validated_at=None,
+            execution_periods=execution_periods,
+            status=status,
+            passed=status == "success",
+            ic_mean=metrics["IC"],
+            icir=metrics["ICIR"],
+            rank_ic_mean=metrics["Rank IC"],
+            rank_icir=metrics["Rank ICIR"],
+            annualized_return=metrics["annualized_return"],
+            information_ratio=metrics["information_ratio"],
+            max_drawdown=metrics["max_drawdown"],
+            run_id=trajectory_id or None,
+            error_message=error_message,
+            extra={
+                "performance_scope": "combined_factor_backtest",
+                "factor_count": len(sub_tasks),
+                "evolution_phase": evolution_phase,
+                "trajectory_id": trajectory_id,
+                "round_number": round_number,
+                "combined_metrics": metrics,
+            },
+        )
+        store.append_summary(row)
+        written += 1
+
+    if written and performance_history_config.get("update_latest_snapshot", True):
+        store.refresh_latest_by_factor()
+    return written
 
 
 def save_factors_to_parquet(
@@ -261,6 +381,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         provider_pool_cfg: dict | None = None,
         parquet_store_path: str | None = None,
         parquet_compact_config: dict | None = None,
+        performance_history_config: dict | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
@@ -297,6 +418,21 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             # Parquet factor-store configuration
             self._parquet_store_path = parquet_store_path
             self._parquet_compact_config = parquet_compact_config
+            self._performance_history_config = performance_history_config or {}
+            self._performance_history_store = None
+            if self._performance_history_config.get("enabled", False):
+                try:
+                    from quantaalpha.factor_ops.performance_history import PerformanceHistoryStore
+
+                    self._performance_history_store = PerformanceHistoryStore(
+                        self._performance_history_config.get(
+                            "root",
+                            "third_party/quantaalpha/data/factorlib/performance_history",
+                        ),
+                        compression=self._performance_history_config.get("compression", "zstd"),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to initialize PerformanceHistoryStore: {e}")
 
             # Failure tracking for debug rounds
             self._failure_tracker = FactorFailureTracker(max_debug_rounds=10)  # Default max rounds
@@ -760,6 +896,22 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 compact_config=compact_config,
             )
             logger.info(f"Saved factors to Parquet store: {parquet_store_path} (phase={evolution_phase})")
+
+            history_store = getattr(self, "_performance_history_store", None)
+            history_config = getattr(self, "_performance_history_config", {}) or {}
+            if history_store is not None and history_config.get("write_summary", True):
+                written = append_combined_backtest_performance_history(
+                    experiment=prev_out["factor_backtest"],
+                    store=history_store,
+                    performance_history_config=history_config,
+                    execution_periods=history_config.get("execution_periods"),
+                    round_summary=round_summary,
+                    evolution_phase=evolution_phase,
+                    trajectory_id=trajectory_id,
+                    round_number=round_number,
+                )
+                if written:
+                    logger.info(f"Saved {written} combined backtest performance rows to Parquet history")
         except Exception as e:
             logger.warning(f"Failed to save factors to Parquet store: {e}")
 

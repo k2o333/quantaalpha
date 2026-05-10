@@ -296,6 +296,10 @@ class MiningOrchestrationMixin:
 
             direction = params.get("direction") or self._get_mining_direction()
             log_root = self._state_cfg.get("log_root")
+            exec_cfg = {
+                **self._state_cfg,
+                "factor_store_kwargs": self._build_alpha_agent_loop_storage_kwargs(),
+            }
 
             result = run_evolution_action(
                 initial_direction=direction,
@@ -304,7 +308,7 @@ class MiningOrchestrationMixin:
                     "mutation_enabled": True,
                     "crossover_enabled": False,
                 },
-                exec_cfg=self._state_cfg,
+                exec_cfg=exec_cfg,
                 planning_cfg=self._direction_planner_cfg,
                 mutation_enabled=True,
                 crossover_enabled=False,
@@ -368,6 +372,10 @@ class MiningOrchestrationMixin:
 
             direction = params.get("direction") or self._get_mining_direction()
             log_root = self._state_cfg.get("log_root")
+            exec_cfg = {
+                **self._state_cfg,
+                "factor_store_kwargs": self._build_alpha_agent_loop_storage_kwargs(),
+            }
 
             result = run_evolution_action(
                 initial_direction=direction,
@@ -376,7 +384,7 @@ class MiningOrchestrationMixin:
                     "mutation_enabled": False,
                     "crossover_enabled": True,
                 },
-                exec_cfg=self._state_cfg,
+                exec_cfg=exec_cfg,
                 planning_cfg=self._direction_planner_cfg,
                 mutation_enabled=False,
                 crossover_enabled=True,

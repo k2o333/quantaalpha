@@ -186,7 +186,7 @@ def _load_config_and_paths(config_path: str):
     import copy
     import yaml
 
-    from quantaalpha.continuous.paths import resolve_workspace_paths
+    from quantaalpha.continuous.paths import resolve_path, resolve_workspace_paths
     from quantaalpha.continuous.scheduler import PipelineConfig
 
     path = Path(config_path)
@@ -219,6 +219,20 @@ def _load_config_and_paths(config_path: str):
     config_for_pipeline["factor"]["monitoring_output_path"] = resolved["monitoring_output_path"]
     if "parquet_library_dir" in resolved:
         config_for_pipeline["factor"]["parquet_library_dir"] = resolved["parquet_library_dir"]
+    if "performance_history" in config_for_pipeline["factor"]:
+        perf = config_for_pipeline["factor"]["performance_history"]
+        if "root" in perf:
+            perf["root"] = str(resolve_path(perf["root"], resolved["project_root"]))
+
+    runtime_cfg = config_for_pipeline.get("runtime", {})
+    retention_cfg = runtime_cfg.get("workspace_retention")
+    if retention_cfg:
+        if "manifest_dir" in retention_cfg:
+            retention_cfg["manifest_dir"] = str(resolve_path(retention_cfg["manifest_dir"], resolved["project_root"]))
+        retention_roots = retention_cfg.get("roots", [])
+        for root_cfg in retention_roots:
+            if "root" in root_cfg:
+                root_cfg["root"] = str(resolve_path(root_cfg["root"], resolved["project_root"]))
 
     pipeline_config = PipelineConfig.from_yaml_dict(config_for_pipeline)
     pipeline_config.app5_data = config_for_pipeline.get("app5_data", {})

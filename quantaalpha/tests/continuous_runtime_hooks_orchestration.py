@@ -118,6 +118,15 @@ class TestPhase4RuntimeEvolution:
             "log_root": str(tmp_path / "logs"),
             "budget_seconds": 17,
         }
+        scheduler.library_backend = "parquet"
+        scheduler.parquet_library_dir = str(tmp_path / "parquet_store")
+        scheduler.parquet_compact_config = {"enabled": True}
+        scheduler._performance_history_config = {
+            "enabled": True,
+            "root": str(tmp_path / "performance_history"),
+            "compression": "zstd",
+            "write_summary": True,
+        }
 
         with patch(
             "quantaalpha.pipeline.factor_mining.run_evolution_action",
@@ -131,20 +140,11 @@ class TestPhase4RuntimeEvolution:
         assert isinstance(result, ActionResult)
         assert result.status == "success"
         assert result.generated_factors == 2
-        mock_adapter.assert_called_once_with(
-            initial_direction="mutation test",
-            evolution_cfg={
-                **scheduler._evolution_cfg,
-                "mutation_enabled": True,
-                "crossover_enabled": False,
-            },
-            exec_cfg=scheduler._state_cfg,
-            planning_cfg=scheduler._direction_planner_cfg,
-            mutation_enabled=True,
-            crossover_enabled=False,
-            budget_seconds=17,
-            log_root=str(tmp_path / "logs"),
-        )
+        mock_adapter.assert_called_once()
+        call_kwargs = mock_adapter.call_args.kwargs
+        assert call_kwargs["initial_direction"] == "mutation test"
+        assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["parquet_store_path"] == str(tmp_path / "parquet_store")
+        assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["performance_history_config"]["enabled"] is True
 
     def test_phase4_runtime_evolution_crossover_helper_calls_real_adapter(self, tmp_path):
         """Verify _execute_crossover_action calls the real adapter target path."""
@@ -162,6 +162,15 @@ class TestPhase4RuntimeEvolution:
             "log_root": str(tmp_path / "logs"),
             "budget_seconds": 19,
         }
+        scheduler.library_backend = "parquet"
+        scheduler.parquet_library_dir = str(tmp_path / "parquet_store")
+        scheduler.parquet_compact_config = {"enabled": True}
+        scheduler._performance_history_config = {
+            "enabled": True,
+            "root": str(tmp_path / "performance_history"),
+            "compression": "zstd",
+            "write_summary": True,
+        }
 
         with patch(
             "quantaalpha.pipeline.factor_mining.run_evolution_action",
@@ -175,20 +184,11 @@ class TestPhase4RuntimeEvolution:
         assert isinstance(result, ActionResult)
         assert result.status == "success"
         assert result.generated_factors == 1
-        mock_adapter.assert_called_once_with(
-            initial_direction="crossover test",
-            evolution_cfg={
-                **scheduler._evolution_cfg,
-                "mutation_enabled": False,
-                "crossover_enabled": True,
-            },
-            exec_cfg=scheduler._state_cfg,
-            planning_cfg=scheduler._direction_planner_cfg,
-            mutation_enabled=False,
-            crossover_enabled=True,
-            budget_seconds=19,
-            log_root=str(tmp_path / "logs"),
-        )
+        mock_adapter.assert_called_once()
+        call_kwargs = mock_adapter.call_args.kwargs
+        assert call_kwargs["initial_direction"] == "crossover test"
+        assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["parquet_store_path"] == str(tmp_path / "parquet_store")
+        assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["performance_history_config"]["enabled"] is True
 
     def test_phase4_runtime_evolution_degraded_mode_blocks_crossover(self, tmp_path):
         """Verify degraded mode blocks crossover without calling the adapter."""

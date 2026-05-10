@@ -27,6 +27,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         execution_periods: Optional[dict] = None,
         min_ic: float = 0.02,
         per_factor_timeout_seconds: int = 300,
+        performance_history_config: Optional[dict] = None,
     ):
         import os
 
@@ -50,6 +51,21 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self._stop_event = Event()
         self._scheduler_thread: Optional[Thread] = None
         self._execution_dataframe_cache = None
+        self._performance_history_config = performance_history_config or {}
+        self._performance_history_store = None
+        if self._performance_history_config.get("enabled", False):
+            try:
+                from quantaalpha.factor_ops.performance_history import PerformanceHistoryStore
+
+                self._performance_history_store = PerformanceHistoryStore(
+                    self._performance_history_config.get(
+                        "root",
+                        "third_party/quantaalpha/data/factorlib/performance_history",
+                    ),
+                    compression=self._performance_history_config.get("compression", "zstd"),
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize PerformanceHistoryStore: {e}")
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -210,16 +226,26 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
         # Use injected runner if provided
         if self._backtest_runner is not None:
-            return self._run_with_timeout(
+            passed = self._run_with_timeout(
                 self._backtest_runner,
                 factor_id,
                 factor_entry,
                 self._per_factor_timeout_seconds,
             )
+            self._record_performance_history(
+                factor_id=factor_id,
+                factor_entry=factor_entry,
+                status="success" if passed else "failure",
+                error_message=None if passed else "Injected backtest_runner returned failure",
+            )
+            return passed
 
         # Default path: use FactorExecutor from glue if available
         try:
-            from third_party.glue.factor_executor import FactorExecutor
+            try:
+                from third_party.glue.factor_executor import FactorExecutor
+            except ImportError:
+                from glue.factor_executor import FactorExecutor
 
             # Get factor expression
             expression = factor_entry.get("factor_expression", "")
@@ -244,6 +270,13 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             # When bridge is not configured, use empty placeholder for backward compatibility
             if self._data_bridge is not None and (df is None or df.is_empty()):
                 logger.warning(f"No data available from bridge for backtest of {factor_id}")
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    status="failure",
+                    translated_expression=translated_expression,
+                    error_message=f"No data available for backtest of {factor_id}",
+                )
                 return False
 
             executor = FactorExecutor(
@@ -265,23 +298,120 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 if result.ic_value >= self.min_ic:
                     logger.info(f"profile.revalidation.factor.done factor={factor_id} success=True total_seconds={total_seconds:.3f} ic_value={result.ic_value:.6f}")
                     logger.info(f"Factor {factor_id} passed backtest with IC={result.ic_value:.4f}")
+                    self._record_performance_history(
+                        factor_id=factor_id,
+                        factor_entry=factor_entry,
+                        status="success",
+                        translated_expression=translated_expression,
+                        ic_result=result.ic_result,
+                        ic_mean=result.ic_value,
+                        computation_time_seconds=total_seconds,
+                    )
                     return True
                 else:
                     logger.info(f"profile.revalidation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} ic_value={result.ic_value:.6f}")
                     logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {self.min_ic}")
+                    self._record_performance_history(
+                        factor_id=factor_id,
+                        factor_entry=factor_entry,
+                        status="failure",
+                        translated_expression=translated_expression,
+                        ic_result=result.ic_result,
+                        ic_mean=result.ic_value,
+                        computation_time_seconds=total_seconds,
+                        error_message=f"IC={result.ic_value:.4f} < {self.min_ic}",
+                    )
                     return False
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
                 logger.info(f"profile.revalidation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} error={error_msg}")
                 logger.warning(f"Factor {factor_id} backtest failed: {error_msg}")
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    status="failure",
+                    translated_expression=translated_expression,
+                    computation_time_seconds=total_seconds,
+                    error_message=error_msg,
+                )
                 return False
 
         except ImportError as e:
             logger.warning(f"FactorExecutor not available: {e}, backtest returning False")
+            self._record_performance_history(
+                factor_id=factor_id,
+                factor_entry=factor_entry,
+                status="failure",
+                error_message=f"FactorExecutor not available: {e}",
+            )
             return False
         except Exception as e:
             logger.error(f"Error running backtest for {factor_id}: {e}")
+            self._record_performance_history(
+                factor_id=factor_id,
+                factor_entry=factor_entry,
+                status="failure",
+                error_message=str(e),
+            )
             return False
+
+    def _record_performance_history(
+        self,
+        *,
+        factor_id: str,
+        factor_entry: dict,
+        status: str,
+        translated_expression: str = "",
+        ic_result: object | None = None,
+        ic_mean: float | None = None,
+        computation_time_seconds: float | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Append one revalidation result to the performance history store."""
+
+        store = getattr(self, "_performance_history_store", None)
+        if store is None:
+            return
+
+        try:
+            from quantaalpha.factor_ops.performance_history import build_summary_row
+
+            factor_expression = factor_entry.get("factor_expression", "")
+            row = build_summary_row(
+                factor_id=factor_id,
+                factor_name=factor_entry.get("factor_name", factor_id),
+                factor_expression=factor_expression,
+                translated_expression=translated_expression or factor_expression,
+                source="revalidation",
+                validated_at=None,
+                execution_periods=self._execution_periods,
+                status=status,
+                passed=status == "success",
+                ic_mean=ic_mean,
+                ic_std=getattr(ic_result, "ic_std", None) if ic_result is not None else None,
+                icir=getattr(ic_result, "icir", None) if ic_result is not None else None,
+                rank_ic_mean=getattr(ic_result, "rank_ic_mean", None) if ic_result is not None else None,
+                rank_icir=getattr(ic_result, "rank_icir", None) if ic_result is not None else None,
+                positive_ratio=getattr(ic_result, "positive_ratio", None) if ic_result is not None else None,
+                daily_ic_count=getattr(ic_result, "daily_ic_count", None) if ic_result is not None else None,
+                min_ic=self.min_ic,
+                min_rank_ic=None,
+                computation_time_seconds=computation_time_seconds,
+                error_message=error_message,
+            )
+            store.append_summary(row)
+            daily_ics = getattr(ic_result, "daily_ics", None) if ic_result is not None else None
+            if daily_ics and self._performance_history_config.get("write_series", True):
+                store.append_series(
+                    factor_id=factor_id,
+                    validation_id=row["validation_id"],
+                    metric_name="daily_ic",
+                    values=list(daily_ics),
+                )
+            if self._performance_history_config.get("update_latest_snapshot", True):
+                store.refresh_latest_by_factor()
+        except Exception as exc:
+            logger.warning(f"Performance history write failed for {factor_id}: {exc}")
 
     def _run_with_timeout(self, func: Callable, factor_id: str, factor_entry: dict, timeout_seconds: int) -> bool:
         """

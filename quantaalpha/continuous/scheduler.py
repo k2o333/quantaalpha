@@ -15,6 +15,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from quantaalpha.continuous.workspace_retention import WorkspaceRetentionConfig
+from quantaalpha.factor_ops.performance_history import PerformanceHistoryConfig
+
 
 class SchedulerEvent(str, Enum):
     """Events emitted by schedulers."""
@@ -124,6 +127,7 @@ class FactorConfig:
     library_backend: str = "json"
     parquet_library_dir: str = "third_party/quantaalpha/data/factorlib/parquet_store"
     parquet_compact: ParquetCompactConfig = field(default_factory=ParquetCompactConfig)
+    performance_history: PerformanceHistoryConfig = field(default_factory=PerformanceHistoryConfig)
 
 
 @dataclass
@@ -596,6 +600,7 @@ class PipelineConfig:
     mining_interval_hours: int = 12
     cycle_budget_seconds: int = 3600
     per_factor_timeout_seconds: int = 300
+    workspace_retention: WorkspaceRetentionConfig = field(default_factory=WorkspaceRetentionConfig)
 
     # App4 bridge
     app4_bridge: App4BridgeConfig = field(default_factory=App4BridgeConfig)
@@ -657,6 +662,7 @@ class PipelineConfig:
         mining_interval = runtime.get("mining_interval_hours", 12)
         cycle_budget = runtime.get("cycle_budget_seconds", 3600)
         per_factor_timeout = runtime.get("per_factor_timeout_seconds", 300)
+        workspace_retention = WorkspaceRetentionConfig.from_dict(runtime.get("workspace_retention", {}))
 
         # Parse app4_bridge section
         app4_data = data.get("app4_bridge", {})
@@ -681,6 +687,7 @@ class PipelineConfig:
             library_backend=factor_data.get("library_backend", "json"),
             parquet_library_dir=factor_data.get("parquet_library_dir", "third_party/quantaalpha/data/factorlib/parquet_store"),
             parquet_compact=ParquetCompactConfig.from_dict(compact_data),
+            performance_history=PerformanceHistoryConfig.from_dict(factor_data.get("performance_history", {})),
         )
 
         # Parse validation section
@@ -731,6 +738,7 @@ class PipelineConfig:
             mining_interval_hours=mining_interval,
             cycle_budget_seconds=cycle_budget,
             per_factor_timeout_seconds=per_factor_timeout,
+            workspace_retention=workspace_retention,
             app4_bridge=app4_bridge,
             factor=factor,
             validation=validation,
@@ -759,6 +767,20 @@ class PipelineConfig:
                 "mining_interval_hours": self.mining_interval_hours,
                 "cycle_budget_seconds": self.cycle_budget_seconds,
                 "per_factor_timeout_seconds": self.per_factor_timeout_seconds,
+                "workspace_retention": {
+                    "enabled": self.workspace_retention.enabled,
+                    "retention_hours": self.workspace_retention.retention_hours,
+                    "cleanup_interval_hours": self.workspace_retention.cleanup_interval_hours,
+                    "manifest_dir": self.workspace_retention.manifest_dir,
+                    "dry_run": self.workspace_retention.dry_run,
+                    "roots": [
+                        {
+                            "root": str(root.root),
+                            "include_patterns": root.include_patterns,
+                        }
+                        for root in self.workspace_retention.roots
+                    ],
+                },
             },
             "app4_bridge": {
                 "enabled": self.app4_bridge.enabled,
@@ -774,6 +796,16 @@ class PipelineConfig:
                 "library_path": self.factor.library_path,
                 "monitoring_output_path": self.factor.monitoring_output_path,
                 "backtest_config_path": self.factor.backtest_config_path,
+                "library_backend": self.factor.library_backend,
+                "parquet_library_dir": self.factor.parquet_library_dir,
+                "performance_history": {
+                    "enabled": self.factor.performance_history.enabled,
+                    "root": self.factor.performance_history.root,
+                    "compression": self.factor.performance_history.compression,
+                    "write_summary": self.factor.performance_history.write_summary,
+                    "write_series": self.factor.performance_history.write_series,
+                    "update_latest_snapshot": self.factor.performance_history.update_latest_snapshot,
+                },
             },
             "validation": {
                 "min_ic": self.validation.min_ic,
@@ -913,6 +945,7 @@ class SchedulerConfig:
 
     # Factor storage config
     factor: FactorConfig = field(default_factory=FactorConfig)
+    workspace_retention: WorkspaceRetentionConfig = field(default_factory=WorkspaceRetentionConfig)
 
     @classmethod
     def from_pipeline_config(cls, pipeline_config: PipelineConfig) -> "SchedulerConfig":
@@ -941,6 +974,7 @@ class SchedulerConfig:
             enable_mining=pipeline_config.enable_mining,
             mining=pipeline_config.mining,
             factor=pipeline_config.factor,
+            workspace_retention=pipeline_config.workspace_retention,
         )
 
 

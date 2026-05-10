@@ -88,6 +88,67 @@ class MiningValidationMixin:
             enriched.setdefault("validation_elapsed_ms", elapsed_ms)
         return enriched
 
+    def _record_performance_history(
+        self,
+        *,
+        factor_id: str,
+        factor_entry: dict,
+        validation_result: dict | None,
+        source: str,
+        translated_expression: str = "",
+        ic_result: object | None = None,
+        computation_time_seconds: float | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Append single-factor validation result to the performance history store."""
+
+        store = getattr(self, "_performance_history_store", None)
+        if store is None or validation_result is None:
+            return
+
+        try:
+            from quantaalpha.factor_ops.performance_history import build_summary_row
+
+            summary = validation_result.get("summary", {}) or {}
+            status = validation_result.get("status", "failure")
+            factor_expression = factor_entry.get("factor_expression", "")
+            row = build_summary_row(
+                factor_id=factor_id,
+                factor_name=factor_entry.get("factor_name", factor_id),
+                factor_expression=factor_expression,
+                translated_expression=translated_expression or factor_expression,
+                source=source,
+                validated_at=None,
+                execution_periods=self._execution_periods,
+                status=status,
+                passed=status == "success",
+                ic_mean=summary.get("ic_mean"),
+                ic_std=getattr(ic_result, "ic_std", None) if ic_result is not None else None,
+                icir=getattr(ic_result, "icir", None) if ic_result is not None else validation_result.get("ICIR"),
+                rank_ic_mean=summary.get("rank_ic_mean", validation_result.get("Rank IC")),
+                rank_icir=getattr(ic_result, "rank_icir", None) if ic_result is not None else validation_result.get("Rank ICIR"),
+                positive_ratio=summary.get("positive_ratio", validation_result.get("positive_ratio")),
+                daily_ic_count=getattr(ic_result, "daily_ic_count", None) if ic_result is not None else None,
+                min_ic=self.min_ic,
+                min_rank_ic=self.min_rank_ic,
+                computation_time_seconds=computation_time_seconds,
+                error_message=error_message,
+                extra={"validation_result": validation_result},
+            )
+            store.append_summary(row)
+            daily_ics = getattr(ic_result, "daily_ics", None) if ic_result is not None else None
+            if daily_ics and self._performance_history_config.get("write_series", True):
+                store.append_series(
+                    factor_id=factor_id,
+                    validation_id=row["validation_id"],
+                    metric_name="daily_ic",
+                    values=list(daily_ics),
+                )
+            if self._performance_history_config.get("update_latest_snapshot", True):
+                store.refresh_latest_by_factor()
+        except Exception as e:
+            logger.warning(f"Performance history write failed for {factor_id}: {e}")
+
     def _validate_factor(self, factor_id: str, factor_entry: dict) -> Optional[dict]:
         """
         Validate a single factor via backtest.
@@ -130,11 +191,22 @@ class MiningValidationMixin:
 
             # Enrich injected validator result with timing
             elapsed_ms = int((time.time() - validation_started) * 1000)
-            return self._enrich_validation_result(result, elapsed_ms=elapsed_ms)
+            validation_result = self._enrich_validation_result(result, elapsed_ms=elapsed_ms)
+            self._record_performance_history(
+                factor_id=factor_id,
+                factor_entry=factor_entry,
+                validation_result=validation_result,
+                source="mining_validation",
+                error_message=None if validation_result and validation_result.get("status") == "success" else "Injected validator returned failure",
+            )
+            return validation_result
 
         # Default validation path using FactorExecutor
         try:
-            from third_party.glue.factor_executor import FactorExecutor
+            try:
+                from third_party.glue.factor_executor import FactorExecutor
+            except ImportError:
+                from glue.factor_executor import FactorExecutor
 
             factor_start = time.time()
             logger.info(f"profile.validation.factor.start factor={factor_id}")
@@ -177,7 +249,7 @@ class MiningValidationMixin:
             if self._data_bridge is not None and (df is None or df.is_empty()):
                 logger.warning(f"No data available from bridge for validation of {factor_id}")
                 elapsed_ms = int((time.time() - validation_started) * 1000)
-                return self._enrich_validation_result(
+                validation_result = self._enrich_validation_result(
                     {
                         "status": "failure",
                         "summary": {
@@ -189,6 +261,15 @@ class MiningValidationMixin:
                     },
                     elapsed_ms=elapsed_ms,
                 )
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    validation_result=validation_result,
+                    source="mining_validation",
+                    translated_expression=translated_expression,
+                    error_message=f"No data available for validation of {factor_id}",
+                )
+                return validation_result
 
             executor = FactorExecutor(
                 df=df,
@@ -247,7 +328,7 @@ class MiningValidationMixin:
                             logger.warning(f"Monitor hook failed for {factor_id}: {e}\n{traceback.format_exc()}")
 
                     elapsed_ms = int((time.time() - validation_started) * 1000)
-                    return self._enrich_validation_result(
+                    validation_result = self._enrich_validation_result(
                         {
                             "status": "success",
                             "summary": {
@@ -261,6 +342,16 @@ class MiningValidationMixin:
                         elapsed_ms=elapsed_ms,
                         ic_result=ic_result,
                     )
+                    self._record_performance_history(
+                        factor_id=factor_id,
+                        factor_entry=factor_entry,
+                        validation_result=validation_result,
+                        source="mining_validation",
+                        translated_expression=translated_expression,
+                        ic_result=ic_result,
+                        computation_time_seconds=total_seconds,
+                    )
+                    return validation_result
                 else:
                     logger.info(f"profile.validation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} ic_value={ic_mean:.6f}")
                     # Build failure reason
@@ -269,7 +360,7 @@ class MiningValidationMixin:
                     else:
                         failure_reason = f"rank_ic={rank_ic_mean:.4f} < {min_rank_ic}"
                     elapsed_ms = int((time.time() - validation_started) * 1000)
-                    return self._enrich_validation_result(
+                    validation_result = self._enrich_validation_result(
                         {
                             "status": "failure",
                             "summary": {
@@ -282,11 +373,22 @@ class MiningValidationMixin:
                         elapsed_ms=elapsed_ms,
                         ic_result=ic_result,
                     )
+                    self._record_performance_history(
+                        factor_id=factor_id,
+                        factor_entry=factor_entry,
+                        validation_result=validation_result,
+                        source="mining_validation",
+                        translated_expression=translated_expression,
+                        ic_result=ic_result,
+                        computation_time_seconds=total_seconds,
+                        error_message=failure_reason,
+                    )
+                    return validation_result
             else:
                 error_msg = result.error_message or "IC unavailable after execution"
                 logger.info(f"profile.validation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} error={error_msg}")
                 elapsed_ms = int((time.time() - validation_started) * 1000)
-                return self._enrich_validation_result(
+                validation_result = self._enrich_validation_result(
                     {
                         "status": "failure",
                         "summary": {
@@ -298,11 +400,21 @@ class MiningValidationMixin:
                     },
                     elapsed_ms=elapsed_ms,
                 )
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    validation_result=validation_result,
+                    source="mining_validation",
+                    translated_expression=translated_expression,
+                    computation_time_seconds=total_seconds,
+                    error_message=error_msg,
+                )
+                return validation_result
 
         except ImportError as e:
             logger.warning(f"FactorExecutor not available: {e}, validation returning failure")
             elapsed_ms = int((time.time() - validation_started) * 1000)
-            return self._enrich_validation_result(
+            validation_result = self._enrich_validation_result(
                 {
                     "status": "failure",
                     "summary": {
@@ -314,10 +426,18 @@ class MiningValidationMixin:
                 },
                 elapsed_ms=elapsed_ms,
             )
+            self._record_performance_history(
+                factor_id=factor_id,
+                factor_entry=factor_entry,
+                validation_result=validation_result,
+                source="mining_validation",
+                error_message=f"Validation unavailable: {e}",
+            )
+            return validation_result
         except Exception as e:
             logger.error(f"Error validating factor {factor_id}: {e}")
             elapsed_ms = int((time.time() - validation_started) * 1000)
-            return self._enrich_validation_result(
+            validation_result = self._enrich_validation_result(
                 {
                     "status": "failure",
                     "summary": {
@@ -329,6 +449,14 @@ class MiningValidationMixin:
                 },
                 elapsed_ms=elapsed_ms,
             )
+            self._record_performance_history(
+                factor_id=factor_id,
+                factor_entry=factor_entry,
+                validation_result=validation_result,
+                source="mining_validation",
+                error_message=str(e),
+            )
+            return validation_result
 
     def _validate_with_timeout(
         self,

@@ -60,6 +60,9 @@ class OrchestratorStats:
     # Data monitor stats
     total_data_updates_detected: int = 0
     last_data_check: Optional[datetime] = None
+    last_workspace_cleanup: Optional[datetime] = None
+    last_workspace_cleanup_deleted_bytes: int = 0
+    last_workspace_cleanup_errors: list[str] = field(default_factory=list)
 
     # Error tracking
     error_count: int = 0
@@ -119,6 +122,7 @@ class MiningOrchestrator:
         self._execution_periods = execution_periods or {}
         self._library_path = library_path
         self._monitor_engine = monitor_engine
+        self._workspace_retention_scheduler = None
 
         # Event callbacks
         self._event_callbacks: list[callable] = []
@@ -151,6 +155,7 @@ class MiningOrchestrator:
                 per_factor_timeout_seconds=self.config.per_factor_timeout_seconds,
                 library_backend=self.config.factor.library_backend,
                 parquet_library_dir=self.config.factor.parquet_library_dir,
+                performance_history_config=asdict(self.config.factor.performance_history),
             )
         return self._revalidation_scheduler
 
@@ -171,6 +176,7 @@ class MiningOrchestrator:
                 library_backend=self.config.factor.library_backend,
                 parquet_library_dir=self.config.factor.parquet_library_dir,
                 parquet_compact_config=asdict(self.config.factor.parquet_compact),
+                performance_history_config=asdict(self.config.factor.performance_history),
                 monitor_engine=self._monitor_engine,
                 pipeline_mode=self.config.mining.pipeline_mode,
                 quality_gate_config={
@@ -315,6 +321,20 @@ class MiningOrchestrator:
                 self.training_scheduler.start()
                 logger.info("Training scheduler started")
 
+            if self.config.workspace_retention.enabled:
+                from .workspace_retention import WorkspaceRetentionScheduler
+
+                self._workspace_retention_scheduler = WorkspaceRetentionScheduler(
+                    self.config.workspace_retention,
+                )
+                cleanup_result = self._workspace_retention_scheduler.run_if_due()
+                if cleanup_result is not None:
+                    self.stats.last_workspace_cleanup = datetime.now()
+                    self.stats.last_workspace_cleanup_deleted_bytes = cleanup_result.deleted_bytes
+                    self.stats.last_workspace_cleanup_errors = cleanup_result.errors
+                self._workspace_retention_scheduler.start()
+                logger.info("Workspace retention scheduler started")
+
             self.status = OrchestratorStatus.RUNNING
             logger.info("MiningOrchestrator started successfully")
 
@@ -350,6 +370,12 @@ class MiningOrchestrator:
                 self.training_scheduler.stop()
             except Exception as e:
                 logger.error(f"Error stopping training scheduler: {e}")
+
+        if self._workspace_retention_scheduler:
+            try:
+                self._workspace_retention_scheduler.stop()
+            except Exception as e:
+                logger.error(f"Error stopping workspace retention scheduler: {e}")
 
         self.status = OrchestratorStatus.STOPPED
         logger.info("MiningOrchestrator stopped")
