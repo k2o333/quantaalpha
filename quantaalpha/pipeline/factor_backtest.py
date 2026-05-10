@@ -38,6 +38,7 @@ def run_real_backtest(
     status_filter: Optional[str] = None,
     output_name: Optional[str] = None,
     skip_uncached: bool = False,
+    backend: Optional[str] = None,
 ) -> dict:
     """
     Run backtest on factors from a factor library JSON file.
@@ -60,7 +61,12 @@ def run_real_backtest(
     if factor_ids:
         factor_id_list = [fid.strip() for fid in factor_ids.split(",") if fid.strip()]
 
-    runner = BacktestRunner(config_path)
+    if backend is None:
+        runner = BacktestRunner(config_path)
+    else:
+        from quantaalpha.backtest.facade import BacktestFacade
+
+        runner = BacktestFacade(config_path, backend=backend)
     result = runner.run_from_library(
         library_path=library_path,
         factor_ids=factor_id_list,

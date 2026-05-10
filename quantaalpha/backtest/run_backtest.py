@@ -54,6 +54,8 @@ Examples:
     parser.add_argument('--dry-run', action='store_true', help='Load factors only, no backtest')
     parser.add_argument('--skip-uncached', action='store_true',
                         help='Skip uncached factors; use only cached factors for backtest')
+    parser.add_argument('--backend', type=str, choices=['qlib', 'noqlib', 'dual_parity'],
+                        default=None, help='Backtest backend (overrides config/env)')
     
     args = parser.parse_args()
     
@@ -69,9 +71,9 @@ Examples:
         parser.error("--factor-source combined requires --factor-json")
     
     try:
-        from quantaalpha.backtest.runner import BacktestRunner
+        from quantaalpha.backtest.facade import BacktestFacade
         
-        runner = BacktestRunner(str(config_path))
+        runner = BacktestFacade(str(config_path), backend=args.backend)
         
         if args.dry_run:
             print("\nDry Run - load factors only\n")
@@ -116,4 +118,3 @@ Examples:
 
 if __name__ == '__main__':
     main()
-
