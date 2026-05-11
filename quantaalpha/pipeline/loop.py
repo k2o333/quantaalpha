@@ -382,9 +382,13 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         parquet_store_path: str | None = None,
         parquet_compact_config: dict | None = None,
         performance_history_config: dict | None = None,
+        backtest_backend: str | None = None,
+        backtest_noqlib_config: dict | None = None,
     ):
         with logger.tag("init"):
             self.use_local = use_local
+            self.backtest_backend = str(backtest_backend or "qlib").strip().lower()
+            self.backtest_noqlib_config = backtest_noqlib_config or {}
             # Store initial direction for factor provenance
             self.potential_direction = potential_direction
 
@@ -442,7 +446,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             self._last_hypothesis = None
             self._last_experiment = None
             self._last_feedback = None
-            logger.info(f"Initialized AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}")
+            logger.info(f"Initialized AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}, backend={self.backtest_backend}")
             if potential_direction:
                 logger.info(f"Initial direction: {potential_direction}")
             if evolution_phase != "original":
@@ -487,6 +491,12 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             logger.log_object(self.coder, tag="coder")
 
             self.runner: Developer = import_class(PROP_SETTING.runner)(scen)
+            if hasattr(self.runner, "set_backtest_backend"):
+                self.runner.set_backtest_backend(self.backtest_backend)
+            if hasattr(self.runner, "set_noqlib_config"):
+                self.runner.set_noqlib_config(self.backtest_noqlib_config)
+            if not hasattr(self.runner, "set_backtest_backend"):
+                setattr(self.runner, "_backtest_backend", self.backtest_backend)
             logger.log_object(self.runner, tag="runner")
 
             self.summarizer: HypothesisExperiment2Feedback = import_class(PROP_SETTING.summarizer)(scen)

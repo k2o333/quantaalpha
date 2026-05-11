@@ -15,6 +15,8 @@ class MiningSetupMixin:
         library_backend: str = "json",
         parquet_library_dir: Optional[str] = None,
         parquet_compact_config: Optional[dict] = None,
+        backtest_backend: str = "qlib",
+        backtest_noqlib_config: Optional[dict] = None,
         factor_validator: Optional[Callable[[str, dict], Optional[dict]]] = None,
         data_bridge=None,
         execution_periods: Optional[dict] = None,
@@ -44,6 +46,8 @@ class MiningSetupMixin:
         self.library_backend = library_backend
         self.parquet_library_dir = parquet_library_dir
         self.parquet_compact_config = parquet_compact_config or {}
+        self.backtest_backend = str(backtest_backend or "qlib").strip().lower()
+        self.backtest_noqlib_config = backtest_noqlib_config or {}
         self._factor_validator = factor_validator
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {

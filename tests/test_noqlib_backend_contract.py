@@ -399,6 +399,16 @@ def test_noqlib_data_provider_accepts_qlib_style_market_parquet(tmp_path):
     assert market.loc[(pd.Timestamp("2020-01-02"), "A"), "$return"] == pytest.approx(11.2 / 10.2 - 1.0)
 
 
+def test_noqlib_app5_read_end_extends_for_label_lookahead():
+    from quantaalpha.backtest.noqlib.data_provider import _app5_read_end_time, _max_future_ref
+
+    config = {"dataset": {"label": "Ref($close, -2) / Ref($close, -1) - 1"}}
+    assert _max_future_ref(config["dataset"]["label"]) == 2
+    assert _app5_read_end_time("2020-05-15", config, {}) == "2020-05-25"
+    assert _app5_read_end_time("2020-05-15", config, {"market_end_time": "2020-05-20"}) == "2020-05-20"
+    assert _app5_read_end_time("2020-05-15", config, {"label_lookahead_calendar_days": 3}) == "2020-05-18"
+
+
 def test_noqlib_topk_dropout_matches_qlib_selection_sequence():
     from quantaalpha.backtest.noqlib.portfolio import _next_topk_dropout_holdings
 

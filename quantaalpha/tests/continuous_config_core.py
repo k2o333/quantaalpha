@@ -44,6 +44,11 @@ factor:
   library_path: third_party/quantaalpha/data/factorlib/all_factors_library.json
   monitoring_output_path: log/monitoring/
   backtest_config_path: config/backtest.yaml
+  backtest_backend: noqlib
+  backtest_noqlib:
+    app5_storage_root: data/app5
+    instruments:
+      - 000001.SZ
 
 validation:
   min_ic: 0.02
@@ -107,6 +112,9 @@ training:
         assert config.factor.library_path == "third_party/quantaalpha/data/factorlib/all_factors_library.json"
         assert config.factor.monitoring_output_path == "log/monitoring/"
         assert config.factor.backtest_config_path == "config/backtest.yaml"
+        assert config.factor.backtest_backend == "noqlib"
+        assert config.factor.backtest_noqlib["app5_storage_root"] == "data/app5"
+        assert config.factor.backtest_noqlib["instruments"] == ["000001.SZ"]
 
         # Validation checks
         assert config.validation.min_ic == 0.02
@@ -335,6 +343,8 @@ class TestFactorConfig:
         assert config.library_path == "third_party/quantaalpha/data/factorlib/all_factors_library.json"
         assert config.monitoring_output_path == "log/monitoring/"
         assert config.backtest_config_path == "config/backtest.yaml"
+        assert config.backtest_backend == "qlib"
+        assert config.backtest_noqlib == {}
 
     def test_pipeline_config_uses_existing_factorlib_path_by_default(self, tmp_path: Path):
         """Test PipelineConfig uses existing factor library path by default."""
@@ -568,6 +578,8 @@ class TestConfigContract:
                 "library_path": "third_party/quantaalpha/data/factorlib/all_factors_library.json",
                 "monitoring_output_path": "log/monitoring/",
                 "backtest_config_path": "config/backtest.yaml",
+                "backtest_backend": "noqlib",
+                "backtest_noqlib": {"app5_storage_root": "data/app5"},
             },
             "validation": {
                 "min_ic": 0.02,

@@ -124,6 +124,8 @@ class FactorConfig:
     library_path: str = "third_party/quantaalpha/data/factorlib/all_factors_library.json"
     monitoring_output_path: str = "log/monitoring/"
     backtest_config_path: str = "config/backtest.yaml"
+    backtest_backend: str = "qlib"
+    backtest_noqlib: dict[str, Any] = field(default_factory=dict)
     library_backend: str = "json"
     parquet_library_dir: str = "third_party/quantaalpha/data/factorlib/parquet_store"
     parquet_compact: ParquetCompactConfig = field(default_factory=ParquetCompactConfig)
@@ -684,6 +686,8 @@ class PipelineConfig:
             library_path=factor_data.get("library_path", "third_party/quantaalpha/data/factorlib/all_factors_library.json"),
             monitoring_output_path=factor_data.get("monitoring_output_path", "log/monitoring/"),
             backtest_config_path=factor_data.get("backtest_config_path", "config/backtest.yaml"),
+            backtest_backend=factor_data.get("backtest_backend", "qlib"),
+            backtest_noqlib=dict(factor_data.get("backtest_noqlib", {}) or {}),
             library_backend=factor_data.get("library_backend", "json"),
             parquet_library_dir=factor_data.get("parquet_library_dir", "third_party/quantaalpha/data/factorlib/parquet_store"),
             parquet_compact=ParquetCompactConfig.from_dict(compact_data),
@@ -796,6 +800,8 @@ class PipelineConfig:
                 "library_path": self.factor.library_path,
                 "monitoring_output_path": self.factor.monitoring_output_path,
                 "backtest_config_path": self.factor.backtest_config_path,
+                "backtest_backend": self.factor.backtest_backend,
+                "backtest_noqlib": self.factor.backtest_noqlib,
                 "library_backend": self.factor.library_backend,
                 "parquet_library_dir": self.factor.parquet_library_dir,
                 "performance_history": {

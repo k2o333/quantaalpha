@@ -5,6 +5,7 @@ from typing import List
 import os
 import numpy as np
 import pandas as pd
+import yaml
 from pandarallel import pandarallel
 
 from quantaalpha.core.conf import RD_AGENT_SETTINGS
@@ -47,6 +48,14 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
     - `data.py` + Adaptor to Factor implementation
     - results in `mlflow`
     """
+
+    def set_backtest_backend(self, backend: str | None) -> None:
+        """Set the backend used by continuous mining backtest."""
+        self._backtest_backend = str(backend or "qlib").strip().lower()
+
+    def set_noqlib_config(self, config: dict | None) -> None:
+        """Set no-qlib runtime options passed from continuous config."""
+        self._noqlib_config = dict(config or {})
 
     def calculate_information_coefficient(
         self, concat_feature: pd.DataFrame, SOTA_feature_column_size: int, new_feature_columns_size: int
@@ -177,10 +186,17 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         if hasattr(exp, "sub_workspace_list") and exp.sub_workspace_list is not None:
             factor_count = sum(1 for workspace in exp.sub_workspace_list if workspace is not None)
         workspace_path = getattr(exp.experiment_workspace, "workspace_path", "<unknown>")
+        backend = str(getattr(self, "_backtest_backend", os.environ.get("QUANTAALPHA_BACKTEST_BACKEND", "qlib")) or "qlib").strip().lower()
         logger.info(
             f"Execute factor backtest (Use {'Local' if use_local else 'Docker container'}): "
-            f"{config_name}; workspace={workspace_path}; factor_count={factor_count}"
+            f"{config_name}; workspace={workspace_path}; factor_count={factor_count}; backend={backend}"
         )
+
+        if backend == "noqlib":
+            exp.result = self._develop_noqlib(exp, config_name)
+            return exp
+        if backend != "qlib":
+            raise ValueError(f"unsupported factor mining backtest backend: {backend}")
         
         # Ensure workspace and config are ready (execute() does not call before_execute()).
         exp.experiment_workspace.before_execute()
@@ -212,6 +228,113 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         exp.result = result
 
         return exp
+
+    def _develop_noqlib(self, exp: QlibFactorExperiment, config_name: str) -> pd.DataFrame:
+        """Run the factor-template backtest without importing qlib."""
+        from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
+        from quantaalpha.backtest.noqlib.dataset import NoQlibDatasetBuilder
+        from quantaalpha.backtest.noqlib.expression_engine import NoQlibExpressionEngine
+        from quantaalpha.backtest.noqlib.model import NoQlibModelRunner
+        from quantaalpha.backtest.noqlib.portfolio import NoQlibTopkDropoutBacktester
+        from quantaalpha.backtest.noqlib.signal_analysis import signal_metrics
+
+        template_path = DIRNAME / "factor_template" / config_name
+        with template_path.open("r", encoding="utf-8") as fh:
+            qlib_cfg = yaml.safe_load(fh) or {}
+        noqlib_cfg = self._factor_template_to_noqlib_config(qlib_cfg)
+        workspace_path = exp.experiment_workspace.workspace_path
+
+        market = NoQlibMarketDataProvider(noqlib_cfg).load_market_data()
+        expression_engine = NoQlibExpressionEngine(market)
+        features = self._load_noqlib_template_features(
+            config=qlib_cfg,
+            expression_engine=expression_engine,
+            workspace_path=workspace_path,
+        )
+        labels = expression_engine.compute_label(noqlib_cfg.get("dataset", {}).get("label", "Ref($close, -2)/Ref($close, -1) - 1"))
+        dataset = NoQlibDatasetBuilder(noqlib_cfg).build(features, labels)
+        prediction = NoQlibModelRunner(noqlib_cfg).fit_predict(dataset)
+        label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
+        metrics = signal_metrics(prediction, label_for_signal)
+        portfolio_metrics, _daily_report, _positions = NoQlibTopkDropoutBacktester(noqlib_cfg, market).run(prediction)
+        metrics.update(portfolio_metrics)
+        result = pd.DataFrame({"value": metrics})
+        logger.info(f"No-qlib backtesting results: \n{result}")
+        return result
+
+    def _factor_template_to_noqlib_config(self, qlib_cfg: dict) -> dict:
+        handler = qlib_cfg.get("data_handler_config", {})
+        dataset_cfg = qlib_cfg.get("task", {}).get("dataset", {}).get("kwargs", {})
+        model_cfg = qlib_cfg.get("task", {}).get("model", {})
+        port_cfg = qlib_cfg.get("port_analysis_config", {})
+        data_loader_cfg = handler.get("data_loader", {}).get("kwargs", {}).get("config", {})
+        label_exprs = data_loader_cfg.get("label", [["Ref($close, -2)/Ref($close, -1) - 1"], ["LABEL0"]])[0]
+        runtime_options = dict(getattr(self, "_noqlib_config", {}) or {})
+        noqlib_cfg = {
+            "data": {
+                "market": handler.get("instruments", qlib_cfg.get("market", "csi300")),
+                "start_time": str(handler.get("start_time")),
+                "end_time": str(handler.get("end_time")),
+            },
+            "dataset": {
+                "label": str(label_exprs[0]),
+                "segments": dataset_cfg.get("segments", {}),
+            },
+            "model": {
+                "type": "lgb",
+                "params": dict(model_cfg.get("kwargs", {})),
+            },
+            "backtest": port_cfg,
+            "backtest_runtime": {
+                "backend": "noqlib",
+                "noqlib": {
+                    "project_root": str(Path.cwd()),
+                    "app5_storage_root": os.environ.get(
+                        "QUANTAALPHA_NOQLIB_APP5_STORAGE_ROOT",
+                        str(Path.cwd() / "data" / "app5"),
+                    ),
+                    "daily_interface": os.environ.get("QUANTAALPHA_NOQLIB_DAILY_INTERFACE", "daily"),
+                    "benchmark_instruments": [str(port_cfg.get("backtest", {}).get("benchmark", "SH000300"))],
+                },
+            },
+        }
+        noqlib_cfg["backtest_runtime"]["noqlib"].update(runtime_options)
+        instruments = _resolve_noqlib_instruments(noqlib_cfg["backtest_runtime"]["noqlib"])
+        if instruments:
+            noqlib_cfg["backtest_runtime"]["noqlib"]["instruments"] = instruments
+        return noqlib_cfg
+
+    def _load_noqlib_template_features(self, *, config: dict, expression_engine, workspace_path: Path) -> pd.DataFrame:
+        handler = config.get("data_handler_config", {})
+        data_loader = handler.get("data_loader", {})
+        frames: list[pd.DataFrame] = []
+        for loader_cfg in _iter_loader_configs(data_loader):
+            class_name = str(loader_cfg.get("class", ""))
+            kwargs = loader_cfg.get("kwargs", {})
+            if class_name.endswith("QlibDataLoader"):
+                raw_config = kwargs.get("config", {})
+                feature_cfg = raw_config.get("feature", [])
+                if len(feature_cfg) >= 2:
+                    expressions, names = feature_cfg[0], feature_cfg[1]
+                    factor_defs = [
+                        {"factor_id": str(name), "factor_name": str(name), "factor_expression": str(expr)}
+                        for expr, name in zip(expressions, names)
+                    ]
+                    frames.append(expression_engine.compute(factor_defs))
+            elif class_name.endswith("StaticDataLoader"):
+                static_path = workspace_path / str(kwargs.get("config", "combined_factors_df.parquet"))
+                frame = pd.read_parquet(static_path)
+                if isinstance(frame.columns, pd.MultiIndex):
+                    if "feature" in frame.columns.get_level_values(0):
+                        frame = frame["feature"]
+                    else:
+                        frame.columns = [str(col[-1]) for col in frame.columns]
+                frames.append(frame)
+        if not frames:
+            raise ValueError("noqlib factor-template features are empty")
+        combined = pd.concat(frames, axis=1)
+        combined = combined.loc[:, ~combined.columns.duplicated(keep="last")]
+        return combined.sort_index()
 
     def _validate_factor_frame(self, df: pd.DataFrame) -> pd.DataFrame | None:
         valid_columns = []
@@ -307,3 +430,42 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             return pd.concat(factor_dfs, axis=1)
         else:
             raise FactorEmptyError("No valid factor data found to merge.")
+
+
+def _iter_loader_configs(loader_config: dict) -> list[dict]:
+    """Return leaf loader configs from qlib DataLoader or NestedDataLoader config."""
+    class_name = str(loader_config.get("class", ""))
+    kwargs = loader_config.get("kwargs", {})
+    if class_name.endswith("NestedDataLoader"):
+        return list(kwargs.get("dataloader_l", []))
+    return [loader_config]
+
+
+def _resolve_noqlib_instruments(noqlib_options: dict) -> list[str]:
+    """Resolve no-qlib stock universe from config, file, or environment."""
+    instruments = noqlib_options.get("instruments")
+    if instruments:
+        return [str(item) for item in instruments]
+    instruments_csv = os.environ.get("QUANTAALPHA_NOQLIB_INSTRUMENTS")
+    if instruments_csv:
+        return [item.strip() for item in instruments_csv.split(",") if item.strip()]
+    instruments_path = noqlib_options.get("instruments_path") or os.environ.get("QUANTAALPHA_NOQLIB_INSTRUMENTS_PATH")
+    if not instruments_path:
+        return []
+    path = Path(instruments_path)
+    if not path.exists():
+        raise FileNotFoundError(f"noqlib instruments_path not found: {path}")
+    if path.suffix.lower() == ".json":
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data = data.get("instruments", [])
+        return [str(item) for item in data]
+    instruments = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        instruments.append(stripped.split()[0])
+    return instruments

@@ -247,6 +247,8 @@ class MiningOrchestrationMixin:
                 step_model_routing=self._agent_loop_cfg.get("step_model_routing"),
                 ensemble_config=self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
                 provider_pool_cfg=self._provider_pool_cfg,
+                backtest_backend=self.backtest_backend,
+                backtest_noqlib_config=self.backtest_noqlib_config,
                 **self._build_alpha_agent_loop_storage_kwargs(),
             )
             loop.run(step_n=steps, stop_event=self._stop_event)
@@ -298,7 +300,11 @@ class MiningOrchestrationMixin:
             log_root = self._state_cfg.get("log_root")
             exec_cfg = {
                 **self._state_cfg,
-                "factor_store_kwargs": self._build_alpha_agent_loop_storage_kwargs(),
+                "factor_store_kwargs": {
+                    **self._build_alpha_agent_loop_storage_kwargs(),
+                    "backtest_backend": self.backtest_backend,
+                    "backtest_noqlib_config": self.backtest_noqlib_config,
+                },
             }
 
             result = run_evolution_action(
@@ -374,7 +380,11 @@ class MiningOrchestrationMixin:
             log_root = self._state_cfg.get("log_root")
             exec_cfg = {
                 **self._state_cfg,
-                "factor_store_kwargs": self._build_alpha_agent_loop_storage_kwargs(),
+                "factor_store_kwargs": {
+                    **self._build_alpha_agent_loop_storage_kwargs(),
+                    "backtest_backend": self.backtest_backend,
+                    "backtest_noqlib_config": self.backtest_noqlib_config,
+                },
             }
 
             result = run_evolution_action(

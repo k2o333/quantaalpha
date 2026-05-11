@@ -176,6 +176,8 @@ class MiningOrchestrator:
                 library_backend=self.config.factor.library_backend,
                 parquet_library_dir=self.config.factor.parquet_library_dir,
                 parquet_compact_config=asdict(self.config.factor.parquet_compact),
+                backtest_backend=self.config.factor.backtest_backend,
+                backtest_noqlib_config=self.config.factor.backtest_noqlib,
                 performance_history_config=asdict(self.config.factor.performance_history),
                 monitor_engine=self._monitor_engine,
                 pipeline_mode=self.config.mining.pipeline_mode,

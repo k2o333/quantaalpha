@@ -507,6 +507,13 @@ class TestMiningSchedulerLibraryPath:
         scheduler = DefaultMiningScheduler()
         assert scheduler.library_path == "third_party/quantaalpha/data/factorlib/all_factors_library.json"
 
+    def test_backtest_backend_from_param(self):
+        """Test continuous mining stores the selected backtest backend."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler(backtest_backend="noqlib")
+        assert scheduler.backtest_backend == "noqlib"
+
 
 class TestRevalidationSchedulerStartStop:
     """Tests for start/stop/timer mechanism in DefaultRevalidationScheduler."""

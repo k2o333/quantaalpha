@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import polars as pl
 
@@ -34,7 +36,7 @@ class NoQlibMarketDataProvider:
 
         data_cfg = self.config.get("data", {})
         start_time = data_cfg.get("start_time")
-        end_time = data_cfg.get("end_time")
+        end_time = _app5_read_end_time(data_cfg.get("end_time"), self.config, self.noqlib_config)
         storage_root = self.noqlib_config.get("app5_storage_root", "data")
         interface_name = self.noqlib_config.get("daily_interface", "daily")
         _ensure_project_root_on_path(self.noqlib_config)
@@ -43,7 +45,11 @@ class NoQlibMarketDataProvider:
         except Exception as exc:  # pragma: no cover - environment guard
             raise RuntimeError("App5ParquetAdapter is required for noqlib app5 reads") from exc
         adapter = App5ParquetAdapter(storage_root=storage_root)
-        return adapter.read(interface_name, start_date=start_time, end_date=end_time)
+        frame = adapter.read(interface_name, start_date=start_time, end_date=end_time)
+        benchmark_frame = self._read_qlib_bin_benchmark(start_time=start_time, end_time=end_time)
+        if benchmark_frame is not None and not benchmark_frame.is_empty():
+            frame = pl.concat([frame, benchmark_frame], how="diagonal_relaxed")
+        return frame
 
     def _read_path(self, path: Path) -> pl.DataFrame:
         if not path.exists():
@@ -89,7 +95,11 @@ class NoQlibMarketDataProvider:
                 .otherwise(pl.col("close").cast(pl.Float64))
                 .alias("vwap")
             )
-        if "pct_chg" in frame.columns:
+        if "$return" in frame.columns and "pct_chg" in frame.columns:
+            pct = pl.col("pct_chg").cast(pl.Float64)
+            pct_ret = pl.when(pct.abs() > 1.0).then(pct / 100.0).otherwise(pct)
+            ret_expr = pl.coalesce([pl.col("$return").cast(pl.Float64), pct_ret, pl.lit(0.0)])
+        elif "pct_chg" in frame.columns:
             pct = pl.col("pct_chg").cast(pl.Float64).fill_null(0.0)
             ret_expr = pl.when(pct.abs() > 1.0).then(pct / 100.0).otherwise(pct)
         elif "$return" in frame.columns:
@@ -122,6 +132,55 @@ class NoQlibMarketDataProvider:
             return float(self.noqlib_config["amount_to_vwap_multiplier"])
         return 1.0 if self._explicit_market_path else 10.0
 
+    def _read_qlib_bin_benchmark(self, *, start_time: str | None, end_time: str | None) -> pl.DataFrame | None:
+        """Read benchmark rows from local qlib bin files without importing qlib."""
+        provider_uri = self.noqlib_config.get("qlib_provider_uri")
+        benchmark_instruments = [str(item) for item in self.noqlib_config.get("benchmark_instruments", [])]
+        if not provider_uri or not benchmark_instruments:
+            return None
+        provider = Path(str(provider_uri)).expanduser()
+        calendar_path = provider / "calendars" / "day.txt"
+        features_root = provider / "features"
+        if not calendar_path.exists() or not features_root.exists():
+            raise FileNotFoundError(f"noqlib qlib_provider_uri is not a qlib bin directory: {provider}")
+        calendar = [pd.Timestamp(line.strip()) for line in calendar_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        rows: list[dict[str, Any]] = []
+        start_ts = pd.Timestamp(start_time) if start_time else None
+        end_ts = pd.Timestamp(end_time) if end_time else None
+        for instrument in benchmark_instruments:
+            qlib_code = _qlib_bin_instrument_dir(instrument)
+            inst_dir = features_root / qlib_code
+            if not inst_dir.exists():
+                continue
+            series_by_field = {
+                field: _read_qlib_bin_series(inst_dir / f"{field}.day.bin", calendar)
+                for field in ("open", "high", "low", "close", "volume", "return")
+            }
+            if not series_by_field["close"]:
+                continue
+            for idx, dt in enumerate(calendar):
+                if start_ts is not None and dt < start_ts:
+                    continue
+                if end_ts is not None and dt > end_ts:
+                    continue
+                close = series_by_field["close"].get(idx)
+                if close is None or not np.isfinite(close):
+                    continue
+                rows.append(
+                    {
+                        "datetime": dt.date(),
+                        "instrument": instrument,
+                        "open": series_by_field["open"].get(idx, close),
+                        "high": series_by_field["high"].get(idx, close),
+                        "low": series_by_field["low"].get(idx, close),
+                        "close": close,
+                        "volume": series_by_field["volume"].get(idx, 0.0),
+                        "$return": series_by_field["return"].get(idx, 0.0),
+                        "vwap": close,
+                    }
+                )
+        return pl.DataFrame(rows) if rows else None
+
 
 def _ensure_project_root_on_path(noqlib_config: dict[str, Any]) -> None:
     configured = noqlib_config.get("project_root")
@@ -146,3 +205,53 @@ def _datetime_expr(frame: pl.DataFrame) -> pl.Expr:
         .str.slice(0, 8)
         .str.strptime(pl.Date, "%Y%m%d", strict=False)
     )
+
+
+def _app5_read_end_time(end_time: str | None, config: dict[str, Any], noqlib_config: dict[str, Any]) -> str | None:
+    if not end_time:
+        return end_time
+    if "market_end_time" in noqlib_config:
+        return str(noqlib_config["market_end_time"])
+    calendar_days = noqlib_config.get("label_lookahead_calendar_days")
+    if calendar_days is None:
+        max_ref = _max_future_ref(config.get("dataset", {}).get("label", ""))
+        calendar_days = max(10, max_ref * 4) if max_ref else 0
+    calendar_days = int(calendar_days)
+    if calendar_days <= 0:
+        return end_time
+    return (pd.Timestamp(end_time) + pd.Timedelta(days=calendar_days)).strftime("%Y-%m-%d")
+
+
+def _max_future_ref(expression: str) -> int:
+    values = [int(item) for item in re.findall(r"\bRef\s*\([^,]+,\s*-([0-9]+)\s*\)", str(expression))]
+    return max(values) if values else 0
+
+
+def _qlib_bin_instrument_dir(instrument: str) -> str:
+    text = str(instrument)
+    upper = text.upper()
+    if upper.startswith("SH") and upper[2:].isdigit():
+        return "sh" + upper[2:]
+    if upper.startswith("SZ") and upper[2:].isdigit():
+        return "sz" + upper[2:]
+    if upper.endswith(".SH"):
+        return upper[:-3].lower() + ".sh"
+    if upper.endswith(".SZ"):
+        return upper[:-3].lower() + ".sz"
+    return text.lower()
+
+
+def _read_qlib_bin_series(path: Path, calendar: list[pd.Timestamp]) -> dict[int, float]:
+    if not path.exists():
+        return {}
+    values = np.fromfile(path, dtype="<f4")
+    if len(values) == 0:
+        return {}
+    start_index = int(values[0])
+    result = {}
+    for offset, value in enumerate(values[1:]):
+        idx = start_index + offset
+        if idx >= len(calendar):
+            break
+        result[idx] = float(value)
+    return result
