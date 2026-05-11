@@ -73,6 +73,8 @@ class FactorMultiProcessEvolvingStrategy(MultiProcessEvolvingStrategy):
             system_prompt=error_summary_system_prompt,
             json_mode=False,
             task_type="factor_construction",
+            stream=False,
+            llm_call_site="factor_coder.error_summary",
         )
         return error_summary_critics
 

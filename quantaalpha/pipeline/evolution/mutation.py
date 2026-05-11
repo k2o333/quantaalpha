@@ -137,7 +137,9 @@ class MutationOperator:
             response = APIBackend().build_messages_and_create_chat_completion(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
-                json_mode=use_detailed_prompt
+                json_mode=use_detailed_prompt,
+                stream=False,
+                llm_call_site="pipeline.evolution.mutation",
             )
             
             if use_detailed_prompt:

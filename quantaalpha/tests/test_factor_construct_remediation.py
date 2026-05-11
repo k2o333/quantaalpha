@@ -46,6 +46,8 @@ class TestEmptyResponseFeedbackInjection:
         h2e.targets = []
         h2e.consistency_enabled = False
         h2e._quality_gate = None
+        h2e.max_multi_construct_retries = 2
+        h2e.max_multi_construct_retries = 2
         return h2e
 
     def test_empty_response_injects_feedback_and_changes_prompt(self):
@@ -76,17 +78,17 @@ class TestEmptyResponseFeedbackInjection:
                           return_value=({"target_hypothesis": "test", "experiment_output_format": "",
                                          "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
                                          "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
-            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+            with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.side_effect = fake_render
                 MockEnv.return_value.from_string.return_value = mock_template
 
-                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
                     mock_api = MagicMock()
                     mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
                     MockAPI.return_value = mock_api
 
-                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
                         # Return empty response every time
                         mock_call.return_value = {}
 
@@ -144,17 +146,17 @@ class TestAcceptabilityEarlyStopping:
                           return_value=({"target_hypothesis": "test", "experiment_output_format": "",
                                          "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
                                          "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
-            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+            with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.return_value = "mock prompt"
                 MockEnv.return_value.from_string.return_value = mock_template
 
-                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
                     mock_api = MagicMock()
                     mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
                     MockAPI.return_value = mock_api
 
-                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
                         mock_call.return_value = {
                             "factor_A": {
                                 "expression": "MEAN($volume)",
@@ -216,17 +218,17 @@ class TestAcceptabilityEarlyStopping:
                           return_value=({"target_hypothesis": "test", "experiment_output_format": "",
                                          "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
                                          "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
-            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+            with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.return_value = "mock prompt"
                 MockEnv.return_value.from_string.return_value = mock_template
 
-                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
                     mock_api = MagicMock()
                     mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
                     MockAPI.return_value = mock_api
 
-                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
                         mock_call.return_value = {
                             "factor_A": {
                                 "expression": "MEAN($volume)",
@@ -248,6 +250,47 @@ class TestAcceptabilityEarlyStopping:
 class TestMultiHypothesisEmptyFactorsDict:
     """convert_multi_hypothesis must not silently return zero-task experiment from empty factors_dict."""
 
+    def _make_h2e(self):
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        h2e.factor_regulator = MagicMock()
+        h2e.factor_regulator.parse_diagnostic.return_value = (True, None)
+        h2e.factor_regulator.evaluate.return_value = (True, {"symbol_length": 32})
+        h2e.factor_regulator.is_expression_acceptable.return_value = True
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+        h2e.max_multi_construct_retries = 2
+        h2e.fallback_on_multi_construct_failure = True
+        return h2e
+
+    def _make_bundle(self):
+        from quantaalpha.factors.proposal import EnsembleHypothesisBundle
+
+        return EnsembleHypothesisBundle(
+            hypothesis="ensemble test",
+            concise_observation="obs",
+            concise_knowledge="know",
+            concise_justification="just",
+            concise_specification="spec",
+            hypotheses=[
+                {"model": "m1", "hypothesis": {"hypothesis": "h1"}},
+                {"model": "m2", "hypothesis": {"hypothesis": "h2"}},
+            ],
+            ensemble_strategy="collect_all",
+            num_models=2,
+        )
+
+    def _make_trace(self):
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = []
+        return mock_trace
+
     def test_empty_multi_hypothesis_response_retries_or_falls_back_with_reason(self):
         """When call_structured returns empty dict, must retry or fallback with logged reason."""
         from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression, EnsembleHypothesisBundle
@@ -258,6 +301,8 @@ class TestMultiHypothesisEmptyFactorsDict:
         h2e.targets = []
         h2e.consistency_enabled = False
         h2e._quality_gate = None
+        h2e.max_multi_construct_retries = 2
+        h2e.fallback_on_multi_construct_failure = True
 
         bundle = EnsembleHypothesisBundle(
             hypothesis="ensemble test",
@@ -290,27 +335,34 @@ class TestMultiHypothesisEmptyFactorsDict:
             # Return empty dict first 2 times, then still empty
             return {}
 
-        with patch("quantaalpha.factors.proposal.call_structured", side_effect=mock_call_structured):
+        with patch("quantaalpha.factors.proposal_expression.call_structured", side_effect=mock_call_structured):
             with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
                               return_value=({"target_hypothesis": "test", "experiment_output_format": "",
                                              "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
                                              "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
-                with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+                with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                     mock_template = MagicMock()
                     mock_template.render.return_value = "mock prompt"
                     MockEnv.return_value.from_string.return_value = mock_template
 
-                    # Mock convert for fallback path
-                    with patch.object(AlphaAgentHypothesis2FactorExpression, 'convert') as mock_convert:
-                        mock_convert.return_value = MagicMock()
+                    with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
+                        mock_api = MagicMock()
+                        mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                        MockAPI.return_value = mock_api
 
-                        with patch("quantaalpha.factors.proposal.logger") as mock_logger:
-                            result = h2e.convert_multi_hypothesis(bundle, mock_trace)
+                        with patch.object(AlphaAgentHypothesis2FactorExpression, 'convert') as mock_convert:
+                            fallback_exp = MagicMock()
+                            mock_convert.return_value = fallback_exp
+                            with patch("quantaalpha.factors.proposal_expression.logger") as mock_logger:
+                                result = h2e.convert_multi_hypothesis(bundle, mock_trace)
 
-                            # Must have logged the fallback reason
-                            warning_calls = [str(args[0]) for args, _ in mock_logger.warning.call_args_list if args]
-                            combined_warnings = "\n".join(warning_calls)
-                            assert "empty" in combined_warnings.lower() or "multi-hypothesis" in combined_warnings.lower() or "fallback" in combined_warnings.lower()
+                                # Must have logged the fallback reason
+                                warning_calls = [str(args[0]) for args, _ in mock_logger.warning.call_args_list if args]
+                                combined_warnings = "\n".join(warning_calls)
+                                assert "empty" in combined_warnings.lower() or "multi-hypothesis" in combined_warnings.lower()
+                                assert "falling back to primary hypothesis" in combined_warnings.lower()
+                            assert result is fallback_exp
+                            mock_convert.assert_called_once()
 
     def test_multi_hypothesis_length_error_retries_with_reduced_history(self):
         """Context-length errors must retry the multi-hypothesis path with reduced history before fallback."""
@@ -324,6 +376,8 @@ class TestMultiHypothesisEmptyFactorsDict:
         h2e.consistency_enabled = False
         h2e._quality_gate = None
         h2e._validate_expression_capabilities = MagicMock(return_value=(True, ""))
+        h2e.max_multi_construct_retries = 2
+        h2e.fallback_on_multi_construct_failure = True
 
         bundle = EnsembleHypothesisBundle(
             hypothesis="ensemble test",
@@ -356,17 +410,17 @@ class TestMultiHypothesisEmptyFactorsDict:
                      "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)
 
         with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context', side_effect=fake_prepare_context):
-            with patch("quantaalpha.factors.proposal.Environment") as MockEnv:
+            with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.return_value = "mock prompt"
                 MockEnv.return_value.from_string.return_value = mock_template
 
-                with patch("quantaalpha.factors.proposal.APIBackend") as MockAPI:
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
                     mock_api = MagicMock()
                     mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
                     MockAPI.return_value = mock_api
 
-                    with patch("quantaalpha.factors.proposal.call_structured") as mock_call:
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
                         mock_call.side_effect = [
                             RuntimeError("context length exceeded"),
                             {"factors": {"factor_A": {
@@ -383,6 +437,187 @@ class TestMultiHypothesisEmptyFactorsDict:
                         mock_convert.assert_not_called()
                         assert result.tasks
                         assert seen_history_limits[:2] == [6, 5]
+
+    def test_multi_hypothesis_empty_response_feedback_retries_then_succeeds(self):
+        """A retry after empty factors must include targeted construct feedback."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        h2e = self._make_h2e()
+        bundle = self._make_bundle()
+        mock_trace = self._make_trace()
+        seen_feedback = []
+
+        def fake_render(**kwargs):
+            seen_feedback.append(kwargs.get("expression_duplication"))
+            return "mock prompt"
+
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression,
+            "prepare_context",
+            return_value=(
+                {
+                    "target_hypothesis": "test",
+                    "experiment_output_format": "",
+                    "hypothesis_and_feedback": "fb",
+                    "function_lib_description": "fl",
+                    "target_list": [],
+                    "RAG": None,
+                    "financial_pit_context_hint": "",
+                },
+                True,
+            ),
+        ):
+            with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.side_effect = fake_render
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
+                        mock_call.side_effect = [
+                            {"factors": {}},
+                            {
+                                "factors": {
+                                    "factor_valid": {
+                                        "expression": "MEAN($volume)",
+                                        "description": "valid",
+                                        "formulation": "valid",
+                                        "variables": {},
+                                    }
+                                }
+                            },
+                        ]
+
+                        result = h2e.convert_multi_hypothesis(bundle, mock_trace)
+
+        MockAPI.assert_called_with(max_retry_override=1)
+        assert len(result.tasks) == 1
+        assert result.tasks[0].factor_name == "factor_valid"
+        combined_feedback = "\n".join(str(item) for item in seen_feedback if item)
+        assert "empty factors" in combined_feedback.lower() or "no factor" in combined_feedback.lower()
+
+    def test_multi_hypothesis_mixed_validity_keeps_valid_factor(self):
+        """One invalid factor must not discard another valid factor in the same response."""
+        h2e = self._make_h2e()
+        h2e.fallback_on_multi_construct_failure = False
+        h2e.fallback_on_multi_construct_failure = False
+        bundle = self._make_bundle()
+        mock_trace = self._make_trace()
+
+        def fake_parse(expr):
+            if "BAD_EXPR" in expr:
+                return False, "parser rejected BAD_EXPR"
+            return True, None
+
+        h2e.factor_regulator.parse_diagnostic.side_effect = fake_parse
+
+        with patch.object(
+            h2e,
+            "prepare_context",
+            return_value=(
+                {
+                    "target_hypothesis": "test",
+                    "experiment_output_format": "",
+                    "hypothesis_and_feedback": "fb",
+                    "function_lib_description": "fl",
+                    "target_list": [],
+                    "RAG": None,
+                    "financial_pit_context_hint": "",
+                },
+                True,
+            ),
+        ):
+            with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.return_value = "mock prompt"
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
+                        mock_call.return_value = {
+                            "factors": {
+                                "factor_valid": {
+                                    "expression": "MEAN($volume)",
+                                    "description": "valid",
+                                    "formulation": "valid",
+                                    "variables": {},
+                                },
+                                "factor_bad": {
+                                    "expression": "BAD_EXPR(",
+                                    "description": "bad",
+                                    "formulation": "bad",
+                                    "variables": {},
+                                },
+                            }
+                        }
+
+                        result = h2e.convert_multi_hypothesis(bundle, mock_trace)
+
+        assert [task.factor_name for task in result.tasks] == ["factor_valid"]
+
+    def test_multi_hypothesis_final_error_contains_last_failure_category(self):
+        """Final construct failure must classify the last caller-level validation reason."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        h2e = self._make_h2e()
+        h2e.fallback_on_multi_construct_failure = False
+        bundle = self._make_bundle()
+        mock_trace = self._make_trace()
+
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression,
+            "prepare_context",
+            return_value=(
+                {
+                    "target_hypothesis": "test",
+                    "experiment_output_format": "",
+                    "hypothesis_and_feedback": "fb",
+                    "function_lib_description": "fl",
+                    "target_list": [],
+                    "RAG": None,
+                    "financial_pit_context_hint": "",
+                },
+                True,
+            ),
+        ):
+            with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
+                mock_template = MagicMock()
+                mock_template.render.return_value = "mock prompt"
+                MockEnv.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as MockAPI:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    mock_api.chat_model = "construct-model"
+                    mock_api.provider_name = "construct-provider"
+                    MockAPI.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
+                        mock_call.return_value = {
+                            "factors": {
+                                "factor_missing_expr": {
+                                    "description": "missing",
+                                    "formulation": "missing",
+                                    "variables": {},
+                                }
+                            }
+                        }
+
+                        with pytest.raises(RuntimeError) as exc_info:
+                            h2e.convert_multi_hypothesis(bundle, mock_trace)
+
+        error_msg = str(exc_info.value)
+        assert "missing_expression" in error_msg
+        assert "factor_missing_expr" in error_msg
+        assert "construct-model" in error_msg or "construct-provider" in error_msg
 
 
 class TestMeanSignatureValidation:

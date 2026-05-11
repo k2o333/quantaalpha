@@ -235,6 +235,7 @@ def _load_config_and_paths(config_path: str):
                 root_cfg["root"] = str(resolve_path(root_cfg["root"], resolved["project_root"]))
 
     pipeline_config = PipelineConfig.from_yaml_dict(config_for_pipeline)
+    setattr(pipeline_config, "project_root", resolved["project_root"])
     pipeline_config.app5_data = config_for_pipeline.get("app5_data", {})
     pipeline_config.factor_ops = config_for_pipeline.get("factor_ops", {})
 
@@ -715,6 +716,11 @@ class ContinuousOrchestrator:
         self._monitor_engine = None
         if getattr(config, "factor", None) and getattr(config.factor, "monitoring_output_path", None):
             try:
+                project_root = getattr(config, "project_root", None)
+                if project_root:
+                    project_root_str = str(project_root)
+                    if project_root_str not in sys.path:
+                        sys.path.insert(0, project_root_str)
                 from factor_monitor.core import FactorMonitorEngine
 
                 self._monitor_engine = FactorMonitorEngine(

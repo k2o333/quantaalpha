@@ -89,6 +89,8 @@ class BackendCompletionMixin:
         task_type: str | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
+        stream: bool | None = None,
+        llm_call_site: str | None = None,
     ) -> tuple[str, str | None] | tuple[str, str | None, list[dict] | None]:
         """Seed : Optional[int]
         When retrying with cache enabled, it will keep returning the same results.
@@ -137,6 +139,7 @@ class BackendCompletionMixin:
 
         finish_reason = None
         tool_calls_result = None
+        effective_stream = self.chat_stream if stream is None else stream
         if self.use_llama2:
             response = self.generator.chat_completion(
                 messages,  # type: ignore
@@ -173,7 +176,7 @@ class BackendCompletionMixin:
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                stream=self.chat_stream,
+                stream=effective_stream,
                 seed=self.chat_seed,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
@@ -215,10 +218,14 @@ class BackendCompletionMixin:
             else:
                 start_time = time.time()
 
-            logger.info(f"[llm-request] start model={model} provider={pool_provider or getattr(self, '_current_retry_provider_name', None)} thread={threading.get_ident()} stream={self.chat_stream}")
+            logger.info(
+                f"[llm-request] start model={model} "
+                f"provider={pool_provider or getattr(self, '_current_retry_provider_name', None)} "
+                f"thread={threading.get_ident()} stream={effective_stream} call_site={llm_call_site or tag}"
+            )
             response = self.chat_client.chat.completions.create(**kwargs)
 
-            if self.chat_stream:
+            if effective_stream:
                 resp = ""
                 for chunk in response:
                     content = chunk.choices[0].delta.content if len(chunk.choices) > 0 and chunk.choices[0].delta.content is not None else ""
@@ -288,6 +295,14 @@ class BackendCompletionMixin:
                     self._provider_pool.record_latency(pool_provider, pool_api_key, latency_ms)
                 except Exception as e:
                     logger.warning(f"ProviderPool record_latency failed: {e}")
+            if start_time is not None:
+                latency_ms = (time.time() - start_time) * 1000
+                logger.info(
+                    f"[llm-request] end model={model} "
+                    f"provider={pool_provider or getattr(self, '_current_retry_provider_name', None)} "
+                    f"thread={threading.get_ident()} stream={effective_stream} "
+                    f"call_site={llm_call_site or tag} latency_ms={latency_ms:.0f} finish_reason={finish_reason}"
+                )
 
             if json_mode or reasoning_flag:
                 # Extract JSON part

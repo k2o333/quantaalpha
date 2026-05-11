@@ -294,7 +294,9 @@ Output format: Just the expression string, nothing else.
             response = api.build_messages_and_create_chat_completion(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
-                temperature=0.1
+                temperature=0.1,
+                stream=False,
+                llm_call_site="backtest.factor_calculator.expression_repair",
             )
             
             expr = response.strip().strip('"\'')
@@ -411,4 +413,3 @@ class QlibDataProvider:
         logger.info(f"Loaded stock data: {len(df)} rows")
         
         return df
-

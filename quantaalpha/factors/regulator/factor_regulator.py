@@ -144,9 +144,9 @@ class FactorRegulator(Evaluator):
             # If AST parsing fails, fall back to regex-based check
             return self._validate_dsl_function_signatures_regex(expression)
 
-        # Walk AST to find MEAN() calls (not TS_MEAN, CS_MEAN, etc.)
         violations = []
         self._collect_mean_violations(tree, violations)
+        self._collect_sequence_violations(tree, violations)
         if violations:
             return violations[0]
         return None
@@ -178,6 +178,54 @@ class FactorRegulator(Evaluator):
                 if hasattr(child, '__dict__'):
                     self._collect_mean_violations(child, violations)
 
+    def _collect_sequence_violations(
+        self,
+        node,
+        violations: list[str],
+        parent_function: str | None = None,
+        parent_arg_index: int | None = None,
+    ) -> None:
+        """Reject SEQUENCE() outside regression helper argument B."""
+        try:
+            from quantaalpha.factors.coder.factor_ast import (
+                BinaryOpNode,
+                ConditionalNode,
+                FunctionNode,
+                UnaryOpNode,
+                VarNode,
+            )
+        except ImportError:
+            return
+
+        if isinstance(node, FunctionNode):
+            func_name = node.name.name if isinstance(node.name, VarNode) else str(node.name)
+            upper_name = func_name.upper()
+            if upper_name == "SEQUENCE":
+                if parent_function not in {"REGBETA", "REGRESI"} or parent_arg_index != 1:
+                    violations.append(
+                        "SEQUENCE(n) may only be used as argument B of REGBETA(A, B, n) "
+                        "or REGRESI(A, B, n). Do not multiply, divide, add, subtract, "
+                        "or wrap SEQUENCE() in other functions."
+                    )
+                    return
+            for idx, arg in enumerate(node.args):
+                self._collect_sequence_violations(arg, violations, upper_name, idx)
+            return
+
+        if isinstance(node, BinaryOpNode):
+            self._collect_sequence_violations(node.left, violations, parent_function, parent_arg_index)
+            self._collect_sequence_violations(node.right, violations, parent_function, parent_arg_index)
+            return
+
+        if isinstance(node, UnaryOpNode):
+            self._collect_sequence_violations(node.operand, violations, parent_function, parent_arg_index)
+            return
+
+        if isinstance(node, ConditionalNode):
+            self._collect_sequence_violations(node.condition, violations, parent_function, parent_arg_index)
+            self._collect_sequence_violations(node.true_expr, violations, parent_function, parent_arg_index)
+            self._collect_sequence_violations(node.false_expr, violations, parent_function, parent_arg_index)
+
     def _validate_dsl_function_signatures_regex(self, expression: str) -> str | None:
         """Fallback regex-based MEAN validation when AST parsing is unavailable."""
         import re
@@ -206,6 +254,11 @@ class FactorRegulator(Evaluator):
                     f"Use explicit weighted addition (e.g. 0.33*A + 0.33*B + 0.34*C) "
                     f"or MEAN(A) for a single expression."
                 )
+        if "SEQUENCE" in expression.upper():
+            return (
+                "SEQUENCE(n) may only be used as argument B of REGBETA(A, B, n) "
+                "or REGRESI(A, B, n)."
+            )
         return None
 
     def is_parsable(self, expression: str) -> bool:

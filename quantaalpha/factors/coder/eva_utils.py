@@ -130,6 +130,8 @@ class FactorCodeEvaluator(FactorEvaluator):
             system_prompt=system_prompt,
             json_mode=False,
             reasoning_flag=False,
+            stream=False,
+            llm_call_site="factor_coder.evaluator_code_feedback",
         )
 
         return critic_response, None

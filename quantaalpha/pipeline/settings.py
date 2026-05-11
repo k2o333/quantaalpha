@@ -55,7 +55,7 @@ class AlphaAgentFactorBasePropSetting(BasePropSetting):
     coder: str = "quantaalpha.factors.qlib_coder.QlibFactorParser"
     runner: str = "quantaalpha.factors.runner.QlibFactorRunner"
     summarizer: str = "quantaalpha.factors.feedback.AlphaAgentQlibFactorHypothesisExperiment2Feedback"
-    evolving_n: int = 5
+    evolving_n: int = 3
 
 
 class FactorBasePropSetting(BasePropSetting):

@@ -206,6 +206,19 @@ def _run_evolution_task(
     return traj_data
 
 
+def _advance_controller_after_failed_task(controller: EvolutionController, task: dict[str, Any]) -> None:
+    """Advance controller state so a failed task is not retried indefinitely."""
+    phase = task.get("phase")
+    if phase == RoundPhase.ORIGINAL:
+        controller._directions_completed.add(task.get("direction_id", 0))
+        return
+    if phase == RoundPhase.MUTATION:
+        controller._mutation_idx += 1
+        return
+    if phase == RoundPhase.CROSSOVER:
+        controller._crossover_idx += 1
+
+
 def _parallel_task_worker(
     task: dict[str, Any],
     directions: list[str],
@@ -453,6 +466,7 @@ def run_evolution_loop(
     steps_per_loop = int(exec_cfg.get("steps_per_loop", 5))
     use_local = bool(exec_cfg.get("use_local", True))
     factor_store_kwargs = exec_cfg.get("factor_store_kwargs", {}) or {}
+    max_tasks_per_run = int(exec_cfg.get("max_tasks_per_run", 0) or 0)
 
     mutation_enabled = bool(evolution_cfg.get("mutation_enabled", True))
     crossover_enabled = bool(evolution_cfg.get("crossover_enabled", True))
@@ -550,6 +564,9 @@ def run_evolution_loop(
                 if elapsed >= budget_seconds:
                     logger.info(f"Evolution budget exhausted: {elapsed:.0f}s / {budget_seconds}s")
                     break
+            if max_tasks_per_run and total_tasks >= max_tasks_per_run:
+                logger.info(f"Evolution task cap reached: {total_tasks}/{max_tasks_per_run}")
+                break
             if stop_event and stop_event.is_set():
                 logger.info("Stop signal received, ending evolution loop")
                 break
@@ -609,6 +626,9 @@ def run_evolution_loop(
             if stop_event and stop_event.is_set():
                 logger.info("Stop signal received, ending evolution loop")
                 break
+            if max_tasks_per_run and total_tasks >= max_tasks_per_run:
+                logger.info(f"Evolution task cap reached: {total_tasks}/{max_tasks_per_run}")
+                break
 
             task = controller.get_next_task()
             if task is None:
@@ -644,6 +664,7 @@ def run_evolution_loop(
 
                 logger.error(traceback.format_exc())
                 failures.append(_build_task_failure_record(task, str(e)))
+                _advance_controller_after_failed_task(controller, task)
                 continue
 
     state_path = Path(log_root) / "evolution_state.json"

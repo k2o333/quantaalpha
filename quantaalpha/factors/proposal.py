@@ -1,5 +1,7 @@
 """Compatibility facade for factor proposal generation and expression construction."""
 
+from quantaalpha.llm.client import APIBackend, call_structured, robust_json_parse
+
 from .proposal_expression import AlphaAgentHypothesis2FactorExpression, BacktestHypothesis2FactorExpression
 from .proposal_generation import (
     CONSTRUCT_FACTORS_TOOL,

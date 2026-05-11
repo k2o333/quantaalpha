@@ -473,7 +473,10 @@ def call_structured(
 
     # Preserve None fallback semantic: if LLM_SETTINGS.max_retry is None,
     # fall back to the default (30) like _try_create_chat_completion_or_embedding does.
-    max_retry = _coerce_int_setting(getattr(LLM_SETTINGS, "max_retry", None), 30, minimum=1)
+    max_retry_setting = getattr(api, "_max_retry_override", None)
+    if max_retry_setting is None:
+        max_retry_setting = getattr(LLM_SETTINGS, "max_retry", None)
+    max_retry = _coerce_int_setting(max_retry_setting, 30, minimum=1)
 
     def _call_structured_once() -> dict[str, Any]:
         """Execute a single raw call + parse, without retry."""

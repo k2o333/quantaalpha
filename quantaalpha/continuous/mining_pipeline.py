@@ -107,8 +107,12 @@ class MiningPipelineMixin:
                     exec_cfg={
                         "steps_per_loop": self._state_cfg.get("steps_per_mining", 5),
                         "use_local": True,
+                        "max_tasks_per_run": self._orchestration_cfg.get("max_steps_per_cycle", 6),
                         "factor_store_kwargs": {
                             **self._build_alpha_agent_loop_storage_kwargs(),
+                            "step_model_routing": self._agent_loop_cfg.get("step_model_routing"),
+                            "ensemble_config": self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
+                            "provider_pool_cfg": self._provider_pool_cfg,
                             "backtest_backend": self.backtest_backend,
                             "backtest_noqlib_config": self.backtest_noqlib_config,
                         },

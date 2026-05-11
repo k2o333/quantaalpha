@@ -143,6 +143,7 @@ class TestPhase4RuntimeEvolution:
         mock_adapter.assert_called_once()
         call_kwargs = mock_adapter.call_args.kwargs
         assert call_kwargs["initial_direction"] == "mutation test"
+        assert call_kwargs["budget_seconds"] == 17
         assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["parquet_store_path"] == str(tmp_path / "parquet_store")
         assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["performance_history_config"]["enabled"] is True
 
@@ -187,6 +188,7 @@ class TestPhase4RuntimeEvolution:
         mock_adapter.assert_called_once()
         call_kwargs = mock_adapter.call_args.kwargs
         assert call_kwargs["initial_direction"] == "crossover test"
+        assert call_kwargs["budget_seconds"] == 19
         assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["parquet_store_path"] == str(tmp_path / "parquet_store")
         assert call_kwargs["exec_cfg"]["factor_store_kwargs"]["performance_history_config"]["enabled"] is True
 
@@ -286,6 +288,48 @@ class TestPhase5OrchestrationTrace:
         assert "stop_reason" in trace
         assert "steps" in trace
         assert trace["start_node"] == "original"
+
+    def test_phase5_orchestrated_cycle_passes_remaining_budget_to_action(self, tmp_path):
+        """The cycle budget must reach mutation/crossover actions instead of being dropped."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg={
+                "enabled": True,
+                "start_node": "mutation",
+                "max_steps_per_cycle": 1,
+                "nodes": [
+                    {
+                        "id": "mutation",
+                        "kind": "action",
+                        "action": "mutation",
+                        "next": [],
+                    }
+                ],
+                "conditions": [],
+            },
+        )
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            mock_action.return_value = ActionResult(
+                action="mutation",
+                status="success",
+                generated_factors=1,
+                validated_factors=1,
+                added_factors=1,
+                metadata={"factor_ids": ["m1"]},
+            )
+
+            scheduler._run_orchestrated_cycle(budget_seconds=30)
+
+        params = mock_action.call_args.kwargs["params"]
+        assert params["budget_seconds"] is not None
+        assert 0 < params["budget_seconds"] <= 30
 
     def test_phase5_orchestration_trace_steps_have_required_fields(self, tmp_path):
         """Verify each step in orchestration_trace has required fields."""

@@ -158,3 +158,25 @@ class TestFactorRegulatorParquetZoo:
         assert "traceback" in source.lower(), (
             "_load_from_parquet_store should log traceback for unexpected errors"
         )
+
+
+class TestFactorRegulatorDslSignatures:
+    def test_rejects_sequence_outside_regression_argument_b(self):
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        ok, message = regulator.parse_diagnostic(
+            "TS_MEAN(($close - $open) / $open * SEQUENCE(5), 5)"
+        )
+
+        assert ok is False
+        assert "SEQUENCE(n) may only be used as argument B" in message
+
+    def test_allows_sequence_as_regression_argument_b(self):
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        ok, message = regulator.parse_diagnostic("REGBETA($close, SEQUENCE(5), 5)")
+
+        assert ok is True
+        assert message is None

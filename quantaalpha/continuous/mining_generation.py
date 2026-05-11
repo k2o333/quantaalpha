@@ -277,6 +277,8 @@ class MiningGenerationMixin:
             response = client.build_messages_and_create_chat_completion(
                 user_prompt=prompt,
                 system_prompt="You are a quantitative factor researcher. Generate novel alpha factors.",
+                stream=False,
+                llm_call_site="continuous.mining_generation.generate_via_llm",
             )
 
             if response:

@@ -94,6 +94,16 @@ CONSTRUCT_FACTORS_TOOL = {
                 "factors": {
                     "type": "object",
                     "description": "Dynamic keys: each key is a factor name, value has description, formulation, expression, variables.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "formulation": {"type": "string"},
+                            "expression": {"type": "string"},
+                            "variables": {"type": "object"},
+                        },
+                        "required": ["description", "formulation", "expression", "variables"],
+                    },
                 },
             },
             "required": ["factors"],

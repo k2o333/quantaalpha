@@ -7,7 +7,7 @@ import time
 import hashlib
 import json
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from typing import Any, List, TYPE_CHECKING
 
@@ -163,6 +163,14 @@ def _extract_metric(result: Any, metric_name: str) -> float | None:
         return None
 
 
+def _round_summary_value(round_summary, key: str, default=None):
+    if round_summary is None:
+        return default
+    if isinstance(round_summary, dict):
+        return round_summary.get(key, default)
+    return getattr(round_summary, key, default)
+
+
 def append_combined_backtest_performance_history(
     *,
     experiment,
@@ -198,9 +206,10 @@ def append_combined_backtest_performance_history(
         "max_drawdown": _extract_metric(result, "1day.excess_return_with_cost.max_drawdown"),
     }
 
-    successful_ids = set(getattr(round_summary, "successful_factor_ids", []) or [])
-    failed_ids = set(getattr(round_summary, "failed_factor_ids", []) or [])
-    failed_reasons = getattr(round_summary, "failed_reasons", {}) or {}
+    successful_ids = set(_round_summary_value(round_summary, "successful_factor_ids", []) or [])
+    failed_ids = set(_round_summary_value(round_summary, "failed_factor_ids", []) or [])
+    failed_reasons = _round_summary_value(round_summary, "failed_reasons", {}) or {}
+    has_factor_tracking = bool(successful_ids or failed_ids)
 
     from quantaalpha.factor_ops.performance_history import build_summary_row
 
@@ -209,6 +218,9 @@ def append_combined_backtest_performance_history(
         factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
         factor_expression = getattr(task, "factor_expression", "")
         factor_id = hashlib.md5(f"{factor_name}_{factor_expression}".encode()).hexdigest()[:16]
+        if has_factor_tracking and factor_id not in successful_ids:
+            logger.info(f"Skipping failed factor during performance history save: {factor_name} ({factor_id})")
+            continue
         if factor_id in successful_ids:
             status = "success"
             error_message = None
@@ -269,6 +281,7 @@ def save_factors_to_parquet(
     trajectory_id: str = "",
     parent_trajectory_ids: list = None,
     compact_config: dict | None = None,
+    round_summary=None,
 ):
     """Save factors from experiment to Parquet factor library.
 
@@ -306,12 +319,22 @@ def save_factors_to_parquet(
     sub_tasks = getattr(experiment, "sub_tasks", []) or []
     sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
 
+    successful_ids = set(_round_summary_value(round_summary, "successful_factor_ids", []) or [])
+    failed_ids = set(_round_summary_value(round_summary, "failed_factor_ids", []) or [])
+    has_factor_tracking = bool(successful_ids or failed_ids)
+
+    skipped = 0
     for idx, task in enumerate(sub_tasks):
         factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
         factor_expr = getattr(task, "factor_expression", "")
         factor_desc = getattr(task, "factor_description", getattr(task, "description", ""))
 
         factor_id = hashlib.md5(f"{factor_name}_{factor_expr}".encode()).hexdigest()[:16]
+        if has_factor_tracking and factor_id not in successful_ids:
+            skipped += 1
+            logger.info(f"Skipping failed factor during Parquet save: {factor_name} ({factor_id})")
+            continue
+
         expression_hash = hashlib.sha256(factor_expr.encode()).hexdigest()[:16]
 
         metadata = {
@@ -352,7 +375,8 @@ def save_factors_to_parquet(
 
         store.write_factor(entry)
 
-    logger.info(f"Saved {len(sub_tasks)} factors to Parquet store: {parquet_store_path}")
+    saved = len(sub_tasks) - skipped
+    logger.info(f"Saved {saved} factors to Parquet store: {parquet_store_path}")
 
     # Maybe compact after all factors in the batch are written
     compact_result = maybe_compact_after_save(store, compact_config)
@@ -480,6 +504,8 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 "allowed_inconsistent_severities",
                 "data_quality_enabled",
                 "data_capabilities",
+                "max_construct_retries",
+                "max_multi_construct_retries",
             ):
                 if optional_key in self.quality_gate_config:
                     factor_constructor_kwargs[optional_key] = self.quality_gate_config[optional_key]
@@ -524,6 +550,16 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             return None
 
         provider_alias = self._step_model_routing[step_name]
+        if isinstance(provider_alias, dict):
+            api_backend = getattr(self, "_api_backend", None)
+            if api_backend is not None and hasattr(api_backend, "get_model_for_task"):
+                return api_backend.get_model_for_task(
+                    required_capabilities=provider_alias.get("require_capabilities"),
+                    max_tier=provider_alias.get("max_tier"),
+                )
+            logger.warning(f"step_model_routing[{step_name}] requires APIBackend task routing but no backend is available")
+            return None
+
         if not isinstance(provider_alias, str):
             logger.warning(f"step_model_routing[{step_name}] is not a string: {provider_alias}")
             return None
@@ -547,7 +583,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         _create_chat_completion_inner_function defaults reasoning_flag=True
         and reads reasoning_model instead of chat_model in that case.
         """
-        model = self._get_model_for_step(step_name)
+        model = self.get_model_for_step(step_name)
         if model is None:
             yield
             return
@@ -582,6 +618,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         system_prompt: str,
         user_prompt: str,
         json_flag: bool,
+        timeout_seconds: float | None = None,
     ) -> "ModelResponse":
         """Call a single ensemble model and return a ModelResponse.
 
@@ -590,7 +627,11 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         from quantaalpha.llm.ensemble import ModelResponse
 
         start_time = time.time()
-        backend = APIBackend(chat_model=real_model)
+        backend = APIBackend(
+            chat_model=real_model,
+            request_timeout_seconds=timeout_seconds,
+            max_retry_override=1,
+        )
         messages = backend.build_messages(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
@@ -655,6 +696,11 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         models = self._ensemble_config.get("models", [])
         strategy = self._ensemble_config.get("strategy", "voting")
         configured_workers = int(self._ensemble_config.get("max_workers", 3) or 3)
+        max_wait_seconds_raw = self._ensemble_config.get("max_wait_seconds")
+        max_wait_seconds = float(max_wait_seconds_raw) if max_wait_seconds_raw is not None else None
+        if max_wait_seconds is not None and max_wait_seconds <= 0:
+            max_wait_seconds = None
+        early_quorum = bool(self._ensemble_config.get("early_quorum", False))
 
         aggregator = EnsembleAggregator(strategy=strategy)
 
@@ -676,33 +722,71 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
         # Fan out concurrent execution with bounded workers
         max_workers = max(1, min(len(model_specs), configured_workers))
+        min_responses = int(self._ensemble_config.get("min_responses", len(model_specs)) or len(model_specs))
+        min_responses = max(1, min(min_responses, len(model_specs)))
         result_map: dict[str, ModelResponse] = {}
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_model = {
-                executor.submit(
-                    self._call_ensemble_model,
-                    model_name=model_name,
-                    real_model=real_model,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    json_flag=json_flag,
-                ): model_name
-                for model_name, real_model in model_specs
-            }
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        future_to_model = {
+            executor.submit(
+                self._call_ensemble_model,
+                model_name=model_name,
+                real_model=real_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                json_flag=json_flag,
+                timeout_seconds=max_wait_seconds,
+            ): model_name
+            for model_name, real_model in model_specs
+        }
+        pending = set(future_to_model)
+        deadline = time.time() + max_wait_seconds if max_wait_seconds is not None else None
 
-            for future in as_completed(future_to_model):
-                model_name = future_to_model[future]
-                try:
-                    response = future.result()
-                    result_map[model_name] = response
-                    latency_ms = response.latency_ms
-                    logger.info(
-                        f"[ensemble] model={model_name} real_model={self._provider_name_to_model.get(model_name, model_name)} "
-                        f"latency_ms={latency_ms:.0f} output={self._summarize_output(response.raw_output)}"
+        try:
+            while pending:
+                timeout = None
+                if deadline is not None:
+                    timeout = max(0.0, deadline - time.time())
+                    if timeout <= 0:
+                        logger.warning(
+                            f"[ensemble] max_wait_seconds={max_wait_seconds:.0f} reached; "
+                            f"continuing with {len(result_map)}/{len(model_specs)} responses"
+                        )
+                        break
+
+                done, pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
+                if not done:
+                    logger.warning(
+                        f"[ensemble] wait timed out after {max_wait_seconds:.0f}s; "
+                        f"continuing with {len(result_map)}/{len(model_specs)} responses"
                     )
-                except Exception as exc:
-                    logger.warning(f"[ensemble] Model {model_name} failed: {exc}")
+                    break
+
+                for future in done:
+                    model_name = future_to_model[future]
+                    try:
+                        response = future.result()
+                        result_map[model_name] = response
+                        latency_ms = response.latency_ms
+                        logger.info(
+                            f"[ensemble] model={model_name} real_model={self._provider_name_to_model.get(model_name, model_name)} "
+                            f"latency_ms={latency_ms:.0f} output={self._summarize_output(response.raw_output)}"
+                        )
+                    except Exception as exc:
+                        logger.warning(f"[ensemble] Model {model_name} failed: {exc}")
+
+                if early_quorum and len(result_map) >= min_responses:
+                    logger.info(
+                        f"[ensemble] quorum reached: {len(result_map)}/{len(model_specs)} responses; "
+                        f"skipping {len(pending)} pending model(s)"
+                    )
+                    break
+        finally:
+            for future in pending:
+                model_name = future_to_model[future]
+                logger.warning(f"[ensemble] skipping slow pending model={model_name}")
+                future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
 
         # Rebuild responses in original model-config order (deterministic)
         responses = []
@@ -904,6 +988,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 trajectory_id=trajectory_id,
                 parent_trajectory_ids=parent_trajectory_ids,
                 compact_config=compact_config,
+                round_summary=round_summary,
             )
             logger.info(f"Saved factors to Parquet store: {parquet_store_path} (phase={evolution_phase})")
 
@@ -1059,7 +1144,10 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             "total_factors": summary.total_factors,
             "successful_count": summary.successful_count,
             "failed_count": summary.failed_count,
+            "successful_factor_ids": summary.successful_factor_ids,
+            "failed_factor_ids": summary.failed_factor_ids,
             "factors_to_retry": summary.factors_to_retry,
+            "failed_reasons": summary.failed_reasons,
             "all_succeeded": summary.all_succeeded,
             "all_failed": summary.all_failed,
         }
@@ -1098,6 +1186,9 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             "loop_idx": self.loop_idx,
             "round_idx": self.round_idx,
         }
+
+
+AlphaAgentLoop.get_model_for_step = AlphaAgentLoop._get_model_for_step
 
 
 class BacktestLoop(LoopBase, metaclass=LoopMeta):

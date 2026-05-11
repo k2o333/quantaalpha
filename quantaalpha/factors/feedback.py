@@ -19,9 +19,29 @@ from quantaalpha.utils import convert2bool
 
 # Max retries for JSON parsing (now handled by call_structured degradation, kept for safety)
 MAX_JSON_PARSE_RETRIES = 3
+FEEDBACK_REQUEST_TIMEOUT_SECONDS = 60
+FEEDBACK_MAX_RETRY = 2
 
 base_feedback_prompts = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
 DIRNAME = Path(__file__).absolute().resolve().parent
+
+
+def _new_feedback_api_backend() -> APIBackend:
+    return APIBackend(
+        request_timeout_seconds=FEEDBACK_REQUEST_TIMEOUT_SECONDS,
+        max_retry_override=FEEDBACK_MAX_RETRY,
+    )
+
+
+def _feedback_generation_failed(error: Exception | None) -> HypothesisFeedback:
+    reason = f"Feedback generation failed: {error}" if error else "Feedback generation failed"
+    return HypothesisFeedback(
+        observations="Feedback generation failed; continuing without LLM feedback",
+        hypothesis_evaluation="Unable to evaluate",
+        new_hypothesis="",
+        reason=reason,
+        decision=False,
+    )
 
 
 def process_results(current_result, sota_result):
@@ -155,7 +175,7 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         )
 
         # Call the unified structured gateway with tool schema
-        api = APIBackend()
+        api = _new_feedback_api_backend()
         messages = api.build_messages(user_prompt=usr_prompt, system_prompt=sys_prompt)
 
         response_json = None
@@ -177,16 +197,14 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
                 if attempt < MAX_JSON_PARSE_RETRIES - 1:
                     logger.info("[QuantaAlpha] Re-requesting LLM...")
                 continue
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[QuantaAlpha] Feedback generation failed (attempt {attempt + 1}/{MAX_JSON_PARSE_RETRIES}): {e}")
+                break
 
         if response_json is None:
             logger.error(f"[QuantaAlpha] JSON parse still failed after {MAX_JSON_PARSE_RETRIES} attempts")
-            return HypothesisFeedback(
-                observations="JSON parse failed; could not extract feedback",
-                hypothesis_evaluation="Unable to evaluate",
-                new_hypothesis="",
-                reason=f"JSON parse error: {last_error}",
-                decision=False,
-            )
+            return _feedback_generation_failed(last_error)
 
         # Extract fields from JSON response
         observations = response_json.get("Observations", "No observations provided")
@@ -205,6 +223,7 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
 
 
 qa_feedback_prompts = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")
+feedback_prompts = qa_feedback_prompts
 
 
 class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
@@ -276,7 +295,7 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         )
 
         # Call the unified structured gateway with tool schema
-        api = APIBackend()
+        api = _new_feedback_api_backend()
         messages = api.build_messages(user_prompt=usr_prompt, system_prompt=sys_prompt)
 
         response_json = None
@@ -289,6 +308,7 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
                     messages,
                     tools=[FEEDBACK_TOOL],
                     tool_choice="required",
+                    task_type="feedback_summarization",
                 )
                 break
             except json.JSONDecodeError as e:
@@ -297,16 +317,14 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
                 if attempt < MAX_JSON_PARSE_RETRIES - 1:
                     logger.info("[AlphaAgent] Re-requesting LLM...")
                 continue
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[AlphaAgent] Feedback generation failed (attempt {attempt + 1}/{MAX_JSON_PARSE_RETRIES}): {e}")
+                break
 
         if response_json is None:
             logger.error(f"[AlphaAgent] JSON parse still failed after {MAX_JSON_PARSE_RETRIES} attempts")
-            return HypothesisFeedback(
-                observations="JSON parse failed; could not extract feedback",
-                hypothesis_evaluation="Unable to evaluate",
-                new_hypothesis="",
-                reason=f"JSON parse error: {last_error}",
-                decision=False,
-            )
+            return _feedback_generation_failed(last_error)
 
         # Extract fields from JSON response
         observations = response_json.get("Observations", "No observations provided")
@@ -356,7 +374,7 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         )
 
         # Call the unified structured gateway with tool schema
-        api = APIBackend()
+        api = _new_feedback_api_backend()
         messages = api.build_messages(user_prompt=user_prompt, system_prompt=system_prompt)
 
         response_json_hypothesis = None
@@ -369,6 +387,7 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
                     messages,
                     tools=[FEEDBACK_TOOL],
                     tool_choice="required",
+                    task_type="feedback_summarization",
                 )
                 break
             except json.JSONDecodeError as e:
@@ -377,16 +396,14 @@ class QlibModelHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
                 if attempt < MAX_JSON_PARSE_RETRIES - 1:
                     logger.info("[Model] Re-requesting LLM...")
                 continue
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[Model] Feedback generation failed (attempt {attempt + 1}/{MAX_JSON_PARSE_RETRIES}): {e}")
+                break
 
         if response_json_hypothesis is None:
             logger.error(f"[Model] JSON parse still failed after {MAX_JSON_PARSE_RETRIES} attempts")
-            return HypothesisFeedback(
-                observations="JSON parse failed; could not extract feedback",
-                hypothesis_evaluation="Unable to evaluate",
-                new_hypothesis="",
-                reason=f"JSON parse error: {last_error}",
-                decision=False,
-            )
+            return _feedback_generation_failed(last_error)
 
         return HypothesisFeedback(
             observations=response_json_hypothesis.get("Observations", "No observations provided"),

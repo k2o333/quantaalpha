@@ -131,7 +131,11 @@ def generate_parallel_directions(
     for attempt in range(1, max_attempts + 1):
         try:
             resp = APIBackend().build_messages_and_create_chat_completion(
-                user_prompt=user_prompt, system_prompt=system_prompt, json_mode=False
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+                json_mode=False,
+                stream=False,
+                llm_call_site="pipeline.planning.generate_directions",
             )
             directions = _parse_directions(resp, n)
             if directions:

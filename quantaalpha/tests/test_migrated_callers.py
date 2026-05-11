@@ -9,6 +9,7 @@ Proves that:
 
 import inspect
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 
 class TestFeedbackMigration:
@@ -49,6 +50,60 @@ class TestFeedbackMigration:
         source = inspect.getsource(QlibModelHypothesisExperiment2Feedback.generate_feedback)
         assert "call_structured" in source, "Must use call_structured"
         assert "FEEDBACK_TOOL" in source, "Must pass FEEDBACK_TOOL schema"
+
+    def test_feedback_calls_use_bounded_backend_retries(self):
+        """Feedback calls must not spend a full global timeout on a slow first provider."""
+        from quantaalpha.factors import feedback
+
+        source = Path(feedback.__file__).read_text()
+        assert "FEEDBACK_REQUEST_TIMEOUT_SECONDS" in source
+        assert "FEEDBACK_MAX_RETRY" in source
+        assert "request_timeout_seconds=FEEDBACK_REQUEST_TIMEOUT_SECONDS" in source
+        assert "max_retry_override=FEEDBACK_MAX_RETRY" in source
+
+    def test_all_feedback_paths_use_feedback_task_type(self):
+        """Every feedback structured call should be observable and routeable as feedback."""
+        from quantaalpha.factors.feedback import (
+            AlphaAgentQlibFactorHypothesisExperiment2Feedback,
+            QlibFactorHypothesisExperiment2Feedback,
+            QlibModelHypothesisExperiment2Feedback,
+        )
+
+        for cls in (
+            QlibFactorHypothesisExperiment2Feedback,
+            AlphaAgentQlibFactorHypothesisExperiment2Feedback,
+            QlibModelHypothesisExperiment2Feedback,
+        ):
+            source = inspect.getsource(cls.generate_feedback)
+            assert 'task_type="feedback_summarization"' in source
+
+    def test_alphaagent_feedback_timeout_returns_nonblocking_feedback(self):
+        """Feedback LLM exhaustion should not fail the mining task."""
+        from quantaalpha.factors.feedback import AlphaAgentQlibFactorHypothesisExperiment2Feedback
+
+        feedbacker = object.__new__(AlphaAgentQlibFactorHypothesisExperiment2Feedback)
+        feedbacker.scen = MagicMock()
+        feedbacker.scen.get_scenario_all_desc.return_value = "scenario"
+
+        exp = MagicMock()
+        exp.result = {"IC": [0.0]}
+        exp.sub_tasks = []
+        exp.based_experiments = []
+
+        hypothesis = MagicMock()
+        hypothesis.hypothesis = "test hypothesis"
+
+        with patch("quantaalpha.factors.feedback.APIBackend") as MockAPI:
+            mock_api = MagicMock()
+            mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+            MockAPI.return_value = mock_api
+
+            with patch("quantaalpha.factors.feedback.call_structured", side_effect=RuntimeError("timeout")):
+                result = feedbacker.generate_feedback(exp, hypothesis, MagicMock())
+
+        assert result.decision is False
+        assert "failed" in result.observations.lower()
+        assert "timeout" in result.reason
 
 
 class TestConsistencyCheckerMigration:

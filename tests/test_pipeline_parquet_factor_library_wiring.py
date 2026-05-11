@@ -5,6 +5,7 @@ Verifies that the pipeline save branch uses FactorStoreFacade, not JSON FactorLi
 """
 
 import json
+import hashlib
 import os
 import tempfile
 import shutil
@@ -171,6 +172,55 @@ class TestSaveFactorsToParquetHelper:
         # Assert no JSON files anywhere in store (recursive check)
         json_files = list(store_path.rglob("*.json"))
         assert len(json_files) == 0, f"No JSON files should exist anywhere in store, found: {json_files}"
+
+    def test_save_helper_skips_failed_factors_when_round_summary_is_available(self, tmp_factorlib_dir):
+        """Only factors that completed the debug round successfully should enter the library."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment()
+        failed_task = MagicMock()
+        failed_task.factor_name = "failed_factor"
+        failed_task.factor_expression = "TS_MEAN($close * SEQUENCE(5), 5)"
+        failed_task.factor_description = "Invalid sequence usage"
+        failed_task.factor_formulation = ""
+        experiment.sub_tasks.append(failed_task)
+
+        success = experiment.sub_tasks[0]
+        success_id = hashlib.md5(
+            f"{success.factor_name}_{success.factor_expression}".encode()
+        ).hexdigest()[:16]
+        failed_id = hashlib.md5(
+            f"{failed_task.factor_name}_{failed_task.factor_expression}".encode()
+        ).hexdigest()[:16]
+
+        store_path = Path(tmp_factorlib_dir) / "successful_only_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            experiment_id="exp_partial",
+            round_number=0,
+            hypothesis="Test",
+            feedback=None,
+            initial_direction="dir",
+            user_initial_direction="dir",
+            planning_direction="dir",
+            evolution_phase="mutation",
+            trajectory_id="t_partial",
+            parent_trajectory_ids=[],
+            round_summary={
+                "successful_factor_ids": [success_id],
+                "failed_factor_ids": [failed_id],
+                "failed_reasons": {failed_id: ["backtest_exception"]},
+            },
+        )
+
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        assert len(delta_files) == 1, "Only the successful factor should be saved"
+        df = pl.read_parquet(str(delta_files[0]))
+        assert df["factor_id"].to_list() == [success_id]
 
     def test_pipeline_save_sequence_uses_microsecond_timestamp_plus_index(self, tmp_factorlib_dir):
         """Two factors in one batch have different increasing sequence values greater than a legacy round number."""

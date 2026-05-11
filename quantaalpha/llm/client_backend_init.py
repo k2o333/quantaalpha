@@ -30,7 +30,11 @@ class BackendInitMixin:
         use_embedding_cache: bool | None = None,
         dump_embedding_cache: bool | None = None,
         provider_pool: "ProviderPool | None" = None,
+        request_timeout_seconds: int | float | None = None,
+        max_retry_override: int | None = None,
     ) -> None:
+        self._request_timeout_seconds = request_timeout_seconds
+        self._max_retry_override = max_retry_override
         if LLM_SETTINGS.use_llama2:
             self.generator = Llama.build(
                 ckpt_dir=LLM_SETTINGS.llama2_ckpt_dir,
@@ -179,7 +183,7 @@ class BackendInitMixin:
 
     def _create_openai_client(self, *, api_key: str | None, base_url: str | None):
         """Create an OpenAI-compatible client governed by our retry loop."""
-        timeout_value = LLM_SETTINGS.openai_request_timeout_seconds
+        timeout_value = self._request_timeout_seconds or LLM_SETTINGS.openai_request_timeout_seconds
         logger.info(f"[_create_openai_client] Creating client with timeout={timeout_value}s, model={getattr(self, 'chat_model', 'N/A')}")
         return openai.OpenAI(
             api_key=api_key,
@@ -273,16 +277,20 @@ class BackendInitMixin:
             logger.warning(f"No model found for capabilities {required_capabilities}; falling back to default chat_model")
 
         # Fall back to existing routing logic
+        routing_default = getattr(self, "routing_default", "")
+        chat_model = getattr(self, "chat_model", LLM_SETTINGS.chat_model)
+        chat_model_map = getattr(self, "chat_model_map", {})
+        task_model_map = getattr(self, "task_model_map", {})
         if task_type:
             if task_type not in KNOWN_TASK_TYPES:
                 logger.warning(f"Unknown llm task_type={task_type}; falling back to default routing")
-            model = self.task_model_map.get(task_type)
+            model = task_model_map.get(task_type)
             if model:
                 return model
-            return self.routing_default or self.chat_model_map.get(tag or "", self.chat_model)
+            return routing_default or chat_model_map.get(tag or "", chat_model)
         if tag:
-            return self.chat_model_map.get(tag, self.chat_model)
-        return self.routing_default or self.chat_model
+            return chat_model_map.get(tag, chat_model)
+        return routing_default or chat_model
 
     def build_messages(
         self,

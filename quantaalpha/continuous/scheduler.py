@@ -303,6 +303,9 @@ class EnsembleConfig:
     enabled: bool = False
     strategy: str = "voting"
     max_workers: int = 3
+    min_responses: int | None = None
+    max_wait_seconds: float | None = None
+    early_quorum: bool = False
     models: list[ModelConfig] = field(default_factory=list)
 
     @classmethod
@@ -313,6 +316,9 @@ class EnsembleConfig:
             enabled=d.get("enabled", False),
             strategy=d.get("strategy", "voting"),
             max_workers=d.get("max_workers", 3),
+            min_responses=d.get("min_responses"),
+            max_wait_seconds=d.get("max_wait_seconds"),
+            early_quorum=d.get("early_quorum", False),
             models=[ModelConfig.from_dict(m) for m in d.get("models", [])],
         )
 
@@ -865,6 +871,10 @@ class PipelineConfig:
                 "ensemble": {
                     "enabled": self.mining.ensemble.enabled,
                     "strategy": self.mining.ensemble.strategy,
+                    "max_workers": self.mining.ensemble.max_workers,
+                    "min_responses": self.mining.ensemble.min_responses,
+                    "max_wait_seconds": self.mining.ensemble.max_wait_seconds,
+                    "early_quorum": self.mining.ensemble.early_quorum,
                     "models": [{"name": m.name, "tier": m.tier} for m in self.mining.ensemble.models],
                 },
                 "provider_pool": {

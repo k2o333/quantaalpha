@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from .risk import risk_metrics
 
@@ -16,6 +18,7 @@ class NoQlibTopkDropoutBacktester:
     def __init__(self, config: dict[str, Any], market_data: pd.DataFrame) -> None:
         self.config = config
         self.market_data = market_data
+        self.universe_mask = _load_resolved_universe_mask(config)
 
     def run(self, prediction: pd.Series) -> tuple[dict[str, float], pd.DataFrame, pd.DataFrame]:
         """返回 metrics、daily report、positions。"""
@@ -47,11 +50,12 @@ class NoQlibTopkDropoutBacktester:
         for dt in dates:
             signal_dt = _previous_signal_date(pred_dates, dt)
             if signal_dt is None:
-                next_holdings = list(holdings)
+                next_holdings = _filter_holdings_by_universe(holdings, self.universe_mask, dt)
             else:
                 day_pred = pred.xs(signal_dt, level="datetime").dropna()
+                day_pred = _filter_prediction_by_universe(day_pred, self.universe_mask, dt)
                 next_holdings = _next_topk_dropout_holdings(
-                    holdings=holdings,
+                    holdings=_filter_holdings_by_universe(holdings, self.universe_mask, dt),
                     pred_score=day_pred,
                     topk=topk,
                     n_drop=n_drop,
@@ -110,6 +114,59 @@ def _previous_signal_date(pred_dates: list[pd.Timestamp], trade_date: pd.Timesta
     if not previous:
         return None
     return previous[-1]
+
+
+def _load_resolved_universe_mask(config: dict[str, Any]) -> dict[pd.Timestamp, set[str]]:
+    noqlib_config = config.get("backtest_runtime", {}).get("noqlib", {})
+    universe_path = noqlib_config.get("resolved_universe_path")
+    if not universe_path:
+        return {}
+    path = Path(str(universe_path))
+    if not path.exists():
+        raise FileNotFoundError(f"resolved_universe_path not found: {path}")
+    frame = pl.read_parquet(path)
+    if "trade_date" not in frame.columns or "instrument" not in frame.columns:
+        raise ValueError("resolved_universe_path must contain trade_date and instrument columns")
+    mask_col = "eligible" if "eligible" in frame.columns else "selected"
+    if mask_col not in frame.columns:
+        raise ValueError("resolved_universe_path must contain eligible or selected column")
+    rows = (
+        frame.filter(pl.col(mask_col).cast(pl.Boolean, strict=False).fill_null(False))
+        .select(
+            pl.col("trade_date").cast(pl.Utf8),
+            pl.col("instrument").cast(pl.Utf8),
+        )
+        .to_dicts()
+    )
+    mask: dict[pd.Timestamp, set[str]] = {}
+    for row in rows:
+        trade_date = pd.Timestamp(str(row["trade_date"])).normalize()
+        mask.setdefault(trade_date, set()).add(str(row["instrument"]))
+    return mask
+
+
+def _filter_prediction_by_universe(
+    pred_score: pd.Series,
+    universe_mask: dict[pd.Timestamp, set[str]],
+    trade_date: pd.Timestamp,
+) -> pd.Series:
+    if not universe_mask:
+        return pred_score
+    allowed = universe_mask.get(pd.Timestamp(trade_date).normalize(), set())
+    if not allowed:
+        return pred_score.iloc[0:0]
+    return pred_score[pred_score.index.isin(allowed)]
+
+
+def _filter_holdings_by_universe(
+    holdings: list[str],
+    universe_mask: dict[pd.Timestamp, set[str]],
+    trade_date: pd.Timestamp,
+) -> list[str]:
+    if not universe_mask:
+        return list(holdings)
+    allowed = universe_mask.get(pd.Timestamp(trade_date).normalize(), set())
+    return [stock for stock in holdings if stock in allowed]
 
 
 def _next_topk_dropout_holdings(

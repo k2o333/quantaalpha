@@ -74,7 +74,7 @@ class NoQlibMarketDataProvider:
         for old, new in rename_map.items():
             if old in frame.columns and new not in frame.columns:
                 frame = frame.rename({old: new})
-        instruments = self.noqlib_config.get("instruments")
+        instruments = _resolve_config_instruments(self.noqlib_config)
         if instruments:
             keep = [str(item) for item in instruments]
             keep.extend(str(item) for item in self.noqlib_config.get("benchmark_instruments", []))
@@ -192,6 +192,23 @@ def _ensure_project_root_on_path(noqlib_config: dict[str, Any]) -> None:
         if (candidate / "training").exists() and str(candidate) not in sys.path:
             sys.path.insert(0, str(candidate))
             return
+
+
+def _resolve_config_instruments(noqlib_config: dict[str, Any]) -> list[str]:
+    instruments = noqlib_config.get("instruments")
+    if instruments:
+        return [str(item) for item in instruments]
+    universe_path = noqlib_config.get("resolved_universe_path")
+    if not universe_path:
+        return []
+    frame = pl.read_parquet(universe_path)
+    if "selected" in frame.columns:
+        frame = frame.filter(pl.col("selected"))
+    elif "eligible" in frame.columns:
+        frame = frame.filter(pl.col("eligible"))
+    if "instrument" not in frame.columns:
+        raise ValueError("resolved_universe_path must contain an instrument column")
+    return sorted(str(value) for value in frame.get_column("instrument").unique().to_list())
 
 
 def _datetime_expr(frame: pl.DataFrame) -> pl.Expr:

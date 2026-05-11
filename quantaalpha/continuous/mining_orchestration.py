@@ -15,7 +15,7 @@ class MiningOrchestrationMixin:
         Only supports 'original' action execution.
 
         Args:
-            budget_seconds: Maximum seconds for this cycle (currently unused).
+            budget_seconds: Maximum seconds for this cycle.
 
         Returns:
             Dict with factors_generated, factors_validated, factors_added, factor_ids, errors,
@@ -27,6 +27,7 @@ class MiningOrchestrationMixin:
             validate_orchestration_config,
         )
         import uuid
+        import time
 
         result = {
             "factors_generated": 0,
@@ -72,8 +73,19 @@ class MiningOrchestrationMixin:
             "steps": [],
         }
 
+        cycle_started_at = time.time()
+
         # Main orchestration loop
         while True:
+            remaining_budget = None
+            if budget_seconds is not None:
+                elapsed = time.time() - cycle_started_at
+                remaining_budget = max(0, int(budget_seconds - elapsed))
+                if remaining_budget <= 0:
+                    orchestration_trace["stop_reason"] = "budget_exhausted"
+                    logger.info(f"Orchestration budget exhausted: {elapsed:.0f}s / {budget_seconds}s")
+                    break
+
             # Check stop conditions
             stop_reason, should_stop = orchestrator.should_stop_with_reason(context)
 
@@ -101,6 +113,7 @@ class MiningOrchestrationMixin:
             action_params["active_parents"] = context.active_parents
             action_params["diversity_score"] = context.diversity_score
             action_params["consecutive_failures"] = context.consecutive_failures
+            action_params["budget_seconds"] = remaining_budget
 
             action_result = self._execute_orchestrated_action(
                 action=action_spec.action,
@@ -153,6 +166,10 @@ class MiningOrchestrationMixin:
             # Check budget / stop event (second check for safety)
             if self._stop_event.is_set():
                 orchestration_trace["stop_reason"] = "stop_event"
+                break
+            if budget_seconds is not None and time.time() - cycle_started_at >= budget_seconds:
+                orchestration_trace["stop_reason"] = "budget_exhausted"
+                logger.info(f"Orchestration budget exhausted after action: {time.time() - cycle_started_at:.0f}s / {budget_seconds}s")
                 break
 
         # Phase 5: Attach trace to result
@@ -298,10 +315,18 @@ class MiningOrchestrationMixin:
 
             direction = params.get("direction") or self._get_mining_direction()
             log_root = self._state_cfg.get("log_root")
+            max_tasks_per_run = params.get(
+                "max_tasks_per_run",
+                self._orchestration_cfg.get("max_tasks_per_action", self._orchestration_cfg.get("max_steps_per_cycle", 6)),
+            )
             exec_cfg = {
                 **self._state_cfg,
+                "max_tasks_per_run": max_tasks_per_run,
                 "factor_store_kwargs": {
                     **self._build_alpha_agent_loop_storage_kwargs(),
+                    "step_model_routing": self._agent_loop_cfg.get("step_model_routing"),
+                    "ensemble_config": self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
+                    "provider_pool_cfg": self._provider_pool_cfg,
                     "backtest_backend": self.backtest_backend,
                     "backtest_noqlib_config": self.backtest_noqlib_config,
                 },
@@ -318,7 +343,7 @@ class MiningOrchestrationMixin:
                 planning_cfg=self._direction_planner_cfg,
                 mutation_enabled=True,
                 crossover_enabled=False,
-                budget_seconds=self._state_cfg.get("budget_seconds"),
+                budget_seconds=params.get("budget_seconds", self._state_cfg.get("budget_seconds")),
                 log_root=log_root,
             )
 
@@ -378,10 +403,18 @@ class MiningOrchestrationMixin:
 
             direction = params.get("direction") or self._get_mining_direction()
             log_root = self._state_cfg.get("log_root")
+            max_tasks_per_run = params.get(
+                "max_tasks_per_run",
+                self._orchestration_cfg.get("max_tasks_per_action", self._orchestration_cfg.get("max_steps_per_cycle", 6)),
+            )
             exec_cfg = {
                 **self._state_cfg,
+                "max_tasks_per_run": max_tasks_per_run,
                 "factor_store_kwargs": {
                     **self._build_alpha_agent_loop_storage_kwargs(),
+                    "step_model_routing": self._agent_loop_cfg.get("step_model_routing"),
+                    "ensemble_config": self._ensemble_cfg if self._ensemble_cfg.get("enabled") else None,
+                    "provider_pool_cfg": self._provider_pool_cfg,
                     "backtest_backend": self.backtest_backend,
                     "backtest_noqlib_config": self.backtest_noqlib_config,
                 },
@@ -398,7 +431,7 @@ class MiningOrchestrationMixin:
                 planning_cfg=self._direction_planner_cfg,
                 mutation_enabled=False,
                 crossover_enabled=True,
-                budget_seconds=self._state_cfg.get("budget_seconds"),
+                budget_seconds=params.get("budget_seconds", self._state_cfg.get("budget_seconds")),
                 log_root=log_root,
             )
 

@@ -51,7 +51,13 @@ class LLMHypothesisGen(HypothesisGen):
             )
         )
 
-        resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag)
+        resp = APIBackend().build_messages_and_create_chat_completion(
+            user_prompt,
+            system_prompt,
+            json_mode=json_flag,
+            stream=False,
+            llm_call_site=f"components.proposal.{self.__class__.__name__}.gen",
+        )
 
         hypothesis = self.convert_response(resp)
 
@@ -106,7 +112,13 @@ class LLMHypothesis2Experiment(Hypothesis2Experiment[Experiment]):
             )
         )
 
-        resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag)
+        resp = APIBackend().build_messages_and_create_chat_completion(
+            user_prompt,
+            system_prompt,
+            json_mode=json_flag,
+            stream=False,
+            llm_call_site=f"components.proposal.{self.__class__.__name__}.convert",
+        )
         return self.convert_response(resp, trace)
 
 

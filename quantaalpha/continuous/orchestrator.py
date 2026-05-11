@@ -223,6 +223,9 @@ class MiningOrchestrator:
                     "enabled": self.config.mining.ensemble.enabled,
                     "strategy": self.config.mining.ensemble.strategy,
                     "max_workers": self.config.mining.ensemble.max_workers,
+                    "min_responses": self.config.mining.ensemble.min_responses,
+                    "max_wait_seconds": self.config.mining.ensemble.max_wait_seconds,
+                    "early_quorum": self.config.mining.ensemble.early_quorum,
                     "models": [{"name": m.name, "tier": m.tier} for m in self.config.mining.ensemble.models],
                 },
                 provider_pool_cfg={

@@ -288,6 +288,19 @@ class TestConstructPayloadShape(unittest.TestCase):
         # "factors" should be in required
         self.assertIn("factors", params.get("required", []))
 
+    def test_construct_factors_tool_schema_requires_factor_payload_fields(self):
+        """Dynamic factor payloads must require the fields consumed by the constructor."""
+        from quantaalpha.factors.proposal import CONSTRUCT_FACTORS_TOOL
+
+        factors_prop = CONSTRUCT_FACTORS_TOOL["function"]["parameters"]["properties"]["factors"]
+        payload_schema = factors_prop.get("additionalProperties")
+
+        self.assertIsInstance(payload_schema, dict)
+        self.assertEqual(payload_schema.get("type"), "object")
+        for field in ("description", "formulation", "expression", "variables"):
+            self.assertIn(field, payload_schema.get("properties", {}))
+            self.assertIn(field, payload_schema.get("required", []))
+
     def test_build_experiment_from_dict_consumes_same_shape(self):
         """_build_experiment_from_dict must consume the wrapped tool-call shape."""
         from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression

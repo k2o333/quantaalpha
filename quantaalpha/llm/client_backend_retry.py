@@ -270,7 +270,10 @@ class BackendRetryMixin:
         **kwargs: Any,
     ) -> Any:
         assert not (chat_completion and embedding), "chat_completion and embedding cannot be True at the same time"
-        max_retry = _coerce_int_setting(getattr(LLM_SETTINGS, "max_retry", None), max_retry, minimum=1)
+        max_retry_setting = getattr(self, "_max_retry_override", None)
+        if max_retry_setting is None:
+            max_retry_setting = getattr(LLM_SETTINGS, "max_retry", None)
+        max_retry = _coerce_int_setting(max_retry_setting, max_retry, minimum=1)
 
         def operation() -> Any:
             return self._create_chat_completion_or_embedding_once(
