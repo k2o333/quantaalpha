@@ -219,6 +219,17 @@ def _advance_controller_after_failed_task(controller: EvolutionController, task:
         controller._crossover_idx += 1
 
 
+def _is_bounded_llm_task_failure(error: Exception) -> bool:
+    """Return True for known LLM exhaustions that are already bounded by retry policy."""
+    text = str(error)
+    bounded_markers = (
+        "Failed to create call_structured after",
+        "Multi-hypothesis construct failed after",
+        "Feedback generation failed",
+    )
+    return any(marker in text for marker in bounded_markers)
+
+
 def _parallel_task_worker(
     task: dict[str, Any],
     directions: list[str],
@@ -659,10 +670,13 @@ def run_evolution_loop(
                 controller.report_task_complete(task, trajectory)
                 logger.info(f"Task done: trajectory_id={trajectory.trajectory_id}, RankIC={trajectory.get_primary_metric()}")
             except Exception as e:
-                logger.error(f"Task failed: {e}")
-                import traceback
+                if _is_bounded_llm_task_failure(e):
+                    logger.warning(f"Task skipped after bounded LLM failure: {e}")
+                else:
+                    logger.error(f"Task failed: {e}")
+                    import traceback
 
-                logger.error(traceback.format_exc())
+                    logger.error(traceback.format_exc())
                 failures.append(_build_task_failure_record(task, str(e)))
                 _advance_controller_after_failed_task(controller, task)
                 continue

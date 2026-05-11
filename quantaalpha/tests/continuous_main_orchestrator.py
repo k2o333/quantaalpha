@@ -749,6 +749,10 @@ class TestContinuousOrchestrator:
         config.validation.max_mining_per_run = 5
         config.factor = FactorConfig()
         config.factor.library_path = str(tmp_path / "lib.json")
+        config.factor.backtest_noqlib = {
+            "app5_storage_root": str(tmp_path / "data"),
+            "daily_interface": "daily",
+        }
         config.execution.train.start = "2020-01-01"
         config.execution.train.end = "2022-12-31"
         config.execution.valid.start = "2023-01-01"
@@ -775,6 +779,8 @@ class TestContinuousOrchestrator:
         assert mining_scheduler._data_bridge is orchestrator._bridge
         assert revalidation_scheduler._execution_periods == expected_periods
         assert mining_scheduler._execution_periods == expected_periods
+        assert revalidation_scheduler._backtest_noqlib_config == config.factor.backtest_noqlib
+        assert mining_scheduler.backtest_noqlib_config == config.factor.backtest_noqlib
 
 
 class TestStartCommand:

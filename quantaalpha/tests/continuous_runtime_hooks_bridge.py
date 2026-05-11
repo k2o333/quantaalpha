@@ -16,6 +16,7 @@ import sys
 import tempfile
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import polars as pl
@@ -33,6 +34,72 @@ _ensure_repo_root_importable()
 
 class TestBridgeDataIntegration:
     """Tests verifying schedulers use bridge loader for real data."""
+
+    def _write_app5_daily_clean_dataset(self, tmp_path: Path) -> Path:
+        data_root = tmp_path / "data"
+        daily_root = data_root / "daily"
+        active_dir = daily_root / "clean" / "active"
+        active_dir.mkdir(parents=True)
+        parquet_path = active_dir / "daily.parquet"
+        pl.DataFrame(
+            {
+                "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
+                "trade_date": ["20200102", "20231229", "20250102"],
+                "open": [10.0, 20.0, 30.0],
+                "high": [10.5, 20.5, 30.5],
+                "low": [9.5, 19.5, 29.5],
+                "close": [10.2, 20.2, 30.2],
+                "vol": [1000.0, 2000.0, 3000.0],
+            }
+        ).write_parquet(parquet_path)
+        manifest_dir = daily_root / "manifest"
+        manifest_dir.mkdir()
+        (manifest_dir / "current.json").write_text(
+            json.dumps({"active_files": ["clean/active/daily.parquet"]}),
+            encoding="utf-8",
+        )
+        return data_root
+
+    def test_revalidation_loads_app5_clean_data_when_bridge_unconfigured(self, tmp_path):
+        """Revalidation should use configured no-qlib clean data without requiring app4 bridge data."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        data_root = self._write_app5_daily_clean_dataset(tmp_path)
+        scheduler = DefaultRevalidationScheduler(
+            data_bridge=None,
+            backtest_noqlib_config={
+                "app5_storage_root": str(data_root),
+                "daily_interface": "daily",
+            },
+        )
+
+        df = scheduler._get_execution_dataframe()
+
+        assert len(df) == 2
+        assert df.columns == ["datetime", "vt_symbol", "open", "high", "low", "close", "volume"]
+        assert df["vt_symbol"].to_list() == ["000001.SZ", "000002.SZ"]
+        assert df["volume"].to_list() == [1000.0, 2000.0]
+
+    def test_revalidation_falls_back_to_app5_clean_data_when_bridge_empty(self, tmp_path):
+        """Empty bridge data should not make revalidation skip when app5 clean daily data is configured."""
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        data_root = self._write_app5_daily_clean_dataset(tmp_path)
+        mock_bridge = MagicMock()
+        mock_bridge.load_price_data.return_value = pl.DataFrame()
+        scheduler = DefaultRevalidationScheduler(
+            data_bridge=mock_bridge,
+            backtest_noqlib_config={
+                "app5_storage_root": str(data_root),
+                "daily_interface": "daily",
+            },
+        )
+
+        df = scheduler._get_execution_dataframe()
+
+        mock_bridge.load_price_data.assert_called_once()
+        assert len(df) == 2
+        assert df["vt_symbol"].to_list() == ["000001.SZ", "000002.SZ"]
 
     def test_run_factor_backtest_uses_bridge_loader_when_configured(self, tmp_path):
         """Verify _run_factor_backtest calls bridge.load_price_data with configured periods."""
@@ -85,9 +152,113 @@ class TestBridgeDataIntegration:
             call_kwargs = mock_bridge.load_price_data.call_args[1]
             assert "start_date" in call_kwargs or call_kwargs.get("interfaces") is not None
 
-    def test_run_factor_backtest_emits_profiling_logs(self, tmp_path, caplog):
-        """Verify revalidation backtest emits per-factor and bridge-load profiling logs."""
+    def test_revalidation_fails_fast_on_unsupported_sequence_expression(self, tmp_path):
+        """Unsupported residual SEQUENCE usage should fail before loading the large execution DataFrame."""
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        mock_bridge = MagicMock()
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            data_bridge=mock_bridge,
+        )
+
+        result = scheduler._run_factor_backtest(
+            "bad_sequence",
+            {"factor_id": "bad_sequence", "factor_expression": "TS_CORR($close, SEQUENCE(20), 20)"},
+        )
+
+        assert result is False
+        mock_bridge.load_price_data.assert_not_called()
+
+    def test_revalidation_logs_full_ic_summary_on_success(self, tmp_path, monkeypatch):
+        """Successful revalidation should expose the available IC statistics in logs."""
+        from quantaalpha.continuous import revalidation_scheduler as scheduler_module
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        messages: list[str] = []
+
+        class FakeLogger:
+            def info(self, message):
+                messages.append(str(message))
+
+            def warning(self, message):
+                messages.append(str(message))
+
+            def error(self, message):
+                messages.append(str(message))
+
+        monkeypatch.setattr(scheduler_module, "logger", FakeLogger())
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        mock_bridge = MagicMock()
+        mock_bridge.load_price_data.return_value = pl.DataFrame(
+            {
+                "datetime": [date(2024, 1, 2), date(2024, 1, 2)],
+                "vt_symbol": ["000001.SZ", "000002.SZ"],
+                "open": [10.0, 20.0],
+                "high": [10.5, 20.5],
+                "low": [9.5, 19.5],
+                "close": [10.2, 20.2],
+                "volume": [1000.0, 2000.0],
+            }
+        )
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            data_bridge=mock_bridge,
+            min_ic=0.01,
+        )
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = 0.05
+            mock_result.error_message = None
+            mock_result.ic_result = SimpleNamespace(
+                ic_mean=0.05,
+                ic_std=0.02,
+                icir=2.5,
+                positive_ratio=0.75,
+                daily_ic_count=120,
+                daily_ics=[0.05],
+                long_short_return_mean=0.001,
+                long_short_return_annualized=0.252,
+                long_short_sharpe=1.5,
+                long_short_max_drawdown=-0.05,
+            )
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._run_factor_backtest("good_factor", {"factor_expression": "$close"})
+
+        assert result is True
+        assert any(
+            "profile.revalidation.metrics factor=good_factor ic_mean=0.050000 ic_std=0.020000 icir=2.500000 positive_ratio=0.750000 daily_ic_count=120 long_short_return_mean=0.001000 long_short_return_annualized=0.252000 long_short_sharpe=1.500000 long_short_max_drawdown=-0.050000"
+            in message
+            for message in messages
+        )
+
+    def test_run_factor_backtest_emits_profiling_logs(self, tmp_path, monkeypatch):
+        """Verify revalidation backtest emits per-factor and bridge-load profiling logs."""
+        from quantaalpha.continuous import revalidation_scheduler as scheduler_module
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        messages: list[str] = []
+
+        class FakeLogger:
+            def info(self, message):
+                messages.append(str(message))
+
+            def warning(self, message):
+                messages.append(str(message))
+
+            def error(self, message):
+                messages.append(str(message))
+
+        monkeypatch.setattr(scheduler_module, "logger", FakeLogger())
 
         lib_path = tmp_path / "lib.json"
         lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
@@ -108,8 +279,6 @@ class TestBridgeDataIntegration:
         )
         scheduler._data_bridge = mock_bridge
 
-        caplog.set_level(logging.INFO)
-
         with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
             mock_instance = MagicMock()
             mock_result = MagicMock(success=True, ic_value=0.05, error_message=None)
@@ -118,7 +287,6 @@ class TestBridgeDataIntegration:
 
             scheduler._run_factor_backtest("f1", {"factor_expression": "$close"})
 
-        messages = [record.getMessage() for record in caplog.records]
         assert any("profile.revalidation.factor.start" in message for message in messages)
         assert any("profile.load_price_data.start" in message for message in messages)
         assert any("profile.load_price_data.done" in message for message in messages)
@@ -628,7 +796,7 @@ class TestPerFactorTimeoutEnforcement:
         # Without enforcement, result would be True (slow runner completed)
         assert result is False, "per_factor_timeout_seconds is not enforced: slow backtest_runner completed instead of timing out"
 
-    def test_backtest_timeout_returns_timeout_failure_reason(self, tmp_path, caplog):
+    def test_backtest_timeout_returns_timeout_failure_reason(self, tmp_path, monkeypatch):
         """
         Verify that timeout produces a clear failure reason mentioning 'timeout'.
 
@@ -636,8 +804,22 @@ class TestPerFactorTimeoutEnforcement:
         After fix, the error message should contain 'timeout' or 'per_factor_timeout'.
         """
         import time
-        import logging
+        from quantaalpha.continuous import revalidation_scheduler as scheduler_module
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        messages: list[str] = []
+
+        class FakeLogger:
+            def info(self, message):
+                messages.append(str(message))
+
+            def warning(self, message):
+                messages.append(str(message))
+
+            def error(self, message):
+                messages.append(str(message))
+
+        monkeypatch.setattr(scheduler_module, "logger", FakeLogger())
 
         lib_path = tmp_path / "lib.json"
         lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
@@ -653,15 +835,14 @@ class TestPerFactorTimeoutEnforcement:
             per_factor_timeout_seconds=1,
         )
 
-        with caplog.at_level(logging.WARNING):
-            result = scheduler._run_factor_backtest("slow_factor", {"factor_id": "slow_factor", "factor_expression": "$close"})
+        result = scheduler._run_factor_backtest("slow_factor", {"factor_id": "slow_factor", "factor_expression": "$close"})
 
         # Check that result indicates failure
         assert result is False, "Expected False due to timeout"
 
         # After fix, there should be a log message containing 'timeout' or 'per_factor_timeout'
-        timeout_logged = any("timeout" in record.message.lower() or "per_factor_timeout" in record.message.lower() for record in caplog.records)
-        assert timeout_logged, f"No timeout-related message found in logs. Log records: {[r.message for r in caplog.records]}"
+        timeout_logged = any("timeout" in message.lower() or "per_factor_timeout" in message.lower() for message in messages)
+        assert timeout_logged, f"No timeout-related message found in logs. Log records: {messages}"
 
     def test_validation_with_small_timeout_stops_slow_validator(self, tmp_path):
         """

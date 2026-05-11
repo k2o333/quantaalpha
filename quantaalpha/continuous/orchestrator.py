@@ -156,6 +156,7 @@ class MiningOrchestrator:
                 library_backend=self.config.factor.library_backend,
                 parquet_library_dir=self.config.factor.parquet_library_dir,
                 performance_history_config=asdict(self.config.factor.performance_history),
+                backtest_noqlib_config=self.config.factor.backtest_noqlib,
             )
         return self._revalidation_scheduler
 

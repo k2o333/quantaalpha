@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
 
@@ -28,6 +30,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         min_ic: float = 0.02,
         per_factor_timeout_seconds: int = 300,
         performance_history_config: Optional[dict] = None,
+        backtest_noqlib_config: Optional[dict] = None,
     ):
         import os
 
@@ -52,6 +55,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self._scheduler_thread: Optional[Thread] = None
         self._execution_dataframe_cache = None
         self._performance_history_config = performance_history_config or {}
+        self._backtest_noqlib_config = dict(backtest_noqlib_config or {})
         self._performance_history_store = None
         if self._performance_history_config.get("enabled", False):
             try:
@@ -255,21 +259,27 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             translated_expression, translation_warnings = _translate_factor_expression(expression)
             if translation_warnings:
                 logger.info(f"Translation warnings for {factor_id}: {'; '.join(translation_warnings)}")
+            unsupported_warning = self._unsupported_translation_warning(translation_warnings)
+            if unsupported_warning:
+                logger.warning(f"Factor {factor_id} has unsupported expression after translation: {unsupported_warning}")
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    status="failure",
+                    translated_expression=translated_expression,
+                    error_message=f"Unsupported expression after translation: {unsupported_warning}",
+                )
+                return False
 
             # Get periods from configured execution periods
             train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
             valid_period = self._execution_periods.get("valid", ("2023-01-01", "2023-12-31"))
             test_period = self._execution_periods.get("test", ("2024-01-01", "2024-12-31"))
 
-            # Load data from bridge if available, otherwise use empty placeholder
-            import polars as pl
-
             df = self._get_execution_dataframe()
 
-            # Only fail if bridge was configured but returned empty/no data
-            # When bridge is not configured, use empty placeholder for backward compatibility
             if self._data_bridge is not None and (df is None or df.is_empty()):
-                logger.warning(f"No data available from bridge for backtest of {factor_id}")
+                logger.warning(f"No data available for backtest of {factor_id}")
                 self._record_performance_history(
                     factor_id=factor_id,
                     factor_entry=factor_entry,
@@ -297,6 +307,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 # Check against validation thresholds
                 if result.ic_value >= self.min_ic:
                     logger.info(f"profile.revalidation.factor.done factor={factor_id} success=True total_seconds={total_seconds:.3f} ic_value={result.ic_value:.6f}")
+                    self._log_revalidation_metrics(factor_id, result.ic_result)
                     logger.info(f"Factor {factor_id} passed backtest with IC={result.ic_value:.4f}")
                     self._record_performance_history(
                         factor_id=factor_id,
@@ -310,6 +321,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     return True
                 else:
                     logger.info(f"profile.revalidation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} ic_value={result.ic_value:.6f}")
+                    self._log_revalidation_metrics(factor_id, result.ic_result)
                     logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {self.min_ic}")
                     self._record_performance_history(
                         factor_id=factor_id,
@@ -354,6 +366,50 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 error_message=str(e),
             )
             return False
+
+    def _unsupported_translation_warning(self, translation_warnings: list[str]) -> Optional[str]:
+        for warning in translation_warnings:
+            if "不支持的功能" in warning or "unsupported" in warning.lower():
+                return warning
+        return None
+
+    def _log_revalidation_metrics(self, factor_id: str, ic_result: object | None) -> None:
+        if ic_result is None:
+            return
+        ic_mean = self._metric_float(ic_result, "ic_mean")
+        ic_std = self._metric_float(ic_result, "ic_std")
+        icir = self._metric_float(ic_result, "icir")
+        positive_ratio = self._metric_float(ic_result, "positive_ratio")
+        daily_ic_count = getattr(ic_result, "daily_ic_count", None)
+        if None in {ic_mean, ic_std, icir, positive_ratio} or not isinstance(daily_ic_count, int):
+            return
+        logger.info(
+            "profile.revalidation.metrics "
+            f"factor={factor_id} "
+            f"ic_mean={ic_mean:.6f} "
+            f"ic_std={ic_std:.6f} "
+            f"icir={icir:.6f} "
+            f"positive_ratio={positive_ratio:.6f} "
+            f"daily_ic_count={daily_ic_count}"
+            f"{self._return_metric_log_suffix(ic_result)}"
+        )
+
+    def _metric_float(self, obj: object, name: str) -> float | None:
+        value = getattr(obj, name, None)
+        if isinstance(value, (int, float)):
+            return float(value)
+        return None
+
+    def _return_metric_log_suffix(self, ic_result: object) -> str:
+        metrics = {
+            "long_short_return_mean": self._metric_float(ic_result, "long_short_return_mean"),
+            "long_short_return_annualized": self._metric_float(ic_result, "long_short_return_annualized"),
+            "long_short_sharpe": self._metric_float(ic_result, "long_short_sharpe"),
+            "long_short_max_drawdown": self._metric_float(ic_result, "long_short_max_drawdown"),
+        }
+        if any(value is None for value in metrics.values()):
+            return ""
+        return "".join(f" {name}={value:.6f}" for name, value in metrics.items())
 
     def _record_performance_history(
         self,
@@ -456,86 +512,172 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
 
     def _get_execution_dataframe(self):
         """
-        Get execution DataFrame from bridge if available.
+        Get execution DataFrame from bridge or configured app5 clean daily data.
 
         Returns:
-            pl.DataFrame with price data, or empty DataFrame if bridge unavailable.
+            pl.DataFrame with price data, or empty DataFrame if no source is available.
         """
-        import polars as pl
 
         if self._execution_dataframe_cache is not None:
             logger.info("Using cached execution DataFrame for backtest")
             return self._execution_dataframe_cache
 
-        if self._data_bridge is None:
-            logger.info("No data bridge configured, using empty DataFrame")
-            self._execution_dataframe_cache = pl.DataFrame(
-                {
-                    "datetime": pl.Series(dtype=pl.Date),
-                    "vt_symbol": pl.Series(dtype=pl.String),
-                    "open": pl.Series(dtype=pl.Float64),
-                    "high": pl.Series(dtype=pl.Float64),
-                    "low": pl.Series(dtype=pl.Float64),
-                    "close": pl.Series(dtype=pl.Float64),
-                    "volume": pl.Series(dtype=pl.Float64),
-                }
-            )
+        start_date, end_date = self._execution_date_window()
+
+        if self._data_bridge is not None:
+            try:
+                logger.info(f"profile.load_price_data.start context=backtest source=bridge interfaces={['daily']} start_date={start_date} end_date={end_date}")
+                load_start = time.time()
+                df = self._data_bridge.load_price_data(
+                    interfaces=["daily"],
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                )
+                load_seconds = time.time() - load_start
+
+                if df is not None and not df.is_empty():
+                    logger.info(f"profile.load_price_data.done context=backtest source=bridge rows={len(df)} seconds={load_seconds:.3f}")
+                    logger.info(f"Loaded {len(df)} rows from bridge for backtest")
+                    self._execution_dataframe_cache = df
+                    return self._execution_dataframe_cache
+
+                logger.info(f"profile.load_price_data.done context=backtest source=bridge rows=0 seconds={load_seconds:.3f}")
+                logger.warning("Bridge returned empty DataFrame")
+            except Exception as e:
+                logger.error(f"Error loading data from bridge: {e}")
+
+        app5_df = self._load_app5_clean_execution_dataframe(start_date, end_date)
+        if app5_df is not None and not app5_df.is_empty():
+            self._execution_dataframe_cache = app5_df
             return self._execution_dataframe_cache
 
+        logger.info("No execution price data available, using empty DataFrame")
+        self._execution_dataframe_cache = self._empty_execution_dataframe()
+        return self._execution_dataframe_cache
+
+    def _execution_date_window(self) -> tuple[str, str]:
+        """Return the widest configured train/valid/test date window."""
+        train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
+        valid_period = self._execution_periods.get("valid", ("2023-01-01", "2023-12-31"))
+        test_period = self._execution_periods.get("test", ("2024-01-01", "2024-12-31"))
+        return min(train_period[0], valid_period[0], test_period[0]), max(train_period[1], valid_period[1], test_period[1])
+
+    def _empty_execution_dataframe(self):
+        """Return the FactorExecutor-compatible empty price schema."""
+        import polars as pl
+
+        return pl.DataFrame(
+            {
+                "datetime": pl.Series(dtype=pl.Date),
+                "vt_symbol": pl.Series(dtype=pl.String),
+                "open": pl.Series(dtype=pl.Float64),
+                "high": pl.Series(dtype=pl.Float64),
+                "low": pl.Series(dtype=pl.Float64),
+                "close": pl.Series(dtype=pl.Float64),
+                "volume": pl.Series(dtype=pl.Float64),
+            }
+        )
+
+    def _load_app5_clean_execution_dataframe(self, start_date: str, end_date: str):
+        """Load app5 clean daily parquet data for revalidation backtests."""
+        import polars as pl
+
+        parquet_files = self._resolve_app5_clean_daily_files()
+        if not parquet_files:
+            return None
+
+        load_start = time.time()
+        logger.info(
+            "profile.load_price_data.start "
+            f"context=backtest source=app5_clean interface={self._backtest_noqlib_config.get('daily_interface', 'daily')} "
+            f"start_date={start_date} end_date={end_date}"
+        )
         try:
-            # Get the maximum coverage window from execution periods
-            train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
-            valid_period = self._execution_periods.get("valid", ("2023-01-01", "2023-12-31"))
-            test_period = self._execution_periods.get("test", ("2024-01-01", "2024-12-31"))
+            schema = pl.scan_parquet([str(path) for path in parquet_files]).collect_schema()
+            date_col = self._first_existing_column(schema, ("trade_date_dt", "datetime", "date", "trade_date", "cal_date"))
+            symbol_col = self._first_existing_column(schema, ("vt_symbol", "ts_code", "instrument", "symbol", "code"))
+            volume_col = self._first_existing_column(schema, ("volume", "vol"))
+            required_price_cols = ("open", "high", "low", "close")
+            missing = [col for col in required_price_cols if col not in schema]
+            if date_col is None:
+                missing.append("datetime/trade_date")
+            if symbol_col is None:
+                missing.append("vt_symbol/ts_code")
+            if volume_col is None:
+                missing.append("volume/vol")
+            if missing:
+                logger.warning(f"App5 clean daily data missing required columns: {missing}")
+                return None
 
-            # Use the earliest start and latest end for maximum coverage
-            all_start_dates = [train_period[0], valid_period[0], test_period[0]]
-            all_end_dates = [train_period[1], valid_period[1], test_period[1]]
-            start_date = min(all_start_dates)
-            end_date = max(all_end_dates)
+            from datetime import datetime as dt
 
-            logger.info(f"profile.load_price_data.start context=backtest interfaces={['daily']} start_date={start_date} end_date={end_date}")
-            load_start = time.time()
-            df = self._data_bridge.load_price_data(
-                interfaces=["daily"],
-                start_date=start_date.replace("-", ""),
-                end_date=end_date.replace("-", ""),
+            start_bound = dt.strptime(start_date, "%Y-%m-%d").date()
+            end_bound = dt.strptime(end_date, "%Y-%m-%d").date()
+            date_text = pl.col(date_col).cast(pl.Utf8)
+            date_expr = pl.coalesce(
+                date_text.str.strptime(pl.Date, "%Y-%m-%d", strict=False),
+                date_text.str.strptime(pl.Date, "%Y%m%d", strict=False),
+            )
+            df = (
+                pl.scan_parquet([str(path) for path in parquet_files])
+                .select(
+                    date_expr.alias("datetime"),
+                    pl.col(symbol_col).cast(pl.Utf8).alias("vt_symbol"),
+                    pl.col("open").cast(pl.Float64).alias("open"),
+                    pl.col("high").cast(pl.Float64).alias("high"),
+                    pl.col("low").cast(pl.Float64).alias("low"),
+                    pl.col("close").cast(pl.Float64).alias("close"),
+                    pl.col(volume_col).cast(pl.Float64).alias("volume"),
+                )
+                .filter(pl.col("datetime").is_between(start_bound, end_bound))
+                .sort(["datetime", "vt_symbol"])
+                .collect()
             )
             load_seconds = time.time() - load_start
-
-            if df is None or df.is_empty():
-                logger.info(f"profile.load_price_data.done context=backtest rows=0 seconds={load_seconds:.3f}")
-                logger.warning("Bridge returned empty DataFrame")
-                # Return empty DataFrame with correct schema for backward compatibility
-                self._execution_dataframe_cache = pl.DataFrame(
-                    {
-                        "datetime": pl.Series(dtype=pl.Date),
-                        "vt_symbol": pl.Series(dtype=pl.String),
-                        "open": pl.Series(dtype=pl.Float64),
-                        "high": pl.Series(dtype=pl.Float64),
-                        "low": pl.Series(dtype=pl.Float64),
-                        "close": pl.Series(dtype=pl.Float64),
-                        "volume": pl.Series(dtype=pl.Float64),
-                    }
-                )
-                return self._execution_dataframe_cache
-
-            logger.info(f"profile.load_price_data.done context=backtest rows={len(df)} seconds={load_seconds:.3f}")
-            logger.info(f"Loaded {len(df)} rows from bridge for backtest")
-            self._execution_dataframe_cache = df
-            return self._execution_dataframe_cache
-
-        except Exception as e:
-            logger.error(f"Error loading data from bridge: {e}")
-            self._execution_dataframe_cache = pl.DataFrame(
-                {
-                    "datetime": pl.Series(dtype=pl.Date),
-                    "vt_symbol": pl.Series(dtype=pl.String),
-                    "open": pl.Series(dtype=pl.Float64),
-                    "high": pl.Series(dtype=pl.Float64),
-                    "low": pl.Series(dtype=pl.Float64),
-                    "close": pl.Series(dtype=pl.Float64),
-                    "volume": pl.Series(dtype=pl.Float64),
-                }
+            logger.info(
+                f"profile.load_price_data.done context=backtest source=app5_clean rows={len(df)} "
+                f"seconds={load_seconds:.3f} files={len(parquet_files)}"
             )
-            return self._execution_dataframe_cache
+            if df.is_empty():
+                logger.warning("App5 clean daily data returned empty DataFrame for execution window")
+                return None
+            logger.info(f"Loaded {len(df)} rows from app5 clean daily data for backtest")
+            return df
+        except Exception as e:
+            logger.error(f"Error loading app5 clean daily data: {e}")
+            return None
+
+    def _resolve_app5_clean_daily_files(self) -> list[Path]:
+        """Resolve active app5 clean daily parquet files from manifest/current.json."""
+        cfg = self._backtest_noqlib_config
+        app5_storage_root = cfg.get("app5_storage_root")
+        if not app5_storage_root:
+            return []
+
+        daily_interface = cfg.get("daily_interface", "daily")
+        daily_root = Path(app5_storage_root) / daily_interface
+        manifest_path = daily_root / "manifest" / "current.json"
+        active_files: list[str] = []
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                active_files = [str(item) for item in manifest.get("active_files", [])]
+            except Exception as exc:
+                logger.warning(f"Failed to read app5 daily manifest {manifest_path}: {exc}")
+        else:
+            active_dir = daily_root / "clean" / "active"
+            if active_dir.exists():
+                active_files = [str(path.relative_to(daily_root)) for path in sorted(active_dir.glob("*.parquet"))]
+
+        parquet_files = [(daily_root / item).resolve() for item in active_files]
+        existing_files = [path for path in parquet_files if path.exists()]
+        missing_files = [str(path) for path in parquet_files if not path.exists()]
+        if missing_files:
+            logger.warning(f"App5 clean daily manifest references missing files: {missing_files}")
+        return existing_files
+
+    def _first_existing_column(self, schema, candidates: tuple[str, ...]) -> Optional[str]:
+        for candidate in candidates:
+            if candidate in schema:
+                return candidate
+        return None

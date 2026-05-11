@@ -1,6 +1,7 @@
 """Tests for budget_seconds parameter in run_evolution_loop."""
 
 import time
+import inspect
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -82,6 +83,25 @@ class TestPhase4RuntimeEvolution:
 
 class TestEvolutionBudget:
     """Tests for evolution budget enforcement."""
+
+    def test_bounded_llm_task_failure_classifier(self):
+        """Known bounded LLM exhaustions are skip-worthy task failures."""
+        from quantaalpha.pipeline.factor_mining import _is_bounded_llm_task_failure
+
+        assert _is_bounded_llm_task_failure(RuntimeError("Failed to create call_structured after 1 retries."))
+        assert _is_bounded_llm_task_failure(
+            RuntimeError("Multi-hypothesis construct failed after 2 attempts: category=empty_factors")
+        )
+        assert _is_bounded_llm_task_failure(RuntimeError("Feedback generation failed: timeout"))
+        assert not _is_bounded_llm_task_failure(ValueError("unexpected data corruption"))
+
+    def test_run_evolution_loop_uses_warning_for_bounded_llm_failures(self):
+        """Evolution loop does not emit traceback-level logs for bounded LLM failures."""
+        from quantaalpha.pipeline.factor_mining import run_evolution_loop
+
+        source = inspect.getsource(run_evolution_loop)
+        assert "_is_bounded_llm_task_failure" in source
+        assert "Task skipped after bounded LLM failure" in source
 
     def test_run_evolution_loop_budget_seconds(self):
         """run_evolution_loop respects budget_seconds and stops early."""
