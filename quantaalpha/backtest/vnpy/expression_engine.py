@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 import re
-import sys
 from typing import Any
 
 import pandas as pd
 import polars as pl
 
 from .data_provider import VnpyMarketDataProvider
+from quantaalpha.backtest.expression import (
+    SharedPolarsExpressionKernel,
+    UnsupportedExpressionError,
+    canonicalize_expression,
+)
 
 
 ALLOWED_FUNCTIONS = {
@@ -43,6 +46,7 @@ class TranslationAudit:
 
     factor_name: str
     original_expression: str
+    canonical_expression: str
     vnpy_expression: str
     warnings: list[str]
 
@@ -58,12 +62,14 @@ class VnpyExpressionError(ValueError):
 class VnpyExpressionEngine:
     """把 canonical DSL 降低到 vnpy 表达式并恢复 `(datetime, instrument)` 输出。"""
 
-    def __init__(self, market_frame: pd.DataFrame | pl.DataFrame, translation_mode: str = "compat") -> None:
-        if translation_mode not in {"compat", "canonical_ast"}:
+    def __init__(self, market_frame: pd.DataFrame | pl.DataFrame, translation_mode: str = "shared_polars") -> None:
+        if translation_mode not in {"shared_polars", "compat", "canonical_ast"}:
             raise ValueError(f"unsupported vnpy translation mode: {translation_mode}")
         self.translation_mode = translation_mode
         self.provider = VnpyMarketDataProvider(market_frame)
         self.vnpy_frame = self.provider.to_vnpy_frame()
+        self.instrument_frame = self.provider.restore_instrument(self.vnpy_frame).drop("vt_symbol")
+        self.kernel = SharedPolarsExpressionKernel(self.instrument_frame)
         self.audit: list[TranslationAudit] = []
 
     def compute(self, factor_defs: list[dict[str, Any]]) -> pd.DataFrame:
@@ -84,10 +90,35 @@ class VnpyExpressionEngine:
 
     def compute_expression(self, expression: str, factor_name: str) -> pd.DataFrame:
         """计算单个 canonical 表达式。"""
+        canonical = canonicalize_expression(expression)
+        if self.translation_mode == "shared_polars":
+            try:
+                result = self.kernel.compute_expression(canonical.canonical, factor_name)
+            except UnsupportedExpressionError as exc:
+                audit = TranslationAudit(
+                    factor_name=factor_name,
+                    original_expression=expression,
+                    canonical_expression=canonical.canonical,
+                    vnpy_expression="",
+                    warnings=[*canonical.warnings, str(exc)],
+                )
+                self.audit.append(audit)
+                raise VnpyExpressionError(f"unsupported shared polars expression for {factor_name}: {exc}", audit=audit) from exc
+            audit = TranslationAudit(
+                factor_name=factor_name,
+                original_expression=expression,
+                canonical_expression=canonical.canonical,
+                vnpy_expression="",
+                warnings=list(canonical.warnings),
+            )
+            self.audit.append(audit)
+            return result
+
         vnpy_expression, warnings = self.translate(expression)
         audit = TranslationAudit(
             factor_name=factor_name,
             original_expression=expression,
+            canonical_expression=canonical.canonical,
             vnpy_expression=vnpy_expression,
             warnings=warnings,
         )
@@ -112,7 +143,7 @@ class VnpyExpressionEngine:
 
     def translate(self, expression: str) -> tuple[str, list[str]]:
         """把 canonical/compat 表达式翻译为 vnpy 表达式。"""
-        normalized = _normalize_qlib_expression(expression)
+        normalized = canonicalize_expression(expression).canonical
         if self.translation_mode == "canonical_ast":
             return normalized, []
         _ensure_glue_on_path()
@@ -132,34 +163,19 @@ class VnpyExpressionEngine:
             )
 
 
-def _normalize_qlib_expression(expression: str) -> str:
-    expr = expression
-    replacements = {
-        "Ref": "DELAY",
-        "Mean": "TS_MEAN",
-        "Rank": "TS_RANK",
-        "Sum": "TS_SUM",
-        "Std": "TS_STD",
-        "Var": "TS_VAR",
-        "Min": "TS_MIN",
-        "Max": "TS_MAX",
-        "Corr": "TS_CORR",
-        "Delta": "DELTA",
-        "Abs": "ABS",
-        "Log": "LOG",
-    }
-    for old, new in replacements.items():
-        expr = re.sub(rf"\b{old}\s*\(", f"{new}(", expr)
-    return expr
-
-
 def _ensure_glue_on_path() -> None:
+    from pathlib import Path
+    import sys
+
     glue_root = Path(__file__).resolve().parents[4] / "glue"
     if str(glue_root) not in sys.path:
         sys.path.insert(0, str(glue_root))
 
 
 def _ensure_vnpy_on_path() -> None:
+    from pathlib import Path
+    import sys
+
     vnpy_root = Path(__file__).resolve().parents[4] / "vnpy"
     if str(vnpy_root) not in sys.path:
         sys.path.insert(0, str(vnpy_root))

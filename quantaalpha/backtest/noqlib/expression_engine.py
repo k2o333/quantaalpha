@@ -78,6 +78,9 @@ def _evaluate_native_expression(market_data: pd.DataFrame, expr: str) -> pd.Seri
     expression = str(expr).strip()
     if not expression:
         return None
+    shared_result = _evaluate_shared_polars_expression(market_data, expression)
+    if shared_result is not None:
+        return shared_result
     normalized_expr, field_map = _normalize_field_names(expression)
     globals_map = _native_globals(market_data, field_map)
     try:
@@ -89,6 +92,17 @@ def _evaluate_native_expression(market_data: pd.DataFrame, expr: str) -> pd.Seri
     if isinstance(result, pd.Series):
         return result.astype("float32").sort_index()
     return pd.Series(float(result), index=market_data.index).astype("float32")
+
+
+def _evaluate_shared_polars_expression(market_data: pd.DataFrame, expr: str) -> pd.Series | None:
+    """Use shared canonical polars kernel when the expression is covered."""
+    try:
+        from quantaalpha.backtest.expression import SharedPolarsExpressionKernel, UnsupportedExpressionError
+
+        frame = SharedPolarsExpressionKernel(market_data).compute_expression(expr, "value")
+    except (UnsupportedExpressionError, SyntaxError, ValueError, KeyError):
+        return None
+    return frame["value"].astype("float32").sort_index()
 
 
 def _normalize_field_names(expr: str) -> tuple[str, dict[str, str]]:

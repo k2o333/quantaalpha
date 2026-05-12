@@ -46,7 +46,8 @@ def test_vnpy_expression_engine_golden_cases() -> None:
     assert result.loc[idx, "mean2"] == pytest.approx(1.5)
     assert result.loc[idx, "rank2"] == pytest.approx(1.0)
     assert result.loc[idx, "ret1"] == pytest.approx(1.0)
-    assert engine.audit[0].vnpy_expression == "ts_mean(close, 2)"
+    assert engine.audit[0].canonical_expression == "TS_MEAN($close, 2)"
+    assert engine.audit[0].vnpy_expression == ""
 
 
 def test_vnpy_expression_engine_accepts_qlib_style_aliases() -> None:
