@@ -92,6 +92,11 @@ class TestEvolutionBudget:
         assert _is_bounded_llm_task_failure(
             RuntimeError("Multi-hypothesis construct failed after 2 attempts: category=empty_factors")
         )
+        assert _is_bounded_llm_task_failure(
+            RuntimeError(
+                "Factor proposal failed after 2 retries: expression acceptability failure for bad_factor"
+            )
+        )
         assert _is_bounded_llm_task_failure(RuntimeError("Feedback generation failed: timeout"))
         assert not _is_bounded_llm_task_failure(ValueError("unexpected data corruption"))
 

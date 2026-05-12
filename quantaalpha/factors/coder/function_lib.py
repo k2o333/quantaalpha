@@ -31,6 +31,11 @@ def DELTA(df:pd.DataFrame, p:int=1):
     return df.groupby('instrument').transform(lambda x: x.diff(periods=p))
 
 @datatype_adapter
+def TS_DELTA(df:pd.DataFrame, p:int=1):
+    """Time-series delta alias used by generated factor expressions."""
+    return df.groupby('instrument').transform(lambda x: x.diff(periods=p))
+
+@datatype_adapter
 def RANK(df:pd.DataFrame):
     """Cross-sectional rank."""
     return df.groupby('datetime').rank(pct=True)
@@ -48,17 +53,12 @@ def STD(df:pd.DataFrame):
 @datatype_adapter
 def SKEW(df:pd.DataFrame):
     """Cross-sectional skewness."""
-    from scipy.stats import skew as scipy_skew
-    return df.groupby('datetime').transform(lambda x: scipy_skew(x.dropna(), nan_policy='omit') if len(x.dropna()) >= 3 else np.nan)
+    return df.groupby('datetime').transform("skew")
 
 @datatype_adapter
 def KURT(df:pd.DataFrame):
     """Cross-sectional kurtosis."""
-    from scipy.stats import kurtosis
-    def calc_kurt(group):
-        k = kurtosis(group.dropna(), fisher=True, nan_policy='omit')
-        return pd.Series(k, index=group.index)
-    return df.groupby('datetime').transform(lambda x: kurtosis(x.dropna(), fisher=True, nan_policy='omit') if len(x.dropna()) >= 4 else np.nan)
+    return df.groupby('datetime').transform(lambda x: x.kurt())
 
 @datatype_adapter
 def MAX(df:pd.DataFrame):
@@ -79,24 +79,12 @@ def MEDIAN(df:pd.DataFrame):
 @datatype_adapter
 def TS_KURT(df:pd.DataFrame, p:int=5):
     """Rolling kurtosis."""
-    from scipy.stats import kurtosis
-    def rolling_kurt(x):
-        return x.rolling(p, min_periods=min(4, p)).apply(
-            lambda arr: kurtosis(arr, fisher=True, nan_policy='omit') if len(arr.dropna()) >= 4 else np.nan,
-            raw=False
-        )
-    return df.groupby('instrument').transform(rolling_kurt)
+    return df.groupby('instrument').transform(lambda x: x.rolling(p, min_periods=min(4, p)).kurt())
 
 @datatype_adapter
 def TS_SKEW(df:pd.DataFrame, p:int=5):
     """Rolling skewness."""
-    from scipy.stats import skew as scipy_skew
-    def rolling_skew(x):
-        return x.rolling(p, min_periods=min(3, p)).apply(
-            lambda arr: scipy_skew(arr, nan_policy='omit') if len(arr.dropna()) >= 3 else np.nan,
-            raw=False
-        )
-    return df.groupby('instrument').transform(rolling_skew)
+    return df.groupby('instrument').transform(lambda x: x.rolling(p, min_periods=min(3, p)).skew())
 
 @datatype_adapter
 def TS_RANK(df:pd.DataFrame, p:int=5):
@@ -159,8 +147,10 @@ def TS_ARGMIN(df: pd.DataFrame, p: int = 5):
 
 
 
-def MAX(x:pd.DataFrame, y:pd.DataFrame, z:pd.DataFrame=None):
-    """Element-wise max of DataFrames."""
+def MAX(x:pd.DataFrame, y:pd.DataFrame=None, z:pd.DataFrame=None):
+    """Cross-sectional max or element-wise max of DataFrames."""
+    if y is None:
+        return x.groupby('datetime').transform("max")
     if z is None:
         return np.maximum(x, y)
     else:
@@ -169,8 +159,10 @@ def MAX(x:pd.DataFrame, y:pd.DataFrame, z:pd.DataFrame=None):
 
 
 
-def MIN(x:pd.DataFrame, y:pd.DataFrame, z:pd.DataFrame=None):
-    """Element-wise min of DataFrames.""" 
+def MIN(x:pd.DataFrame, y:pd.DataFrame=None, z:pd.DataFrame=None):
+    """Cross-sectional min or element-wise min of DataFrames."""
+    if y is None:
+        return x.groupby('datetime').transform("min")
     if z is None:
         return np.minimum(x, y)
     else:

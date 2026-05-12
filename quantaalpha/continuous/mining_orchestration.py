@@ -496,15 +496,28 @@ class MiningOrchestrationMixin:
             "allowed_next": list(allowed_next),
         }
 
+        provider = params.get("llm_provider")
+        if provider is None:
+            provider = getattr(self, "_llm_advisor_provider", None)
+
+        if provider is None:
+            logger.warning(
+                f"llm_advisor on node '{node_id}': no provider configured, "
+                f"falling back to '{fallback_next}'"
+            )
+            return ActionResult(
+                action="llm_advisor",
+                status="fallback",
+                metadata={
+                    "selected_next": fallback_next,
+                    "fallback_used": True,
+                    "fallback_reason": "no_provider_configured",
+                    "advisor_context": advisor_context,
+                },
+            )
+
         # Try to get advisor recommendation
         try:
-            provider = params.get("llm_provider")
-            if provider is None:
-                provider = getattr(self, "_llm_advisor_provider", None)
-
-            if provider is None:
-                raise RuntimeError("No llm_advisor provider configured")
-
             raw_output = provider.advise(advisor_context)
         except Exception as exc:
             logger.warning(f"llm_advisor on node '{node_id}': provider failed: {exc}, falling back to '{fallback_next}'")

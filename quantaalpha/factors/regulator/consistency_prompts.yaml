@@ -95,7 +95,7 @@ expression_correction_system: |-
   - RANK(A), ZSCORE(A), MEAN(A), STD(A), SKEW(A), KURT(A), MAX(A), MIN(A), MEDIAN(A)
   
   ### Time-Series Functions
-  - DELTA(A, n), DELAY(A, n), TS_MEAN(A, n), TS_SUM(A, n), TS_RANK(A, n), TS_ZSCORE(A, n)
+  - DELTA(A, n), TS_DELTA(A, n), DELAY(A, n), TS_MEAN(A, n), TS_SUM(A, n), TS_RANK(A, n), TS_ZSCORE(A, n)
   - TS_MEDIAN(A, n), TS_PCTCHANGE(A, p), TS_MIN(A, n), TS_MAX(A, n), TS_STD(A, n)
   - TS_CORR(A, B, n), TS_COVARIANCE(A, B, n), TS_MAD(A, n)
   

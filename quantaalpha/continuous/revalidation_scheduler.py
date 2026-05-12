@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
@@ -270,6 +271,28 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     error_message=f"Unsupported expression after translation: {unsupported_warning}",
                 )
                 return False
+            arity_warning = self._operator_arity_warning(translated_expression)
+            if arity_warning:
+                logger.warning(f"Factor {factor_id} has invalid expression arity after translation: {arity_warning}")
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    status="failure",
+                    translated_expression=translated_expression,
+                    error_message=f"Invalid expression arity after translation: {arity_warning}",
+                )
+                return False
+            budget_warning = self._backtest_budget_warning(translated_expression)
+            if budget_warning:
+                logger.warning(f"Factor {factor_id} skipped before backtest: {budget_warning}")
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    status="failure",
+                    translated_expression=translated_expression,
+                    error_message=budget_warning,
+                )
+                return False
 
             # Get periods from configured execution periods
             train_period = self._execution_periods.get("train", ("2020-01-01", "2022-12-31"))
@@ -372,6 +395,117 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             if "不支持的功能" in warning or "unsupported" in warning.lower():
                 return warning
         return None
+
+    def _backtest_budget_warning(self, translated_expression: str) -> Optional[str]:
+        if self._per_factor_timeout_seconds <= 0:
+            return None
+        expensive_counts = {
+            operator: translated_expression.count(f"{operator}(")
+            for operator in ("ts_regresi", "ts_regbeta", "ts_slope", "ts_resi")
+        }
+        repeated = {operator: count for operator, count in expensive_counts.items() if count > 1}
+        if not repeated:
+            return None
+        repeated_text = ", ".join(f"{operator}={count}" for operator, count in sorted(repeated.items()))
+        return (
+            "per-factor budget risk: repeated expensive operator(s) "
+            f"{repeated_text}; timeout={self._per_factor_timeout_seconds}s"
+        )
+
+    def _operator_arity_warning(self, translated_expression: str) -> Optional[str]:
+        required_args = {
+            "ts_corr": 3,
+            "ts_cov": 3,
+            "ts_regresi": 3,
+            "ts_regbeta": 3,
+            "ts_slope": 3,
+            "ts_resi": 3,
+            "ts_delay": 2,
+            "ts_delta": 2,
+            "ts_mean": 2,
+            "ts_std": 2,
+            "ts_var": 2,
+            "ts_sum": 2,
+            "ts_quantile": 3,
+        }
+        for operator, expected in required_args.items():
+            for args in self._iter_call_args(translated_expression, operator):
+                if len(args) != expected:
+                    return f"{operator} expects {expected} arguments, got {len(args)}"
+        integer_window_args = {
+            "ts_corr": [2],
+            "ts_cov": [2],
+            "ts_regresi": [2],
+            "ts_regbeta": [2],
+            "ts_delay": [1],
+            "ts_delta": [1],
+            "ts_mean": [1],
+            "ts_std": [1],
+            "ts_var": [1],
+            "ts_sum": [1],
+            "ts_quantile": [1],
+        }
+        for operator, arg_positions in integer_window_args.items():
+            for args in self._iter_call_args(translated_expression, operator):
+                for arg_position in arg_positions:
+                    if len(args) <= arg_position:
+                        continue
+                    value = args[arg_position].strip()
+                    if not re.fullmatch(r"-?\d+", value):
+                        return (
+                            f"{operator} expects integer window argument "
+                            f"at position {arg_position + 1}, got {value}"
+                        )
+        return None
+
+    def _iter_call_args(self, expression: str, operator: str) -> list[list[str]]:
+        calls: list[list[str]] = []
+        needle = f"{operator}("
+        start = 0
+        while True:
+            idx = expression.find(needle, start)
+            if idx < 0:
+                break
+            args_start = idx + len(needle)
+            depth = 1
+            pos = args_start
+            while pos < len(expression) and depth > 0:
+                char = expression[pos]
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                pos += 1
+            if depth != 0:
+                calls.append([])
+                start = args_start
+                continue
+            calls.append(self._split_top_level_args(expression[args_start : pos - 1]))
+            start = pos
+        return calls
+
+    def _split_top_level_args(self, args_text: str) -> list[str]:
+        args: list[str] = []
+        depth = 0
+        current: list[str] = []
+        for char in args_text:
+            if char == "(":
+                depth += 1
+                current.append(char)
+            elif char == ")":
+                depth -= 1
+                current.append(char)
+            elif char == "," and depth == 0:
+                arg = "".join(current).strip()
+                if arg:
+                    args.append(arg)
+                current = []
+            else:
+                current.append(char)
+        arg = "".join(current).strip()
+        if arg:
+            args.append(arg)
+        return args
 
     def _log_revalidation_metrics(self, factor_id: str, ic_result: object | None) -> None:
         if ic_result is None:

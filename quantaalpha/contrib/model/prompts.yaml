@@ -58,7 +58,7 @@ function_lib_description: |-
   - **MEDIAN(A)**: Median value in the cross-sectional dimension of A
 
   ### **Time-Series Functions**
-  - **DELTA(A, n)**: Change in value of A over n periods.
+  - **DELTA(A, n)** / **TS_DELTA(A, n)**: Change in value of A over n periods.
   - **DELAY(A, n)**: Value of A delayed by n periods.
   - **TS_MEAN(A, n)**: Mean value of sequence A over the past n days.
   - **TS_SUM(A, n)**: Sum of sequence A over the past n days.
@@ -478,4 +478,3 @@ expression_duplication: |-
     - **Action Required**: Reduce the number of distinct base features used. Focus on 2-4 core features instead of using all available features.
     - Target: Use at most {{ base_features_threshold }} distinct base features. Reusing the same feature multiple times is acceptable.
   {% endif %}
-

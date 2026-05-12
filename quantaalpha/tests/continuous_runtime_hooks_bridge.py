@@ -762,6 +762,80 @@ class TestMutationBugFixes:
 class TestPerFactorTimeoutEnforcement:
     """Tests for per_factor_timeout_seconds enforcement in backtest/validation."""
 
+    def test_default_backtest_flags_repeated_expensive_operator_budget_risk(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            per_factor_timeout_seconds=300,
+        )
+
+        warning = scheduler._backtest_budget_warning(
+            "cs_rank((ts_regresi(return, volume, 20) - "
+            "ts_mean(ts_regresi(return, volume, 20), 20)) / "
+            "ts_std(ts_regresi(return, volume, 20), 20))"
+        )
+
+        assert warning is not None
+        assert "ts_regresi=3" in warning
+        assert "timeout=300s" in warning
+
+    def test_default_backtest_allows_single_expensive_operator(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(
+            library_path=str(lib_path),
+            per_factor_timeout_seconds=300,
+        )
+
+        assert scheduler._backtest_budget_warning("ts_regresi(return, volume, 20)") is None
+
+    def test_default_backtest_flags_missing_ts_corr_window(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        warning = scheduler._operator_arity_warning(
+            "ts_var(ts_corr(close / ts_delay(close, 1) - 1, volume), 5)"
+        )
+
+        assert warning == "ts_corr expects 3 arguments, got 2"
+
+    def test_default_backtest_accepts_nested_valid_arity(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        warning = scheduler._operator_arity_warning(
+            "ts_var(ts_corr(close / ts_delay(close, 1) - 1, volume, 10), 5)"
+        )
+
+        assert warning is None
+
+    def test_default_backtest_flags_non_integer_window_argument(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        warning = scheduler._operator_arity_warning(
+            "ts_std(return, ts_corr(return, volume, 10))"
+        )
+
+        assert warning == (
+            "ts_std expects integer window argument at position 2, "
+            "got ts_corr(return, volume, 10)"
+        )
+
     def test_backtest_with_small_timeout_stops_slow_runner(self, tmp_path):
         """
         Verify that per_factor_timeout_seconds actually interrupts a slow backtest_runner.

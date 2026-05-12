@@ -225,6 +225,8 @@ def _is_bounded_llm_task_failure(error: Exception) -> bool:
     bounded_markers = (
         "Failed to create call_structured after",
         "Multi-hypothesis construct failed after",
+        "Factor proposal failed after",
+        "expression acceptability failure",
         "Feedback generation failed",
     )
     return any(marker in text for marker in bounded_markers)
@@ -375,18 +377,27 @@ def _build_task_failure_record(task: dict[str, Any], error: str) -> dict[str, An
     }
 
 
-def _log_failure_summary(failures: list[dict[str, Any]], total_tasks: int) -> dict[str, Any]:
+def _log_failure_summary(
+    failures: list[dict[str, Any]],
+    total_tasks: int,
+    skipped: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    skipped = skipped or []
     summary = {
         "total_tasks": total_tasks,
         "failed_tasks": len(failures),
+        "skipped_tasks": len(skipped),
         "successful_tasks": max(total_tasks - len(failures), 0),
         "status": "success" if not failures else "degraded",
         "failures": failures,
+        "skipped": skipped,
     }
 
     logger.info("=" * 60)
     if not failures:
         logger.info("Task failure summary: 0 failures")
+        if skipped:
+            logger.info(f"Task skip summary: {len(skipped)}/{total_tasks} skipped after bounded LLM exhaustion")
         logger.info("=" * 60)
         return summary
 
@@ -492,6 +503,7 @@ def run_evolution_loop(
     raw_failure_threshold = evolution_cfg.get("failed_task_threshold")
     failure_threshold = None if raw_failure_threshold in (None, "") else int(raw_failure_threshold)
     failures: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     total_tasks = 0
 
     # Generate initial directions using the resolution helper
@@ -672,12 +684,13 @@ def run_evolution_loop(
             except Exception as e:
                 if _is_bounded_llm_task_failure(e):
                     logger.warning(f"Task skipped after bounded LLM failure: {e}")
+                    skipped.append(_build_task_failure_record(task, str(e)))
                 else:
                     logger.error(f"Task failed: {e}")
                     import traceback
 
                     logger.error(traceback.format_exc())
-                failures.append(_build_task_failure_record(task, str(e)))
+                    failures.append(_build_task_failure_record(task, str(e)))
                 _advance_controller_after_failed_task(controller, task)
                 continue
 
@@ -692,7 +705,7 @@ def run_evolution_loop(
         logger.info(f"  {i + 1}. {t.trajectory_id}: phase={t.phase.value}, RankIC={metric_str}")
     logger.info(f"Pool stats: {controller.pool.get_statistics()}")
     logger.info("=" * 60)
-    summary = _log_failure_summary(failures, total_tasks)
+    summary = _log_failure_summary(failures, total_tasks, skipped)
     if failure_threshold is not None and summary["failed_tasks"] >= failure_threshold:
         summary["status"] = "failed"
         if cleanup_on_finish:

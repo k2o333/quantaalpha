@@ -494,6 +494,9 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         api = APIBackend(max_retry_override=1)
         final_response_dict = None
         last_failure_reason = None
+        best_partial_response_dict = None
+        best_partial_names = []
+        best_partial_exprs = []
 
         # Track symbol_length for early stopping on non-improving acceptability failures
         recent_symbol_lengths: list[int] = []
@@ -564,10 +567,15 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         "- Action required: regenerate this factor expression from scratch.\n"
                         "- Ensure every opening parenthesis has exactly one matching closing parenthesis.\n"
                         "- Keep the replacement expression simple, preferably 50-150 characters.\n"
+                        "- Do not use square-bracket list literals such as [A,B]; combine expressions with +, -, *, /, MEAN(A), or TS_MEAN(A,N).\n"
                         "- Do not return the same expression again.\n"
                     )
                     last_failure_reason = f"unparsable expression for {factor_name}: {expr[:500]}"
                     logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}; parse_error={parse_error}")
+                    if proposed_names:
+                        best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
+                        best_partial_names = list(proposed_names)
+                        best_partial_exprs = list(proposed_exprs)
                     if expression_duplication_prompt is not None:
                         expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, feedback_item)
                     else:
@@ -591,6 +599,10 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 if not capability_valid:
                     last_failure_reason = f"capability validation failure for {factor_name}: {capability_feedback[:240]}"
                     logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                    if proposed_names:
+                        best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
+                        best_partial_names = list(proposed_names)
+                        best_partial_exprs = list(proposed_exprs)
                     if expression_duplication_prompt is not None:
                         expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, capability_feedback)
                     else:
@@ -614,6 +626,10 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 if not success:
                     last_failure_reason = f"factor evaluation failure for {factor_name}: {expr[:500]}"
                     logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                    if proposed_names:
+                        best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
+                        best_partial_names = list(proposed_names)
+                        best_partial_exprs = list(proposed_exprs)
                     break
 
                 # Consistency check (if enabled)
@@ -716,6 +732,10 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         f"num_base_features={num_base_features}"
                     )
                     logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                    if proposed_names:
+                        best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
+                        best_partial_names = list(proposed_names)
+                        best_partial_exprs = list(proposed_exprs)
                     if expression_duplication_prompt is not None:
                         expression_duplication_prompt = _bound_feedback_accumulation(expression_duplication_prompt, feedback_item)
                     else:
@@ -744,6 +764,20 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         continue
         else:
             # Loop completed without break (all retries exhausted)
+            if best_partial_response_dict and best_partial_names:
+                logger.warning(
+                    f"Factor proposal exhausted retries but salvaged {len(best_partial_names)} valid factor(s); "
+                    f"dropping invalid tail. last failure reason: {last_failure_reason or 'unknown failure'}"
+                )
+                final_response_dict = best_partial_response_dict
+                proposed_names = best_partial_names
+                proposed_exprs = best_partial_exprs
+                flag = True
+            else:
+                reason_detail = last_failure_reason if last_failure_reason else "persistent empty or invalid LLM response"
+                raise RuntimeError(f"Factor proposal failed after {MAX_RETRIES} retries: {reason_detail}. last failure reason: {reason_detail}")
+
+        if not flag:
             reason_detail = last_failure_reason if last_failure_reason else "persistent empty or invalid LLM response"
             raise RuntimeError(f"Factor proposal failed after {MAX_RETRIES} retries: {reason_detail}. last failure reason: {reason_detail}")
 
@@ -751,6 +785,13 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         self.factor_regulator.add_factor(proposed_names, proposed_exprs)
 
         return self._build_experiment_from_dict(final_response_dict, trace)
+
+    def _filter_construct_response_to_names(self, response_dict: dict, factor_names: list[str]) -> dict:
+        """Return a construct response containing only already validated factors."""
+        wanted = set(factor_names)
+        if isinstance(response_dict.get("factors"), dict):
+            return {"factors": {name: data for name, data in response_dict["factors"].items() if name in wanted}}
+        return {name: data for name, data in response_dict.items() if name in wanted}
 
     def _build_experiment_from_dict(self, response_dict: dict, trace: Trace) -> FactorExperiment:
         """Build a FactorExperiment from a parsed LLM response dict.

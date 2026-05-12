@@ -839,6 +839,49 @@ class TestPhase6LLMAdvisorRuntime:
         step0 = trace["steps"][0]
         assert step0["next_node"] == "mutation"
 
+    def test_phase6_llm_advisor_missing_provider_falls_back_without_error(self, tmp_path):
+        """Missing optional advisor provider should choose fallback without polluting errors."""
+
+        orch_cfg = {
+            "enabled": True,
+            "start_node": "decider",
+            "max_steps_per_cycle": 4,
+            "nodes": [
+                {
+                    "id": "decider",
+                    "kind": "decision",
+                    "decision_mode": "llm_advisor",
+                    "allowed_next": ["mutation", "crossover"],
+                    "fallback_next": "mutation",
+                    "next": [],
+                },
+                {
+                    "id": "mutation",
+                    "kind": "terminal",
+                    "next": [],
+                },
+                {
+                    "id": "crossover",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+        scheduler = self._make_scheduler_with_advisor(tmp_path, orch_cfg)
+
+        result = scheduler._run_orchestrated_cycle()
+
+        assert result["errors"] == []
+        trace = result["orchestration_trace"]
+        assert len(trace["steps"]) >= 1
+        step0 = trace["steps"][0]
+        assert step0["action"] == "llm_advisor"
+        assert step0["action_status"] == "fallback"
+        assert step0["next_node"] == "mutation"
+        assert step0["error"] is None
+
     def test_phase6_llm_advisor_malformed_output_falls_back(self, tmp_path):
         """Advisor returns malformed JSON string; loop uses fallback_next."""
 

@@ -458,7 +458,7 @@ class FactorLoader:
         """Check if expression is Qlib-compatible (unsupported operators list)."""
         unsupported_patterns = [
             'ZSCORE(', 'RANK(', 'TS_ZSCORE(', 'TS_RANK(',
-            'DELAY(', 'DELTA(', 'DECAYLINEAR(',
+            'DELAY(', 'DELTA(', 'TS_DELTA(', 'DECAYLINEAR(',
             'REGBETA(', 'REGRESI(', 'SEQUENCE(',
             'SUMIF(', 'COUNTIF(', 'FILTER(',
             'POW(', 'SIGN(', 'INV(',
@@ -532,4 +532,3 @@ class FactorLoader:
                 'type': source_type,
                 'description': 'Unknown factor source'
             }
-
