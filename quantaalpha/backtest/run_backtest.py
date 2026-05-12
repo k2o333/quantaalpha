@@ -54,7 +54,7 @@ Examples:
     parser.add_argument('--dry-run', action='store_true', help='Load factors only, no backtest')
     parser.add_argument('--skip-uncached', action='store_true',
                         help='Skip uncached factors; use only cached factors for backtest')
-    parser.add_argument('--backend', type=str, choices=['qlib', 'noqlib', 'dual_parity'],
+    parser.add_argument('--backend', type=str, choices=['qlib', 'noqlib', 'vnpy', 'dual_parity', 'triple_parity'],
                         default=None, help='Backtest backend (overrides config/env)')
     
     args = parser.parse_args()

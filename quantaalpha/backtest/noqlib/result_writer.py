@@ -20,6 +20,7 @@ def save_results(
     elapsed: float,
     output_name: str | None,
     daily_report: pd.DataFrame | None = None,
+    backend: str = "noqlib",
 ) -> Path:
     """保存与 qlib BacktestRunner 兼容的 metrics JSON。"""
     output_dir = Path(config.get("experiment", {}).get("output_dir", "./backtest_v2_results"))
@@ -39,7 +40,7 @@ def save_results(
             "benchmark": config.get("backtest", {}).get("backtest", {}).get("benchmark"),
         },
         "elapsed_seconds": elapsed,
-        "backend": "noqlib",
+        "backend": backend,
     }
     output_path.write_text(json.dumps(_json_safe(result_data), ensure_ascii=False, indent=2), encoding="utf-8")
     if daily_report is not None and not daily_report.empty:
@@ -68,4 +69,3 @@ def _json_safe(value):
     if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
         return 0.0
     return value
-

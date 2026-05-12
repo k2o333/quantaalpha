@@ -1,6 +1,6 @@
 """回测 backend facade。
 
-本模块只负责选择 qlib / noqlib / dual_parity 路线，并保持旧调用方
+本模块只负责选择 qlib / noqlib / vnpy / parity 路线，并保持旧调用方
 `run()` / `run_from_library()` 的返回 contract。
 """
 
@@ -22,7 +22,7 @@ def resolve_backend(config: dict[str, Any], explicit_backend: str | None = None)
         or "qlib"
     )
     backend = str(backend).strip().lower()
-    if backend not in {"qlib", "noqlib", "dual_parity"}:
+    if backend not in {"qlib", "noqlib", "vnpy", "dual_parity", "triple_parity"}:
         raise ValueError(f"unsupported backtest backend: {backend}")
     return backend
 
@@ -49,9 +49,13 @@ class BacktestFacade:
             from quantaalpha.backtest.noqlib.backend import NoQlibBacktestBackend
 
             return NoQlibBacktestBackend(str(self.config_path), self.config)
-        from quantaalpha.backtest.noqlib.dual_parity import DualParityBacktestBackend
+        if backend == "vnpy":
+            from quantaalpha.backtest.vnpy.backend import VnpyBacktestBackend
 
-        return DualParityBacktestBackend(str(self.config_path), self.config)
+            return VnpyBacktestBackend(str(self.config_path), self.config)
+        from quantaalpha.backtest.parity import ParityBacktestBackend
+
+        return ParityBacktestBackend(str(self.config_path), self.config, mode=backend)
 
     def run(self, *args, **kwargs) -> dict:
         """运行所选 backend。"""
@@ -60,4 +64,3 @@ class BacktestFacade:
     def run_from_library(self, *args, **kwargs) -> dict:
         """从因子库运行所选 backend。"""
         return self._delegate.run_from_library(*args, **kwargs)
-

@@ -192,8 +192,8 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             f"{config_name}; workspace={workspace_path}; factor_count={factor_count}; backend={backend}"
         )
 
-        if backend == "noqlib":
-            exp.result = self._develop_noqlib(exp, config_name)
+        if backend in {"noqlib", "vnpy"}:
+            exp.result = self._develop_noqlib(exp, config_name, backend=backend)
             return exp
         if backend != "qlib":
             raise ValueError(f"unsupported factor mining backtest backend: {backend}")
@@ -229,7 +229,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
 
         return exp
 
-    def _develop_noqlib(self, exp: QlibFactorExperiment, config_name: str) -> pd.DataFrame:
+    def _develop_noqlib(self, exp: QlibFactorExperiment, config_name: str, backend: str = "noqlib") -> pd.DataFrame:
         """Run the factor-template backtest without importing qlib."""
         from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
         from quantaalpha.backtest.noqlib.dataset import NoQlibDatasetBuilder
@@ -241,11 +241,16 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         template_path = DIRNAME / "factor_template" / config_name
         with template_path.open("r", encoding="utf-8") as fh:
             qlib_cfg = yaml.safe_load(fh) or {}
-        noqlib_cfg = self._factor_template_to_noqlib_config(qlib_cfg)
+        noqlib_cfg = self._factor_template_to_noqlib_config(qlib_cfg, backend=backend)
         workspace_path = exp.experiment_workspace.workspace_path
 
         market = NoQlibMarketDataProvider(noqlib_cfg).load_market_data()
-        expression_engine = NoQlibExpressionEngine(market)
+        if backend == "vnpy":
+            from quantaalpha.backtest.vnpy.expression_engine import VnpyExpressionEngine
+
+            expression_engine = VnpyExpressionEngine(market)
+        else:
+            expression_engine = NoQlibExpressionEngine(market)
         features = self._load_noqlib_template_features(
             config=qlib_cfg,
             expression_engine=expression_engine,
@@ -259,10 +264,10 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         portfolio_metrics, _daily_report, _positions = NoQlibTopkDropoutBacktester(noqlib_cfg, market).run(prediction)
         metrics.update(portfolio_metrics)
         result = pd.DataFrame({"value": metrics})
-        logger.info(f"No-qlib backtesting results: \n{result}")
+        logger.info(f"{backend} backtesting results: \n{result}")
         return result
 
-    def _factor_template_to_noqlib_config(self, qlib_cfg: dict) -> dict:
+    def _factor_template_to_noqlib_config(self, qlib_cfg: dict, backend: str = "noqlib") -> dict:
         handler = qlib_cfg.get("data_handler_config", {})
         dataset_cfg = qlib_cfg.get("task", {}).get("dataset", {}).get("kwargs", {})
         model_cfg = qlib_cfg.get("task", {}).get("model", {})
@@ -286,7 +291,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             },
             "backtest": port_cfg,
             "backtest_runtime": {
-                "backend": "noqlib",
+                "backend": backend,
                 "noqlib": {
                     "project_root": str(Path.cwd()),
                     "app5_storage_root": os.environ.get(
