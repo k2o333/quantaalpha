@@ -148,10 +148,18 @@ factor:
 # Controls factor backtesting parameters
 # ============================================================
 backtest:
+  # Backend used by factor mining backtest.
+  # Supported: qlib | noqlib | vnpy
+  backend: vnpy
   use_docker: false
   timeout: 800
   qlib:
     config_name: conf_baseline.yaml
+  noqlib:
+    project_root: /home/quan/testdata/aspipe_v4
+    app5_storage_root: /home/quan/testdata/aspipe_v4/data
+    daily_interface: daily
+    qlib_provider_uri: /home/quan/testdata/aspipe_v4/third_party/data/qlib_data_csi300_bin
 
 
 # ============================================================

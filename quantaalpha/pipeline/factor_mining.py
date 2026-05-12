@@ -410,6 +410,23 @@ def _log_failure_summary(
     return summary
 
 
+def _resolve_factor_store_kwargs(run_cfg: dict[str, Any], exec_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Resolve AlphaAgentLoop runtime kwargs from experiment config."""
+    kwargs = dict(exec_cfg.get("factor_store_kwargs", {}) or {})
+    backtest_cfg = (run_cfg.get("backtest") or {}) if isinstance(run_cfg, dict) else {}
+    backend = (
+        backtest_cfg.get("backend")
+        or run_cfg.get("backtest_backend")
+        or os.environ.get("QUANTAALPHA_BACKTEST_BACKEND")
+    )
+    if backend:
+        kwargs.setdefault("backtest_backend", str(backend).strip().lower())
+    noqlib_cfg = backtest_cfg.get("noqlib") or backtest_cfg.get("backtest_noqlib") or run_cfg.get("backtest_noqlib")
+    if noqlib_cfg:
+        kwargs.setdefault("backtest_noqlib_config", dict(noqlib_cfg))
+    return kwargs
+
+
 def run_evolution_action(
     initial_direction: str | None,
     evolution_cfg: dict[str, Any],
@@ -761,6 +778,9 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
         exec_cfg = (run_cfg.get("execution") or {}) if isinstance(run_cfg, dict) else {}
         evolution_cfg = (run_cfg.get("evolution") or {}) if isinstance(run_cfg, dict) else {}
         quality_gate_cfg = (run_cfg.get("quality_gate") or {}) if isinstance(run_cfg, dict) else {}
+        factor_store_kwargs = _resolve_factor_store_kwargs(run_cfg, exec_cfg)
+        if factor_store_kwargs:
+            exec_cfg["factor_store_kwargs"] = factor_store_kwargs
 
         if evolution_mode is not None:
             use_evolution = evolution_mode
@@ -839,7 +859,16 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
                         logger.info(f"[Planning] Branch {idx}/{len(directions)} direction: {dir_text}")
                     p = Process(
                         target=_run_branch,
-                        args=(dir_text, step_n, use_local, idx, log_root if use_branch_logs else "", log_prefix),
+                        args=(
+                            dir_text,
+                            step_n,
+                            use_local,
+                            idx,
+                            log_root if use_branch_logs else "",
+                            log_prefix,
+                            quality_gate_cfg,
+                            factor_store_kwargs,
+                        ),
                     )
                     p.start()
                     procs.append(p)
@@ -860,6 +889,7 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
                         stop_event=stop_event,
                         use_local=use_local,
                         quality_gate_config=quality_gate_cfg,
+                        **factor_store_kwargs,
                     )
                     model_loop.user_initial_direction = direction
                     model_loop.run(step_n=step_n, stop_event=stop_event)

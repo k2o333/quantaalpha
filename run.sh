@@ -32,12 +32,27 @@ fi
 # =============================================================================
 # Activate conda environment
 # =============================================================================
+if ! command -v conda &> /dev/null; then
+    for conda_bin in \
+        "/root/miniforge3/bin/conda" \
+        "/opt/conda/bin/conda" \
+        "${HOME}/miniforge3/bin/conda" \
+        "${HOME}/miniconda3/bin/conda"; do
+        if [ -x "${conda_bin}" ]; then
+            export PATH="$(dirname "${conda_bin}"):${PATH}"
+            break
+        fi
+    done
+fi
+
 eval "$(conda shell.bash hook)" 2>/dev/null
 conda activate "${CONDA_ENV_NAME:-quantaalpha}" 2>/dev/null
 
 if [ $? -ne 0 ]; then
     source activate "${CONDA_ENV_NAME:-quantaalpha}" 2>/dev/null
 fi
+
+export CONDA_DEFAULT_ENV="${CONDA_ENV_NAME:-quantaalpha}"
 
 if ! command -v quantaalpha &> /dev/null; then
     echo "Error: quantaalpha command not found. Please install: pip install -e ."

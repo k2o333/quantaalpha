@@ -191,3 +191,22 @@ class TestEvolutionBudget:
         kwargs = MockLoop.call_args.kwargs
         assert kwargs["parquet_store_path"] == str(tmp_path / "parquet_store")
         assert kwargs["parquet_compact_config"] == {"delta_file_threshold": 3}
+
+    def test_experiment_config_resolves_vnpy_backtest_kwargs(self):
+        """Experiment config backtest backend is passed into AlphaAgentLoop kwargs."""
+        from quantaalpha.pipeline.factor_mining import _resolve_factor_store_kwargs
+
+        result = _resolve_factor_store_kwargs(
+            {
+                "backtest": {
+                    "backend": "vnpy",
+                    "noqlib": {"app5_storage_root": "/tmp/app5", "instruments": ["000001.SZ"]},
+                }
+            },
+            {"factor_store_kwargs": {"parquet_store_path": "/tmp/store"}},
+        )
+
+        assert result["backtest_backend"] == "vnpy"
+        assert result["backtest_noqlib_config"]["app5_storage_root"] == "/tmp/app5"
+        assert result["backtest_noqlib_config"]["instruments"] == ["000001.SZ"]
+        assert result["parquet_store_path"] == "/tmp/store"
