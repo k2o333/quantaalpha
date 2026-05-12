@@ -288,6 +288,7 @@ def start(
     verbose: bool = False,
     run_once: bool = False,
     skip_update: bool = False,
+    uat_profile: str = "",
 ) -> None:
     """
     Start the continuous runtime in foreground loop.
@@ -315,6 +316,7 @@ def start(
     # Load configuration + resolve paths
     try:
         pipeline_config, resolved = _load_config_and_paths(config)
+        _apply_uat_profile(pipeline_config, uat_profile)
         logger.info(f"Configuration loaded: data_check_interval={pipeline_config.data_check_interval_seconds}s")
     except Exception as e:
         logger.error(f"Failed to load configuration: {e}")
@@ -645,6 +647,7 @@ def once(
     config: str = "config/pipeline.yaml",
     verbose: bool = False,
     skip_update: bool = False,
+    uat_profile: str = "",
 ) -> None:
     """
     Run a single deterministic cycle and exit.
@@ -660,7 +663,26 @@ def once(
         verbose: Enable verbose debug logging.
     """
     _setup_logging(verbose)
-    start(config=config, verbose=verbose, run_once=True, skip_update=skip_update)
+    start(config=config, verbose=verbose, run_once=True, skip_update=skip_update, uat_profile=uat_profile)
+
+
+def _apply_uat_profile(pipeline_config, profile: str) -> None:
+    """Apply bounded local UAT limits without changing the checked-in pipeline config."""
+    profile = str(profile or "").strip().lower()
+    if not profile:
+        return
+    if profile != "short":
+        raise ValueError(f"unsupported continuous UAT profile: {profile}")
+    pipeline_config.cycle_budget_seconds = min(int(pipeline_config.cycle_budget_seconds), 900)
+    pipeline_config.validation.max_revalidation_per_run = min(int(pipeline_config.validation.max_revalidation_per_run), 1)
+    pipeline_config.validation.max_mining_per_run = min(int(pipeline_config.validation.max_mining_per_run), 1)
+    logger.info(
+        "Continuous UAT profile applied: short "
+        "cycle_budget_seconds=%s max_revalidation_per_run=%s max_mining_per_run=%s",
+        pipeline_config.cycle_budget_seconds,
+        pipeline_config.validation.max_revalidation_per_run,
+        pipeline_config.validation.max_mining_per_run,
+    )
 
 
 class ContinuousOrchestrator:
@@ -1186,13 +1208,19 @@ def main():
         action="store_true",
         help="Skip app4 data update in once mode for smoke/perf runs",
     )
+    parser.add_argument(
+        "--uat-profile",
+        choices=["short"],
+        default="",
+        help="Apply bounded local UAT limits without editing pipeline.yaml",
+    )
 
     args = parser.parse_args()
 
     if args.command == "start":
-        start(config=args.config, verbose=args.verbose, skip_update=args.skip_update)
+        start(config=args.config, verbose=args.verbose, skip_update=args.skip_update, uat_profile=args.uat_profile)
     elif args.command == "once":
-        once(config=args.config, verbose=args.verbose, skip_update=args.skip_update)
+        once(config=args.config, verbose=args.verbose, skip_update=args.skip_update, uat_profile=args.uat_profile)
 
 
 if __name__ == "__main__":

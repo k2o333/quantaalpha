@@ -44,7 +44,7 @@ def _write_vnpy_config(tmp_path: Path, market_path: Path, factors_path: Path) ->
                 "backtest_runtime": {
                     "backend": "vnpy",
                     "noqlib": {"market_data_path": str(market_path)},
-                    "vnpy": {"expression_translation": "compat"},
+                    "vnpy": {"expression_translation": "shared_polars"},
                 },
                 "factor_source": {"type": "custom", "custom": {"json_files": [str(factors_path)]}},
                 "data": {"start_time": "2020-01-01", "end_time": "2020-03-20", "market": "all"},

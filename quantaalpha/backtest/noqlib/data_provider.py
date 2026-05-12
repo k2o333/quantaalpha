@@ -59,6 +59,18 @@ class NoQlibMarketDataProvider:
         return pl.read_parquet(path)
 
     def _normalize_frame(self, frame: pl.DataFrame) -> pl.DataFrame:
+        if "ts_code" in frame.columns and "instrument" in frame.columns:
+            frame = frame.with_columns(
+                pl.coalesce([pl.col("instrument").cast(pl.Utf8), pl.col("ts_code").cast(pl.Utf8)]).alias("instrument")
+            )
+        if "trade_date" in frame.columns and "datetime" in frame.columns:
+            frame = frame.with_columns(
+                pl.coalesce([pl.col("datetime").cast(pl.Utf8), pl.col("trade_date").cast(pl.Utf8)]).alias("datetime")
+            )
+        if "vol" in frame.columns and "volume" in frame.columns:
+            frame = frame.with_columns(
+                pl.coalesce([pl.col("volume").cast(pl.Float64), pl.col("vol").cast(pl.Float64)]).alias("volume")
+            )
         rename_map = {
             "ts_code": "instrument",
             "trade_date": "datetime",
@@ -87,13 +99,19 @@ class NoQlibMarketDataProvider:
             frame = frame.with_columns(pl.lit(0.0).alias("volume"))
         if "amount" not in frame.columns:
             frame = frame.with_columns(pl.lit(None).cast(pl.Float64).alias("amount"))
+        multiplier = self._amount_to_vwap_multiplier()
+        vwap_fallback = (
+            pl.when(pl.col("volume").cast(pl.Float64) > 0)
+            .then(pl.col("amount").cast(pl.Float64) * multiplier / pl.col("volume").cast(pl.Float64))
+            .otherwise(pl.col("close").cast(pl.Float64))
+        )
         if "vwap" not in frame.columns:
-            multiplier = self._amount_to_vwap_multiplier()
             frame = frame.with_columns(
-                pl.when(pl.col("volume").cast(pl.Float64) > 0)
-                .then(pl.col("amount").cast(pl.Float64) * multiplier / pl.col("volume").cast(pl.Float64))
-                .otherwise(pl.col("close").cast(pl.Float64))
-                .alias("vwap")
+                vwap_fallback.alias("vwap")
+            )
+        else:
+            frame = frame.with_columns(
+                pl.coalesce([pl.col("vwap").cast(pl.Float64), vwap_fallback]).alias("vwap")
             )
         if "$return" in frame.columns and "pct_chg" in frame.columns:
             pct = pl.col("pct_chg").cast(pl.Float64)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 import yaml
 
@@ -226,7 +227,7 @@ def test_noqlib_backend_runs_alpha158_20_synthetic_csv(tmp_path):
     assert (tmp_path / "out" / "metrics.json").exists()
 
 
-def test_alpha158_20_native_expression_engine_does_not_use_fallback(tmp_path, monkeypatch):
+def test_alpha158_20_native_expression_engine_uses_shared_kernel(tmp_path):
     from quantaalpha.backtest.factor_loader import FactorLoader
     from quantaalpha.backtest.noqlib.expression_engine import NoQlibExpressionEngine
 
@@ -251,15 +252,86 @@ def test_alpha158_20_native_expression_engine_does_not_use_fallback(tmp_path, mo
     market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
     factors, _ = FactorLoader({"factor_source": {"type": "alpha158_20"}}).load_factors()
 
-    def fail_fallback(*args, **kwargs):
-        raise AssertionError("alpha158_20 should be covered by native evaluator")
-
-    monkeypatch.setattr(NoQlibExpressionEngine, "_custom_calculator", fail_fallback)
     features = NoQlibExpressionEngine(market).compute(
         [{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()]
     )
     assert set(features.columns) == set(factors)
     assert len(features) == len(market)
+
+
+def test_noqlib_expression_engine_rejects_unsupported_without_fallback():
+    from quantaalpha.backtest.noqlib.expression_engine import NoQlibExpressionEngine
+
+    index = pd.MultiIndex.from_product(
+        [[pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")], ["A", "B"]],
+        names=["datetime", "instrument"],
+    )
+    market = pd.DataFrame(
+        {
+            "$close": [1.0, 2.0, 3.0, 4.0],
+            "$open": [1.0, 2.0, 3.0, 4.0],
+            "$high": [1.0, 2.0, 3.0, 4.0],
+            "$low": [1.0, 2.0, 3.0, 4.0],
+            "$volume": [100.0, 100.0, 100.0, 100.0],
+            "$vwap": [1.0, 2.0, 3.0, 4.0],
+            "$return": [0.0, 0.0, 0.0, 0.0],
+        },
+        index=index,
+    )
+
+    with pytest.raises(ValueError, match="unsupported noqlib expression.*SECTOR_RETURN"):
+        NoQlibExpressionEngine(market).compute(
+            [{"factor_id": "bad", "factor_name": "bad", "factor_expression": "SECTOR_RETURN($close)"}]
+        )
+
+
+def test_noqlib_market_normalize_coalesces_app5_and_benchmark_columns():
+    from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
+
+    raw = pl.DataFrame(
+        [
+            {
+                "ts_code": "000001.SZ",
+                "trade_date": "20240102",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "vol": 1000.0,
+                "amount": 1050.0,
+                "instrument": None,
+                "datetime": None,
+                "volume": None,
+                "vwap": None,
+            },
+            {
+                "ts_code": None,
+                "trade_date": None,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "vol": None,
+                "amount": None,
+                "instrument": "SH000300",
+                "datetime": "2024-01-02",
+                "volume": 2000.0,
+                "vwap": 100.5,
+            },
+        ]
+    )
+    config = {
+        "backtest_runtime": {
+            "noqlib": {
+                "instruments": ["000001.SZ"],
+                "benchmark_instruments": ["SH000300"],
+            }
+        }
+    }
+    normalized = NoQlibMarketDataProvider(config)._normalize_frame(raw)
+    assert normalized.get_column("instrument").to_list() == ["000001.SZ", "SH000300"]
+    assert normalized.get_column("datetime").to_list() == [pd.Timestamp("2024-01-02").date()] * 2
+    assert normalized.get_column("$volume").to_list() == [1000.0, 2000.0]
 
 
 def test_alpha158_20_matches_real_qlib_oracle_when_data_available(tmp_path):

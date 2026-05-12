@@ -820,6 +820,15 @@ class TestPerFactorTimeoutEnforcement:
 
         assert warning is None
 
+    def test_default_backtest_accepts_vnpy_ts_resi_two_arg_form(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        assert scheduler._operator_arity_warning("ts_resi(close, 20)") is None
+
     def test_default_backtest_flags_non_integer_window_argument(self, tmp_path):
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
 
