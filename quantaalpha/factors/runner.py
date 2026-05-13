@@ -2,6 +2,7 @@ import pickle
 import sys
 from pathlib import Path
 from typing import List
+import json
 import os
 import numpy as np
 import pandas as pd
@@ -34,6 +35,70 @@ DIRNAME_local = Path.cwd()
 #         de.run(local_path=self.ws_path, entry="qrun conf.yaml")
 
 # TODO: supporting multiprocessing and keep previous results
+
+
+def assert_backtest_result_parity(
+    h5_result: pd.DataFrame | pd.Series,
+    parquet_result: pd.DataFrame | pd.Series,
+    *,
+    rtol: float = 1e-9,
+    atol: float = 1e-12,
+) -> dict[str, float | int]:
+    """Assert H5-fed and parquet-fed backtest metric results are equivalent."""
+
+    left = _metric_series(h5_result)
+    right = _metric_series(parquet_result)
+    common = left.index.intersection(right.index)
+    if common.empty:
+        raise AssertionError("backtest parity has no common metrics")
+    left = left.loc[common].astype(float)
+    right = right.loc[common].astype(float)
+    diffs = (left - right).abs()
+    comparable = ~(left.isna() | right.isna())
+    nan_mismatch = left.isna() != right.isna()
+    if bool(nan_mismatch.any()):
+        metric = str(nan_mismatch[nan_mismatch].index[0])
+        raise AssertionError(f"backtest parity NaN mismatch for {metric}")
+    if not np.allclose(left[comparable], right[comparable], rtol=rtol, atol=atol, equal_nan=True):
+        metric = str(diffs[comparable].idxmax())
+        raise AssertionError(f"backtest parity metric mismatch for {metric}: diff={float(diffs[metric])}")
+    return {
+        "metric_count": int(len(common)),
+        "max_abs_diff": float(diffs[comparable].max()) if bool(comparable.any()) else 0.0,
+        "rtol": float(rtol),
+        "atol": float(atol),
+    }
+
+
+def _metric_series(result: pd.DataFrame | pd.Series) -> pd.Series:
+    if isinstance(result, pd.Series):
+        return result
+    if "value" in result.columns:
+        return result["value"]
+    if result.shape[1] == 1:
+        return result.iloc[:, 0]
+    raise ValueError(f"unsupported backtest result schema for parity: {list(result.columns)}")
+
+
+def _prepare_parquet_runtime_combined_factors(
+    h5_combined_factors: pd.DataFrame,
+    parquet_runtime_new_factors: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Build a full combined factor frame with parquet-runtime values replacing new factor columns."""
+
+    common_columns = [col for col in h5_combined_factors.columns if col in parquet_runtime_new_factors.columns]
+    if not common_columns:
+        raise AssertionError("parquet runtime combined parity has no common factor columns")
+
+    common_index = h5_combined_factors.index.intersection(parquet_runtime_new_factors.index)
+    if common_index.empty:
+        raise AssertionError("parquet runtime combined parity has no common rows")
+
+    parquet_combined = h5_combined_factors.loc[common_index].copy()
+    parquet_replacement = parquet_runtime_new_factors.loc[common_index, common_columns]
+    for column in common_columns:
+        parquet_combined[column] = parquet_replacement[column]
+    return parquet_combined, [str(col) for col in common_columns]
 
 
 class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
@@ -92,7 +157,8 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         Generate the experiment by processing and combining factor data,
         then passing the combined data to Docker or local environment for backtest results.
         """
-        
+        parquet_runtime_combined_factors = None
+
         if exp.based_experiments and exp.based_experiments[-1].result is None:
             exp.based_experiments[-1] = self.develop(exp.based_experiments[-1], use_local=use_local)
 
@@ -108,6 +174,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             # Process the new factors data
             try:
                 new_factors = self.process_factor_data(exp)
+                parquet_runtime_new_factors = getattr(self, "_last_parquet_runtime_factors", None)
             except FactorEmptyError as e:
                 logger.error(f"Failed to process new factors: {e}")
                 # Try manual factor execution
@@ -143,6 +210,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                 # Retry processing factor data
                 try:
                     new_factors = self.process_factor_data(exp)
+                    parquet_runtime_new_factors = getattr(self, "_last_parquet_runtime_factors", None)
                 except FactorEmptyError:
                     raise FactorEmptyError("No valid factor data found to merge after manual execution attempt.")
             
@@ -157,6 +225,39 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                 combined_factors = pd.concat([SOTA_factor, new_factors], axis=1).dropna()
             else:
                 combined_factors = new_factors
+
+            if (
+                str(os.environ.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "")).strip().lower() == "dual_h5_parquet"
+                and parquet_runtime_new_factors is not None
+                and not parquet_runtime_new_factors.empty
+            ):
+                parquet_runtime_combined_factors, parquet_runtime_compared_columns = (
+                    _prepare_parquet_runtime_combined_factors(combined_factors, parquet_runtime_new_factors)
+                )
+                combined_for_compare = combined_factors.loc[parquet_runtime_combined_factors.index]
+                for column in parquet_runtime_compared_columns:
+                    from quantaalpha.factors.coder.runtime_data import assert_factor_frame_parity
+
+                    assert_factor_frame_parity(
+                        combined_for_compare[[column]],
+                        parquet_runtime_combined_factors[[column]],
+                        factor_name=str(column),
+                    )
+                parity_path = exp.experiment_workspace.workspace_path / "factor_runtime_combined_parity.json"
+                parity_path.write_text(
+                    json.dumps(
+                        {
+                            "rows": int(len(parquet_runtime_combined_factors)),
+                            "columns": [str(col) for col in parquet_runtime_combined_factors.columns],
+                            "compared_columns": parquet_runtime_compared_columns,
+                            "status": "passed",
+                        },
+                        ensure_ascii=True,
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
                 
             if len(combined_factors.columns) >= 2:
                 pd.set_option('display.width', 1000)
@@ -171,6 +272,13 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             combined_factors = combined_factors.loc[:, ~combined_factors.columns.duplicated(keep="last")]
             new_columns = pd.MultiIndex.from_product([["feature"], combined_factors.columns])
             combined_factors.columns = new_columns
+            if parquet_runtime_combined_factors is not None and not parquet_runtime_combined_factors.empty:
+                parquet_runtime_combined_factors = parquet_runtime_combined_factors.sort_index()
+                parquet_runtime_combined_factors = parquet_runtime_combined_factors.loc[
+                    combined_factors.index,
+                    combined_factors.columns.get_level_values(1),
+                ]
+                parquet_runtime_combined_factors.columns = new_columns
             
             logger.info(f"Factor values this round: \n\n{combined_factors.tail()}\n\n")
 
@@ -193,7 +301,25 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         )
 
         if backend in {"noqlib", "vnpy"}:
-            exp.result = self._develop_noqlib(exp, config_name, backend=backend)
+            result = self._develop_noqlib(exp, config_name, backend=backend)
+            if (
+                parquet_runtime_combined_factors is not None
+                and str(os.environ.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "")).strip().lower() == "dual_h5_parquet"
+            ):
+                parquet_path = exp.experiment_workspace.workspace_path / "combined_factors_df.parquet"
+                h5_combined_backup = pd.read_parquet(parquet_path)
+                try:
+                    parquet_runtime_combined_factors.to_parquet(parquet_path, engine="pyarrow")
+                    parquet_result = self._develop_noqlib(exp, config_name, backend=backend)
+                    backtest_parity = assert_backtest_result_parity(result, parquet_result)
+                    (exp.experiment_workspace.workspace_path / "factor_runtime_backtest_parity.json").write_text(
+                        json.dumps(backtest_parity, ensure_ascii=True, indent=2, sort_keys=True),
+                        encoding="utf-8",
+                    )
+                    logger.info(f"Parquet runtime backtest parity passed: {backtest_parity}")
+                finally:
+                    h5_combined_backup.to_parquet(parquet_path, engine="pyarrow")
+            exp.result = result
             return exp
         if backend != "qlib":
             raise ValueError(f"unsupported factor mining backtest backend: {backend}")
@@ -397,6 +523,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         if isinstance(exp_or_list, QlibFactorExperiment):
             exp_or_list = [exp_or_list]
         factor_dfs = []
+        parquet_factor_dfs = []
 
         # Collect all exp's dataframes
         for exp in exp_or_list:
@@ -431,11 +558,31 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                         validated_df = self._validate_factor_frame(df)
                         if validated_df is not None:
                             factor_dfs.append(validated_df)
+                            if (
+                                str(os.environ.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "")).strip().lower()
+                                == "dual_h5_parquet"
+                                and idx < len(valid_implementations)
+                            ):
+                                parquet_path = valid_implementations[idx].workspace_path / "result.parquet"
+                                if parquet_path.exists():
+                                    from quantaalpha.factors.coder.runtime_data import (
+                                        assert_factor_frame_parity,
+                                        read_parquet_factor_result,
+                                    )
+
+                                    factor_name = str(valid_implementations[idx].target_task.factor_name)
+                                    parquet_df = read_parquet_factor_result(parquet_path, factor_name=factor_name)
+                                    assert_factor_frame_parity(validated_df[[factor_name]], parquet_df, factor_name=factor_name)
+                                    parquet_validated = self._validate_factor_frame(parquet_df)
+                                    if parquet_validated is not None:
+                                        parquet_factor_dfs.append(parquet_validated)
 
         # Combine all successful factor data
         if factor_dfs:
+            self._last_parquet_runtime_factors = pd.concat(parquet_factor_dfs, axis=1) if parquet_factor_dfs else None
             return pd.concat(factor_dfs, axis=1)
         else:
+            self._last_parquet_runtime_factors = None
             raise FactorEmptyError("No valid factor data found to merge.")
 
 

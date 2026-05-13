@@ -51,6 +51,8 @@ def test_expanded_data_uat_profile_adds_admitted_optional_fields() -> None:
         mining=SimpleNamespace(
             evolution=SimpleNamespace(max_rounds=3),
             orchestration=SimpleNamespace(max_steps_per_cycle=6, nodes=[]),
+            agent_loop=SimpleNamespace(step_model_routing={"construct": "litellm_minimax"}),
+            ensemble=SimpleNamespace(),
         ),
         factor=SimpleNamespace(backtest_noqlib={"standard_frame": {"daily_interface": "daily", "adjustment": "raw"}}),
     )
@@ -60,9 +62,13 @@ def test_expanded_data_uat_profile_adds_admitted_optional_fields() -> None:
     assert config.factor.backtest_noqlib["market_data_source"] == "app5_standard_frame"
     standard_frame = config.factor.backtest_noqlib["standard_frame"]
     assert config.cycle_budget_seconds == 900
+    assert config.validation.max_revalidation_per_run == 0
     assert standard_frame["admission_profile"] == "expanded-data"
+    assert config.factor.backtest_noqlib["factor_coder_runtime"] == "dual_h5_parquet"
     assert len(standard_frame["optional_fields"]) >= 3
     assert "$daily_basic_turnover_rate" in {item["feature_name"] for item in standard_frame["optional_fields"]}
+    assert config.mining.agent_loop.step_model_routing["construct"] == "litellm_mistral"
+    assert config.mining.ensemble.models[0].name == "litellm_mistral"
 
 
 def test_mining_scheduler_uses_explicit_cycle_budget() -> None:

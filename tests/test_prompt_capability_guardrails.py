@@ -53,3 +53,54 @@ def test_structured_rejection_feedback_is_prompt_safe() -> None:
     assert feedback["reason_code"] == "FIELD_NOT_ADMITTED"
     assert feedback["field"] == "$raw_secret_field"
     assert "raw schema" not in feedback["remediation"].lower()
+
+
+def test_standard_frame_optional_fields_render_as_daily_panel_capabilities() -> None:
+    from quantaalpha.factors.data_capability import capabilities_from_standard_frame_optional_fields, render_data_capabilities
+
+    capabilities = capabilities_from_standard_frame_optional_fields(
+        [
+            {
+                "source_interface": "daily_basic",
+                "source_field": "turnover_rate",
+                "feature_name": "$daily_basic_turnover_rate",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "stock_basic",
+                "source_field": "name",
+                "feature_name": "$stock_basic_name",
+                "allowed_usage": ("context",),
+            },
+        ],
+        manifest_version="sha256:test",
+    )
+
+    assert capabilities["expanded_daily_panel"]["fields"] == ["$daily_basic_turnover_rate"]
+    rendered = render_data_capabilities(capabilities)
+    assert "expanded_daily_panel" in rendered
+    assert "$daily_basic_turnover_rate" in rendered
+    assert "$stock_basic_name" not in rendered
+
+
+def test_construct_prompt_field_hint_includes_base_and_admitted_fields() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+    constructor = object.__new__(AlphaAgentHypothesis2FactorExpression)
+    constructor.data_capabilities = {
+        "expanded_daily_panel": {
+            "fields": ["$daily_basic_turnover_rate", "$moneyflow_buy_sm_amount"],
+            "layer": "daily_panel",
+        }
+    }
+    trace = SimpleNamespace(scen=MagicMock())
+
+    hint = constructor._render_allowed_expression_field_hint(trace)
+
+    assert "$open" in hint
+    assert "$return" in hint
+    assert "$daily_basic_turnover_rate" in hint
+    assert "$moneyflow_buy_sm_amount" in hint

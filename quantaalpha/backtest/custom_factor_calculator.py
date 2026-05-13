@@ -204,7 +204,7 @@ class CustomFactorCalculator:
             from joblib import parallel_backend
             
             from quantaalpha.factors.coder.expr_parser import (
-                parse_expression, parse_symbol
+                bind_expression_columns, parse_expression, parse_symbol
             )
             import quantaalpha.factors.coder.function_lib as func_lib
             
@@ -219,9 +219,7 @@ class CustomFactorCalculator:
             finally:
                 _sys.stdout = old_stdout
             
-            for col in df.columns:
-                if col.startswith('$'):
-                    expr = expr.replace(col[1:], f"df['{col}']")
+            expr = bind_expression_columns(expr, df.columns)
             
             exec_globals = {
                 'df': df,
@@ -529,7 +527,7 @@ class CustomFactorDataLoader:
     def to_qlib_format(self, data_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Convert to Qlib data format."""
         from quantaalpha.factors.coder.expr_parser import (
-            parse_expression, parse_symbol
+            bind_expression_columns, parse_expression, parse_symbol
         )
         import quantaalpha.factors.coder.function_lib as func_lib
         
@@ -538,9 +536,7 @@ class CustomFactorDataLoader:
         expr = parse_symbol(self.label_expr, df.columns)
         expr = parse_expression(expr)
         
-        for col in df.columns:
-            if col.startswith('$'):
-                expr = expr.replace(col[1:], f"df['{col}']")
+        expr = bind_expression_columns(expr, df.columns)
         
         exec_globals = {'df': df, 'np': np, 'pd': pd}
         for name in dir(func_lib):

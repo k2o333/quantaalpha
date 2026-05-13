@@ -73,10 +73,18 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         if capabilities is None:
             capabilities = getattr(trace.scen, "data_capabilities", None)
         registry = get_data_capabilities(capabilities)
-        allowed_fields: set[str] = {"$return"}
+        allowed_fields: set[str] = {"$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"}
         for spec in registry.values():
             allowed_fields.update(str(field) for field in spec.get("fields", []))
         return allowed_fields
+
+    def _render_allowed_expression_field_hint(self, trace: Trace) -> str:
+        fields = ", ".join(sorted(self._allowed_expression_fields(trace)))
+        return (
+            "Current admitted expression fields for this run: "
+            f"{fields}. These fields, and only these fields, may be used in factor expressions. "
+            "Treat static examples in this prompt as examples, not as an exhaustive field list."
+        )
 
     def _extract_expression_variables(self, expression: str) -> set[str]:
         from quantaalpha.factors.coder.factor_ast import collect_unique_vars, parse_expression
@@ -100,7 +108,11 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
     def prepare_context(self, hypothesis: Hypothesis, trace: Trace, history_limit: int = DEFAULT_HISTORY_LIMIT) -> Tuple[dict | bool]:
         scenario = trace.scen.get_scenario_all_desc()
-        experiment_output_format = qa_prompt_dict["factor_experiment_output_format"]
+        experiment_output_format = (
+            qa_prompt_dict["factor_experiment_output_format"]
+            + "\n\n"
+            + self._render_allowed_expression_field_hint(trace)
+        )
         function_lib_description = qa_prompt_dict["function_lib_description"]
         hypothesis_and_feedback = render_hypothesis_and_feedback(qa_prompt_dict, trace, history_limit)
 

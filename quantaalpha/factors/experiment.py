@@ -138,6 +138,7 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
         registry_enabled = kwargs.pop("data_capability_registry_enabled", None)
         capabilities = kwargs.pop("data_capabilities", None)
         config_path = kwargs.pop("experiment_config_path", EXPERIMENT_CONFIG_PATH)
+        self.data_capabilities = capabilities
 
         Scenario.__init__(self)
         tpl_prefix = "scenarios.qlib.experiment.prompts"
@@ -157,12 +158,11 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
                 registry_enabled=resolved_registry_enabled,
                 capabilities=capabilities,
             )
-        except Exception:
+        except Exception as exc:
             from quantaalpha.factors.qlib_utils import get_data_folder_intro as local_get_data_folder_intro
 
             logger.warning(
-                "Failed to inject data capability registry, falling back to basic source data.",
-                exc_info=True,
+                f"Failed to inject data capability registry, falling back to basic source data: {exc}",
             )
             source_data = deepcopy(local_get_data_folder_intro(use_local=use_local))
         self._source_data = source_data

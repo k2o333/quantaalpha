@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import uuid
+import json
 from pathlib import Path
 from typing import Tuple, Union
 
@@ -174,16 +175,31 @@ class FactorFBWorkspace(FBWorkspace):
                     env['PYTHONPATH'] = pythonpath + ':' + env['PYTHONPATH']
                 else:
                     env['PYTHONPATH'] = pythonpath
-                
-                subprocess.check_output(
-                    f"{FACTOR_COSTEER_SETTINGS.python_bin} {execution_code_path}",
-                    shell=True,
-                    cwd=self.workspace_path,
-                    stderr=subprocess.STDOUT,
-                    timeout=FACTOR_COSTEER_SETTINGS.file_based_execution_timeout,
-                    env=env,
-                )
-                execution_success = True
+
+                runtime_mode = str(env.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "h5")).strip().lower()
+                if runtime_mode == "polars_parquet":
+                    from quantaalpha.factors.coder.runtime_data import compute_factor_output_parquet
+
+                    expression = getattr(self.target_task, "factor_expression", None)
+                    if not expression:
+                        raise CustomRuntimeError("polars_parquet runtime requires target_task.factor_expression")
+                    compute_factor_output_parquet(
+                        data_root=self.workspace_path,
+                        expression=str(expression),
+                        factor_name=str(self.target_task.factor_name),
+                        output_path=self.workspace_path / "result.parquet",
+                    )
+                    execution_success = True
+                else:
+                    subprocess.check_output(
+                        f"{FACTOR_COSTEER_SETTINGS.python_bin} {execution_code_path}",
+                        shell=True,
+                        cwd=self.workspace_path,
+                        stderr=subprocess.STDOUT,
+                        timeout=FACTOR_COSTEER_SETTINGS.file_based_execution_timeout,
+                        env=env,
+                    )
+                    execution_success = True
             except subprocess.CalledProcessError as e:
                 import site
 
@@ -207,6 +223,30 @@ class FactorFBWorkspace(FBWorkspace):
                 else:
                     execution_error = CustomRuntimeError(execution_feedback)
 
+            runtime_mode = str(env.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "h5")).strip().lower()
+            if runtime_mode == "polars_parquet":
+                workspace_output_file_path = self.workspace_path / "result.parquet"
+                if workspace_output_file_path.exists() and execution_success:
+                    try:
+                        from quantaalpha.factors.coder.runtime_data import read_parquet_factor_result
+
+                        executed_factor_value_dataframe = read_parquet_factor_result(
+                            workspace_output_file_path,
+                            factor_name=str(self.target_task.factor_name),
+                        )
+                        execution_feedback += "\nExpected parquet output file found."
+                    except Exception as e:
+                        execution_feedback += f"Error found when reading parquet file: {e}"[:1000]
+                        executed_factor_value_dataframe = None
+                else:
+                    execution_feedback += "\nExpected parquet output file not found."
+                    executed_factor_value_dataframe = None
+                    if self.raise_exception:
+                        raise NoOutputError(execution_feedback)
+                    else:
+                        execution_error = NoOutputError(execution_feedback)
+                return execution_feedback, executed_factor_value_dataframe
+
             workspace_output_file_path = self.workspace_path / "result.h5"
             if workspace_output_file_path.exists() and execution_success:
                 try:
@@ -222,6 +262,38 @@ class FactorFBWorkspace(FBWorkspace):
                     raise NoOutputError(execution_feedback)
                 else:
                     execution_error = NoOutputError(execution_feedback)
+
+            if runtime_mode == "dual_h5_parquet" and executed_factor_value_dataframe is not None:
+                try:
+                    from quantaalpha.factors.coder.runtime_data import (
+                        assert_factor_frame_parity,
+                        compute_factor_output_parquet,
+                    )
+
+                    expression = getattr(self.target_task, "factor_expression", None)
+                    if not expression:
+                        raise CustomRuntimeError("dual_h5_parquet runtime requires target_task.factor_expression")
+                    parquet_result = compute_factor_output_parquet(
+                        data_root=self.workspace_path,
+                        expression=str(expression),
+                        factor_name=str(self.target_task.factor_name),
+                        output_path=self.workspace_path / "result.parquet",
+                    )
+                    parity = assert_factor_frame_parity(
+                        executed_factor_value_dataframe,
+                        parquet_result,
+                        factor_name=str(self.target_task.factor_name),
+                    )
+                    (self.workspace_path / "factor_runtime_parity.json").write_text(
+                        json.dumps(parity, ensure_ascii=True, indent=2, sort_keys=True),
+                        encoding="utf-8",
+                    )
+                    execution_feedback += f"\nParquet runtime parity passed: {parity}"
+                except Exception as e:
+                    execution_feedback += f"\nParquet runtime parity failed: {e}"[:1000]
+                    if self.raise_exception:
+                        raise CustomRuntimeError(execution_feedback) from e
+                    execution_error = CustomRuntimeError(execution_feedback)
 
         return execution_feedback, executed_factor_value_dataframe
 

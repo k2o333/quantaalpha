@@ -321,6 +321,33 @@ def render_data_capabilities(capabilities: Mapping[str, Mapping[str, Any]] | Non
     return "Available data capabilities:\n" + "\n".join(sections)
 
 
+def capabilities_from_standard_frame_optional_fields(
+    optional_fields: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    manifest_version: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Build prompt capabilities from governed standard-frame optional fields."""
+
+    expression_fields = sorted(
+        str(item["feature_name"])
+        for item in optional_fields
+        if "feature_name" in item and "expression" in tuple(item.get("allowed_usage", ()))
+    )
+    if not expression_fields:
+        return {}
+    capability = {
+        "fields": expression_fields,
+        "freq": "daily",
+        "lag_days": 0,
+        "available_from": None,
+        "join_mode": "same_day",
+        "factor_hints": ["expanded app5 daily panel", "liquidity", "moneyflow", "chip distribution"],
+        "layer": "daily_panel",
+        "source_manifest_version": manifest_version,
+    }
+    return {"expanded_daily_panel": capability}
+
+
 def _load_financial_pit_frame_from_spec(interface_name: str, capability: Mapping[str, Any] | None):
     import polars as pl
 

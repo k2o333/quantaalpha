@@ -94,8 +94,9 @@ class KernelSequence:
 class SharedPolarsExpressionKernel:
     """Evaluate the currently covered canonical DSL subset with polars."""
 
-    def __init__(self, market_data: pd.DataFrame | pl.DataFrame) -> None:
+    def __init__(self, market_data: pd.DataFrame | pl.DataFrame, *, compat_mode: str = "strict") -> None:
         self.market = _normalize_market(market_data)
+        self.compat_mode = compat_mode
         self.audit: list[KernelAudit] = []
 
     def compute(self, factors: list[dict[str, Any]]) -> pd.DataFrame:
@@ -192,17 +193,17 @@ class SharedPolarsExpressionKernel:
             value = _expect_value(args[0])
             return value - _delay(value, int(_expect_number(args[1])))
         if name == "TS_MEAN" and len(args) == 2:
-            return _rolling("mean", _expect_value(args[0]), int(_expect_number(args[1])))
+            return self._rolling_for_mode("mean", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "MEAN" and len(args) == 1:
             return _cs_aggregate(_expect_value(args[0]), "mean")
         if name == "TS_SUM" and len(args) == 2:
-            return _rolling("sum", _expect_value(args[0]), int(_expect_number(args[1])))
+            return self._rolling_for_mode("sum", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "SUMAC" and len(args) == 2:
-            return _rolling("sum", _expect_value(args[0]), int(_expect_number(args[1])))
+            return self._rolling_for_mode("sum", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_PROD" and len(args) == 2:
             return _rolling_product_loose(_expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_STD" and len(args) == 2:
-            return _rolling("std", _expect_value(args[0]), int(_expect_number(args[1])))
+            return self._rolling_for_mode("std", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "STD" and len(args) == 1:
             return _cs_aggregate(_expect_value(args[0]), "std")
         if name == "SKEW" and len(args) == 1:
@@ -210,21 +211,25 @@ class SharedPolarsExpressionKernel:
         if name == "KURT" and len(args) == 1:
             return _cs_kurt(_expect_value(args[0]))
         if name == "TS_VAR" and len(args) == 2:
-            return _rolling("var", _expect_value(args[0]), int(_expect_number(args[1])))
+            return self._rolling_for_mode("var", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_SKEW" and len(args) == 2:
             return _rolling("skew", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_MIN" and len(args) == 2:
-            return _rolling("min", _expect_value(args[0]), int(_expect_number(args[1])))
+            return self._rolling_for_mode("min", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_MAX" and len(args) == 2:
-            return _rolling("max", _expect_value(args[0]), int(_expect_number(args[1])))
+            return self._rolling_for_mode("max", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_MEDIAN" and len(args) == 2:
-            return _rolling_quantile(_expect_value(args[0]), int(_expect_number(args[1])), 0.5)
+            window = int(_expect_number(args[1]))
+            min_samples = 1 if self.compat_mode == "h5_coder" else window
+            return _rolling_quantile(_expect_value(args[0]), window, 0.5, min_samples=min_samples)
         if name == "TS_MAD" and len(args) == 2:
             return _rolling_mad(_expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_RANK" and len(args) == 2:
-            return _ts_rank(_expect_value(args[0]), int(_expect_number(args[1])))
+            window = int(_expect_number(args[1]))
+            min_samples = 1 if self.compat_mode == "h5_coder" else window
+            return _ts_rank(_expect_value(args[0]), window, min_samples=min_samples)
         if name == "RANK" and len(args) == 1:
-            return _cs_rank(_expect_value(args[0]))
+            return _cs_rank(_expect_value(args[0]), compat_mode=self.compat_mode)
         if name == "ZSCORE" and len(args) == 1:
             return _cs_zscore(_expect_value(args[0]))
         if name == "NEG" and len(args) == 1:
@@ -236,13 +241,18 @@ class SharedPolarsExpressionKernel:
         if name == "TS_PCTCHANGE" and len(args) == 2:
             value = _expect_value(args[0])
             period = int(_expect_number(args[1]))
-            return value / _delay(value, period) - 1.0
+            result = value / _delay(value, period) - 1.0
+            return _fill_null_nan(result, 0.0) if self.compat_mode == "h5_coder" else result
         if name == "TS_QUANTILE" and len(args) == 3:
-            return _rolling_quantile(_expect_value(args[0]), int(_expect_number(args[1])), float(_expect_number(args[2])))
+            window = int(_expect_number(args[1]))
+            min_samples = 1 if self.compat_mode == "h5_coder" else window
+            return _rolling_quantile(_expect_value(args[0]), window, float(_expect_number(args[2])), min_samples=min_samples)
         if name == "PERCENTILE" and len(args) == 2:
             return _full_instrument_quantile(_expect_value(args[0]), float(_expect_number(args[1])))
         if name == "PERCENTILE" and len(args) == 3:
-            return _rolling_quantile(_expect_value(args[0]), int(_expect_number(args[2])), float(_expect_number(args[1])))
+            window = int(_expect_number(args[2]))
+            min_samples = 1 if self.compat_mode == "h5_coder" else window
+            return _rolling_quantile(_expect_value(args[0]), window, float(_expect_number(args[1])), min_samples=min_samples)
         if name == "TS_ARGMAX" and len(args) == 2:
             return _rolling_arg(_expect_value(args[0]), int(_expect_number(args[1])), "max")
         if name == "TS_ARGMIN" and len(args) == 2:
@@ -349,6 +359,11 @@ class SharedPolarsExpressionKernel:
                 return KernelSequence(args[0].length, log=True)
             return KernelValue(_expect_value(args[0]).frame.select("datetime", "instrument", pl.col("data").log().alias("data"))) if isinstance(args[0], KernelValue) else float(np.log(_expect_number(args[0])))
         raise UnsupportedExpressionError(f"unsupported function or arity: {name}/{len(args)}")
+
+    def _rolling_for_mode(self, operation: str, value: KernelValue, window: int) -> KernelValue:
+        if self.compat_mode == "h5_coder":
+            return _rolling_loose(operation, value, window)
+        return _rolling(operation, value, window)
 
 
 def _normalize_market(market_data: pd.DataFrame | pl.DataFrame) -> pl.DataFrame:
@@ -594,11 +609,29 @@ def _rolling_loose(operation: str, value: KernelValue, window: int) -> KernelVal
     expr = pl.col("data").fill_nan(None)
     if operation == "mean":
         data_expr = expr.rolling_mean(window, min_samples=1)
+    elif operation == "sum":
+        data_expr = expr.rolling_sum(window, min_samples=1)
     elif operation == "std":
         data_expr = expr.rolling_std(window, min_samples=1, ddof=1)
+    elif operation == "var":
+        data_expr = expr.rolling_var(window, min_samples=1, ddof=1)
+    elif operation == "min":
+        data_expr = expr.rolling_min(window, min_samples=1)
+    elif operation == "max":
+        data_expr = expr.rolling_max(window, min_samples=1)
     else:
         raise UnsupportedExpressionError(f"unsupported loose rolling operation: {operation}")
     return KernelValue(value.frame.select("datetime", "instrument", data_expr.over("instrument").alias("data")))
+
+
+def _fill_null_nan(value: KernelValue, fill_value: float) -> KernelValue:
+    return KernelValue(
+        value.frame.select(
+            "datetime",
+            "instrument",
+            pl.col("data").fill_nan(None).fill_null(fill_value).alias("data"),
+        )
+    )
 
 
 def _rolling_product_loose(value: KernelValue, window: int) -> KernelValue:
@@ -657,9 +690,10 @@ def _cs_kurt(value: KernelValue) -> KernelValue:
     )
 
 
-def _rolling_quantile(value: KernelValue, window: int, quantile: float) -> KernelValue:
+def _rolling_quantile(value: KernelValue, window: int, quantile: float, *, min_samples: int | None = None) -> KernelValue:
+    min_samples = window if min_samples is None else min_samples
     data_expr = pl.col("data").fill_nan(None).rolling_quantile(
-        quantile, interpolation="linear", window_size=window, min_samples=window
+        quantile, interpolation="linear", window_size=window, min_samples=min_samples
     )
     return KernelValue(value.frame.select("datetime", "instrument", data_expr.over("instrument").alias("data")))
 
@@ -727,7 +761,8 @@ def _rolling_arg(value: KernelValue, window: int, which: str) -> KernelValue:
     )
 
 
-def _ts_rank(value: KernelValue, window: int) -> KernelValue:
+def _ts_rank(value: KernelValue, window: int, *, min_samples: int | None = None) -> KernelValue:
+    min_samples = window if min_samples is None else min_samples
     current = pl.col("data").fill_nan(None)
     lags = [current.shift(i).over("instrument") for i in range(window)]
     less_count = pl.sum_horizontal([pl.when(lag.is_not_null() & (lag < current)).then(1.0).otherwise(0.0) for lag in lags])
@@ -738,17 +773,22 @@ def _ts_rank(value: KernelValue, window: int) -> KernelValue:
         value.frame.select(
             "datetime",
             "instrument",
-            pl.when(current.is_null() | (valid_count < window)).then(None).otherwise(rank_expr).alias("data"),
+            pl.when(current.is_null() | (valid_count < min_samples)).then(None).otherwise(rank_expr).alias("data"),
         )
     )
 
 
-def _cs_rank(value: KernelValue) -> KernelValue:
+def _cs_rank(value: KernelValue, *, compat_mode: str = "strict") -> KernelValue:
+    rank_data = (
+        pl.when(pl.col("data").abs() > 1_000_000.0).then(pl.col("data").round(8)).otherwise(pl.col("data"))
+        if compat_mode == "h5_coder"
+        else pl.col("data")
+    )
     return KernelValue(
         value.frame.select(
             "datetime",
             "instrument",
-            pl.col("data").rank(method="average").over("datetime").alias("_rank"),
+            rank_data.rank(method="average").over("datetime").alias("_rank"),
             pl.col("data").count().over("datetime").alias("_count"),
         ).select("datetime", "instrument", (pl.col("_rank") / pl.col("_count")).alias("data"))
     )

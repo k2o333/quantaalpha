@@ -23,6 +23,7 @@ import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 try:
@@ -706,6 +707,9 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
 
 def _apply_expanded_data_profile(pipeline_config) -> None:
     from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist
+    from quantaalpha.continuous.scheduler import ModelConfig
+
+    pipeline_config.validation.max_revalidation_per_run = 0
 
     factor_config = getattr(pipeline_config, "factor", None)
     if factor_config is None:
@@ -719,11 +723,35 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
             backtest_noqlib = {}
             setattr(factor_config, "backtest_noqlib", backtest_noqlib)
     backtest_noqlib["market_data_source"] = "app5_standard_frame"
+    backtest_noqlib["factor_coder_runtime"] = "dual_h5_parquet"
     standard_frame = backtest_noqlib.setdefault("standard_frame", {})
     allowlist = build_default_daily_panel_allowlist()
     standard_frame["admission_profile"] = "expanded-data"
     standard_frame["admission_allowlist_hash"] = allowlist.version_hash()
     standard_frame["optional_fields"] = [asdict(field) for field in allowlist.expression_fields()]
+
+    mining_config = getattr(pipeline_config, "mining", None)
+    if mining_config is not None:
+        if not hasattr(mining_config, "agent_loop"):
+            setattr(mining_config, "agent_loop", SimpleNamespace(step_model_routing={}))
+        if not hasattr(mining_config, "ensemble"):
+            setattr(mining_config, "ensemble", SimpleNamespace())
+        if not hasattr(mining_config.agent_loop, "step_model_routing"):
+            mining_config.agent_loop.step_model_routing = {}
+        mining_config.agent_loop.step_model_routing.update(
+            {
+                "propose": "litellm_mistral",
+                "construct": "litellm_mistral",
+                "feedback": "litellm_mistral",
+            }
+        )
+        mining_config.ensemble.enabled = True
+        mining_config.ensemble.strategy = "collect_all"
+        mining_config.ensemble.max_workers = 1
+        mining_config.ensemble.min_responses = 1
+        mining_config.ensemble.max_wait_seconds = 45
+        mining_config.ensemble.early_quorum = True
+        mining_config.ensemble.models = [ModelConfig(name="litellm_mistral", tier=2)]
 
 
 class ContinuousOrchestrator:

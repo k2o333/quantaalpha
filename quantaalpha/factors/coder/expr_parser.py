@@ -384,5 +384,19 @@ def parse_symbol(expr, columns):
         expr = expr.replace(var, var_df)
     return expr
 
+
+def bind_expression_columns(expr: str, columns, frame_name: str = "df") -> str:
+    """Bind parsed expression identifiers to dataframe columns using exact names."""
+    for col in sorted(columns, key=lambda value: len(str(value)), reverse=True):
+        if not isinstance(col, str) or not col.startswith("$"):
+            continue
+        identifier = re.escape(col[1:])
+        expr = re.sub(
+            rf"(?<![A-Za-z0-9_]){identifier}(?![A-Za-z0-9_])",
+            f"{frame_name}['{col}']",
+            expr,
+        )
+    return expr
+
 if __name__ == '__main__':
     parse_expression("RANK(DELTA($open, 1) - DELTA($open, 1)) / (1e-8 + 1)")

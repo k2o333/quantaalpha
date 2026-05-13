@@ -180,7 +180,7 @@ Only the following operations are allowed in expressions:
         """Compute factor using expression parser."""
         try:
             from quantaalpha.factors.coder.expr_parser import (
-                parse_expression, parse_symbol
+                bind_expression_columns, parse_expression, parse_symbol
             )
             import quantaalpha.factors.coder.function_lib as func_lib
             
@@ -189,9 +189,7 @@ Only the following operations are allowed in expressions:
             parsed_expr = parse_symbol(expr, df.columns)
             parsed_expr = parse_expression(parsed_expr)
             
-            for col in df.columns:
-                if col.startswith('$'):
-                    parsed_expr = parsed_expr.replace(col[1:], f"df['{col}']")
+            parsed_expr = bind_expression_columns(parsed_expr, df.columns)
             
             exec_globals = {
                 'df': df,
