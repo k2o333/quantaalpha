@@ -208,6 +208,69 @@ def test_app5_standard_frame_builder_materializes_manifest(tmp_path: Path) -> No
     assert result.manifest_path and Path(result.manifest_path).exists()
 
 
+def test_app5_standard_frame_qfq_adjustment_uses_explicit_adjusted_prices(tmp_path: Path) -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240102", "20240103"],
+            "open_qfq": [8.0, 8.8],
+            "high_qfq": [8.4, 9.1],
+            "low_qfq": [7.9, 8.7],
+            "close_qfq": [8.2, 9.0],
+            "vol": [1000.0, 1100.0],
+            "amount": [1020.0, 1232.0],
+            "pct_chg": [1.0, 9.7561],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del interface_name, kwargs
+            return daily_frame
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(
+            start_date="2024-01-02",
+            end_date="2024-01-03",
+            daily_interface="stk_factor_pro",
+            adjustment="qfq",
+        )
+    )
+
+    assert result.manifest["standard_frame"]["adjustment"] == "qfq"
+    assert result.frame.get_column("$open").to_list() == [8.0, 8.8]
+    assert result.frame.get_column("$close").to_list() == [8.2, 9.0]
+    assert result.frame.get_column("$vwap").to_list() == [8.2, 9.0]
+
+
+def test_app5_standard_frame_qfq_adjustment_fails_without_adjusted_columns(tmp_path: Path) -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del interface_name, kwargs
+            return pl.DataFrame(
+                {
+                    "ts_code": ["000001.SZ"],
+                    "trade_date": ["20240102"],
+                    "open": [10.0],
+                    "high": [10.5],
+                    "low": [9.5],
+                    "close": [10.2],
+                    "vol": [1000.0],
+                    "amount": [1020.0],
+                    "pct_chg": [1.0],
+                }
+            )
+
+    with pytest.raises(ValueError, match="adjustment=qfq requires columns"):
+        App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+            StandardFrameRequest(daily_interface="daily", adjustment="qfq")
+        )
+
+
 def test_app5_standard_frame_rejects_optional_field_without_asof_policy(tmp_path: Path) -> None:
     from quantaalpha.backtest.standard_frame import request_from_mapping
 

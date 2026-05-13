@@ -482,6 +482,77 @@ def test_noqlib_data_provider_accepts_qlib_style_market_parquet(tmp_path):
     assert market.loc[(pd.Timestamp("2020-01-02"), "A"), "$return"] == pytest.approx(11.2 / 10.2 - 1.0)
 
 
+def test_noqlib_provider_reads_qlib_bin_adjusted_market_with_polars(tmp_path):
+    from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
+
+    provider = tmp_path / "qlib"
+    (provider / "calendars").mkdir(parents=True)
+    (provider / "features" / "000001.sz").mkdir(parents=True)
+    (provider / "calendars" / "day.txt").write_text("2020-01-01\n2020-01-02\n", encoding="utf-8")
+    import numpy as np
+
+    for field, series in {
+        "open": [10.0, 11.0],
+        "high": [10.5, 11.5],
+        "low": [9.5, 10.5],
+        "close": [10.2, 11.2],
+        "volume": [1000.0, 1100.0],
+        "return": [0.0, 0.098039],
+    }.items():
+        np.array([0.0, *series], dtype="<f4").tofile(provider / "features" / "000001.sz" / f"{field}.day.bin")
+
+    config = {
+        "data": {"start_time": "2020-01-01", "end_time": "2020-01-02"},
+        "backtest_runtime": {
+            "noqlib": {
+                "market_data_source": "qlib_bin_adjusted",
+                "qlib_provider_uri": str(provider),
+                "instruments": ["000001.SZ"],
+            }
+        },
+    }
+    frame = NoQlibMarketDataProvider(config).load_market_frame()
+
+    assert isinstance(frame, pl.DataFrame)
+    assert frame.select("$open", "$close", "$vwap", "$return").row(1) == pytest.approx((11.0, 11.2, 11.2, 0.098039))
+
+
+def test_market_parity_report_passes_for_same_qlib_bin_source(tmp_path):
+    from quantaalpha.backtest.noqlib.market_parity_report import build_market_parity_report
+
+    provider = tmp_path / "qlib"
+    (provider / "calendars").mkdir(parents=True)
+    (provider / "features" / "000001.sz").mkdir(parents=True)
+    (provider / "calendars" / "day.txt").write_text("2020-01-01\n2020-01-02\n", encoding="utf-8")
+    import numpy as np
+
+    for field, series in {
+        "open": [10.0, 11.0],
+        "high": [10.5, 11.5],
+        "low": [9.5, 10.5],
+        "close": [10.2, 11.2],
+        "volume": [1000.0, 1100.0],
+        "return": [0.0, 0.098039],
+    }.items():
+        np.array([0.0, *series], dtype="<f4").tofile(provider / "features" / "000001.sz" / f"{field}.day.bin")
+    config = {
+        "data": {"start_time": "2020-01-01", "end_time": "2020-01-02"},
+        "backtest_runtime": {
+            "noqlib": {
+                "market_data_source": "qlib_bin_adjusted",
+                "qlib_provider_uri": str(provider),
+                "instruments": ["000001.SZ"],
+            }
+        },
+    }
+
+    report = build_market_parity_report(qlib_config=config, candidate_config=config)
+
+    assert report["passed"] is True
+    assert report["row_counts"]["joined"] == 2
+    assert report["fields"]["$close"]["max_abs_diff"] == 0.0
+
+
 def test_noqlib_app5_read_end_extends_for_label_lookahead():
     from quantaalpha.backtest.noqlib.data_provider import _app5_read_end_time, _max_future_ref
 

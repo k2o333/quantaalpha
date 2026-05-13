@@ -52,7 +52,11 @@ class NoQlibMarketDataProvider:
             payload.setdefault("start_date", self.config.get("data", {}).get("start_time"))
             payload.setdefault("end_date", self.config.get("data", {}).get("end_time"))
             payload.setdefault("storage_root", self.noqlib_config.get("app5_storage_root", "data"))
+            payload.setdefault("instruments", _resolve_config_instruments(self.noqlib_config))
             result = App5StandardFrameBuilder(storage_root=payload["storage_root"]).build(request_from_mapping(payload))
+            benchmark_frame = self._read_qlib_bin_benchmark(start_time=payload.get("start_date"), end_time=payload.get("end_date"))
+            if benchmark_frame is not None and not benchmark_frame.is_empty():
+                return pl.concat([result.frame, benchmark_frame], how="diagonal_relaxed")
             return result.frame
 
         data_cfg = self.config.get("data", {})

@@ -728,12 +728,22 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             f"start_date={start_date} end_date={end_date}"
         )
         try:
-            schema = pl.scan_parquet([str(path) for path in parquet_files]).collect_schema()
-            date_col = self._first_existing_column(schema, ("trade_date_dt", "datetime", "date", "trade_date", "cal_date"))
+            scan_kwargs = {"missing_columns": "insert", "extra_columns": "ignore"}
+            schema = pl.scan_parquet([str(path) for path in parquet_files], **scan_kwargs).collect_schema()
+            date_col = self._first_existing_column(schema, ("datetime", "date", "trade_date", "cal_date", "trade_date_dt"))
             symbol_col = self._first_existing_column(schema, ("vt_symbol", "ts_code", "instrument", "symbol", "code"))
             volume_col = self._first_existing_column(schema, ("volume", "vol"))
-            required_price_cols = ("open", "high", "low", "close")
-            missing = [col for col in required_price_cols if col not in schema]
+            adjustment = str(
+                self._backtest_noqlib_config.get("standard_frame", {}).get(
+                    "adjustment",
+                    self._backtest_noqlib_config.get("adjustment", "raw"),
+                )
+            ).lower()
+            price_source_cols = {
+                field: field if adjustment == "raw" else f"{field}_{adjustment}"
+                for field in ("open", "high", "low", "close")
+            }
+            missing = [col for col in price_source_cols.values() if col not in schema]
             if date_col is None:
                 missing.append("datetime/trade_date")
             if symbol_col is None:
@@ -754,14 +764,14 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 date_text.str.strptime(pl.Date, "%Y%m%d", strict=False),
             )
             df = (
-                pl.scan_parquet([str(path) for path in parquet_files])
+                pl.scan_parquet([str(path) for path in parquet_files], **scan_kwargs)
                 .select(
                     date_expr.alias("datetime"),
                     pl.col(symbol_col).cast(pl.Utf8).alias("vt_symbol"),
-                    pl.col("open").cast(pl.Float64).alias("open"),
-                    pl.col("high").cast(pl.Float64).alias("high"),
-                    pl.col("low").cast(pl.Float64).alias("low"),
-                    pl.col("close").cast(pl.Float64).alias("close"),
+                    pl.col(price_source_cols["open"]).cast(pl.Float64).alias("open"),
+                    pl.col(price_source_cols["high"]).cast(pl.Float64).alias("high"),
+                    pl.col(price_source_cols["low"]).cast(pl.Float64).alias("low"),
+                    pl.col(price_source_cols["close"]).cast(pl.Float64).alias("close"),
                     pl.col(volume_col).cast(pl.Float64).alias("volume"),
                 )
                 .filter(pl.col("datetime").is_between(start_bound, end_bound))
