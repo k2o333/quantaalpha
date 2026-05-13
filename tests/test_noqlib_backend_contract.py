@@ -72,6 +72,17 @@ def test_noqlib_risk_metrics_handles_empty_series():
     }
 
 
+def test_noqlib_risk_metrics_sanitizes_nan_and_inf_returns():
+    from quantaalpha.backtest.noqlib.risk import risk_metrics
+
+    returns = pd.Series([0.01, float("nan"), float("inf"), -float("inf"), -0.005])
+    metrics = risk_metrics(returns)
+    assert metrics["annualized_return"] == pytest.approx(0.238)
+    assert metrics["information_ratio"] == pytest.approx(2.8166173565703474)
+    assert metrics["max_drawdown"] == pytest.approx(-0.005)
+    assert metrics["calmar_ratio"] == pytest.approx(47.6)
+
+
 def test_noqlib_risk_metrics_matches_qlib_risk_analysis():
     qlib_evaluate = pytest.importorskip("qlib.contrib.evaluate")
     from quantaalpha.backtest.noqlib.risk import risk_metrics
@@ -479,6 +490,26 @@ def test_noqlib_app5_read_end_extends_for_label_lookahead():
     assert _app5_read_end_time("2020-05-15", config, {}) == "2020-05-25"
     assert _app5_read_end_time("2020-05-15", config, {"market_end_time": "2020-05-20"}) == "2020-05-20"
     assert _app5_read_end_time("2020-05-15", config, {"label_lookahead_calendar_days": 3}) == "2020-05-18"
+
+
+def test_noqlib_resolves_qlib_instruments_path(tmp_path):
+    from quantaalpha.backtest.noqlib.data_provider import _resolve_config_instruments
+
+    instruments_path = tmp_path / "csi300.txt"
+    instruments_path.write_text(
+        "\n".join(
+            [
+                "000001.SZ\t2016-01-04\t2025-12-26",
+                "000002.SZ 2016-01-04 2025-12-26",
+                "",
+                "# comment",
+                "000001.SZ\t2016-01-04\t2025-12-26",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert _resolve_config_instruments({"instruments_path": str(instruments_path)}) == ["000001.SZ", "000002.SZ"]
 
 
 def test_noqlib_topk_dropout_matches_qlib_selection_sequence():

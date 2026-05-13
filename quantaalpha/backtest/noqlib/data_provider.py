@@ -230,6 +230,18 @@ def _resolve_config_instruments(noqlib_config: dict[str, Any]) -> list[str]:
     instruments = noqlib_config.get("instruments")
     if instruments:
         return [str(item) for item in instruments]
+    instruments_path = noqlib_config.get("instruments_path")
+    if instruments_path:
+        path = Path(str(instruments_path)).expanduser()
+        if not path.exists():
+            raise FileNotFoundError(f"noqlib instruments_path not found: {path}")
+        values: list[str] = []
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            values.append(line.split()[0])
+        return sorted(set(values))
     universe_path = noqlib_config.get("resolved_universe_path")
     if not universe_path:
         return []

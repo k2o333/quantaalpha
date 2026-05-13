@@ -12,6 +12,7 @@ def risk_metrics(excess_return: pd.Series) -> dict[str, float]:
     values = (
         pl.Series("excess_return", excess_return.to_numpy(dtype=float))
         .replace([np.inf, -np.inf], None)
+        .fill_nan(0.0)
         .fill_null(0.0)
         .to_numpy()
     )
