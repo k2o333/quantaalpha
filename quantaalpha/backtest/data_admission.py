@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -26,6 +27,26 @@ AUDIT_METADATA_FIELDS = {"_update_time", "update_time", "updated_at"}
 RUNTIME_METADATA_PREFIXES = ("__", "_source_", "_runtime_")
 CONTEXT_ONLY_INTERFACES = {"moneyflow_ind_dc", "moneyflow_ind_ths", "moneyflow_mkt_dc", "moneyflow_cnt_ths"}
 ALLOWED_USAGES = {"expression", "context", "filter", "neutralization", "tradability", "benchmark", "backtest_standard_frame"}
+AMBIGUOUS_DUPLICATE_FIELDS = {"open", "high", "low", "close", "vol", "volume", "amount", "pct_chg", "return"}
+SUPPORTED_EXPRESSION_FUNCTIONS = {
+    "ABS",
+    "DELAY",
+    "DELTA",
+    "GREATER",
+    "LESS",
+    "LOG",
+    "RANK",
+    "SIGN",
+    "SQRT",
+    "TS_CORR",
+    "TS_MAX",
+    "TS_MEAN",
+    "TS_MIN",
+    "TS_RANK",
+    "TS_STD",
+    "TS_SUM",
+    "TS_ZSCORE",
+}
 REQUIRED_ALLOWLIST_KEYS = {
     "source_interface",
     "source_field",
@@ -82,6 +103,7 @@ def generate_daily_panel_field_inventory(
                     "duplicate_of": _duplicate_of(field_name),
                     "first_stage_status": status,
                     "block_reason": _block_reason(interface, role, status),
+                    "nullability": _nullability(field_name, role),
                 }
             )
     return rows
@@ -113,9 +135,52 @@ def render_prompt_capabilities_from_allowlist(
     return {
         "expression_fields": [field.feature_name for field in allowlist.expression_fields()],
         "context_fields": [field.feature_name for field in allowlist.context_fields()],
+        "filter_fields": [field.feature_name for field in allowlist.fields if "filter" in field.allowed_usage],
+        "neutralization_fields": [field.feature_name for field in allowlist.fields if "neutralization" in field.allowed_usage],
+        "tradability_fields": [field.feature_name for field in allowlist.fields if "tradability" in field.allowed_usage],
+        "benchmark_fields": [field.feature_name for field in allowlist.fields if "benchmark" in field.allowed_usage],
         "blocked_fields_summary": dict(blocked_fields_summary or {}),
         "source_manifest_version": source_manifest_version or allowlist.version_hash(),
     }
+
+
+def build_default_daily_panel_allowlist() -> DailyPanelAllowlist:
+    """Return the conservative built-in daily-panel expression allowlist."""
+
+    return build_daily_panel_allowlist(
+        [
+            {
+                "source_interface": "daily_basic",
+                "source_field": "turnover_rate",
+                "feature_name": "$daily_basic_turnover_rate",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "moneyflow",
+                "source_field": "buy_sm_amount",
+                "feature_name": "$moneyflow_buy_sm_amount",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_perf",
+                "source_field": "winner_rate",
+                "feature_name": "$cyq_perf_winner_rate",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+        ]
+    )
 
 
 def validate_requested_expression_fields(requested_fields: Iterable[str], allowlist: DailyPanelAllowlist) -> None:
@@ -136,6 +201,45 @@ def validate_requested_expression_fields(requested_fields: Iterable[str], allowl
             f"{requested} is not present in the daily-panel expression allowlist. "
             "Remediation: add allowlist metadata or keep the field blocked."
         )
+
+
+def validate_factor_expression_against_allowlist(expression: str, allowlist: DailyPanelAllowlist) -> None:
+    """Validate expression fields and functions before prompt/backtest execution."""
+
+    fields = sorted(set(re.findall(r"\$[A-Za-z_][A-Za-z0-9_]*", expression)))
+    try:
+        validate_requested_expression_fields(fields, allowlist)
+    except ValueError as exc:
+        message = str(exc)
+        reason = "FIELD_USAGE_NOT_EXPRESSION" if "not admitted as expression field" in message else "FIELD_NOT_ADMITTED"
+        raise ValueError(f"{reason}: {message}") from exc
+
+    functions = sorted(set(re.findall(r"\b([A-Z][A-Z0-9_]*)\s*\(", expression)))
+    unsupported = [name for name in functions if name not in SUPPORTED_EXPRESSION_FUNCTIONS]
+    if unsupported:
+        raise ValueError(f"UNSUPPORTED_FUNCTION: {unsupported[0]}")
+
+
+def build_structured_rejection_feedback(
+    *,
+    reason_code: str,
+    expression: str,
+    field: str | None = None,
+    message: str,
+) -> dict[str, str | None]:
+    """Build prompt-safe feedback for an invalid factor proposal."""
+
+    del expression
+    remediation = (
+        "Revise the expression using only current admitted expression_fields and supported functions. "
+        "Do not invent fields; keep blocked or context-only data out of expression variables."
+    )
+    return {
+        "reason_code": reason_code,
+        "field": field,
+        "message": message,
+        "remediation": remediation,
+    }
 
 
 def _normalize_daily_panel_interfaces(interfaces: Sequence[str] | None) -> tuple[str, ...]:
@@ -164,6 +268,8 @@ def _classify_field_role(field_name: str, dtype: pl.DataType) -> str:
         return "audit_metadata"
     if field_name.startswith(RUNTIME_METADATA_PREFIXES):
         return "runtime_metadata"
+    if field_name in AMBIGUOUS_DUPLICATE_FIELDS:
+        return "ambiguous_duplicate"
     if dtype.is_numeric():
         return "numeric_candidate"
     if dtype == pl.Utf8:
@@ -173,6 +279,8 @@ def _classify_field_role(field_name: str, dtype: pl.DataType) -> str:
 
 def _first_stage_status(interface: str, role: str) -> str:
     if role in {"join_key", "date_key"}:
+        return "blocked"
+    if role == "ambiguous_duplicate":
         return "blocked"
     if role == "numeric_candidate":
         return "context_only" if interface in CONTEXT_ONLY_INTERFACES else "needs_review"
@@ -186,14 +294,23 @@ def _block_reason(interface: str, role: str, status: str) -> str:
         return "join/date key; not prompt-visible"
     if status == "context_only":
         return f"{interface} requires explicit broadcast semantics before expression usage"
+    if role == "ambiguous_duplicate":
+        return "ambiguous duplicate concept; use the canonical standard-frame field or an explicit unique feature alias"
     if role == "numeric_candidate":
         return "numeric candidate requires explicit allowlist metadata before admission"
     return f"{role} is not eligible for first-stage expression admission"
 
 
 def _duplicate_of(field_name: str) -> str | None:
-    core = {"open", "high", "low", "close", "vol", "volume", "amount", "pct_chg"}
-    return field_name if field_name in core else None
+    return field_name if field_name in AMBIGUOUS_DUPLICATE_FIELDS else None
+
+
+def _nullability(field_name: str, role: str) -> str:
+    if field_name in JOIN_KEY_FIELDS or field_name in DATE_KEY_FIELDS:
+        return "required"
+    if role in {"numeric_candidate", "ambiguous_duplicate"}:
+        return "nullable_unknown"
+    return "not_profiled"
 
 
 def _field_from_mapping(payload: Mapping[str, Any]) -> OptionalStandardFrameField:

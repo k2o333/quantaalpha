@@ -671,7 +671,7 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
     profile = str(profile or "").strip().lower()
     if not profile:
         return
-    if profile != "short":
+    if profile not in {"short", "expanded-data"}:
         raise ValueError(f"unsupported continuous UAT profile: {profile}")
     pipeline_config.cycle_budget_seconds = min(int(pipeline_config.cycle_budget_seconds), 900)
     pipeline_config.validation.max_revalidation_per_run = min(int(pipeline_config.validation.max_revalidation_per_run), 1)
@@ -691,13 +691,39 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
                 if isinstance(params, dict) and "max_tasks_per_run" in params:
                     params["max_tasks_per_run"] = min(int(params["max_tasks_per_run"]), 1)
 
+    if profile == "expanded-data":
+        _apply_expanded_data_profile(pipeline_config)
+
     logger.info(
-        "Continuous UAT profile applied: short "
+        "Continuous UAT profile applied: %s "
         "cycle_budget_seconds=%s max_revalidation_per_run=%s max_mining_per_run=%s",
+        profile,
         pipeline_config.cycle_budget_seconds,
         pipeline_config.validation.max_revalidation_per_run,
         pipeline_config.validation.max_mining_per_run,
     )
+
+
+def _apply_expanded_data_profile(pipeline_config) -> None:
+    from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist
+
+    factor_config = getattr(pipeline_config, "factor", None)
+    if factor_config is None:
+        factor_config = {}
+        setattr(pipeline_config, "factor", factor_config)
+    if isinstance(factor_config, dict):
+        backtest_noqlib = factor_config.setdefault("backtest_noqlib", {})
+    else:
+        backtest_noqlib = getattr(factor_config, "backtest_noqlib", None)
+        if backtest_noqlib is None:
+            backtest_noqlib = {}
+            setattr(factor_config, "backtest_noqlib", backtest_noqlib)
+    backtest_noqlib["market_data_source"] = "app5_standard_frame"
+    standard_frame = backtest_noqlib.setdefault("standard_frame", {})
+    allowlist = build_default_daily_panel_allowlist()
+    standard_frame["admission_profile"] = "expanded-data"
+    standard_frame["admission_allowlist_hash"] = allowlist.version_hash()
+    standard_frame["optional_fields"] = [asdict(field) for field in allowlist.expression_fields()]
 
 
 class ContinuousOrchestrator:
@@ -1241,7 +1267,7 @@ def main():
     )
     parser.add_argument(
         "--uat-profile",
-        choices=["short"],
+        choices=["short", "expanded-data"],
         default="",
         help="Apply bounded local UAT limits without editing pipeline.yaml",
     )

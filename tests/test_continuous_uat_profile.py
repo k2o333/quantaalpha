@@ -42,6 +42,29 @@ def test_unknown_uat_profile_fails_fast() -> None:
         _apply_uat_profile(config, "nightly")
 
 
+def test_expanded_data_uat_profile_adds_admitted_optional_fields() -> None:
+    from quantaalpha.continuous.main import _apply_uat_profile
+
+    config = SimpleNamespace(
+        cycle_budget_seconds=3600,
+        validation=SimpleNamespace(max_revalidation_per_run=10, max_mining_per_run=5),
+        mining=SimpleNamespace(
+            evolution=SimpleNamespace(max_rounds=3),
+            orchestration=SimpleNamespace(max_steps_per_cycle=6, nodes=[]),
+        ),
+        factor=SimpleNamespace(backtest_noqlib={"standard_frame": {"daily_interface": "daily", "adjustment": "raw"}}),
+    )
+
+    _apply_uat_profile(config, "expanded-data")
+
+    assert config.factor.backtest_noqlib["market_data_source"] == "app5_standard_frame"
+    standard_frame = config.factor.backtest_noqlib["standard_frame"]
+    assert config.cycle_budget_seconds == 900
+    assert standard_frame["admission_profile"] == "expanded-data"
+    assert len(standard_frame["optional_fields"]) >= 3
+    assert "$daily_basic_turnover_rate" in {item["feature_name"] for item in standard_frame["optional_fields"]}
+
+
 def test_mining_scheduler_uses_explicit_cycle_budget() -> None:
     from quantaalpha.continuous.mining_scheduler import DefaultMiningScheduler
 

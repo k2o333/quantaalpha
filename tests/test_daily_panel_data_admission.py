@@ -174,3 +174,43 @@ def test_non_daily_daily_panel_field_reaches_standard_frame_and_prompt_capabilit
 
     assert result.frame["$daily_basic_turnover_rate"].to_list() == [1.2]
     assert capabilities["expression_fields"] == ["$daily_basic_turnover_rate"]
+
+
+def test_daily_panel_inventory_marks_ambiguous_amount_and_return_fields_blocked(tmp_path: Path) -> None:
+    from quantaalpha.backtest.data_admission import generate_daily_panel_field_inventory
+
+    _write_active(
+        tmp_path,
+        "moneyflow",
+        pl.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "trade_date": ["20240102"],
+                "amount": [100.0],
+                "pct_chg": [1.0],
+                "buy_sm_amount": [2.0],
+            }
+        ),
+    )
+
+    inventory = generate_daily_panel_field_inventory(tmp_path, interfaces=["moneyflow"])
+    rows = {row["source_field"]: row for row in inventory}
+
+    assert rows["amount"]["first_stage_status"] == "blocked"
+    assert rows["pct_chg"]["first_stage_status"] == "blocked"
+    assert rows["buy_sm_amount"]["first_stage_status"] == "needs_review"
+    assert rows["amount"]["duplicate_of"] == "amount"
+    assert "ambiguous" in rows["amount"]["block_reason"]
+    assert "nullability" in rows["buy_sm_amount"]
+
+
+def test_build_default_daily_panel_allowlist_admits_conservative_multi_interface_fields() -> None:
+    from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist
+
+    allowlist = build_default_daily_panel_allowlist()
+    names = {field.feature_name for field in allowlist.expression_fields()}
+
+    assert "$daily_basic_turnover_rate" in names
+    assert "$moneyflow_buy_sm_amount" in names
+    assert "$cyq_perf_winner_rate" in names
+    assert not any(name.startswith("$stock_hsgt") for name in names)
