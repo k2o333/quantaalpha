@@ -28,6 +28,7 @@ class StandardFrameRequest:
     end_date: str | None = None
     instruments: tuple[str, ...] = ()
     daily_interface: str = "daily"
+    adjustment: str = "raw"
     optional_fields: tuple[OptionalStandardFrameField, ...] = ()
     storage_root: str = "data"
     materialized_cache_root: str | None = None
@@ -35,6 +36,7 @@ class StandardFrameRequest:
     def identity(self) -> dict[str, Any]:
         return {
             "daily_interface": self.daily_interface,
+            "adjustment": self.adjustment,
             "end_date": self.end_date,
             "instruments": list(self.instruments),
             "optional_fields": [asdict(field_item) for field_item in self.optional_fields],
@@ -99,7 +101,12 @@ class App5StandardFrameBuilder:
         )
 
     def _read_daily_frame(self, request: StandardFrameRequest) -> pl.DataFrame:
-        columns = ["trade_date", "ts_code", "open", "high", "low", "close", "vol", "amount", "pct_chg"]
+        adjustment = str(request.adjustment or "raw").lower()
+        if adjustment not in {"raw", "qfq", "hfq"}:
+            raise ValueError(f"unsupported standard frame adjustment: {request.adjustment}")
+        price_columns = ["open", "high", "low", "close"]
+        source_price_columns = price_columns if adjustment == "raw" else [f"{field}_{adjustment}" for field in price_columns]
+        columns = ["trade_date", "ts_code", *source_price_columns, "vol", "amount", "pct_chg"]
         raw = self.adapter.read(
             request.daily_interface,
             start_date=request.start_date,
@@ -109,22 +116,34 @@ class App5StandardFrameBuilder:
         )
         if raw.is_empty():
             raise ValueError(f"standard frame source is empty: {request.daily_interface}")
+        missing_prices = sorted(set(source_price_columns) - set(raw.columns))
+        if missing_prices:
+            raise ValueError(
+                f"standard frame adjustment={adjustment} requires columns missing from "
+                f"{request.daily_interface}: {missing_prices}"
+            )
         if request.instruments:
             raw = raw.filter(pl.col("ts_code").cast(pl.Utf8).is_in(list(request.instruments)))
         frame = raw.with_columns(
             _date_expr("trade_date").alias("datetime"),
             pl.col("ts_code").cast(pl.Utf8).alias("instrument"),
-            pl.col("open").cast(pl.Float64, strict=False).alias("$open"),
-            pl.col("high").cast(pl.Float64, strict=False).alias("$high"),
-            pl.col("low").cast(pl.Float64, strict=False).alias("$low"),
-            pl.col("close").cast(pl.Float64, strict=False).alias("$close"),
+            pl.col(source_price_columns[0]).cast(pl.Float64, strict=False).alias("$open"),
+            pl.col(source_price_columns[1]).cast(pl.Float64, strict=False).alias("$high"),
+            pl.col(source_price_columns[2]).cast(pl.Float64, strict=False).alias("$low"),
+            pl.col(source_price_columns[3]).cast(pl.Float64, strict=False).alias("$close"),
             pl.col("vol").cast(pl.Float64, strict=False).fill_null(0.0).alias("$volume"),
         )
-        vwap_expr = (
+        raw_vwap_expr = (
             pl.when(pl.col("$volume") > 0)
             .then(pl.col("amount").cast(pl.Float64, strict=False) * 10.0 / pl.col("$volume"))
             .otherwise(pl.col("$close"))
         )
+        if adjustment == "raw":
+            vwap_expr = raw_vwap_expr
+        else:
+            # App5 does not expose adjusted VWAP; qlib bin data also lacks a persisted vwap field.
+            # Use adjusted close as the explicit parity-safe vwap proxy.
+            vwap_expr = pl.col("$close")
         pct = pl.col("pct_chg").cast(pl.Float64, strict=False).fill_null(0.0)
         return (
             frame.with_columns(
@@ -179,6 +198,7 @@ class App5StandardFrameBuilder:
             "request": request.identity(),
             "standard_frame": {
                 "columns": frame.columns,
+                "adjustment": request.adjustment,
                 "row_count": frame.height,
                 "required_columns": ["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"],
             },
@@ -197,6 +217,7 @@ def request_from_mapping(payload: Mapping[str, Any]) -> StandardFrameRequest:
         end_date=payload.get("end_date"),
         instruments=tuple(str(item) for item in payload.get("instruments", ()) or ()),
         daily_interface=str(payload.get("daily_interface", "daily")),
+        adjustment=str(payload.get("adjustment", "raw")),
         optional_fields=tuple(_optional_field_from_mapping(item) for item in optional_fields_payload),
         storage_root=str(payload.get("storage_root", "data")),
         materialized_cache_root=payload.get("materialized_cache_root"),

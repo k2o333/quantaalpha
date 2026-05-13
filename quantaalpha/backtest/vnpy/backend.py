@@ -52,9 +52,11 @@ class VnpyBacktestBackend:
         factor_defs.extend(custom_factors)
         if not factor_defs:
             raise ValueError("no factors available for vnpy backtest")
-        market = NoQlibMarketDataProvider(self.config).load_market_data()
+        market_provider = NoQlibMarketDataProvider(self.config)
+        market_frame = market_provider.load_market_frame()
+        market = market_frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
         translation_mode = self.config.get("backtest_runtime", {}).get("vnpy", {}).get("expression_translation", "shared_polars")
-        expression_engine = VnpyExpressionEngine(market, translation_mode=translation_mode)
+        expression_engine = VnpyExpressionEngine(market_frame, translation_mode=translation_mode)
         features = expression_engine.compute(factor_defs)
         labels = expression_engine.compute_label(self.config.get("dataset", {}).get("label", "Ref($close, -2) / Ref($close, -1) - 1"))
         dataset = VnpyDatasetBuilder(self.config).build(features, labels)

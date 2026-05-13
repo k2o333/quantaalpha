@@ -244,11 +244,13 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         noqlib_cfg = self._factor_template_to_noqlib_config(qlib_cfg, backend=backend)
         workspace_path = exp.experiment_workspace.workspace_path
 
-        market = NoQlibMarketDataProvider(noqlib_cfg).load_market_data()
+        market_provider = NoQlibMarketDataProvider(noqlib_cfg)
+        market_frame = market_provider.load_market_frame()
+        market = market_frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
         if backend == "vnpy":
             from quantaalpha.backtest.vnpy.expression_engine import VnpyExpressionEngine
 
-            expression_engine = VnpyExpressionEngine(market)
+            expression_engine = VnpyExpressionEngine(market_frame)
         else:
             expression_engine = NoQlibExpressionEngine(market)
         features = self._load_noqlib_template_features(

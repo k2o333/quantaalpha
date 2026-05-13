@@ -25,16 +25,25 @@ class NoQlibMarketDataProvider:
 
     def load_market_data(self) -> pd.DataFrame:
         """返回 qlib 风格 `(datetime, instrument)` MultiIndex DataFrame。"""
+        frame = self.load_market_frame()
+        return frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
+
+    def load_market_frame(self) -> pl.DataFrame:
+        """返回标准 market frame，内部读取与标准化保持 polars 路径。"""
         frame = self._load_polars_frame()
         if frame.is_empty():
             raise ValueError("noqlib market data is empty")
-        frame = self._normalize_frame(frame)
-        return frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
+        return self._normalize_frame(frame)
 
     def _load_polars_frame(self) -> pl.DataFrame:
         path = self.noqlib_config.get("market_data_path")
         if path:
             return self._read_path(Path(path))
+        if str(self.noqlib_config.get("market_data_source", "")).lower() == "qlib_bin_adjusted":
+            data_cfg = self.config.get("data", {})
+            start_time = data_cfg.get("start_time")
+            end_time = _app5_read_end_time(data_cfg.get("end_time"), self.config, self.noqlib_config)
+            return self._read_qlib_bin_market(start_time=start_time, end_time=end_time)
         standard_frame_cfg = self.noqlib_config.get("standard_frame")
         if standard_frame_cfg:
             from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, request_from_mapping
@@ -163,6 +172,56 @@ class NoQlibMarketDataProvider:
         if "amount_to_vwap_multiplier" in self.noqlib_config:
             return float(self.noqlib_config["amount_to_vwap_multiplier"])
         return 1.0 if self._explicit_market_path else 10.0
+
+    def _read_qlib_bin_market(self, *, start_time: str | None, end_time: str | None) -> pl.DataFrame:
+        """Read adjusted qlib bin OHLCV/return rows for explicit parity-oracle mode."""
+        provider_uri = self.noqlib_config.get("qlib_provider_uri")
+        if not provider_uri:
+            raise ValueError("noqlib market_data_source=qlib_bin_adjusted requires qlib_provider_uri")
+        instruments = _resolve_config_instruments(self.noqlib_config)
+        benchmark_instruments = [str(item) for item in self.noqlib_config.get("benchmark_instruments", [])]
+        instruments = [*instruments, *[item for item in benchmark_instruments if item not in set(instruments)]]
+        if not instruments:
+            raise ValueError("noqlib market_data_source=qlib_bin_adjusted requires instruments or instruments_path")
+        provider = Path(str(provider_uri)).expanduser()
+        calendar_path = provider / "calendars" / "day.txt"
+        features_root = provider / "features"
+        if not calendar_path.exists() or not features_root.exists():
+            raise FileNotFoundError(f"noqlib qlib_provider_uri is not a qlib bin directory: {provider}")
+        calendar = [pd.Timestamp(line.strip()) for line in calendar_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        start_ts = pd.Timestamp(start_time) if start_time else None
+        end_ts = pd.Timestamp(end_time) if end_time else None
+        rows: list[dict[str, Any]] = []
+        for instrument in instruments:
+            inst_dir = features_root / _qlib_bin_instrument_dir(instrument)
+            if not inst_dir.exists():
+                continue
+            series_by_field = {
+                field: _read_qlib_bin_series(inst_dir / f"{field}.day.bin", calendar)
+                for field in ("open", "high", "low", "close", "volume", "return")
+            }
+            for idx, dt in enumerate(calendar):
+                if start_ts is not None and dt < start_ts:
+                    continue
+                if end_ts is not None and dt > end_ts:
+                    continue
+                close = series_by_field["close"].get(idx)
+                if close is None or not np.isfinite(close):
+                    continue
+                rows.append(
+                    {
+                        "datetime": dt.date(),
+                        "instrument": instrument,
+                        "open": series_by_field["open"].get(idx, close),
+                        "high": series_by_field["high"].get(idx, close),
+                        "low": series_by_field["low"].get(idx, close),
+                        "close": close,
+                        "volume": series_by_field["volume"].get(idx, 0.0),
+                        "$return": series_by_field["return"].get(idx, 0.0),
+                        "vwap": close,
+                    }
+                )
+        return pl.DataFrame(rows)
 
     def _read_qlib_bin_benchmark(self, *, start_time: str | None, end_time: str | None) -> pl.DataFrame | None:
         """Read benchmark rows from local qlib bin files without importing qlib."""
