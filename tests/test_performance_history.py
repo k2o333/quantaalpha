@@ -150,6 +150,42 @@ def test_combined_backtest_history_is_marked_as_combined_scope(tmp_path):
     assert (tmp_path / "latest_by_factor.parquet").exists()
 
 
+def test_combined_backtest_history_accepts_flat_vnpy_metric_names(tmp_path):
+    store = PerformanceHistoryStore(tmp_path)
+    experiment = SimpleNamespace(
+        sub_tasks=[
+            SimpleNamespace(
+                factor_name="FactorA",
+                factor_expression="TS_MEAN($close, 5)",
+            ),
+        ],
+        result=pd.DataFrame(
+            {"value": [0.021, 0.31, 0.019, 0.28, 0.18, 1.2, -0.08]},
+            index=[
+                "IC",
+                "ICIR",
+                "Rank IC",
+                "Rank ICIR",
+                "annualized_return",
+                "information_ratio",
+                "max_drawdown",
+            ],
+        ),
+    )
+
+    written = append_combined_backtest_performance_history(
+        experiment=experiment,
+        store=store,
+        performance_history_config={"update_latest_snapshot": True},
+    )
+
+    assert written == 1
+    latest = pl.read_parquet(tmp_path / "latest_by_factor.parquet")
+    assert latest.select("annualized_return").to_series().to_list() == [0.18]
+    assert latest.select("information_ratio").to_series().to_list() == [1.2]
+    assert latest.select("max_drawdown").to_series().to_list() == [-0.08]
+
+
 def test_latest_snapshot_handles_null_columns_from_failed_runs(tmp_path):
     store = PerformanceHistoryStore(tmp_path)
     failed = build_summary_row(

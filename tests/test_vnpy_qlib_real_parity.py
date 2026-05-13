@@ -35,10 +35,20 @@ def test_vnpy_polars_factor_and_portfolio_match_qlib_real_data(tmp_path: Path) -
 
     import qlib
     from qlib.backtest import backtest as qlib_backtest
+    from qlib.contrib.evaluate import risk_analysis
     from qlib.data import D
 
+    from quantaalpha.backtest.long_only_parity import (
+        DAILY_REPORT_COLUMNS,
+        assert_annualized_return_comparable,
+        compare_long_only_daily_reports,
+        compare_long_only_positions,
+        normalize_qlib_daily_report,
+        qlib_positions_to_frame,
+    )
     from quantaalpha.backtest.noqlib.export_qlib_oracle import export_oracle
     from quantaalpha.backtest.noqlib.portfolio import NoQlibTopkDropoutBacktester
+    from quantaalpha.backtest.qlib_provenance import extract_excess_return_series, qlib_excess_return_provenance
     from quantaalpha.backtest.vnpy.expression_engine import VnpyExpressionEngine
 
     instruments = ["000001.SZ", "000002.SZ", "000008.SZ", "000009.SZ", "000012.SZ"]
@@ -124,7 +134,7 @@ def test_vnpy_polars_factor_and_portfolio_match_qlib_real_data(tmp_path: Path) -
             },
         }
     }
-    _metrics, vnpy_report, _positions = NoQlibTopkDropoutBacktester(config, market).run(vnpy_prediction)
+    vnpy_metrics, vnpy_report, vnpy_positions = NoQlibTopkDropoutBacktester(config, market).run(vnpy_prediction)
     pd.testing.assert_series_equal(
         vnpy_report["return"],
         qlib_report["return"],
@@ -132,6 +142,33 @@ def test_vnpy_polars_factor_and_portfolio_match_qlib_real_data(tmp_path: Path) -
         rtol=1e-6,
         atol=1e-8,
     )
+
+    qlib_daily = normalize_qlib_daily_report(qlib_report)
+    daily_parity = compare_long_only_daily_reports(
+        qlib_daily,
+        vnpy_report,
+        columns=DAILY_REPORT_COLUMNS,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    assert daily_parity.passed, daily_parity.to_dict()
+
+    positions_parity = compare_long_only_positions(
+        qlib_positions_to_frame(_qlib_positions),
+        vnpy_positions,
+        rtol=1e-6,
+        atol=1e-4,
+    )
+    assert positions_parity.passed, positions_parity.to_dict()
+
+    provenance = qlib_excess_return_provenance(
+        recorder_object="direct qlib.backtest fixture",
+        source_series_proven_identical=daily_parity.passed and positions_parity.passed,
+    ).to_dict()
+    assert_annualized_return_comparable(daily_parity, provenance)
+    qlib_excess = extract_excess_return_series(qlib_report)
+    qlib_annualized = float(risk_analysis(qlib_excess)["risk"]["annualized_return"])
+    assert vnpy_metrics["annualized_return"] == pytest.approx(qlib_annualized, rel=1e-10, abs=1e-10)
     pd.testing.assert_series_equal(
         vnpy_report["bench"],
         qlib_report["bench"],

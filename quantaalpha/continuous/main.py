@@ -676,6 +676,21 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
     pipeline_config.cycle_budget_seconds = min(int(pipeline_config.cycle_budget_seconds), 900)
     pipeline_config.validation.max_revalidation_per_run = min(int(pipeline_config.validation.max_revalidation_per_run), 1)
     pipeline_config.validation.max_mining_per_run = min(int(pipeline_config.validation.max_mining_per_run), 1)
+
+    mining_config = getattr(pipeline_config, "mining", None)
+    if mining_config is not None:
+        evolution_config = getattr(mining_config, "evolution", None)
+        if evolution_config is not None and hasattr(evolution_config, "max_rounds"):
+            evolution_config.max_rounds = min(int(evolution_config.max_rounds), 1)
+        orchestration_config = getattr(mining_config, "orchestration", None)
+        if orchestration_config is not None:
+            if hasattr(orchestration_config, "max_steps_per_cycle"):
+                orchestration_config.max_steps_per_cycle = min(int(orchestration_config.max_steps_per_cycle), 1)
+            for node in getattr(orchestration_config, "nodes", []) or []:
+                params = getattr(node, "params", None)
+                if isinstance(params, dict) and "max_tasks_per_run" in params:
+                    params["max_tasks_per_run"] = min(int(params["max_tasks_per_run"]), 1)
+
     logger.info(
         "Continuous UAT profile applied: short "
         "cycle_budget_seconds=%s max_revalidation_per_run=%s max_mining_per_run=%s",
@@ -1004,12 +1019,28 @@ class ContinuousOrchestrator:
         # Step 4: Mining on schedule
         if self.config.enable_mining:
             try:
-                mining_result = self._run_mining()
+                elapsed = time.time() - cycle_start_time
+                mining_budget = max(0, int(budget - elapsed))
+                if mining_budget <= 0:
+                    logger.warning(
+                        f"Cycle budget exhausted before mining: {elapsed:.2f}s >= {budget}s (budget_exhausted)"
+                    )
+                    result["budget_exhausted"] = True
+                    result["cache_invalidated"] = cache_invalidated
+                    return result
+
+                mining_result = self._run_mining(budget_seconds=mining_budget)
                 result["mining"]["generated"] = mining_result.get("factors_generated", 0)
                 result["mining"]["validated"] = mining_result.get("factors_validated", 0)
                 result["mining"]["added"] = mining_result.get("factors_added", 0)
                 if mining_result.get("errors"):
                     result["mining"]["errors"] = mining_result["errors"]
+                elapsed = time.time() - cycle_start_time
+                if elapsed >= budget:
+                    logger.warning(
+                        f"Cycle budget exhausted after mining: {elapsed:.2f}s >= {budget}s (budget_exhausted)"
+                    )
+                    result["budget_exhausted"] = True
             except Exception as e:
                 logger.error(f"Mining failed: {e}")
                 result["errors"].append(f"mining: {str(e)}")
@@ -1165,9 +1196,9 @@ class ContinuousOrchestrator:
             "candidate_factors_source": candidate_source,
         }
 
-    def _run_mining(self) -> dict:
+    def _run_mining(self, budget_seconds: int | None = None) -> dict:
         """Run mining cycle."""
-        mining_result = self._orchestrator.run_mining_cycle()
+        mining_result = self._orchestrator.run_mining_cycle(budget_seconds=budget_seconds)
 
         return {
             "factors_generated": mining_result.factors_generated,

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from quantaalpha.backtest.contracts import build_metric_namespaces
 from quantaalpha.backtest.factor_loader import FactorLoader
 from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
 from quantaalpha.backtest.noqlib.model import NoQlibModelRunner
@@ -59,10 +60,16 @@ class VnpyBacktestBackend:
         dataset = VnpyDatasetBuilder(self.config).build(features, labels)
         prediction = NoQlibModelRunner(self.config).fit_predict(dataset)
         label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
-        metrics = signal_metrics(prediction, label_for_signal)
-        portfolio_metrics, daily_report, _positions = NoQlibTopkDropoutBacktester(self.config, market).run(prediction)
+        signal_metric_values = signal_metrics(prediction, label_for_signal)
+        metrics = dict(signal_metric_values)
+        portfolio_metrics, daily_report, positions = NoQlibTopkDropoutBacktester(self.config, market).run(prediction)
         metrics.update(portfolio_metrics)
         metrics["backend"] = "vnpy"
+        metrics["metric_namespaces"] = build_metric_namespaces(
+            signal_metrics=signal_metric_values,
+            portfolio_metrics=portfolio_metrics,
+            daily_report_columns=daily_report.columns,
+        )
         save_results(
             config=self.config,
             metrics=metrics,
@@ -72,6 +79,7 @@ class VnpyBacktestBackend:
             elapsed=time.time() - started,
             output_name=output_name,
             daily_report=daily_report,
+            positions=positions,
             backend="vnpy",
         )
         return metrics

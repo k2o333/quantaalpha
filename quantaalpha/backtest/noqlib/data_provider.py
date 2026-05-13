@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from quantaalpha.backtest.contracts import validate_standard_frame_columns
+
 
 class NoQlibMarketDataProvider:
     """从显式文件或 app5 adapter 读取日频价量数据。"""
@@ -33,6 +35,16 @@ class NoQlibMarketDataProvider:
         path = self.noqlib_config.get("market_data_path")
         if path:
             return self._read_path(Path(path))
+        standard_frame_cfg = self.noqlib_config.get("standard_frame")
+        if standard_frame_cfg:
+            from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, request_from_mapping
+
+            payload = dict(standard_frame_cfg)
+            payload.setdefault("start_date", self.config.get("data", {}).get("start_time"))
+            payload.setdefault("end_date", self.config.get("data", {}).get("end_time"))
+            payload.setdefault("storage_root", self.noqlib_config.get("app5_storage_root", "data"))
+            result = App5StandardFrameBuilder(storage_root=payload["storage_root"]).build(request_from_mapping(payload))
+            return result.frame
 
         data_cfg = self.config.get("data", {})
         start_time = data_cfg.get("start_time")
@@ -127,7 +139,7 @@ class NoQlibMarketDataProvider:
                 pl.col("close").cast(pl.Float64) / pl.col("close").cast(pl.Float64).shift(1).over("instrument") - 1.0
             ).fill_null(0.0)
         datetime_expr = _datetime_expr(frame)
-        return (
+        normalized = (
             frame.with_columns(
                 pl.col("instrument").cast(pl.Utf8),
                 ret_expr.alias("$return"),
@@ -144,6 +156,8 @@ class NoQlibMarketDataProvider:
             .select(["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"])
             .sort(["datetime", "instrument"])
         )
+        validate_standard_frame_columns(normalized.columns)
+        return normalized
 
     def _amount_to_vwap_multiplier(self) -> float:
         if "amount_to_vwap_multiplier" in self.noqlib_config:

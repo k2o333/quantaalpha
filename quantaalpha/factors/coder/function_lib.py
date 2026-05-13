@@ -27,6 +27,11 @@ def datatype_adapter(func):
     return wrapper
 
 @datatype_adapter
+def NEG(df: pd.DataFrame):
+    """Element-wise negation for generated DSL expressions."""
+    return -df
+
+@datatype_adapter
 def DELTA(df:pd.DataFrame, p:int=1):
     return df.groupby('instrument').transform(lambda x: x.diff(periods=p))
 
@@ -218,6 +223,16 @@ def TS_CORR(df1:pd.Series, df2: np.ndarray | pd.Series, p:int=5):
         return result
     else:
         raise TypeError(f"TS_CORR does not support df2 type: {type(df2)}")
+
+
+def TS_AUTOCORRELATION(df: pd.Series, p: int = 5):
+    """Lag-1 rolling autocorrelation over ``p`` observations."""
+    return TS_CORR(df, DELAY(df, 1), p)
+
+
+def TS_AUTOCORR(df: pd.Series, p: int = 5):
+    """Alias for lag-1 rolling autocorrelation."""
+    return TS_AUTOCORRELATION(df, p)
 
 
 def TS_COVARIANCE(df1:pd.DataFrame, df2:pd.DataFrame, p:int=5):  

@@ -4,7 +4,6 @@ Backtest runner using Qlib: load factors (official/custom), compute custom facto
 Modes: official (Qlib DataLoader) or custom (expr_parser + function_lib).
 """
 
-import json
 import logging
 import sys
 import time
@@ -26,6 +25,11 @@ from .validation import (
     build_period_configs,
     validate_multi_period_config,
 )
+from .contracts import build_metric_namespaces
+from .qlib_provenance import qlib_excess_return_provenance
+from .runner_library import run_from_library_impl
+from .runner_reporting import print_results, save_results
+from .runner_universe import load_stock_filter_metadata
 
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
@@ -594,6 +598,7 @@ class BacktestRunner:
         metrics = {}
 
         with R.start(experiment_name=exp_name, recorder_name=rec_name):
+            active_recorder = R.get_recorder()
             # Train model
             train_start = time.time()
 
@@ -610,17 +615,17 @@ class BacktestRunner:
             logger.debug(f"  Pred shape: {pred.shape}")
 
             # Save prediction
-            sr = SignalRecord(recorder=R.get_recorder(), model=model, dataset=dataset)
+            sr = SignalRecord(recorder=active_recorder, model=model, dataset=dataset)
             sr.generate()
 
             # Compute IC metrics
             try:
                 sar = SigAnaRecord(
-                    recorder=R.get_recorder(), ana_long_short=False, ann_scaler=252
+                    recorder=active_recorder, ana_long_short=False, ann_scaler=252
                 )
                 sar.generate()
 
-                recorder = R.get_recorder()
+                recorder = active_recorder
                 try:
                     ic_series = recorder.load_object("sig_analysis/ic.pkl")
                     ric_series = recorder.load_object("sig_analysis/ric.pkl")
@@ -815,6 +820,14 @@ class BacktestRunner:
                                 calmar = ann_ret / abs(max_dd)
                                 if not np.isnan(calmar) and not np.isinf(calmar):
                                     metrics["calmar_ratio"] = calmar
+                            metrics["metric_namespaces"] = build_metric_namespaces(
+                                signal_metrics=metrics,
+                                portfolio_metrics=metrics,
+                                daily_report_columns=daily_df.columns,
+                                qlib_return_provenance=qlib_excess_return_provenance(
+                                    recorder_object=str(getattr(active_recorder, "id", rec_name)),
+                                ),
+                            )
 
             except Exception as e:
                 logger.warning(f"Portfolio backtest failed: {e}")
@@ -822,31 +835,15 @@ class BacktestRunner:
 
                 traceback.print_exc()
 
+        metrics.setdefault(
+            "metric_namespaces",
+            build_metric_namespaces(signal_metrics=metrics, portfolio_metrics=metrics),
+        )
         return metrics
 
     def _print_results(self, metrics: Dict, total_time: float):
         """Print result summary."""
-
-        def _f(val, fmt=".6f"):
-            return format(val, fmt) if isinstance(val, (int, float)) else "N/A"
-
-        print(f"\n{'=' * 50}")
-        print("Backtest Results")
-        print(f"{'=' * 50}")
-        print("[IC Metrics]")
-        print(f"  IC: {_f(metrics.get('IC'))}  ICIR: {_f(metrics.get('ICIR'))}")
-        print(
-            f"  Rank IC: {_f(metrics.get('Rank IC'))}  Rank ICIR: {_f(metrics.get('Rank ICIR'))}"
-        )
-        print("[Strategy Metrics]")
-        print(
-            f"  Ann. Return: {_f(metrics.get('annualized_return'), '.4f')}  Max DD: {_f(metrics.get('max_drawdown'), '.4f')}"
-        )
-        print(
-            f"  Info Ratio: {_f(metrics.get('information_ratio'), '.4f')}  Calmar: {_f(metrics.get('calmar_ratio'), '.4f')}"
-        )
-        print(f"Total time: {total_time:.1f}s")
-        print(f"{'=' * 50}")
+        print_results(metrics, total_time)
 
     def _run_multi_period_validation(
         self,
@@ -951,23 +948,7 @@ class BacktestRunner:
     def _load_stock_filter_metadata(
         self, instruments: List[str]
     ) -> Dict[str, Dict[str, Any]]:
-        from qlib.data import D
-
-        all_instruments = D.list_instruments(
-            D.instruments("all"),
-            start_time=self.config["data"].get("start_time"),
-            end_time=self.config["data"].get("end_time"),
-            as_list=False,
-        )
-        metadata: Dict[str, Dict[str, Any]] = {}
-        for instrument in instruments:
-            instrument_meta: Dict[str, Any] = {}
-            if isinstance(all_instruments, dict) and instrument in all_instruments:
-                date_range = all_instruments[instrument]
-                if isinstance(date_range, (list, tuple)) and date_range:
-                    instrument_meta["list_date"] = str(date_range[0])
-            metadata[instrument] = instrument_meta
-        return metadata
+        return load_stock_filter_metadata(self.config, instruments)
 
     def _save_results(
         self,
@@ -979,71 +960,16 @@ class BacktestRunner:
         output_name: Optional[str] = None,
     ):
         """Save results."""
-        output_dir = Path(
-            self.config["experiment"].get("output_dir", "./backtest_v2_results")
+        save_results(
+            config=self.config,
+            metrics=metrics,
+            exp_name=exp_name,
+            factor_source=factor_source,
+            num_factors=num_factors,
+            elapsed=elapsed,
+            output_name=output_name,
+            active_universe_metadata=self._active_universe_metadata,
         )
-        output_dir.mkdir(parents=True, exist_ok=True)
-        if output_name:
-            output_file = f"{output_name}_backtest_metrics.json"
-        else:
-            output_file = self.config["experiment"]["output_metrics_file"]
-        output_path = output_dir / output_file
-
-        result_data = {
-            "experiment_name": exp_name,
-            "factor_source": factor_source,
-            "num_factors": num_factors,
-            "metrics": metrics,
-            "config": {
-                "data_range": f"{self.config['data']['start_time']} ~ {self.config['data']['end_time']}",
-                "test_range": f"{self.config['dataset']['segments']['test'][0]} ~ {self.config['dataset']['segments']['test'][1]}",
-                "backtest_range": f"{self.config['backtest']['backtest']['start_time']} ~ {self.config['backtest']['backtest']['end_time']}",
-                "market": self.config["data"]["market"],
-                "benchmark": self.config["backtest"]["backtest"]["benchmark"],
-            },
-            "elapsed_seconds": elapsed,
-        }
-        if self._active_universe_metadata:
-            result_data["universe"] = self._active_universe_metadata
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(result_data, f, ensure_ascii=False, indent=2)
-
-        print(f"Results saved: {output_path}")
-        summary_file = output_dir / "batch_summary.json"
-        summary_data = []
-        if summary_file.exists():
-            try:
-                with open(summary_file, "r", encoding="utf-8") as f:
-                    summary_data = json.load(f)
-            except:
-                summary_data = []
-
-        ann_ret = metrics.get("annualized_return")
-        mdd = metrics.get("max_drawdown")
-        calmar_ratio = None
-        if ann_ret is not None and mdd is not None and mdd != 0:
-            calmar_ratio = ann_ret / abs(mdd)
-
-        summary_entry = {
-            "name": output_name or exp_name,
-            "num_factors": num_factors,
-            "IC": metrics.get("IC"),
-            "ICIR": metrics.get("ICIR"),
-            "Rank_IC": metrics.get("Rank IC"),
-            "Rank_ICIR": metrics.get("Rank ICIR"),
-            "annualized_return": ann_ret,
-            "information_ratio": metrics.get("information_ratio"),
-            "max_drawdown": mdd,
-            "calmar_ratio": calmar_ratio,
-            "elapsed_seconds": elapsed,
-        }
-        summary_data.append(summary_entry)
-
-        with open(summary_file, "w", encoding="utf-8") as f:
-            json.dump(summary_data, f, ensure_ascii=False, indent=2)
-
-        logger.debug(f"Appended to summary: {summary_file}")
 
     def run_from_library(
         self,
@@ -1058,68 +984,11 @@ class BacktestRunner:
         Loads factors from the library, runs backtest, and returns metrics.
         This exposes the library integration internally so callers can consume results.
         """
-        import json as _json
-
-        with open(library_path, "r", encoding="utf-8") as f:
-            lib_data = _json.load(f)
-
-        factors_raw = lib_data.get("factors", {})
-        custom_factors: List[Dict] = []
-
-        for fid, finfo in factors_raw.items():
-            if factor_ids and fid not in factor_ids:
-                continue
-            status = finfo.get("evaluation", {}).get("status", "pending_validation")
-            if status_filter and status != status_filter:
-                continue
-            expr = finfo.get("factor_expression", "")
-            if not expr:
-                continue
-            custom_factors.append(
-                {
-                    "factor_id": fid,
-                    "factor_name": finfo.get("factor_name", fid),
-                    "factor_expression": expr,
-                    "metadata": finfo.get("metadata", {}),
-                }
-            )
-
-        if not custom_factors:
-            logger.warning(
-                f"No factors found in library {library_path} matching criteria"
-            )
-            return {
-                "error": "no_matching_factors",
-                "factors_checked": list(factors_raw.keys()),
-            }
-
-        lib_json_tmp = (
-            Path(library_path).parent / f".{Path(library_path).name}.tmp_factors.json"
+        return run_from_library_impl(
+            self,
+            library_path,
+            factor_ids=factor_ids,
+            status_filter=status_filter,
+            output_name=output_name,
+            skip_uncached=skip_uncached,
         )
-        try:
-            with open(lib_json_tmp, "w", encoding="utf-8") as f:
-                _json.dump(
-                    [
-                        {
-                            "factor_id": c["factor_id"],
-                            "factor_name": c["factor_name"],
-                            "factor_expression": c["factor_expression"],
-                        }
-                        for c in custom_factors
-                    ],
-                    f,
-                )
-            metrics = self.run(
-                factor_source="custom",
-                factor_json=[str(lib_json_tmp)],
-                output_name=output_name or f"library_backtest",
-                skip_uncached=skip_uncached,
-            )
-            return {
-                "metrics": metrics,
-                "factors_backtested": [c["factor_id"] for c in custom_factors],
-                "library_path": library_path,
-            }
-        finally:
-            if lib_json_tmp.exists():
-                lib_json_tmp.unlink()

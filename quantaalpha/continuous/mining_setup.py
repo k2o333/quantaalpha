@@ -252,7 +252,7 @@ class MiningSetupMixin:
                     logger.error(f"Error in mining cycle: {e}")
             self._stop_event.wait(timeout=60)
 
-    def run_mining(self) -> MiningResult:
+    def run_mining(self, budget_seconds: Optional[int] = None) -> MiningResult:
         """Run one mining cycle."""
         from datetime import datetime as dt
 
@@ -262,7 +262,7 @@ class MiningSetupMixin:
         try:
             if self._pipeline_mode:
                 # Pipeline mode: use AlphaAgentLoop or EvolutionController
-                budget = self._state_cfg.get("cycle_budget_seconds")
+                budget = budget_seconds if budget_seconds is not None else self._state_cfg.get("cycle_budget_seconds")
                 pipeline_result = self._run_pipeline_mining(budget_seconds=budget)
                 result.factors_generated = pipeline_result["factors_generated"]
                 result.factors_validated = pipeline_result.get("factors_validated", 0)

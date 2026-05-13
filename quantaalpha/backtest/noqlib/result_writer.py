@@ -20,6 +20,7 @@ def save_results(
     elapsed: float,
     output_name: str | None,
     daily_report: pd.DataFrame | None = None,
+    positions: pd.DataFrame | None = None,
     backend: str = "noqlib",
 ) -> Path:
     """保存与 qlib BacktestRunner 兼容的 metrics JSON。"""
@@ -45,12 +46,17 @@ def save_results(
     output_path.write_text(json.dumps(_json_safe(result_data), ensure_ascii=False, indent=2), encoding="utf-8")
     if daily_report is not None and not daily_report.empty:
         prefix = output_name if output_name else exp_name
+        full_report_path = output_dir / f"{prefix}_long_only_daily_report.csv"
+        daily_report.to_csv(full_report_path)
         csv_path = output_dir / f"{prefix}_cumulative_excess.csv"
         save_df = pd.DataFrame(index=daily_report.index)
         save_df["daily_excess_return"] = daily_report["return"] - daily_report["bench"] - daily_report["cost"]
         save_df["cumulative_excess_return"] = save_df["daily_excess_return"].cumsum()
         save_df.index.name = "date"
         save_df.to_csv(csv_path)
+    if positions is not None and not positions.empty:
+        prefix = output_name if output_name else exp_name
+        positions.to_csv(output_dir / f"{prefix}_long_only_positions.csv", index=False)
     return output_path
 
 

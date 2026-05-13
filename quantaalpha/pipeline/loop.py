@@ -9,7 +9,7 @@ import json
 import pandas as pd
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
-from typing import Any, List, TYPE_CHECKING
+from typing import Any, Iterable, List, TYPE_CHECKING
 
 from quantaalpha.pipeline.settings import BaseFacSetting
 from quantaalpha.core.developer import Developer
@@ -163,6 +163,14 @@ def _extract_metric(result: Any, metric_name: str) -> float | None:
         return None
 
 
+def _extract_first_metric(result: Any, metric_names: Iterable[str]) -> float | None:
+    for metric_name in metric_names:
+        value = _extract_metric(result, metric_name)
+        if value is not None:
+            return value
+    return None
+
+
 def _round_summary_value(round_summary, key: str, default=None):
     if round_summary is None:
         return default
@@ -201,9 +209,27 @@ def append_combined_backtest_performance_history(
         "ICIR": _extract_metric(result, "ICIR"),
         "Rank IC": _extract_metric(result, "Rank IC"),
         "Rank ICIR": _extract_metric(result, "Rank ICIR"),
-        "annualized_return": _extract_metric(result, "1day.excess_return_with_cost.annualized_return"),
-        "information_ratio": _extract_metric(result, "1day.excess_return_with_cost.information_ratio"),
-        "max_drawdown": _extract_metric(result, "1day.excess_return_with_cost.max_drawdown"),
+        "annualized_return": _extract_first_metric(
+            result,
+            (
+                "1day.excess_return_with_cost.annualized_return",
+                "annualized_return",
+            ),
+        ),
+        "information_ratio": _extract_first_metric(
+            result,
+            (
+                "1day.excess_return_with_cost.information_ratio",
+                "information_ratio",
+            ),
+        ),
+        "max_drawdown": _extract_first_metric(
+            result,
+            (
+                "1day.excess_return_with_cost.max_drawdown",
+                "max_drawdown",
+            ),
+        ),
     }
 
     successful_ids = set(_round_summary_value(round_summary, "successful_factor_ids", []) or [])

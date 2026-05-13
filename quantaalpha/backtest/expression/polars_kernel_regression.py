@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import polars as pl
 
 
@@ -15,7 +14,7 @@ def rolling_regression_frame(
 ) -> pl.DataFrame:
     """Return `(datetime, instrument, data)` for rolling regression stats."""
     if x_values is not None:
-        return _rolling_regression_pandas_frame(frame, window, stat, x_values)
+        return _rolling_regression_custom_sequence_frame(frame, window, stat, x_values)
     n = float(window)
     sum_x = n * (n + 1.0) / 2.0
     sum_x2 = n * (n + 1.0) * (2.0 * n + 1.0) / 6.0
@@ -65,29 +64,31 @@ def rolling_regression_frame(
 
 
 def rolling_regression_xy_frame(y_frame: pl.DataFrame, x_frame: pl.DataFrame, window: int, stat: str) -> pl.DataFrame:
-    """Compatibility implementation for rolling regression against dynamic x values."""
-    y_series = y_frame.to_pandas().set_index(["datetime", "instrument"])["data"].astype("float32")
-    x_series = x_frame.to_pandas().set_index(["datetime", "instrument"])["data"].astype("float32")
-    joined = pd.concat([y_series.rename("y"), x_series.rename("x")], axis=1).sort_index()
-    pieces = []
-    for instrument, part in joined.groupby(level="instrument", group_keys=False):
-        y = part["y"].droplevel("instrument")
-        x = part["x"].droplevel("instrument")
+    """Polars-backed rolling regression against dynamic x values."""
+    joined = (
+        y_frame.rename({"data": "y"})
+        .join(x_frame.rename({"data": "x"}), on=["datetime", "instrument"], how="left")
+        .sort(["instrument", "datetime"])
+    )
+    pieces: list[pl.DataFrame] = []
+    for part in joined.partition_by("instrument", maintain_order=True):
+        y = part.get_column("y").cast(pl.Float64).to_numpy()
+        x = part.get_column("x").cast(pl.Float64).to_numpy()
         rows = []
-        for end in range(len(part)):
+        for end in range(part.height):
             if end + 1 < window:
-                rows.append(np.nan)
+                rows.append(None)
                 continue
-            y_win = y.iloc[end + 1 - window : end + 1].to_numpy(dtype=float)
-            x_win = x.iloc[end + 1 - window : end + 1].to_numpy(dtype=float)
+            y_win = y[end + 1 - window : end + 1]
+            x_win = x[end + 1 - window : end + 1]
             if np.isnan(y_win).any() or np.isnan(x_win).any():
-                rows.append(np.nan)
+                rows.append(None)
                 continue
             x_mean = x_win.mean()
             y_mean = y_win.mean()
             denom = float(((x_win - x_mean) ** 2).sum())
             if denom <= 0:
-                rows.append(np.nan)
+                rows.append(None)
                 continue
             slope = float(((x_win - x_mean) * (y_win - y_mean)).sum() / denom)
             intercept = y_mean - slope * x_mean
@@ -95,67 +96,68 @@ def rolling_regression_xy_frame(y_frame: pl.DataFrame, x_frame: pl.DataFrame, wi
                 rows.append(slope)
             else:
                 rows.append(float(y_win[-1] - (slope * x_win[-1] + intercept)))
-        out = pd.Series(rows, index=y.index)
-        out.index = pd.MultiIndex.from_arrays([out.index, [instrument] * len(out)], names=["datetime", "instrument"])
-        pieces.append(out)
-    result = (
-        pd.concat(pieces).sort_index().astype("float32").rename("data")
-        if pieces
-        else pd.Series(dtype="float32", index=y_series.index, name="data")
-    )
-    return pl.from_pandas(result.reset_index())
+        pieces.append(part.select("datetime", "instrument").with_columns(pl.Series("data", rows, dtype=pl.Float32)))
+    if not pieces:
+        return joined.select("datetime", "instrument").with_columns(pl.lit(None, dtype=pl.Float32).alias("data"))
+    return pl.concat(pieces, how="vertical").sort(["datetime", "instrument"])
 
 
-def _rolling_regression_pandas_frame(
+def _rolling_regression_custom_sequence_frame(
     frame: pl.DataFrame,
     window: int,
     stat: str,
     x_values: np.ndarray | None = None,
 ) -> pl.DataFrame:
-    series = frame.to_pandas().set_index(["datetime", "instrument"])["data"].astype("float32")
+    x = np.asarray(x_values, dtype=float) if x_values is not None else np.arange(1, window + 1, dtype=float)
 
     def calc(values) -> float:
-        if pd.isna(values).any():
-            return np.nan
-        x = np.asarray(x_values, dtype=float) if x_values is not None else np.arange(1, len(values) + 1, dtype=float)
+        arr = values.to_numpy().astype(float)
+        if np.isnan(arr).any():
+            return None
         x_mean = x.mean()
-        y_mean = values.mean()
+        y_mean = arr.mean()
         denom = float(((x - x_mean) ** 2).sum())
         if denom <= 0:
             if stat in {"slope", "resi"}:
                 design = np.vstack([x, np.ones(len(x))]).T
-                slope, intercept = np.linalg.lstsq(design, values, rcond=None)[0]
+                slope, intercept = np.linalg.lstsq(design, arr, rcond=None)[0]
                 if stat == "slope":
                     return float(slope)
-                return float(values[-1] - (slope * x[-1] + intercept))
-            return np.nan
-        slope = float(((x - x_mean) * (values - y_mean)).sum() / denom)
+                return float(arr[-1] - (slope * x[-1] + intercept))
+            return None
+        slope = float(((x - x_mean) * (arr - y_mean)).sum() / denom)
         intercept = y_mean - slope * x_mean
         fitted = slope * x + intercept
-        residual = values - fitted
+        residual = arr - fitted
         if stat == "resi":
             return float(residual[-1])
-        total = float(((values - y_mean) ** 2).sum())
+        total = float(((arr - y_mean) ** 2).sum())
         if total <= 0:
-            return np.nan
+            return None
         return float(1.0 - ((residual**2).sum() / total))
 
-    result = (
-        series.groupby(level="instrument", group_keys=False)
-        .rolling(window, min_periods=window)
-        .apply(calc, raw=True)
-        .droplevel(0)
-        .sort_index()
-        .astype("float32")
-        .rename("data")
+    result = frame.select(
+        "datetime",
+        "instrument",
+        pl.col("data")
+        .fill_nan(None)
+        .rolling_map(calc, window_size=window, min_samples=window)
+        .over("instrument")
+        .cast(pl.Float32)
+        .alias("data"),
     )
     if stat == "rsquare":
-        rolling_std = (
-            series.groupby(level="instrument", group_keys=False)
-            .rolling(window, min_periods=window)
-            .std()
-            .droplevel(0)
-            .sort_index()
+        result = result.join(
+            frame.select(
+                "datetime",
+                "instrument",
+                pl.col("data").rolling_std(window, min_samples=window).over("instrument").alias("_rolling_std"),
+            ),
+            on=["datetime", "instrument"],
+            how="left",
+        ).select(
+            "datetime",
+            "instrument",
+            pl.when(pl.col("_rolling_std").abs() <= 2e-05).then(None).otherwise(pl.col("data")).alias("data"),
         )
-        result = result.mask(np.isclose(rolling_std, 0, atol=2e-05)).astype("float32").rename("data")
-    return pl.from_pandas(result.reset_index())
+    return result

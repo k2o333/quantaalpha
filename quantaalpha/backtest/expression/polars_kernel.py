@@ -227,6 +227,8 @@ class SharedPolarsExpressionKernel:
             return _cs_rank(_expect_value(args[0]))
         if name == "ZSCORE" and len(args) == 1:
             return _cs_zscore(_expect_value(args[0]))
+        if name == "NEG" and len(args) == 1:
+            return -_expect_value(args[0]) if isinstance(args[0], KernelValue) else -_expect_number(args[0])
         if name == "TS_ZSCORE" and len(args) in {1, 2}:
             value = _expect_value(args[0])
             window = int(_expect_number(args[1])) if len(args) == 2 else 5
@@ -247,6 +249,9 @@ class SharedPolarsExpressionKernel:
             return _rolling_arg(_expect_value(args[0]), int(_expect_number(args[1])), "min")
         if name == "TS_CORR" and len(args) == 3:
             return _rolling_corr(args[0], args[1], int(_expect_number(args[2])))
+        if name in {"TS_AUTOCORRELATION", "TS_AUTOCORR"} and len(args) == 2:
+            value = _expect_value(args[0])
+            return _rolling_corr(value, _delay(value, 1), int(_expect_number(args[1])))
         if name == "TS_SLOPE" and len(args) == 2:
             return _rolling_regression(_expect_value(args[0]), int(_expect_number(args[1])), "slope")
         if name == "TS_RSQUARE" and len(args) == 2:
@@ -643,9 +648,13 @@ def _cs_aggregate(value: KernelValue, operation: str) -> KernelValue:
 
 
 def _cs_kurt(value: KernelValue) -> KernelValue:
-    pdf = value.frame.to_pandas().sort_values(["datetime", "instrument"])
-    pdf["data"] = pdf.groupby("datetime", sort=False)["data"].transform(lambda series: series.kurt()).astype("float32")
-    return KernelValue(pl.from_pandas(pdf))
+    return KernelValue(
+        value.frame.select(
+            "datetime",
+            "instrument",
+            pl.col("data").kurtosis(fisher=True, bias=False).over("datetime").cast(pl.Float32).alias("data"),
+        )
+    )
 
 
 def _rolling_quantile(value: KernelValue, window: int, quantile: float) -> KernelValue:
@@ -774,48 +783,47 @@ def _rolling_corr(left: KernelValue | float | KernelSequence, right: KernelValue
         return _rolling_corr_sequence(_expect_value(left), window)
     left = _expect_value(left)
     right = _expect_value(right)
-    left_pdf = left.frame.to_pandas().set_index(["datetime", "instrument"])["data"].astype("float32")
-    right_pdf = right.frame.to_pandas().set_index(["datetime", "instrument"])["data"].astype("float32")
-    pieces = []
-    for instrument, left_part in left_pdf.groupby(level="instrument", group_keys=False):
-        try:
-            right_part = right_pdf.xs(instrument, level="instrument")
-        except KeyError:
-            continue
-        left_by_date = left_part.droplevel("instrument")
-        corr = left_by_date.rolling(window, min_periods=window).corr(right_part)
-        corr.index = pd.MultiIndex.from_arrays(
-            [corr.index, [instrument] * len(corr)], names=["datetime", "instrument"]
+    frame = left.frame.join(right.frame, on=["datetime", "instrument"], how="left", suffix="_right")
+    return KernelValue(
+        frame.select(
+            "datetime",
+            "instrument",
+            pl.rolling_corr(
+                pl.col("data").cast(pl.Float64),
+                pl.col("data_right").cast(pl.Float64),
+                window_size=window,
+                min_samples=window,
+            )
+            .over("instrument")
+            .cast(pl.Float32)
+            .alias("data"),
         )
-        pieces.append(corr)
-    if not pieces:
-        out = pd.Series(dtype="float32", index=left_pdf.index, name="data")
-    else:
-        out = pd.concat(pieces).sort_index().astype("float32").rename("data")
-    return KernelValue(pl.from_pandas(out.reset_index()))
+    )
 
 
 def _rolling_corr_sequence(value: KernelValue, window: int) -> KernelValue:
-    series = value.frame.to_pandas().set_index(["datetime", "instrument"])["data"].astype("float32")
     x = np.linspace(1, window, window, dtype=np.float32)
 
     def calc(values) -> float:
-        if len(values) < window or pd.isna(values).any():
-            return np.nan
-        if np.isclose(values.std(ddof=1), 0):
-            return np.nan
-        return float(pd.Series(values).corr(pd.Series(x)))
+        arr = values.to_numpy()
+        if len(arr) < window or np.isnan(arr).any():
+            return None
+        if np.isclose(arr.std(ddof=1), 0):
+            return None
+        return float(np.corrcoef(arr.astype(float), x.astype(float))[0, 1])
 
-    result = (
-        series.groupby(level="instrument", group_keys=False)
-        .rolling(window, min_periods=window)
-        .apply(calc, raw=True)
-        .droplevel(0)
-        .sort_index()
-        .astype("float32")
-        .rename("data")
+    return KernelValue(
+        value.frame.select(
+            "datetime",
+            "instrument",
+            pl.col("data")
+            .fill_nan(None)
+            .rolling_map(calc, window_size=window, min_samples=window)
+            .over("instrument")
+            .cast(pl.Float32)
+            .alias("data"),
+        )
     )
-    return KernelValue(pl.from_pandas(result.reset_index()))
 
 
 def _rolling_regression(value: KernelValue, window: int, stat: str, x_values: np.ndarray | None = None) -> KernelValue:
@@ -943,20 +951,28 @@ def _rsi(value: KernelValue, window: int) -> KernelValue:
 
 
 def _ewm_mean(value: KernelValue, window: int) -> KernelValue:
-    pdf = value.frame.to_pandas().sort_values(["instrument", "datetime"])
-    pdf["data"] = (
-        pdf.groupby("instrument", sort=False)["data"]
-        .transform(lambda series: series.ewm(span=window, min_periods=1).mean())
-        .astype("float32")
+    return KernelValue(
+        value.frame.select(
+            "datetime",
+            "instrument",
+            pl.col("data")
+            .ewm_mean(span=window, min_samples=1)
+            .over("instrument")
+            .cast(pl.Float32)
+            .alias("data"),
+        )
     )
-    return KernelValue(pl.from_pandas(pdf))
 
 
 def _ewm_alpha(value: KernelValue, alpha: float) -> KernelValue:
-    pdf = value.frame.to_pandas().sort_values(["instrument", "datetime"])
-    pdf["data"] = (
-        pdf.groupby("instrument", sort=False)["data"]
-        .transform(lambda series: series.ewm(alpha=alpha, min_periods=1).mean())
-        .astype("float32")
+    return KernelValue(
+        value.frame.select(
+            "datetime",
+            "instrument",
+            pl.col("data")
+            .ewm_mean(alpha=alpha, min_samples=1)
+            .over("instrument")
+            .cast(pl.Float32)
+            .alias("data"),
+        )
     )
-    return KernelValue(pl.from_pandas(pdf))

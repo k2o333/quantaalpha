@@ -18,6 +18,7 @@ import pandas as pd
 from quantaalpha.log import logger
 from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
 from quantaalpha.factors.data_capability import get_data_capabilities, render_financial_pit_panel_preview
+from quantaalpha.factors.expression_syntax import normalize_expression_syntax
 from quantaalpha.llm.tool_schemas import (
     PROPOSE_FACTORS_TOOL,
     CONSTRUCT_FACTORS_TOOL,
@@ -70,6 +71,7 @@ def normalize_corrected_expression(expression) -> str:
         return str(expression)
 
     # Handle string dict payloads — if the entire string looks like a JSON dict
+    expression = normalize_expression_syntax(expression)
     stripped = expression.strip()
     if stripped.startswith("{") and stripped.endswith("}"):
         try:

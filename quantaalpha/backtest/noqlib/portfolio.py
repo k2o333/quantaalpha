@@ -48,6 +48,7 @@ class NoQlibTopkDropoutBacktester:
         report_rows = []
         position_rows = []
         for dt in dates:
+            previous_holdings = list(holdings)
             signal_dt = _previous_signal_date(pred_dates, dt)
             if signal_dt is None:
                 next_holdings = _filter_holdings_by_universe(holdings, self.universe_mask, dt)
@@ -63,6 +64,7 @@ class NoQlibTopkDropoutBacktester:
             sell_set = set(holdings) - set(next_holdings)
             buy_list = [stock for stock in next_holdings if stock not in set(holdings)]
             total_cost_value = 0.0
+            total_trade_value = 0.0
             for inst in list(sell_set):
                 amount = amounts.pop(inst, 0.0)
                 if amount <= 0:
@@ -71,6 +73,7 @@ class NoQlibTopkDropoutBacktester:
                 trade_cost = _trade_cost(trade_value, close_cost, min_cost)
                 cash += trade_value - trade_cost
                 total_cost_value += trade_cost
+                total_trade_value += trade_value
             buy_budget = cash * risk_degree / len(buy_list) if buy_list else 0.0
             for inst in buy_list:
                 open_price = _price(self.market_data, dt, inst, "$open")
@@ -85,6 +88,7 @@ class NoQlibTopkDropoutBacktester:
                 amounts[inst] = amounts.get(inst, 0.0) + amount
                 cash -= trade_value + trade_cost
                 total_cost_value += trade_cost
+                total_trade_value += trade_value
             holdings = [stock for stock in next_holdings if stock in amounts]
             stock_value = {
                 inst: amount * _price(self.market_data, dt, inst, "$close")
@@ -95,12 +99,35 @@ class NoQlibTopkDropoutBacktester:
             portfolio_return = pre_cost_account_value / previous_account_value - 1.0 if previous_account_value else 0.0
             bench_return = _benchmark_return(self.market_data, dt, benchmark=benchmark)
             cost = total_cost_value / previous_account_value if previous_account_value else 0.0
-            report_rows.append({"date": dt, "return": portfolio_return, "bench": bench_return, "cost": cost})
+            turnover = _turnover(total_trade_value, previous_account_value)
+            report_rows.append(
+                {
+                    "date": dt,
+                    "return": portfolio_return,
+                    "bench": bench_return,
+                    "cost": cost,
+                    "turnover": turnover,
+                    "cash": cash,
+                    "equity": account_value,
+                }
+            )
             for inst in holdings:
                 weight = stock_value.get(inst, 0.0) / account_value if account_value else 0.0
-                position_rows.append({"date": dt, "instrument": inst, "weight": weight})
+                position_rows.append(
+                    {
+                        "date": dt,
+                        "instrument": inst,
+                        "weight": weight,
+                        "amount": amounts.get(inst, 0.0),
+                        "value": stock_value.get(inst, 0.0),
+                    }
+                )
             previous_account_value = account_value
-        report = pd.DataFrame(report_rows).set_index("date") if report_rows else pd.DataFrame(columns=["return", "bench", "cost"])
+        report = (
+            pd.DataFrame(report_rows).set_index("date")
+            if report_rows
+            else pd.DataFrame(columns=["return", "bench", "cost", "turnover", "cash", "equity"])
+        )
         positions = pd.DataFrame(position_rows)
         if report.empty:
             return {}, report, positions
@@ -216,3 +243,10 @@ def _trade_cost(trade_value: float, rate: float, min_cost: float) -> float:
     if trade_value <= 0 or rate <= 0:
         return 0.0
     return max(trade_value * rate, min_cost)
+
+
+def _turnover(total_trade_value: float, previous_account_value: float) -> float:
+    """Match qlib turnover: executed trade value over previous account value."""
+    if previous_account_value <= 0:
+        return 0.0
+    return float(total_trade_value / previous_account_value)

@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from quantaalpha.factors.expression_syntax import normalize_expression_syntax
+
 
 @dataclass(frozen=True)
 class CanonicalExpression:
@@ -76,7 +78,7 @@ CANONICAL_FIELDS = {"open", "high", "low", "close", "volume", "vwap", "return"}
 def canonicalize_expression(expression: str) -> CanonicalExpression:
     """Normalize supported aliases into uppercase canonical DSL."""
     source = str(expression).strip()
-    canonical = source
+    canonical = normalize_expression_syntax(source)
     warnings: list[str] = []
     for old, new in QLIB_ALIAS_MAP.items():
         canonical = re.sub(rf"\b{old}\s*\(", f"{new}(", canonical)

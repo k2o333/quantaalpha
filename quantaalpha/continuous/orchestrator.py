@@ -412,7 +412,7 @@ class MiningOrchestrator:
 
         return result
 
-    def run_mining_cycle(self) -> MiningResult:
+    def run_mining_cycle(self, budget_seconds: int | None = None) -> MiningResult:
         """
         Manually trigger a mining cycle.
 
@@ -423,7 +423,7 @@ class MiningOrchestrator:
             return MiningResult(errors=["Mining scheduler not enabled"])
 
         logger.info("Running manual mining cycle")
-        result = self.mining_scheduler.run_mining()
+        result = self.mining_scheduler.run_mining(budget_seconds=budget_seconds)
 
         self.stats.total_mining_runs += 1
         self.stats.last_mining_run = datetime.now()
