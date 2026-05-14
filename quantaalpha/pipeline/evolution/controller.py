@@ -222,6 +222,9 @@ class EvolutionController:
             # Prepare mutation targets if needed
             if not self._mutation_targets:
                 self._prepare_mutation_targets()
+                if not self._mutation_targets:
+                    logger.warning(f"No mutation targets available for round {self._current_round}. Terminating evolution.")
+                    return []
             
             for idx, parent in enumerate(self._mutation_targets):
                 if idx < self._mutation_idx:
@@ -407,6 +410,10 @@ class EvolutionController:
     
     def _get_mutation_task(self) -> Optional[dict[str, Any]]:
         """Get next mutation round task."""
+        if self._current_round >= self.config.max_rounds:
+            logger.info(f"Evolution complete: reached max rounds ({self.config.max_rounds}) inside mutation loop")
+            return None
+
         # If mutation is disabled, skip to crossover or stay in mutation loop
         if not self.config.mutation_enabled:
             if self.config.crossover_enabled:
@@ -419,6 +426,9 @@ class EvolutionController:
         # If mutation targets not prepared, prepare them
         if not self._mutation_targets:
             self._prepare_mutation_targets()
+            if not self._mutation_targets:
+                logger.warning(f"No mutation targets available for round {self._current_round}. Terminating evolution.")
+                return None
         
         # Process next mutation target
         while self._mutation_idx < len(self._mutation_targets):
@@ -462,7 +472,7 @@ class EvolutionController:
         else:
             # Stay in mutation mode (mutation-only loop)
             logger.info(f"All mutation rounds complete, continuing with mutation (round {self._current_round})")
-            return self._get_mutation_task()
+            return self.get_next_task()
     
     def _prepare_mutation_targets(self):
         """
