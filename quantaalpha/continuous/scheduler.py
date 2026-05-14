@@ -128,6 +128,7 @@ class FactorConfig:
     backtest_noqlib: dict[str, Any] = field(default_factory=dict)
     library_backend: str = "json"
     parquet_library_dir: str = "third_party/quantaalpha/data/factorlib/parquet_store"
+    factor_value_dir: str = "third_party/quantaalpha/data/factorlib/factor_values"
     parquet_compact: ParquetCompactConfig = field(default_factory=ParquetCompactConfig)
     performance_history: PerformanceHistoryConfig = field(default_factory=PerformanceHistoryConfig)
 
@@ -552,6 +553,7 @@ class MiningConfig:
     provider_pool: ProviderPoolConfig = field(default_factory=ProviderPoolConfig)
     direction_planner: DirectionPlannerConfig = field(default_factory=DirectionPlannerConfig)
     orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
+    app5_freshness: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "MiningConfig":
@@ -571,6 +573,7 @@ class MiningConfig:
             provider_pool=ProviderPoolConfig.from_dict(d.get("provider_pool", {})),
             direction_planner=DirectionPlannerConfig.from_dict(d.get("direction_planner", {})),
             orchestration=OrchestrationConfig.from_dict(d.get("orchestration", {})),
+            app5_freshness=dict(d.get("app5_freshness", {})),
         )
 
 
@@ -696,6 +699,7 @@ class PipelineConfig:
             backtest_noqlib=dict(factor_data.get("backtest_noqlib", {}) or {}),
             library_backend=factor_data.get("library_backend", "json"),
             parquet_library_dir=factor_data.get("parquet_library_dir", "third_party/quantaalpha/data/factorlib/parquet_store"),
+            factor_value_dir=factor_data.get("factor_value_dir", "third_party/quantaalpha/data/factorlib/factor_values"),
             parquet_compact=ParquetCompactConfig.from_dict(compact_data),
             performance_history=PerformanceHistoryConfig.from_dict(factor_data.get("performance_history", {})),
         )
@@ -810,6 +814,7 @@ class PipelineConfig:
                 "backtest_noqlib": self.factor.backtest_noqlib,
                 "library_backend": self.factor.library_backend,
                 "parquet_library_dir": self.factor.parquet_library_dir,
+                "factor_value_dir": self.factor.factor_value_dir,
                 "performance_history": {
                     "enabled": self.factor.performance_history.enabled,
                     "root": self.factor.performance_history.root,
@@ -860,6 +865,7 @@ class PipelineConfig:
                     "min_ic": self.mining.quality_gate.min_ic,
                     "min_rank_ic": self.mining.quality_gate.min_rank_ic,
                 },
+                "app5_freshness": dict(self.mining.app5_freshness),
                 "escalation": {
                     "enabled": self.mining.escalation.enabled,
                     "trigger_after_failed_attempts": self.mining.escalation.trigger_after_failed_attempts,

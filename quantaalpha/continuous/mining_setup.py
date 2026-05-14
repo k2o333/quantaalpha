@@ -37,6 +37,8 @@ class MiningSetupMixin:
         similarity_engine_cfg: Optional[dict] = None,
         orchestration_cfg: Optional[dict] = None,
         performance_history_config: Optional[dict] = None,
+        app5_freshness_cfg: Optional[dict] = None,
+        factor_value_dir: Optional[str] = None,
     ):
         import os
 
@@ -81,6 +83,8 @@ class MiningSetupMixin:
         self._similarity_engine_cfg = similarity_engine_cfg or {}
         self._orchestration_cfg = orchestration_cfg or {}
         self._performance_history_config = performance_history_config or {}
+        self._app5_freshness_cfg = app5_freshness_cfg or {}
+        self.factor_value_dir = factor_value_dir or "third_party/quantaalpha/data/factorlib/factor_values"
         self._performance_history_store = None
         if self._performance_history_config.get("enabled", False):
             try:

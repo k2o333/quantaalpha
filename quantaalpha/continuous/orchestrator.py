@@ -180,6 +180,7 @@ class MiningOrchestrator:
                 backtest_backend=self.config.factor.backtest_backend,
                 backtest_noqlib_config=self.config.factor.backtest_noqlib,
                 performance_history_config=asdict(self.config.factor.performance_history),
+                factor_value_dir=self.config.factor.factor_value_dir,
                 monitor_engine=self._monitor_engine,
                 pipeline_mode=self.config.mining.pipeline_mode,
                 quality_gate_config={
@@ -286,6 +287,7 @@ class MiningOrchestrator:
                         for n in self.config.mining.orchestration.nodes
                     ],
                 },
+                app5_freshness_cfg=self.config.mining.app5_freshness,
             )
         return self._mining_scheduler
 

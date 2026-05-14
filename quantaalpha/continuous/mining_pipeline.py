@@ -7,6 +7,24 @@ from .implementation_shared import _translate_factor_expression
 class MiningPipelineMixin:
     """Responsibility slice for DefaultMiningScheduler."""
 
+    def _check_app5_freshness_before_mining(self) -> dict | None:
+        cfg = getattr(self, "_app5_freshness_cfg", {}) or {}
+        if not cfg.get("enabled", False):
+            return None
+        try:
+            from app5.observability.freshness import check_freshness, load_continuous_profile
+
+            profile = load_continuous_profile(cfg.get("profile_path", "config/continuous_profile.yaml"))
+            report = check_freshness(
+                data_root=cfg.get("data_root", "data/app5"),
+                profile=profile,
+                threshold_hours=cfg.get("threshold_hours"),
+            )
+            return report.to_dict()
+        except Exception as exc:
+            logger.warning(f"app5 freshness check failed before mining: {exc}")
+            return {"status": "failed", "error": str(exc)}
+
     def _run_pipeline_mining(self, budget_seconds: Optional[int] = None) -> dict:
         """
         Run mining via AlphaAgentLoop or EvolutionController, or orchestration runtime.
@@ -26,6 +44,14 @@ class MiningPipelineMixin:
         }
 
         from pathlib import Path
+
+        freshness = self._check_app5_freshness_before_mining()
+        if freshness is not None and freshness.get("status") != "passed":
+            result["status"] = "skipped_stale_app5"
+            result["freshness"] = freshness
+            result["errors"].append("app5 freshness gate failed")
+            logger.warning("Skipping pipeline mining because app5 freshness gate failed")
+            return result
 
         # Phase 3: orchestration runtime branch
         if self._orchestration_cfg.get("enabled", False):
