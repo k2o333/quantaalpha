@@ -190,6 +190,7 @@ class MiningSetupMixin:
                 api_keys=p.get("api_keys", []),
                 base_url=p.get("base_url"),
                 model=p.get("model"),
+                extra_body=p.get("extra_body", {}),
                 tags=p.get("tags", []),
                 tier=p.get("tier", 2),
             )

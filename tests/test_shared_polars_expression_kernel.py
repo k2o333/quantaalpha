@@ -136,6 +136,19 @@ def test_shared_polars_kernel_evaluates_alpha158_operator_subset() -> None:
     assert result.loc[idx, "regbeta_scalar"] == pytest.approx(2.0 * x / (x**2 + 1.0))
 
 
+def test_shared_polars_kernel_count_counts_true_conditions_only() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    market = _market()
+    result = SharedPolarsExpressionKernel(market).compute_expression("COUNT($close > 2, 2)", "count_true")
+
+    assert pd.isna(result.loc[(pd.Timestamp("2020-01-01"), "A"), "count_true"])
+    assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "count_true"] == pytest.approx(0.0)
+    assert result.loc[(pd.Timestamp("2020-01-02"), "B"), "count_true"] == pytest.approx(1.0)
+    assert result.loc[(pd.Timestamp("2020-01-03"), "A"), "count_true"] == pytest.approx(1.0)
+    assert result.loc[(pd.Timestamp("2020-01-03"), "B"), "count_true"] == pytest.approx(2.0)
+
+
 def test_shared_polars_kernel_rejects_uncovered_operator() -> None:
     from quantaalpha.backtest.expression import SharedPolarsExpressionKernel, UnsupportedExpressionError
 

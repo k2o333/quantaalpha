@@ -127,6 +127,7 @@ class ProviderConfig:
     model: str | None = None
     timeout: int = 60
     metadata: dict[str, Any] = field(default_factory=dict)
+    extra_body: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     tier: int = 2  # 1=basic/low-cost, 2=standard, 3=premium/high-cost
 
@@ -186,6 +187,7 @@ class ProviderPool:
         model: str | None = None,
         timeout: int = 60,
         metadata: dict[str, Any] | None = None,
+        extra_body: dict[str, Any] | None = None,
         tags: list[str] | None = None,
         tier: int = 2,
     ) -> None:
@@ -199,6 +201,7 @@ class ProviderPool:
             model: Default model name
             timeout: Request timeout in seconds
             metadata: Additional provider metadata
+            extra_body: Provider-specific OpenAI-compatible request body extensions
             tags: Capability tags for declarative routing
             tier: Cost tier (1=basic, 2=standard, 3=premium)
         """
@@ -213,6 +216,7 @@ class ProviderPool:
                 model=model,
                 timeout=timeout,
                 metadata=metadata or {},
+                extra_body=extra_body or {},
                 tags=tags or [],
                 tier=tier,
             )

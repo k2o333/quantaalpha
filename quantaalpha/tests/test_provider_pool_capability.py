@@ -20,26 +20,30 @@ class TestProviderConfigCapability:
         assert config.tier == 3
 
     def test_provider_config_defaults(self):
-        """ProviderConfig defaults tags to [] and tier to 2."""
+        """ProviderConfig defaults tags/extra_body to []/{} and tier to 2."""
         from quantaalpha.llm.provider_pool import ProviderConfig
 
         config = ProviderConfig(name="test", api_keys=["key"])
         assert config.tags == []
+        assert config.extra_body == {}
         assert config.tier == 2
 
-    def test_add_provider_accepts_tags_and_tier(self):
-        """ProviderPool.add_provider() accepts tags and tier."""
+    def test_add_provider_accepts_tags_tier_and_extra_body(self):
+        """ProviderPool.add_provider() accepts tags, tier, and extra_body."""
         from quantaalpha.llm.provider_pool import ProviderPool
 
         pool = ProviderPool()
+        extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
         pool.add_provider(
             "openai",
             api_keys=["key1"],
+            extra_body=extra_body,
             tags=["tool_calling", "reasoning"],
             tier=3,
         )
         provider = pool.get_provider("openai")
         assert provider is not None
+        assert provider.extra_body == extra_body
         assert provider.tags == ["tool_calling", "reasoning"]
         assert provider.tier == 3
 

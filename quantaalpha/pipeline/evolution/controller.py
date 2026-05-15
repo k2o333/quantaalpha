@@ -10,6 +10,7 @@ The controller orchestrates the evolutionary process:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -67,6 +68,10 @@ class EvolutionConfig:
     prefer_active_parents: bool = False
     min_stability_score: float = 0.0
     exclude_parent_statuses: list[str] | None = None
+    parquet_library_dir: Optional[str] = None
+    historical_active_parent_count: int = 0
+    historical_parent_min_rank_ic: float = 0.0
+    historical_parent_statuses: list[str] | None = None
 
 
 class EvolutionController:
@@ -533,6 +538,7 @@ class EvolutionController:
         """
         # Find the two most recent rounds to use as crossover candidates
         candidates = self._get_crossover_candidates()
+        candidates = self._with_historical_parent_candidates(candidates)
         if self.config.prefer_active_parents:
             from .trajectory import select_parent_factors
 
@@ -562,6 +568,161 @@ class EvolutionController:
         )
         self._crossover_idx = 0
         logger.info(f"Prepared {len(self._crossover_groups)} crossover groups from {len(candidates)} candidates")
+
+    def _with_historical_parent_candidates(self, candidates: list[StrategyTrajectory]) -> list[StrategyTrajectory]:
+        """Append configured historical active factors to crossover candidates."""
+        historical = self._load_historical_parent_candidates(candidates)
+        if not historical:
+            return candidates
+
+        merged = [*candidates, *historical]
+        logger.info(
+            "Historical parent injection: added "
+            f"{len(historical)} parquet candidates to {len(candidates)} runtime candidates "
+            f"(total={len(merged)})"
+        )
+        return merged
+
+    def _load_historical_parent_candidates(self, candidates: list[StrategyTrajectory]) -> list[StrategyTrajectory]:
+        count = max(0, int(self.config.historical_active_parent_count or 0))
+        if count <= 0:
+            return []
+
+        store_path = self.config.parquet_library_dir
+        if not store_path:
+            logger.warning("Historical parent injection skipped: parquet_library_dir is not configured")
+            return []
+
+        try:
+            from quantaalpha.factors.parquet_library import ParquetFactorLibrary
+
+            frame = ParquetFactorLibrary(str(store_path)).read_factor_library()
+        except Exception as exc:
+            logger.warning(f"Historical parent injection skipped: failed to read parquet library: {exc}")
+            return []
+
+        if frame is None or frame.is_empty():
+            logger.info("Historical parent injection: parquet library is empty")
+            return []
+
+        existing_ids = {
+            fid
+            for trajectory in candidates
+            for fid in (
+                trajectory.trajectory_id,
+                *trajectory.parent_ids,
+                str(trajectory.extra_info.get("source_factor_id", "")),
+            )
+            if fid
+        }
+        existing_expressions = {
+            str(factor.get("expression") or factor.get("factor_expression") or "")
+            for trajectory in candidates
+            for factor in trajectory.factors
+        }
+        allowed_statuses = set(self.config.historical_parent_statuses or ["active"])
+        selected: list[StrategyTrajectory] = []
+        skipped_status = 0
+        skipped_metric = 0
+        skipped_duplicate = 0
+
+        records = frame.to_dicts()
+        records.sort(key=lambda item: self._rank_ic_from_backtest_json(item.get("backtest_results_json")), reverse=True)
+        for record in records:
+            if len(selected) >= count:
+                break
+
+            status = str(record.get("evaluation_status") or "")
+            if status not in allowed_statuses:
+                skipped_status += 1
+                continue
+
+            rank_ic = self._rank_ic_from_backtest_json(record.get("backtest_results_json"))
+            if rank_ic < float(self.config.historical_parent_min_rank_ic or 0.0):
+                skipped_metric += 1
+                continue
+
+            factor_id = str(record.get("factor_id") or "")
+            expression = str(record.get("factor_expression") or "")
+            if not factor_id or not expression or factor_id in existing_ids or expression in existing_expressions:
+                skipped_duplicate += 1
+                continue
+
+            selected.append(self._historical_record_to_trajectory(record, rank_ic))
+            existing_ids.add(factor_id)
+            existing_expressions.add(expression)
+
+        logger.info(
+            "Historical parent injection: scanned "
+            f"{len(records)} parquet factors, selected={len(selected)}, "
+            f"skipped_status={skipped_status}, skipped_metric={skipped_metric}, "
+            f"skipped_duplicate={skipped_duplicate}"
+        )
+        return selected
+
+    @staticmethod
+    def _load_json_object(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if not value:
+            return {}
+        try:
+            loaded = json.loads(str(value))
+        except json.JSONDecodeError:
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
+
+    @classmethod
+    def _rank_ic_from_backtest_json(cls, value: Any) -> float:
+        payload = cls._load_json_object(value)
+        for key in ("RankIC", "Rank IC", "rank_ic", "IC", "ic"):
+            metric = payload.get(key)
+            if metric is None:
+                continue
+            try:
+                return float(metric)
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    @classmethod
+    def _historical_record_to_trajectory(cls, record: dict[str, Any], rank_ic: float) -> StrategyTrajectory:
+        metadata = cls._load_json_object(record.get("metadata_json"))
+        factor_id = str(record.get("factor_id") or "")
+        factor_name = str(record.get("factor_name") or factor_id)
+        expression = str(record.get("factor_expression") or "")
+        stability_score = metadata.get("stability_score")
+        try:
+            stability_score = float(stability_score) if stability_score is not None else None
+        except (TypeError, ValueError):
+            stability_score = None
+
+        direction_hash = sum((idx + 1) * ord(ch) for idx, ch in enumerate(factor_id))
+
+        return StrategyTrajectory(
+            trajectory_id=f"library:{factor_id}",
+            direction_id=-(direction_hash % 1_000_000 + 1),
+            round_idx=-1,
+            phase=RoundPhase.ORIGINAL,
+            hypothesis=metadata.get("factor_description") or f"Historical active factor {factor_name}",
+            factors=[
+                {
+                    "name": factor_name,
+                    "expression": expression,
+                    "description": metadata.get("factor_description", ""),
+                    "factor_id": factor_id,
+                }
+            ],
+            backtest_metrics={"RankIC": rank_ic},
+            extra_info={
+                "evaluation": {
+                    "status": record.get("evaluation_status") or "active",
+                    "stability_score": stability_score,
+                },
+                "source": "parquet_library",
+                "source_factor_id": factor_id,
+            },
+        )
     
     def _get_crossover_candidates(self) -> list[StrategyTrajectory]:
         """

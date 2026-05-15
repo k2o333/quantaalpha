@@ -563,6 +563,67 @@ class TestMultiHypothesisEmptyFactorsDict:
 
         assert [task.factor_name for task in result.tasks] == ["factor_valid"]
 
+    def test_percentile_swapped_arguments_are_rejected_before_execution(self):
+        """PERCENTILE(x, window, q) must be rejected with structured feedback."""
+        h2e = self._make_h2e()
+        valid, category, detail, expr = h2e._validate_multi_construct_factor(
+            "bad_percentile",
+            {
+                "expression": "RANK(TS_SUM($return, 5)) * RANK(-PERCENTILE($volume, 20, 0.2))",
+                "description": "bad",
+                "formulation": "bad",
+                "variables": {},
+            },
+            self._make_trace(),
+        )
+
+        assert valid is False
+        assert category == "percentile_argument_order"
+        assert "PERCENTILE" in detail
+        assert "0.2" in detail
+        assert "20" in detail
+        h2e.factor_regulator.parse_diagnostic.assert_not_called()
+        assert expr.startswith("RANK(")
+
+    def test_valid_percentile_argument_order_is_preserved(self):
+        """PERCENTILE(x, q, window) remains valid for existing translator contract."""
+        h2e = self._make_h2e()
+        valid, category, detail, _expr = h2e._validate_multi_construct_factor(
+            "good_percentile",
+            {
+                "expression": "PERCENTILE(TS_SUM($return, 10), 0.5, 20)",
+                "description": "good",
+                "formulation": "good",
+                "variables": {},
+            },
+            self._make_trace(),
+        )
+
+        assert valid is True
+        assert category == ""
+        assert detail == ""
+        h2e.factor_regulator.parse_diagnostic.assert_called_once()
+
+    def test_missing_denominator_multiplier_is_rejected(self):
+        """Formulation-expression mismatch must be rejected without global runtime patching."""
+        h2e = self._make_h2e()
+        valid, category, detail, expr = h2e._validate_multi_construct_factor(
+            "Momentum_Consistency_10D",
+            {
+                "expression": "RANK(COUNT($return > 0, 10) / (TS_STD($return, 20) + 1e-8))",
+                "description": "bad",
+                "formulation": "COUNT($return > 0, 10) / (10 * TS_STD($return, 20))",
+                "variables": {},
+            },
+            self._make_trace(),
+        )
+
+        assert valid is False
+        assert category == "missing_denominator_multiplier"
+        assert "10 * TS_STD" in detail
+        h2e.factor_regulator.parse_diagnostic.assert_not_called()
+        assert "COUNT" in expr
+
     def test_multi_hypothesis_final_error_contains_last_failure_category(self):
         """Final construct failure must classify the last caller-level validation reason."""
         from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression

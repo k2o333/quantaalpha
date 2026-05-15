@@ -44,6 +44,9 @@ mining:
     crossover_n: 2
     parallel_enabled: false
     fresh_start: false
+    historical_active_parent_count: 4
+    historical_parent_min_rank_ic: 0.02
+    historical_parent_statuses: [active]
   state:
     pool_save_path: "log/continuous/trajectory_pool.json"
     max_pool_size: 500
@@ -64,6 +67,9 @@ mining:
         assert config.mining.max_loops_per_cycle == 3
         assert config.mining.evolution.max_rounds == 3
         assert config.mining.evolution.parallel_enabled is False
+        assert config.mining.evolution.historical_active_parent_count == 4
+        assert config.mining.evolution.historical_parent_min_rank_ic == 0.02
+        assert config.mining.evolution.historical_parent_statuses == ["active"]
         assert config.mining.state.max_pool_size == 500
 
     def test_pipeline_config_mining_defaults(self):
@@ -74,6 +80,9 @@ mining:
         assert config.mining.pipeline_mode is False
         assert config.mining.steps_per_mining == 5
         assert config.mining.evolution.max_rounds == 3
+        assert config.mining.evolution.historical_active_parent_count == 0
+        assert config.mining.evolution.historical_parent_min_rank_ic == 0.0
+        assert config.mining.evolution.historical_parent_statuses == ["active"]
         assert config.mining.state.max_pool_size == 500
 
 
@@ -331,12 +340,20 @@ class TestProviderPoolConfig:
             {
                 "enabled": True,
                 "routing": "least_latency",
-                "providers": [{"name": "openai", "api_keys": ["k1"], "model": "gpt-4"}],
+                "providers": [
+                    {
+                        "name": "openai",
+                        "api_keys": ["k1"],
+                        "model": "gpt-4",
+                        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+                    }
+                ],
             }
         )
         assert config.enabled is True
         assert config.routing == "least_latency"
         assert len(config.providers) == 1
+        assert config.providers[0].extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
 
     def test_mining_config_has_provider_pool(self):
         from quantaalpha.continuous.scheduler import MiningConfig

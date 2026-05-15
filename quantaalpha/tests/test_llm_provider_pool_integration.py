@@ -124,3 +124,68 @@ class TestProviderPoolKeyRotation:
         stats = backend._provider_pool.get_latency_stats("test-provider")
         assert stats is not None
         assert stats["test-key"].sample_count > 0
+
+    def test_provider_extra_body_is_passed_to_openai_sdk(self):
+        """APIBackend passes provider-specific extra_body into chat completion kwargs."""
+        from quantaalpha.llm.client import APIBackend
+        from quantaalpha.llm.provider_pool import ProviderPool
+
+        extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
+        pool = ProviderPool()
+        pool.add_provider(
+            "qwen-provider",
+            api_keys=["test-key"],
+            model="Qwen3.5-27B",
+            extra_body=extra_body,
+        )
+
+        mock_client = MagicMock()
+        backend = object.__new__(APIBackend)
+        backend.use_azure = False
+        backend.use_llama2 = False
+        backend.use_gcr_endpoint = False
+        backend.chat_stream = False
+        backend.use_chat_cache = False
+        backend.chat_model = "Qwen3.5-27B"
+        backend.reasoning_model = ""
+        backend.chat_client = mock_client
+        backend.cache = MagicMock()
+        backend.cache.chat_get.return_value = None
+        backend.task_model_map = {}
+        backend.routing_default = ""
+        backend.chat_model_map = {}
+        backend.chat_api_key = "test"
+        backend.base_url = None
+        backend.embedding_api_key = ""
+        backend.embedding_base_url = None
+        backend.encoder = None
+        backend.chat_seed = None
+        backend.retry_wait_seconds = 1
+        backend.dump_chat_cache = False
+        backend._provider_pool = pool
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "response"
+        mock_response.choices[0].finish_reason = "stop"
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_auto_chat_cache_seed_gen = False
+            mock_settings.chat_temperature = 0.7
+            mock_settings.chat_max_tokens = 1000
+            mock_settings.chat_frequency_penalty = 0.0
+            mock_settings.chat_presence_penalty = 0.0
+            with patch("quantaalpha.llm.client.openai.OpenAI", return_value=mock_client):
+                backend._create_chat_completion_inner_function(
+                    messages=[{"role": "user", "content": "hello"}],
+                    reasoning_flag=False,
+                    tools=[{"type": "function", "function": {"name": "emit_json"}}],
+                    tool_choice="auto",
+                )
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["extra_body"] == extra_body
+        assert call_kwargs["tools"] == [{"type": "function", "function": {"name": "emit_json"}}]
+        assert call_kwargs["tool_choice"] == "auto"

@@ -208,6 +208,8 @@ class BackendCompletionMixin:
                         pool_provider = provider_config.name
                         pool_api_key = api_key
                         pool_base_url = provider_config.base_url or self.base_url
+                        if provider_config.extra_body:
+                            kwargs["extra_body"] = deepcopy(provider_config.extra_body)
                         self.chat_client = self._create_openai_client(
                             api_key=api_key,
                             base_url=pool_base_url,

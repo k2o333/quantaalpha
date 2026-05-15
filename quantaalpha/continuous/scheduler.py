@@ -191,6 +191,9 @@ class EvolutionConfig:
     crossover_n: int = 2
     parallel_enabled: bool = False
     fresh_start: bool = False
+    historical_active_parent_count: int = 0
+    historical_parent_min_rank_ic: float = 0.0
+    historical_parent_statuses: list[str] = field(default_factory=lambda: ["active"])
 
     @classmethod
     def from_dict(cls, d: dict) -> "EvolutionConfig":
@@ -203,6 +206,9 @@ class EvolutionConfig:
             crossover_n=d.get("crossover_n", 2),
             parallel_enabled=d.get("parallel_enabled", False),
             fresh_start=d.get("fresh_start", False),
+            historical_active_parent_count=d.get("historical_active_parent_count", 0),
+            historical_parent_min_rank_ic=d.get("historical_parent_min_rank_ic", 0.0),
+            historical_parent_statuses=list(d.get("historical_parent_statuses", ["active"])),
         )
 
 
@@ -332,6 +338,7 @@ class ProviderEntryConfig:
     api_keys: list[str] = field(default_factory=list)
     base_url: str | None = None
     model: str | None = None
+    extra_body: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     tier: int = 2
 
@@ -374,6 +381,7 @@ class ProviderEntryConfig:
             api_keys=resolved_keys,
             base_url=d.get("base_url"),
             model=d.get("model"),
+            extra_body=d.get("extra_body", {}),
             tags=d.get("tags", []),
             tier=d.get("tier", 2),
         )

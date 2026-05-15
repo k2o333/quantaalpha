@@ -448,7 +448,12 @@ class TestProviderPoolYamlRouting:
             "enabled": True,
             "routing": "round_robin",
             "providers": [
-                {"name": "p1", "api_keys": ["k1"], "model": "m1"},
+                {
+                    "name": "p1",
+                    "api_keys": ["k1"],
+                    "model": "m1",
+                    "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+                },
                 {"name": "p2", "api_keys": ["k2"], "model": "m2"},
             ],
         }
@@ -469,6 +474,9 @@ class TestProviderPoolYamlRouting:
         assert pool.routing == "round_robin", (
             f"Expected routing='round_robin' from config, got routing='{pool.routing}'"
         )
+        provider = pool.get_provider("p1")
+        assert provider is not None
+        assert provider.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
 
     def test_provider_pool_defaults_to_least_latency_when_routing_not_configured(self):
         """Test that ProviderPool defaults to least_latency when routing is not in config."""

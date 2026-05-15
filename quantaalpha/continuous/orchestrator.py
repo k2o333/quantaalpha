@@ -198,6 +198,10 @@ class MiningOrchestrator:
                     "crossover_n": self.config.mining.evolution.crossover_n,
                     "parallel_enabled": self.config.mining.evolution.parallel_enabled,
                     "fresh_start": self.config.mining.evolution.fresh_start,
+                    "parquet_library_dir": self.config.factor.parquet_library_dir,
+                    "historical_active_parent_count": self.config.mining.evolution.historical_active_parent_count,
+                    "historical_parent_min_rank_ic": self.config.mining.evolution.historical_parent_min_rank_ic,
+                    "historical_parent_statuses": self.config.mining.evolution.historical_parent_statuses,
                 },
                 state_cfg={
                     "pool_save_path": self.config.mining.state.pool_save_path,
@@ -239,6 +243,7 @@ class MiningOrchestrator:
                             "api_keys": p.api_keys,
                             "base_url": p.base_url,
                             "model": p.model,
+                            "extra_body": p.extra_body,
                             "tags": p.tags,
                             "tier": p.tier,
                         }

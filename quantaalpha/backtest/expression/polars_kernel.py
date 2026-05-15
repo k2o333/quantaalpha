@@ -709,7 +709,14 @@ def _full_instrument_quantile(value: KernelValue, quantile: float) -> KernelValu
 
 
 def _rolling_count(value: KernelValue, window: int) -> KernelValue:
-    data_expr = pl.col("data").fill_nan(None).is_not_null().cast(pl.Float64).rolling_sum(window, min_samples=window)
+    data_expr = (
+        pl.col("data")
+        .fill_nan(0.0)
+        .fill_null(0.0)
+        .ne(0.0)
+        .cast(pl.Float64)
+        .rolling_sum(window, min_samples=window)
+    )
     return KernelValue(value.frame.select("datetime", "instrument", data_expr.over("instrument").alias("data")))
 
 

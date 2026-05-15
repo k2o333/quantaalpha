@@ -511,6 +511,10 @@ def run_evolution_loop(
     crossover_enabled = bool(evolution_cfg.get("crossover_enabled", True))
     parent_selection_strategy = str(evolution_cfg.get("parent_selection_strategy", "best"))
     top_percent_threshold = float(evolution_cfg.get("top_percent_threshold", 0.3))
+    parquet_library_dir = evolution_cfg.get("parquet_library_dir")
+    historical_active_parent_count = int(evolution_cfg.get("historical_active_parent_count", 0) or 0)
+    historical_parent_min_rank_ic = float(evolution_cfg.get("historical_parent_min_rank_ic", 0.0) or 0.0)
+    historical_parent_statuses = evolution_cfg.get("historical_parent_statuses") or ["active"]
     # 优先使用显式参数,fallback 到 logger 状态(向后兼容)
     if log_root is None:
         log_root = str(logger.storage.path)
@@ -576,6 +580,10 @@ def run_evolution_loop(
         mutation_prompt_path=str(mutation_prompt_path) if mutation_prompt_path.exists() else None,
         crossover_prompt_path=str(mutation_prompt_path) if mutation_prompt_path.exists() else None,
         fresh_start=fresh_start,
+        parquet_library_dir=str(parquet_library_dir) if parquet_library_dir else None,
+        historical_active_parent_count=historical_active_parent_count,
+        historical_parent_min_rank_ic=historical_parent_min_rank_ic,
+        historical_parent_statuses=list(historical_parent_statuses),
     )
 
     controller = EvolutionController(config)

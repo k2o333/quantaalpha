@@ -4,6 +4,92 @@ from .proposal_generation import *
 from .proposal_generation import _bound_feedback_accumulation
 
 
+def _split_top_level_args(args_text: str) -> list[str]:
+    args: list[str] = []
+    depth = 0
+    start = 0
+    for idx, char in enumerate(args_text):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            args.append(args_text[start:idx].strip())
+            start = idx + 1
+    args.append(args_text[start:].strip())
+    return args
+
+
+def _iter_function_args(expression: str, function_name: str) -> list[list[str]]:
+    """Return top-level argument lists for calls to a DSL function."""
+    calls: list[list[str]] = []
+    token = f"{function_name}("
+    cursor = 0
+    upper_expression = expression.upper()
+    while True:
+        start = upper_expression.find(token, cursor)
+        if start < 0:
+            return calls
+        args_start = start + len(token)
+        depth = 1
+        idx = args_start
+        while idx < len(expression) and depth:
+            if expression[idx] == "(":
+                depth += 1
+            elif expression[idx] == ")":
+                depth -= 1
+            idx += 1
+        if depth == 0:
+            calls.append(_split_top_level_args(expression[args_start : idx - 1]))
+            cursor = idx
+        else:
+            return calls
+
+
+def _parse_float_literal(value: str) -> float | None:
+    try:
+        return float(value.strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _detect_percentile_argument_issue(expression: str) -> str:
+    for args in _iter_function_args(expression, "PERCENTILE"):
+        if len(args) != 3:
+            continue
+        second = _parse_float_literal(args[1])
+        third = _parse_float_literal(args[2])
+        if second is None or third is None:
+            continue
+        if second > 1 and 0 <= third <= 1:
+            return (
+                "PERCENTILE argument order appears swapped: "
+                f"`PERCENTILE(x, {args[1]}, {args[2]})` uses second argument as q, "
+                "but q must be in [0, 1] and the third argument is the window. "
+                f"Use `PERCENTILE(x, {args[2]}, {int(second)})` if the intent was rolling quantile."
+            )
+    return ""
+
+
+def _normalize_expression_text(value: str) -> str:
+    return "".join(str(value or "").upper().split())
+
+
+def _detect_formulation_expression_issue(formulation: str, expression: str) -> str:
+    formulation_norm = _normalize_expression_text(formulation)
+    expression_norm = _normalize_expression_text(expression)
+    if "10*TS_STD($RETURN,20)" not in formulation_norm:
+        return ""
+    if "TS_STD($RETURN,20)" not in expression_norm:
+        return ""
+    if "10*TS_STD($RETURN,20)" in expression_norm:
+        return ""
+    return (
+        "missing_denominator_multiplier: formulation contains `10 * TS_STD($return, 20)` "
+        "but expression divides by `TS_STD($return, 20)` without the multiplier."
+    )
+
+
 class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
     def __init__(
         self,
@@ -316,6 +402,14 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         expr = factor_data.get("expression", "")
         if not expr:
             return False, "missing_expression", "factor payload has no expression", ""
+
+        percentile_feedback = _detect_percentile_argument_issue(str(expr))
+        if percentile_feedback:
+            return False, "percentile_argument_order", percentile_feedback, expr
+
+        formulation_feedback = _detect_formulation_expression_issue(str(factor_data.get("formulation", "")), str(expr))
+        if formulation_feedback:
+            return False, "missing_denominator_multiplier", formulation_feedback, expr
 
         parsable, parse_error = self.factor_regulator.parse_diagnostic(expr)
         if not parsable:

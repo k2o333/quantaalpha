@@ -111,10 +111,10 @@ quantaalpha mine --help
 ### 因子重验
 
 ```bash
-# parquet 因子池重验走 continuous backend，FactorStoreFacade 读取 parquet_store
+# parquet 因子池重验走 continuous backend，FactorStoreFacade 读取 parquet_store。
+# 标准运行不跳过数据更新；只有 smoke/perf 诊断才显式加 --skip-update。
 /root/miniforge3/envs/mining/bin/python -m quantaalpha.continuous.main once \
-  --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml \
-  --skip-update
+  --config /home/quan/testdata/aspipe_v4/config/pipeline.yaml
 ```
 
 ### 独立回测
@@ -481,8 +481,10 @@ QuantaAlpha 有两种主要运行方式：**单次挖掘模式** 和 **连续运
 
 - **跳过**: 真实 app5 fetch/update
 - **保留**: app5 manifest/schema/freshness evidence 检查、factor_ops hook、数据监控、因子重验、因子挖掘
-- **用途**: 冒烟测试、性能测试、数据已是最新的场景
+- **用途**: 冒烟测试、性能测试、数据已是最新且操作者显式接受不刷新数据的诊断场景
 - **边界**: app4 bridge 只属于旧 continuous 链路迁移期，不是 factor_ops 新入口的数据事实源
+- **生产要求**: supervisor/systemd/长期调度入口默认不应携带 `--skip-update`。如果日志里出现 `skip_update=True`，先追踪启动命令或调度配置，不要把它误判为 `pipeline.yaml` 字段。
+- **价格数据验收**: app4 bridge `No price data found` 只代表旧 bridge 路径为空；backtest 价格可由配置的 app5 clean/standard-frame 路径提供。排查 IC 不可用时必须分别记录 bridge rows 和 app5 clean rows。
 
 ### 连续运行模块架构
 

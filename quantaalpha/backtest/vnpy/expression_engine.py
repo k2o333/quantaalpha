@@ -22,6 +22,7 @@ ALLOWED_FUNCTIONS = {
     "ts_mean",
     "ts_rank",
     "ts_sum",
+    "ts_count",
     "ts_std",
     "ts_var",
     "ts_min",
