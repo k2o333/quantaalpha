@@ -414,7 +414,7 @@ def _convert_ternary_groups(expression: str) -> str:
     while True:
         pairs = _parenthesis_pairs(expr)
         replacement: tuple[int, int, str] | None = None
-        for start, end in reversed(pairs):
+        for start, end in pairs:
             inner = expr[start + 1 : end]
             question = _find_top_level_char(inner, "?")
             if question < 0:

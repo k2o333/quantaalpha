@@ -400,7 +400,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         if self._per_factor_timeout_seconds <= 0:
             return None
         expensive_counts = {
-            operator: translated_expression.count(f"{operator}(")
+            operator: len(re.findall(rf"\b{operator}\(", translated_expression))
             for operator in ("ts_regresi", "ts_regbeta", "ts_slope", "ts_resi")
         }
         repeated = {operator: count for operator, count in expensive_counts.items() if count > 1}

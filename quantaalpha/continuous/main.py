@@ -225,6 +225,17 @@ def _load_config_and_paths(config_path: str):
         if "root" in perf:
             perf["root"] = str(resolve_path(perf["root"], resolved["project_root"]))
 
+    app5_freshness_cfg = config_for_pipeline.get("mining", {}).get("app5_freshness")
+    if isinstance(app5_freshness_cfg, dict):
+        if "profile_path" in app5_freshness_cfg:
+            app5_freshness_cfg["profile_path"] = str(
+                resolve_path(app5_freshness_cfg["profile_path"], resolved["project_root"])
+            )
+        if "data_root" in app5_freshness_cfg:
+            app5_freshness_cfg["data_root"] = str(
+                resolve_path(app5_freshness_cfg["data_root"], resolved["project_root"])
+            )
+
     runtime_cfg = config_for_pipeline.get("runtime", {})
     retention_cfg = runtime_cfg.get("workspace_retention")
     if retention_cfg:
