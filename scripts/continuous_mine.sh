@@ -17,6 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ASPIPE_ROOT="$(cd "${PROJECT_ROOT}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 # Load .env
@@ -39,6 +40,7 @@ MAX_ITERATIONS="${MAX_ITERATIONS:-}"
 LOG_DIR="${SCRIPT_DIR}/log"
 LOG_FILE="${LOG_DIR}/continuous_mine_$(date +%Y%m%d).log"
 PYTHON_BIN="${PYTHON_BIN:-python}"
+UNIFIED4_SIGNAL_DIR="${UNIFIED4_SIGNAL_DIR:-${ASPIPE_ROOT}/data/.signals}"
 
 mkdir -p "${LOG_DIR}"
 
@@ -107,6 +109,14 @@ print("SUMMARY total_factors={total} active={active} degraded={degraded} stale={
 ))
 print("SUMMARY status_distribution={}".format(summary.get("status_distribution", {})))
 PY
+
+    "${PYTHON_BIN}" "${ASPIPE_ROOT}/scripts/unified4_signal.py" \
+        --signal-dir "${UNIFIED4_SIGNAL_DIR}" \
+        write \
+        --name mining_done \
+        --date "$(date +%Y%m%d)" \
+        --run-id "${EXPERIMENT_ID}" \
+        --payload-json "{\"library_path\":\"${LIBRARY_PATH}\",\"iteration\":${ITER}}"
 
     if [ -n "${MAX_ITERATIONS}" ] && [ ${ITER} -ge "${MAX_ITERATIONS}" ]; then
         log "Max iterations (${MAX_ITERATIONS}) reached, stopping"

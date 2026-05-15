@@ -150,12 +150,58 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             raise ValueError(f"Expected dict from LLM response, got {type(response_dict).__name__}")
         return self._build_experiment_from_dict(response_dict, trace)
 
-    def _unwrap_construct_response(self, response_dict: dict[str, object]) -> dict[str, dict]:
-        """Normalize construct responses to a factor-name keyed mapping."""
-        factors_dict = response_dict.get("factors", response_dict)
-        if not isinstance(factors_dict, dict):
-            return {}
-        return {str(name): payload for name, payload in factors_dict.items() if isinstance(payload, dict)}
+    def _unwrap_construct_response(self, response_dict: dict[str, object] | list[object]) -> dict[str, dict]:
+        """Normalize construct responses to a robust factor-name keyed mapping.
+
+        Gracefully supports standard dynamic object maps, list array structures,
+        and common wrapping variations produced by structured outputs.
+        """
+        factors_payload = response_dict.get("factors", response_dict) if isinstance(response_dict, dict) else response_dict
+
+        def _has_expression(payload: dict) -> bool:
+            expression = payload.get("expression")
+            return isinstance(expression, str) and bool(expression.strip())
+
+        if isinstance(factors_payload, dict):
+            return {
+                str(name): payload
+                for name, payload in factors_payload.items()
+                if isinstance(payload, dict) and _has_expression(payload)
+            }
+
+        if isinstance(factors_payload, list):
+            extracted = {}
+            for idx, item in enumerate(factors_payload):
+                if not isinstance(item, dict) or not _has_expression(item):
+                    continue
+                factor_name = item.get("factor_name") or item.get("name") or item.get("id") or f"generated_factor_{idx + 1}"
+                extracted[str(factor_name)] = item
+            return extracted
+
+        return {}
+
+    def _find_missing_expression_candidate(self, response_dict: dict[str, object] | list[object]) -> tuple[str | None, str] | None:
+        """Return the first factor-like payload that is missing an expression."""
+        factors_payload = response_dict.get("factors", response_dict) if isinstance(response_dict, dict) else response_dict
+
+        def _is_factor_like(payload: dict) -> bool:
+            factor_keys = {"factor_name", "name", "id", "description", "formulation", "variables"}
+            return bool(factor_keys.intersection(payload))
+
+        def _has_expression(payload: dict) -> bool:
+            expression = payload.get("expression")
+            return isinstance(expression, str) and bool(expression.strip())
+
+        if isinstance(factors_payload, dict):
+            for name, payload in factors_payload.items():
+                if isinstance(payload, dict) and _is_factor_like(payload) and not _has_expression(payload):
+                    return str(name), "factor payload has no expression"
+        elif isinstance(factors_payload, list):
+            for idx, payload in enumerate(factors_payload):
+                if isinstance(payload, dict) and _is_factor_like(payload) and not _has_expression(payload):
+                    factor_name = payload.get("factor_name") or payload.get("name") or payload.get("id") or f"generated_factor_{idx + 1}"
+                    return str(factor_name), "factor payload has no expression"
+        return None
 
     def _new_factor_experiment(self, tasks: list[FactorTask] | None = None) -> QlibFactorExperiment:
         tasks = tasks or []
@@ -368,13 +414,22 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                     # Validate that factors_dict is not empty before building experiment
                     factors_dict = self._unwrap_construct_response(response_dict)
                     if not factors_dict:
-                        last_failure_category = "empty_factors"
-                        last_failure_factor = None
-                        last_failure_detail = "response contained no factor payloads"
+                        missing_expression = self._find_missing_expression_candidate(response_dict)
+                        if missing_expression:
+                            last_failure_factor, last_failure_detail = missing_expression
+                            last_failure_category = "missing_expression"
+                        else:
+                            last_failure_category = "empty_factors"
+                            last_failure_factor = None
+                            last_failure_detail = "response contained no factor payloads"
                         last_failure_expression = None
                         construct_feedback = _bound_feedback_accumulation(
                             construct_feedback,
-                            self._format_multi_construct_feedback(last_failure_category, detail=last_failure_detail),
+                            self._format_multi_construct_feedback(
+                                last_failure_category,
+                                detail=last_failure_detail,
+                                factor_name=last_failure_factor,
+                            ),
                         )
                         logger.warning(f"[multi-hypothesis attempt {attempt + 1}/{max_multi_retries}] Multi-hypothesis response yielded empty factors_dict, retrying...")
                         continue

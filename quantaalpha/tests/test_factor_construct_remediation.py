@@ -698,3 +698,84 @@ class TestFeedbackAccumulationReduction:
         assert "item_4" not in accumulated
         assert "item_5" not in accumulated
         assert "item_6" not in accumulated
+
+
+class TestConstructResponseUnwrap:
+    """Construct response normalization must accept common structured output variants."""
+
+    def _make_h2e(self):
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        return object.__new__(AlphaAgentHypothesis2FactorExpression)
+
+    def test_unwrap_accepts_factors_list_payload(self):
+        """{"factors": [...]} payloads must be converted to a factor-name map."""
+        h2e = self._make_h2e()
+
+        result = h2e._unwrap_construct_response(
+            {
+                "factors": [
+                    {
+                        "factor_name": "factor_list",
+                        "expression": "MEAN($volume)",
+                        "description": "list payload",
+                        "formulation": "list payload",
+                    }
+                ]
+            }
+        )
+
+        assert list(result) == ["factor_list"]
+        assert result["factor_list"]["expression"] == "MEAN($volume)"
+
+    def test_unwrap_accepts_top_level_list_payload(self):
+        """Top-level list payloads must not raise and must be normalized."""
+        h2e = self._make_h2e()
+
+        result = h2e._unwrap_construct_response(
+            [
+                {
+                    "name": "factor_top_level",
+                    "expression": "RANK($close)",
+                    "description": "top-level payload",
+                    "formulation": "top-level payload",
+                }
+            ]
+        )
+
+        assert list(result) == ["factor_top_level"]
+        assert result["factor_top_level"]["expression"] == "RANK($close)"
+
+    def test_unwrap_rejects_items_without_expression(self):
+        """List items without a non-empty expression are metadata, not factors."""
+        h2e = self._make_h2e()
+
+        result = h2e._unwrap_construct_response(
+            {
+                "factors": [
+                    {"factor_name": "missing_expression", "description": "not a factor"},
+                    {"factor_name": "empty_expression", "expression": "   "},
+                ]
+            }
+        )
+
+        assert result == {}
+
+    def test_unwrap_filters_metadata_from_factor_map(self):
+        """Dynamic maps may contain metadata wrappers; only expression payloads are factors."""
+        h2e = self._make_h2e()
+
+        result = h2e._unwrap_construct_response(
+            {
+                "factors": {
+                    "metadata": {"note": "not a factor"},
+                    "factor_valid": {
+                        "expression": "TS_MEAN($close, 20)",
+                        "description": "valid",
+                        "formulation": "valid",
+                    },
+                }
+            }
+        )
+
+        assert list(result) == ["factor_valid"]
