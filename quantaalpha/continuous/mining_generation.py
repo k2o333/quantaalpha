@@ -271,19 +271,27 @@ class MiningGenerationMixin:
 
             client = APIBackend()
 
-            # Build generation prompt
             prompt = self._build_generation_prompt(context)
+            retry_feedback = ""
 
-            response = client.build_messages_and_create_chat_completion(
-                user_prompt=prompt,
-                system_prompt="You are a quantitative factor researcher. Generate novel alpha factors.",
-                stream=False,
-                llm_call_site="continuous.mining_generation.generate_via_llm",
-            )
+            for attempt in range(1, 4):
+                user_prompt = prompt
+                if retry_feedback:
+                    user_prompt = f"{prompt}\n\n{retry_feedback}"
 
-            if response:
-                # Parse LLM response into factor dicts
-                return self._parse_llm_response(response)
+                response = client.build_messages_and_create_chat_completion(
+                    user_prompt=user_prompt,
+                    system_prompt="You are a quantitative factor researcher. Generate novel alpha factors.",
+                    stream=False,
+                    llm_call_site="continuous.mining_generation.generate_via_llm",
+                )
+
+                if response:
+                    factors = self._parse_llm_response(response)
+                    if factors:
+                        return factors
+                    logger.info(f"LLM generation attempt {attempt}/3 produced no valid factors")
+                    retry_feedback = self._build_generation_retry_feedback(response, attempt)
             return []
 
         except ImportError:
@@ -304,13 +312,28 @@ class MiningGenerationMixin:
             "",
             "Generate 3-5 new factors following these rules:",
             "1. Use $field syntax for data fields (e.g., $close, $volume, $open)",
-            "2. Use operators: +, -, *, /, ts_, cs_, rank, delta, log",
-            "3. Factors should be novel, not direct copies",
-            "4. Return as JSON array of objects with keys: factor_name, factor_expression, tags",
+            "2. Use operators only with these signatures:",
+            "   - ts_mean(A, N), ts_std(A, N), ts_var(A, N), ts_sum(A, N), ts_delta(A, N), ts_delay(A, N)",
+            "   - ts_corr(A, B, N), ts_cov(A, B, N), ts_regresi(A, B, N), ts_regbeta(A, B, N), ts_slope(A, B, N)",
+            "   - ts_resi(A, N), cs_mean(A), cs_std(A), cs_rank(A), cs_skew(A), cs_kurt(A), cs_median(A), cs_sum(A), cs_scale(A)",
+            "   - rank(A), delta(A, N), log(A)",
+            "3. Do not call cs_mean(A, B, C) or any cs_ operator with more than one argument",
+            "4. Factors should be novel, not direct copies",
+            "5. Return as JSON array of objects with keys: factor_name, factor_expression, tags",
             "",
             'Example: {"factor_name": "volume_strength", "factor_expression": "$volume/ts_mean($volume,20)", "tags": {"data_dependency": ["price_volume"]}}',
         ]
         return "\n".join(prompt_parts)
+
+    def _build_generation_retry_feedback(self, response: str, attempt: int) -> str:
+        """Build bounded feedback for a failed continuous LLM generation attempt."""
+        excerpt = str(response or "").replace("\n", " ")[:500]
+        return (
+            f"Previous LLM response produced no valid factors on attempt {attempt}/3. "
+            "Return only a JSON array with valid factor_expression values. "
+            "Check operator argument counts exactly; cs_ operators take one argument. "
+            f"Previous response excerpt: {excerpt}"
+        )
 
     def _parse_llm_response(self, response: str) -> list[dict]:
         """Parse LLM response into factor dicts."""

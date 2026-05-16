@@ -427,6 +427,14 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             "ts_var": 2,
             "ts_sum": 2,
             "ts_quantile": 3,
+            "cs_mean": 1,
+            "cs_std": 1,
+            "cs_rank": 1,
+            "cs_skew": 1,
+            "cs_kurt": 1,
+            "cs_median": 1,
+            "cs_sum": 1,
+            "cs_scale": 1,
         }
         for operator, expected in required_args.items():
             for args in self._iter_call_args(translated_expression, operator):

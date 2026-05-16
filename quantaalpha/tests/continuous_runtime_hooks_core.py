@@ -1030,3 +1030,63 @@ class TestGeneratedFactorCandidateContract:
         mock_backend.build_messages_and_create_chat_completion.assert_called_once()
         assert len(generated) == 1
         assert generated[0]["factor_name"] == "LLM Factor"
+
+    def test_generation_prompt_includes_operator_arity_signatures(self):
+        """Path 2 prompt must tell the LLM exact operator arity before generation."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+
+        prompt = scheduler._build_generation_prompt("context")
+
+        assert "cs_mean(A)" in prompt
+        assert "ts_corr(A, B, N)" in prompt
+        assert "Do not call cs_mean(A, B, C)" in prompt
+
+    def test_generate_via_llm_retries_when_response_has_no_valid_factors(self, tmp_path):
+        """Path 2 should retry with feedback when parsing returns no usable factors."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        invalid_response = json.dumps(
+            [
+                {
+                    "factor_name": "Broken",
+                    "factor_expression": "invalid @@@ broken",
+                    "tags": {"data_dependency": ["price_volume"]},
+                }
+            ]
+        )
+        valid_response = json.dumps(
+            [
+                {
+                    "factor_name": "Fixed",
+                    "factor_expression": "$close / ts_mean($close, 5)",
+                    "tags": {"data_dependency": ["price_volume"]},
+                }
+            ]
+        )
+
+        def fake_is_parsable(expr):
+            return "invalid @@@" not in expr
+
+        scheduler._is_parsable = fake_is_parsable
+
+        with patch("quantaalpha.llm.client.APIBackend") as mock_backend_class:
+            mock_backend = MagicMock()
+            mock_backend.build_messages_and_create_chat_completion.side_effect = [
+                invalid_response,
+                valid_response,
+            ]
+            mock_backend_class.return_value = mock_backend
+
+            generated = scheduler._generate_via_llm("context")
+
+        assert mock_backend.build_messages_and_create_chat_completion.call_count == 2
+        second_prompt = mock_backend.build_messages_and_create_chat_completion.call_args_list[1].kwargs["user_prompt"]
+        assert "Previous LLM response produced no valid factors" in second_prompt
+        assert len(generated) == 1
+        assert generated[0]["factor_name"] == "Fixed"

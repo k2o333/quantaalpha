@@ -807,6 +807,28 @@ class TestPerFactorTimeoutEnforcement:
 
         assert warning == "ts_corr expects 3 arguments, got 2"
 
+    def test_default_backtest_flags_cs_mean_multi_argument_call(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        warning = scheduler._operator_arity_warning(
+            "cs_mean(ts_corr(close, volume, 5), ts_corr(close, volume, 10), ts_corr(close, volume, 20))"
+        )
+
+        assert warning == "cs_mean expects 1 arguments, got 3"
+
+    def test_default_backtest_accepts_single_argument_cs_call(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        assert scheduler._operator_arity_warning("cs_mean(ts_corr(close, volume, 20))") is None
+
     def test_default_backtest_accepts_nested_valid_arity(self, tmp_path):
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
 
