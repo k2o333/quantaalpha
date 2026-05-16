@@ -19,7 +19,7 @@ from quantaalpha.utils import convert2bool
 
 # Max retries for JSON parsing (now handled by call_structured degradation, kept for safety)
 MAX_JSON_PARSE_RETRIES = 3
-FEEDBACK_REQUEST_TIMEOUT_SECONDS = 60
+FEEDBACK_REQUEST_TIMEOUT_SECONDS = 120
 FEEDBACK_MAX_RETRY = 2
 
 base_feedback_prompts = Prompts(file_path=Path(__file__).parent / "prompts" / "prompts.yaml")

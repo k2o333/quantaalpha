@@ -184,6 +184,50 @@ class TestModelDegradationContract:
         assert state.get("tool_call_failure_count", 0) == 1, "First failure should be counted but not yet trigger degradation"
         assert state.get("force_text_json_fallback", False) is False, "Model must NOT be flagged as degraded after 1 failure"
 
+    def test_successful_structured_call_resets_prior_capability_failure_count(self):
+        """The degradation counter is consecutive: a later success clears prior strikes."""
+        from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE
+
+        _MODEL_DEGRADATION_STATE.clear()
+        backend = self._make_backend()
+
+        with patch("quantaalpha.llm.client.LLM_SETTINGS") as mock_settings:
+            mock_settings.log_llm_chat_content = False
+            mock_settings.use_tool_calling = True
+            backend._try_create_chat_completion_or_embedding = MagicMock(side_effect=Exception("tools parameter is not supported"))
+            with pytest.raises(Exception, match="tools parameter is not supported"):
+                call_structured(
+                    backend,
+                    [{"role": "user", "content": "first failure"}],
+                    tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                    tool_choice="required",
+                )
+
+            backend._try_create_chat_completion_or_embedding = MagicMock(
+                return_value={
+                    "content": None,
+                    "finish_reason": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "test_tool", "arguments": '{"ok": true}'},
+                        }
+                    ],
+                }
+            )
+            result = call_structured(
+                backend,
+                [{"role": "user", "content": "success"}],
+                tools=[{"type": "function", "function": {"name": "test_tool"}}],
+                tool_choice="required",
+            )
+
+        assert result == {"ok": True}
+        state = _MODEL_DEGRADATION_STATE.get(backend.chat_model, {})
+        assert state.get("tool_call_failure_count", 0) == 0
+        assert state.get("force_text_json_fallback", False) is False
+
     def test_third_tool_call_capability_failure_triggers_degradation(self):
         """Third consecutive tool-call capability failure MUST mark the model as degraded."""
         from quantaalpha.llm.client import call_structured, _MODEL_DEGRADATION_STATE

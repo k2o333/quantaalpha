@@ -691,6 +691,9 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
 
     mining_config = getattr(pipeline_config, "mining", None)
     if mining_config is not None:
+        app5_freshness = getattr(mining_config, "app5_freshness", None)
+        if isinstance(app5_freshness, dict):
+            app5_freshness["enabled"] = False
         evolution_config = getattr(mining_config, "evolution", None)
         if evolution_config is not None and hasattr(evolution_config, "max_rounds"):
             evolution_config.max_rounds = min(int(evolution_config.max_rounds), 1)

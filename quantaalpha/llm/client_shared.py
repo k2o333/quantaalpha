@@ -118,6 +118,17 @@ def _record_tool_call_capability_failure(model: str) -> None:
             logger.warning(f"[call_structured] FAILURE_COUNT: model={model} tool-call capability failure count={state['tool_call_failure_count']}/3.")
 
 
+def _record_tool_call_success(model: str) -> None:
+    """Clear non-degraded tool-call failure count after a successful structured call."""
+    with _DEGRADATION_LOCK:
+        state = _MODEL_DEGRADATION_STATE.get(model)
+        if not state or state["force_text_json_fallback"]:
+            return
+        if state["tool_call_failure_count"]:
+            logger.info(f"[call_structured] FAILURE_COUNT_RESET: model={model} structured call succeeded after {state['tool_call_failure_count']} prior tool-call capability failure(s).")
+        state["tool_call_failure_count"] = 0
+
+
 def _get_model_degradation_state(model: str) -> dict[str, Any]:
     """Return the current degradation state for *model*."""
     return _MODEL_DEGRADATION_STATE.get(model, {"tool_call_failure_count": 0, "force_text_json_fallback": False})
@@ -220,7 +231,7 @@ def log_tokenizer_fallback_once(model: str | None, reason: str) -> None:
     if normalized in _TOKENIZER_FALLBACK_WARNED_MODELS:
         return
     _TOKENIZER_FALLBACK_WARNED_MODELS.add(normalized)
-    logger.warning(f"Tokenizer lookup failed for model {model}; falling back to {DEFAULT_FALLBACK_TOKENIZER}. reason={reason}")
+    logger.info(f"Tokenizer fallback selected for model {model}: {DEFAULT_FALLBACK_TOKENIZER}. reason={reason}")
 
 
 def _extract_balanced_json_object(text: str) -> str | None:
@@ -519,6 +530,8 @@ def call_structured(
                 _record_tool_call_capability_failure(model_name)
 
         parsed = parse_chat_completion_json_response(raw, allow_text_fallback=allow_text_fallback)
+        if tools is not None and LLM_SETTINGS.use_tool_calling and effective_tools is not None:
+            _record_tool_call_success(model_name)
         return _ensure_structured_object_payload(parsed)
 
     try:

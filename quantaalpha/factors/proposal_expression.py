@@ -90,6 +90,86 @@ def _detect_formulation_expression_issue(formulation: str, expression: str) -> s
     )
 
 
+def _strip_balanced_outer_parentheses(expression: str) -> str:
+    text = expression.strip()
+    while text.startswith("(") and text.endswith(")"):
+        depth = 0
+        balanced_to_end = True
+        for idx, char in enumerate(text):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0 and idx != len(text) - 1:
+                    balanced_to_end = False
+                    break
+        if not balanced_to_end or depth != 0:
+            break
+        text = text[1:-1].strip()
+    return text
+
+
+def _split_top_level_binary(expression: str, operator: str) -> tuple[str, str] | None:
+    depth = 0
+    for idx in range(len(expression) - 1, -1, -1):
+        char = expression[idx]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            depth -= 1
+        elif char == operator and depth == 0:
+            left = expression[:idx].strip()
+            right = expression[idx + 1 :].strip()
+            if left and right:
+                return left, right
+    return None
+
+
+def _extract_single_function_arg(expression: str, function_name: str) -> str | None:
+    text = _strip_balanced_outer_parentheses(expression)
+    prefix = f"{function_name}("
+    if not text.startswith(prefix) or not text.endswith(")"):
+        return None
+    args_text = text[len(prefix) : -1]
+    depth = 0
+    for char in args_text:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "," and depth == 0:
+            return None
+    return args_text.strip()
+
+
+def _canonical_construct_expression(expression: str) -> str:
+    """Canonicalize common equivalent expression spellings for constructor dedupe."""
+    text = normalize_expression_syntax(str(expression or "")).upper()
+    text = "".join(text.split())
+    text = _strip_balanced_outer_parentheses(text)
+
+    multiplication = _split_top_level_binary(text, "*")
+    if multiplication:
+        left, right = multiplication
+        left_inv_arg = _extract_single_function_arg(left, "INV")
+        right_inv_arg = _extract_single_function_arg(right, "INV")
+        if right_inv_arg:
+            return f"{_canonical_construct_expression(left)}/{_canonical_construct_expression(right_inv_arg)}"
+        if left_inv_arg:
+            return f"{_canonical_construct_expression(right)}/{_canonical_construct_expression(left_inv_arg)}"
+
+    division = _split_top_level_binary(text, "/")
+    if division:
+        left, right = division
+        return f"{_canonical_construct_expression(left)}/{_canonical_construct_expression(right)}"
+
+    inv_arg = _extract_single_function_arg(text, "INV")
+    if inv_arg:
+        return f"1/{_canonical_construct_expression(inv_arg)}"
+
+    return text
+
+
 class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
     def __init__(
         self,
@@ -242,15 +322,43 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         Gracefully supports standard dynamic object maps, list array structures,
         and common wrapping variations produced by structured outputs.
         """
-        factors_payload = response_dict.get("factors", response_dict) if isinstance(response_dict, dict) else response_dict
+        if isinstance(response_dict, dict):
+            factors_payload = response_dict
+            for wrapper_key in ("factors", "factor", "factor_list", "factor_expressions", "factor_definitions", "items", "results"):
+                wrapped = response_dict.get(wrapper_key)
+                if isinstance(wrapped, (dict, list)):
+                    factors_payload = wrapped
+                    break
+        else:
+            factors_payload = response_dict
+
+        def _normalize_factor_payload(payload: dict) -> dict:
+            normalized = dict(payload)
+            if not isinstance(normalized.get("expression"), str) or not normalized.get("expression", "").strip():
+                for alias in ("factor_expression", "factor_implementation", "implementation", "formula"):
+                    alias_value = normalized.get(alias)
+                    if isinstance(alias_value, str) and alias_value.strip():
+                        normalized["expression"] = alias_value
+                        break
+            return normalized
 
         def _has_expression(payload: dict) -> bool:
-            expression = payload.get("expression")
+            expression = _normalize_factor_payload(payload).get("expression")
             return isinstance(expression, str) and bool(expression.strip())
 
         if isinstance(factors_payload, dict):
+            if _has_expression(factors_payload):
+                factors_payload = _normalize_factor_payload(factors_payload)
+                factor_name = (
+                    factors_payload.get("factor_name")
+                    or factors_payload.get("name")
+                    or factors_payload.get("id")
+                    or "generated_factor_1"
+                )
+                return {str(factor_name): factors_payload}
+
             return {
-                str(name): payload
+                str(name): _normalize_factor_payload(payload)
                 for name, payload in factors_payload.items()
                 if isinstance(payload, dict) and _has_expression(payload)
             }
@@ -260,6 +368,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             for idx, item in enumerate(factors_payload):
                 if not isinstance(item, dict) or not _has_expression(item):
                     continue
+                item = _normalize_factor_payload(item)
                 factor_name = item.get("factor_name") or item.get("name") or item.get("id") or f"generated_factor_{idx + 1}"
                 extracted[str(factor_name)] = item
             return extracted
@@ -268,7 +377,15 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
 
     def _find_missing_expression_candidate(self, response_dict: dict[str, object] | list[object]) -> tuple[str | None, str] | None:
         """Return the first factor-like payload that is missing an expression."""
-        factors_payload = response_dict.get("factors", response_dict) if isinstance(response_dict, dict) else response_dict
+        if isinstance(response_dict, dict):
+            factors_payload = response_dict
+            for wrapper_key in ("factors", "factor", "factor_list", "factor_expressions", "factor_definitions", "items", "results"):
+                wrapped = response_dict.get(wrapper_key)
+                if isinstance(wrapped, (dict, list)):
+                    factors_payload = wrapped
+                    break
+        else:
+            factors_payload = response_dict
 
         def _is_factor_like(payload: dict) -> bool:
             factor_keys = {"factor_name", "name", "id", "description", "formulation", "variables"}
@@ -279,6 +396,9 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             return isinstance(expression, str) and bool(expression.strip())
 
         if isinstance(factors_payload, dict):
+            if _is_factor_like(factors_payload) and not _has_expression(factors_payload):
+                factor_name = factors_payload.get("factor_name") or factors_payload.get("name") or factors_payload.get("id")
+                return str(factor_name) if factor_name else None, "factor payload has no expression"
             for name, payload in factors_payload.items():
                 if isinstance(payload, dict) and _is_factor_like(payload) and not _has_expression(payload):
                     return str(name), "factor payload has no expression"
@@ -326,7 +446,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             except Exception as e:
                 if is_input_length_error(str(e)) and history_limit > MIN_HISTORY_LIMIT:
                     history_limit -= 1
-                    logger.warning(f"Input length exceeded, retrying with history_limit={history_limit}...")
+                    logger.info(f"Reducing factor construction history_limit to {history_limit} after retryable response.")
                 else:
                     raise
 
@@ -680,7 +800,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
             # Check for empty response before JSON parsing
             if not response_dict:
                 last_failure_reason = "empty response"
-                logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}, retrying...")
+                logger.info(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] construct response was empty; retrying with feedback.")
                 # Inject feedback to guide the LLM away from empty responses
                 empty_feedback = "Empty Response Warning:\n- Previous call returned an empty response.\n- Please generate at least one valid factor expression.\n- Keep expressions simple, target 50-150 characters.\n- Use only single-argument cross-sectional functions like MEAN(A).\n"
                 if expression_duplication_prompt is not None:
@@ -732,7 +852,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         "- Do not return the same expression again.\n"
                     )
                     last_failure_reason = f"unparsable expression for {factor_name}: {expr[:500]}"
-                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}; parse_error={parse_error}")
+                    logger.info(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] construct candidate was unparsable for {factor_name}; parse_error={parse_error}")
                     if proposed_names:
                         best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
                         best_partial_names = list(proposed_names)
@@ -759,7 +879,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 capability_valid, capability_feedback = self._validate_expression_capabilities(expr, trace)
                 if not capability_valid:
                     last_failure_reason = f"capability validation failure for {factor_name}: {capability_feedback[:240]}"
-                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                    logger.info(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] construct candidate did not pass capability validation for {factor_name}.")
                     if proposed_names:
                         best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
                         best_partial_names = list(proposed_names)
@@ -786,7 +906,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 success, eval_dict = self.factor_regulator.evaluate(expr)
                 if not success:
                     last_failure_reason = f"factor evaluation failure for {factor_name}: {expr[:500]}"
-                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                    logger.info(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] construct candidate did not pass regulator evaluation for {factor_name}.")
                     if proposed_names:
                         best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
                         best_partial_names = list(proposed_names)
@@ -892,7 +1012,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         f"num_all_nodes={num_all_nodes}, "
                         f"num_base_features={num_base_features}"
                     )
-                    logger.warning(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] {last_failure_reason}")
+                    logger.info(f"[retry attempt {attempt + 1}/{MAX_RETRIES}] construct candidate did not pass acceptability gate for {factor_name}: symbol_length={symbol_length}, num_base_features={num_base_features}")
                     if proposed_names:
                         best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
                         best_partial_names = list(proposed_names)
@@ -926,9 +1046,9 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         else:
             # Loop completed without break (all retries exhausted)
             if best_partial_response_dict and best_partial_names:
-                logger.warning(
-                    f"Factor proposal exhausted retries but salvaged {len(best_partial_names)} valid factor(s); "
-                    f"dropping invalid tail. last failure reason: {last_failure_reason or 'unknown failure'}"
+                logger.info(
+                    f"Factor proposal used {len(best_partial_names)} valid factor(s) after retry budget; "
+                    f"discarded invalid tail. last retry detail: {last_failure_reason or 'unknown'}"
                 )
                 final_response_dict = best_partial_response_dict
                 proposed_names = best_partial_names
@@ -986,21 +1106,29 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         exp = self._new_factor_experiment(tasks)
         exp.based_experiments = [self._new_factor_experiment([])] + [t[1] for t in trace.hist if t[2]]
 
-        unique_tasks = []
+        seen_names: set[str] = set()
+        seen_expressions: set[str] = set()
+        for based_exp in exp.based_experiments:
+            for sub_task in getattr(based_exp, "sub_tasks", []) or []:
+                seen_names.add(str(getattr(sub_task, "factor_name", "")))
+                seen_expressions.add(_canonical_construct_expression(getattr(sub_task, "factor_expression", "")))
 
+        unique_tasks = []
         for task in tasks:
-            duplicate = False
-            for based_exp in exp.based_experiments:
-                for sub_task in based_exp.sub_tasks:
-                    if task.factor_name == sub_task.factor_name:
-                        duplicate = True
-                        break
-                if duplicate:
-                    break
-            if not duplicate:
-                unique_tasks.append(task)
+            expression_key = _canonical_construct_expression(task.factor_expression)
+            if task.factor_name in seen_names:
+                logger.info(f"Skipping duplicate constructed factor by name: {task.factor_name}")
+                continue
+            if expression_key in seen_expressions:
+                logger.info(f"Skipping duplicate constructed factor by expression: {task.factor_name}")
+                continue
+            seen_names.add(task.factor_name)
+            seen_expressions.add(expression_key)
+            unique_tasks.append(task)
 
         exp.tasks = unique_tasks
+        exp.sub_tasks = unique_tasks
+        exp.sub_workspace_list = [None] * len(unique_tasks)
         return exp
 
 

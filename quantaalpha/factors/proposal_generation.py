@@ -552,7 +552,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
             except Exception as e:
                 if is_input_length_error(str(e)) and history_limit > MIN_HISTORY_LIMIT:
                     history_limit -= 1
-                    logger.warning(f"Input length exceeded, retrying with history_limit={history_limit}...")
+                    logger.info(f"Reducing hypothesis generation history_limit to {history_limit} after retryable response.")
                 else:
                     logger.warning(f"Hypothesis generation failed, falling back to deterministic hypothesis: {e}")
                     return self._build_fallback_hypothesis()

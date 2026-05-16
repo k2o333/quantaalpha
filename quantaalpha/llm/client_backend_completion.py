@@ -106,7 +106,12 @@ class BackendCompletionMixin:
         # TODO: fail to use loguru adaptor due to stream response
         input_content_json = json.dumps(messages)
         input_content_json = chat_cache_prefix + input_content_json + f"<seed={seed}/>"  # FIXME this is a hack to make sure the cache represents the round index
-        if self.use_chat_cache:
+        use_chat_cache_for_request = self.use_chat_cache and tools is None
+        dump_chat_cache_for_request = self.dump_chat_cache and tools is None
+        if self.use_chat_cache and tools is not None:
+            logger.info("[llm] Chat cache bypassed for tool-call request to preserve tool_calls payload.")
+
+        if use_chat_cache_for_request:
             cache_result = self.cache.chat_get(input_content_json)
             if cache_result is not None:
                 if LLM_SETTINGS.log_llm_chat_content:
@@ -248,23 +253,24 @@ class BackendCompletionMixin:
                 resp = response.choices[0].message.content
                 finish_reason = response.choices[0].finish_reason
 
-                # Extract tool_calls if present
+                # Extract tool_calls if present. Some OpenAI-compatible proxies
+                # return tool_calls with finish_reason="stop", so presence of
+                # message.tool_calls is the authority.
                 tool_calls_result = None
-                if finish_reason == "tool_calls":
-                    message = response.choices[0].message
-                    if hasattr(message, "tool_calls") and message.tool_calls:
-                        tool_calls_result = []
-                        for tc in message.tool_calls:
-                            tool_calls_result.append(
-                                {
-                                    "id": tc.id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": tc.function.name,
-                                        "arguments": tc.function.arguments,
-                                    },
-                                }
-                            )
+                message = response.choices[0].message
+                if hasattr(message, "tool_calls") and message.tool_calls:
+                    tool_calls_result = []
+                    for tc in message.tool_calls:
+                        tool_calls_result.append(
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                },
+                            }
+                        )
 
                 # Check for None response
                 if resp is None:
@@ -359,7 +365,7 @@ class BackendCompletionMixin:
                         logger.info("Fixed JSON format issues")
                     except json.JSONDecodeError as e2:
                         logger.warning(f"JSON fix failed: {e2}, using raw response")
-        if self.dump_chat_cache:
+        if dump_chat_cache_for_request:
             self.cache.chat_set(input_content_json, resp)
         if tools is not None and tool_calls_result is not None:
             return resp, finish_reason, tool_calls_result

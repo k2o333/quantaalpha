@@ -176,6 +176,72 @@ class TestToolCallResponseParsing:
         assert result[2][0]["id"] == "call_abc123"
         assert result[2][0]["function"]["name"] == "propose_factors"
 
+    def test_parse_tool_calls_even_when_finish_reason_is_stop(self):
+        """Some OpenAI-compatible proxies return tool_calls with finish_reason=stop."""
+        backend = self._make_backend()
+
+        tool_call_mock = MagicMock()
+        tool_call_mock.id = "call_stop_reason"
+        tool_call_mock.function.name = "propose_factors"
+        tool_call_mock.function.arguments = '{"factors": [{"factor_name": "test", "factor_expression": "ts_mean(close, 5)"}]}'
+
+        message_mock = MagicMock()
+        message_mock.content = None
+        message_mock.tool_calls = [tool_call_mock]
+
+        choice_mock = MagicMock()
+        choice_mock.message = message_mock
+        choice_mock.finish_reason = "stop"
+
+        mock_response = MagicMock()
+        mock_response.choices = [choice_mock]
+        backend.chat_client.chat.completions.create.return_value = mock_response
+
+        result = self._run_completion(
+            backend,
+            [{"role": "user", "content": "propose factors"}],
+            tools=[{"type": "function", "function": {"name": "propose_factors"}}],
+        )
+
+        assert result[1] == "stop"
+        assert result[2] is not None
+        assert result[2][0]["id"] == "call_stop_reason"
+        assert result[2][0]["function"]["name"] == "propose_factors"
+
+    def test_tool_call_requests_bypass_chat_cache(self):
+        """Cached text responses must not mask fresh tool_calls for structured requests."""
+        backend = self._make_backend()
+        backend.use_chat_cache = True
+        backend.dump_chat_cache = True
+        backend.cache.chat_get.return_value = '{"source": "stale_text_cache"}'
+
+        tool_call_mock = MagicMock()
+        tool_call_mock.id = "call_fresh"
+        tool_call_mock.function.name = "propose_factors"
+        tool_call_mock.function.arguments = '{"source": "fresh_tool_call"}'
+
+        message_mock = MagicMock()
+        message_mock.content = None
+        message_mock.tool_calls = [tool_call_mock]
+
+        choice_mock = MagicMock()
+        choice_mock.message = message_mock
+        choice_mock.finish_reason = "tool_calls"
+
+        mock_response = MagicMock()
+        mock_response.choices = [choice_mock]
+        backend.chat_client.chat.completions.create.return_value = mock_response
+
+        result = self._run_completion(
+            backend,
+            [{"role": "user", "content": "propose factors"}],
+            tools=[{"type": "function", "function": {"name": "propose_factors"}}],
+        )
+
+        assert backend.cache.chat_get.call_count == 0
+        assert backend.cache.chat_set.call_count == 0
+        assert result[2][0]["id"] == "call_fresh"
+
     def test_non_streaming_tool_calls_with_none_content_not_logged_as_empty_response(self, capsys):
         """Non-streaming tool-call response with content=None must not log 'Empty LLM response'."""
         import logging

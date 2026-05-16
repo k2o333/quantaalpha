@@ -11,6 +11,131 @@ import pytest
 from unittest.mock import MagicMock, patch, call
 
 
+class TestConstructResponseUnwrapShapes:
+    """Construct response unwrapping should accept common structured-output shapes."""
+
+    def _make_h2e(self):
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+
+        return object.__new__(AlphaAgentHypothesis2FactorExpression)
+
+    def test_single_factor_object_is_unwrapped_as_one_factor(self):
+        h2e = self._make_h2e()
+        response = {
+            "factor_name": "Volume_Momentum_5D",
+            "description": "test",
+            "formulation": "test",
+            "expression": "RANK(TS_MEAN($volume, 5))",
+            "variables": {"$volume": "volume"},
+        }
+
+        assert h2e._unwrap_construct_response(response) == {"Volume_Momentum_5D": response}
+
+    def test_single_factor_object_without_expression_is_reported_precisely(self):
+        h2e = self._make_h2e()
+        response = {
+            "factor_name": "MissingExpression",
+            "description": "test",
+            "formulation": "test",
+            "variables": {"$volume": "volume"},
+        }
+
+        assert h2e._find_missing_expression_candidate(response) == (
+            "MissingExpression",
+            "factor payload has no expression",
+        )
+
+    def test_factor_expression_alias_is_normalized_to_expression(self):
+        h2e = self._make_h2e()
+        response = {
+            "factor_list": [
+                {
+                    "factor_name": "AliasExpression",
+                    "description": "test",
+                    "formulation": "test",
+                    "factor_expression": "RANK(TS_MEAN($volume, 10))",
+                    "variables": {"$volume": "volume"},
+                }
+            ]
+        }
+
+        factors = h2e._unwrap_construct_response(response)
+
+        assert factors["AliasExpression"]["expression"] == "RANK(TS_MEAN($volume, 10))"
+
+    def test_build_experiment_deduplicates_sub_tasks_by_expression(self):
+        from quantaalpha.factors.coder.factor import FactorTask
+        from quantaalpha.factors.experiment import QlibFactorExperiment
+
+        h2e = self._make_h2e()
+        trace = MagicMock()
+        trace.hist = [
+            (
+                None,
+                QlibFactorExperiment(
+                    sub_tasks=[
+                        FactorTask(
+                            factor_name="Existing",
+                            factor_description="",
+                            factor_formulation="",
+                            factor_expression="RANK(TS_MEAN($volume, 5))",
+                            variables={},
+                        )
+                    ]
+                ),
+                object(),
+            )
+        ]
+        response = {
+            "factors": {
+                "NewCopy": {
+                    "description": "copy",
+                    "formulation": "copy",
+                    "expression": "RANK(TS_MEAN($volume, 5))",
+                    "variables": {"$volume": "volume"},
+                },
+                "NewUnique": {
+                    "description": "unique",
+                    "formulation": "unique",
+                    "expression": "RANK(TS_STD($volume, 10))",
+                    "variables": {"$volume": "volume"},
+                },
+            }
+        }
+
+        experiment = h2e._build_experiment_from_dict(response, trace)
+
+        assert [task.factor_name for task in experiment.sub_tasks] == ["NewUnique"]
+        assert [task.factor_name for task in experiment.tasks] == ["NewUnique"]
+        assert len(experiment.sub_workspace_list) == 1
+
+    def test_build_experiment_deduplicates_inverse_multiply_expression_alias(self):
+        h2e = self._make_h2e()
+        trace = MagicMock()
+        trace.hist = []
+        response = {
+            "factors": {
+                "MultiplyInverse": {
+                    "description": "same math",
+                    "formulation": "same math",
+                    "expression": "ZSCORE(TS_DELTA($close, 5)) * INV(TS_STD($volume, 20) + 1e-8)",
+                    "variables": {"$close": "close", "$volume": "volume"},
+                },
+                "Division": {
+                    "description": "same math",
+                    "formulation": "same math",
+                    "expression": "ZSCORE(TS_DELTA($close, 5)) / (TS_STD($volume, 20) + 1e-8)",
+                    "variables": {"$close": "close", "$volume": "volume"},
+                },
+            }
+        }
+
+        experiment = h2e._build_experiment_from_dict(response, trace)
+
+        assert [task.factor_name for task in experiment.sub_tasks] == ["MultiplyInverse"]
+        assert len(experiment.sub_workspace_list) == 1
+
+
 class TestEmptyResponseRecognition:
     """is_input_length_error must recognize persistent empty-response failures."""
 

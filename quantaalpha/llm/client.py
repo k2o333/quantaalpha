@@ -32,6 +32,7 @@ from .client_shared import (
     _get_model_degradation_state,
     _is_tool_call_capability_failure,
     _record_tool_call_capability_failure,
+    _record_tool_call_success,
     _remove_trailing_commas,
     call_structured,
     get_default_provider_pool,

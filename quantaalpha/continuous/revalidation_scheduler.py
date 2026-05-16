@@ -345,7 +345,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 else:
                     logger.info(f"profile.revalidation.factor.done factor={factor_id} success=False total_seconds={total_seconds:.3f} ic_value={result.ic_value:.6f}")
                     self._log_revalidation_metrics(factor_id, result.ic_result)
-                    logger.info(f"Factor {factor_id} failed IC threshold: {result.ic_value:.4f} < {self.min_ic}")
+                    logger.info(f"Factor {factor_id} did not meet IC threshold: {result.ic_value:.4f} < {self.min_ic}")
                     self._record_performance_history(
                         factor_id=factor_id,
                         factor_entry=factor_entry,
@@ -677,7 +677,10 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     return self._execution_dataframe_cache
 
                 logger.info(f"profile.load_price_data.done context=backtest source=bridge rows=0 seconds={load_seconds:.3f}")
-                logger.warning("Bridge returned empty DataFrame")
+                if self._resolve_app5_clean_daily_files():
+                    logger.info("Bridge returned empty DataFrame; continuing with app5 clean daily data")
+                else:
+                    logger.warning("Bridge returned empty DataFrame")
             except Exception as e:
                 logger.error(f"Error loading data from bridge: {e}")
 

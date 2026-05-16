@@ -493,7 +493,7 @@ class TestCompatibilityWrapperDelegation(unittest.TestCase):
                 backend._create_chat_completion_or_embedding_once = MagicMock(
                     side_effect=Exception("tools parameter is not supported")
                 )
-                with pytest.raises(RuntimeError, match="Failed to create call_structured after 5 retries"):
+                with pytest.raises(Exception, match="tools parameter is not supported"):
                     call_structured(
                         backend,
                         [{"role": "user", "content": f"degrade {i}"}],
