@@ -51,3 +51,8 @@ docs = {file = ["requirements/docs.txt"]}
 [tool.setuptools_scm]
 local_scheme = "no-local-version"
 version_scheme = "guess-next-dev"
+
+[tool.pytest.ini_options]
+markers = [
+  "real_data: tests that inspect local real data and skip when data is unavailable",
+]

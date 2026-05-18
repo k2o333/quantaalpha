@@ -47,6 +47,11 @@ class NoQlibTopkDropoutBacktester:
         previous_account_value = account
         report_rows = []
         position_rows = []
+        last_close_prices: dict[str, float] = {}
+        missing_price_examples: list[dict[str, str]] = []
+        missing_close_valuation_count = 0
+        missing_open_buy_skip_count = 0
+        missing_open_sell_skip_count = 0
         for dt in dates:
             previous_holdings = list(holdings)
             signal_dt = _previous_signal_date(pred_dates, dt)
@@ -65,21 +70,48 @@ class NoQlibTopkDropoutBacktester:
             buy_list = [stock for stock in next_holdings if stock not in set(holdings)]
             total_cost_value = 0.0
             total_trade_value = 0.0
+            skipped_sells: set[str] = set()
             for inst in list(sell_set):
-                amount = amounts.pop(inst, 0.0)
+                amount = amounts.get(inst, 0.0)
                 if amount <= 0:
+                    amounts.pop(inst, None)
                     continue
-                trade_value = amount * _price(self.market_data, dt, inst, "$open")
+                open_price = _price(self.market_data, dt, inst, "$open")
+                if not np.isfinite(open_price) or open_price <= 0:
+                    missing_open_sell_skip_count += 1
+                    _record_missing_price(
+                        missing_price_examples,
+                        dt=dt,
+                        instrument=inst,
+                        field="$open",
+                        action="skip_sell_keep_position",
+                    )
+                    skipped_sells.add(inst)
+                    continue
+                amounts.pop(inst, None)
+                trade_value = amount * open_price
                 trade_cost = _trade_cost(trade_value, close_cost, min_cost)
                 cash += trade_value - trade_cost
                 total_cost_value += trade_cost
                 total_trade_value += trade_value
+            if skipped_sells:
+                buy_list = []
             buy_budget = cash * risk_degree / len(buy_list) if buy_list else 0.0
             for inst in buy_list:
                 open_price = _price(self.market_data, dt, inst, "$open")
                 if open_price <= 0 or not np.isfinite(open_price):
+                    missing_open_buy_skip_count += 1
+                    _record_missing_price(
+                        missing_price_examples,
+                        dt=dt,
+                        instrument=inst,
+                        field="$open",
+                        action="skip_buy",
+                    )
                     continue
                 trade_value = buy_budget
+                if trade_value <= 0:
+                    continue
                 trade_cost = _trade_cost(trade_value, open_cost, min_cost)
                 if trade_value + trade_cost > cash:
                     trade_value = max(cash / (1.0 + open_cost), 0.0)
@@ -90,10 +122,25 @@ class NoQlibTopkDropoutBacktester:
                 total_cost_value += trade_cost
                 total_trade_value += trade_value
             holdings = [stock for stock in next_holdings if stock in amounts]
-            stock_value = {
-                inst: amount * _price(self.market_data, dt, inst, "$close")
-                for inst, amount in amounts.items()
-            }
+            holdings.extend(stock for stock in previous_holdings if stock in skipped_sells and stock in amounts and stock not in holdings)
+            stock_value = {}
+            for inst, amount in amounts.items():
+                close_price = _price(self.market_data, dt, inst, "$close")
+                if np.isfinite(close_price) and close_price > 0:
+                    last_close_prices[inst] = close_price
+                elif inst in last_close_prices:
+                    close_price = last_close_prices[inst]
+                    missing_close_valuation_count += 1
+                    _record_missing_price(
+                        missing_price_examples,
+                        dt=dt,
+                        instrument=inst,
+                        field="$close",
+                        action="carry_forward_last_close",
+                    )
+                else:
+                    raise ValueError(f"missing close price with no carry-forward price: date={dt} instrument={inst}")
+                stock_value[inst] = amount * close_price
             account_value = cash + float(sum(stock_value.values()))
             pre_cost_account_value = account_value + total_cost_value
             portfolio_return = pre_cost_account_value / previous_account_value - 1.0 if previous_account_value else 0.0
@@ -133,6 +180,10 @@ class NoQlibTopkDropoutBacktester:
             return {}, report, positions
         excess = report["return"] - report["bench"] - report["cost"]
         metrics = risk_metrics(excess)
+        metrics["missing_close_valuation_count"] = float(missing_close_valuation_count)
+        metrics["missing_open_buy_skip_count"] = float(missing_open_buy_skip_count)
+        metrics["missing_open_sell_skip_count"] = float(missing_open_sell_skip_count)
+        metrics["missing_price_example_count"] = float(len(missing_price_examples))
         return metrics, report, positions
 
 
@@ -237,6 +288,26 @@ def _price(market_data: pd.DataFrame, dt: pd.Timestamp, instrument: str, field: 
         return float(market_data.loc[(dt, instrument), field])
     except KeyError:
         return float("nan")
+
+
+def _record_missing_price(
+    examples: list[dict[str, str]],
+    *,
+    dt: pd.Timestamp,
+    instrument: str,
+    field: str,
+    action: str,
+) -> None:
+    if len(examples) >= 20:
+        return
+    examples.append(
+        {
+            "date": pd.Timestamp(dt).strftime("%Y-%m-%d"),
+            "instrument": str(instrument),
+            "field": field,
+            "action": action,
+        }
+    )
 
 
 def _trade_cost(trade_value: float, rate: float, min_cost: float) -> float:

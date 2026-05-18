@@ -36,6 +36,12 @@ METRIC_NAMESPACES = {
         "max_drawdown",
         "calmar_ratio",
     ),
+    "portfolio_diagnostics": (
+        "missing_close_valuation_count",
+        "missing_open_buy_skip_count",
+        "missing_open_sell_skip_count",
+        "missing_price_example_count",
+    ),
 }
 
 EXPLICIT_APP5_INTERFACE_CLASSIFICATION: dict[str, tuple[str, str]] = {
@@ -204,6 +210,11 @@ def build_metric_namespaces(
         "excess_vs_benchmark": {
             key: portfolio_metrics[key]
             for key in METRIC_NAMESPACES["excess_vs_benchmark"][1:]
+            if key in portfolio_metrics
+        },
+        "portfolio_diagnostics": {
+            key: portfolio_metrics[key]
+            for key in METRIC_NAMESPACES["portfolio_diagnostics"]
             if key in portfolio_metrics
         },
     }

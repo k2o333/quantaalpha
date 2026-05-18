@@ -72,15 +72,12 @@ def test_noqlib_risk_metrics_handles_empty_series():
     }
 
 
-def test_noqlib_risk_metrics_sanitizes_nan_and_inf_returns():
+def test_noqlib_risk_metrics_rejects_nan_and_inf_returns():
     from quantaalpha.backtest.noqlib.risk import risk_metrics
 
     returns = pd.Series([0.01, float("nan"), float("inf"), -float("inf"), -0.005])
-    metrics = risk_metrics(returns)
-    assert metrics["annualized_return"] == pytest.approx(0.238)
-    assert metrics["information_ratio"] == pytest.approx(2.8166173565703474)
-    assert metrics["max_drawdown"] == pytest.approx(-0.005)
-    assert metrics["calmar_ratio"] == pytest.approx(47.6)
+    with pytest.raises(ValueError, match="non-finite excess_return"):
+        risk_metrics(returns)
 
 
 def test_noqlib_risk_metrics_matches_qlib_risk_analysis():

@@ -103,11 +103,34 @@ def test_metric_namespace_keeps_signal_long_short_and_long_only_separate() -> No
         "diagnostic_long_short",
         "long_only_portfolio",
         "excess_vs_benchmark",
+        "portfolio_diagnostics",
     }
     assert "long_short_return_annualized" in namespaces["diagnostic_long_short"]
     assert "long_short_return_annualized" not in namespaces["excess_vs_benchmark"]
     assert namespaces["excess_vs_benchmark"]["annualized_return"] == 0.12
     assert namespaces["excess_vs_benchmark"]["qlib_return_provenance"]["column_name"] == "excess_return"
+
+
+def test_metric_namespace_keeps_missing_price_diagnostics_separate() -> None:
+    from quantaalpha.backtest.contracts import build_metric_namespaces
+
+    namespaces = build_metric_namespaces(
+        portfolio_metrics={
+            "annualized_return": 0.12,
+            "missing_close_valuation_count": 2,
+            "missing_open_buy_skip_count": 3,
+            "missing_open_sell_skip_count": 4,
+            "missing_price_example_count": 5,
+        },
+    )
+
+    assert namespaces["portfolio_diagnostics"] == {
+        "missing_close_valuation_count": 2,
+        "missing_open_buy_skip_count": 3,
+        "missing_open_sell_skip_count": 4,
+        "missing_price_example_count": 5,
+    }
+    assert "missing_close_valuation_count" not in namespaces["excess_vs_benchmark"]
 
 
 def test_long_only_daily_report_contract_is_deterministic_for_same_prediction() -> None:

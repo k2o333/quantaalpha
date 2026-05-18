@@ -4,20 +4,17 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import polars as pl
 
 
 def risk_metrics(excess_return: pd.Series) -> dict[str, float]:
     """计算 qlib risk_analysis 对齐目标指标的 no-qlib 版本。"""
-    values = (
-        pl.Series("excess_return", excess_return.to_numpy(dtype=float))
-        .replace([np.inf, -np.inf], None)
-        .fill_nan(0.0)
-        .fill_null(0.0)
-        .to_numpy()
-    )
+    values = excess_return.to_numpy(dtype=float)
     if len(values) == 0:
         return {"annualized_return": 0.0, "information_ratio": 0.0, "max_drawdown": 0.0, "calmar_ratio": 0.0}
+    finite_mask = np.isfinite(values)
+    if not finite_mask.all():
+        bad_count = int((~finite_mask).sum())
+        raise ValueError(f"non-finite excess_return values are not valid risk input: count={bad_count}")
     scaler = 238.0
     annualized = float(values.mean() * scaler)
     info = _ratio(values.mean(), values.std(ddof=1) if len(values) > 1 else 0.0) * np.sqrt(scaler)
