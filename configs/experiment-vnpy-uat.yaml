@@ -54,7 +54,8 @@ backtest:
     project_root: /home/quan/testdata/aspipe_v4
     app5_storage_root: /home/quan/testdata/aspipe_v4/data
     daily_interface: daily
-    qlib_provider_uri: /home/quan/testdata/aspipe_v4/third_party/data/qlib_data_csi300_bin
+    # qlib_provider_uri 已移除：不再从 qlib bin 读取任何数据
+    benchmark_mode: mean
 llm:
   factor_mining_timeout: 999999
   max_retries: 3

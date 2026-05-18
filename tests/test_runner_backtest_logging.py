@@ -90,3 +90,26 @@ def test_develop_runs_correlation_dedup_when_sota_factors_exist(tmp_path: Path) 
 
     assert calls["dedup"] == 1
     assert result.result == "result-frame"
+
+
+def test_factor_template_noqlib_config_uses_mean_benchmark_mode() -> None:
+    runner = object.__new__(QlibFactorRunner)
+    runner.set_noqlib_config({"benchmark_mode": "mean"})
+
+    config = runner._factor_template_to_noqlib_config(
+        {
+            "market": "csi300",
+            "task": {
+                "dataset": {"kwargs": {"handler": {"instruments": "csi300"}, "segments": {}}},
+                "model": {"kwargs": {}},
+            },
+            "port_analysis_config": {
+                "backtest": {"benchmark": "SH000300"},
+                "strategy": {"kwargs": {"topk": 50, "n_drop": 5}},
+            },
+        },
+        backend="vnpy",
+    )
+
+    assert config["backtest"]["backtest"]["benchmark"] == "mean"
+    assert config["backtest_runtime"]["noqlib"]["benchmark_instruments"] == []

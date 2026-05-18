@@ -84,31 +84,53 @@ if [ "${EXPERIMENT_ID}" != "shared" ]; then
 fi
 
 # =============================================================================
-# Validate Qlib data
+# Validate Qlib data (conditional on backend)
 # =============================================================================
+_BACKEND=$(
+    awk '
+        /^[[:space:]]*#/ { next }
+        /^[^[:space:]][^:]*:/ {
+            in_backtest = ($1 == "backtest:")
+            next
+        }
+        in_backtest && /^[[:space:]]+backend:[[:space:]]*/ {
+            value = $0
+            sub(/^[[:space:]]+backend:[[:space:]]*/, "", value)
+            gsub(/["'\'']/, "", value)
+            print value
+            exit
+        }
+    ' "${CONFIG_PATH}" 2>/dev/null
+)
+_BACKEND="${_BACKEND:-qlib}"
+
 QLIB_DATA="${QLIB_DATA_DIR:-}"
-if [ -z "${QLIB_DATA}" ]; then
-    echo "Error: QLIB_DATA_DIR not set. Please set Qlib data path in .env"
-    echo "Example: QLIB_DATA_DIR=/path/to/qlib/cn_data"
-    exit 1
-fi
-if [ ! -d "${QLIB_DATA}" ]; then
-    echo "Error: Qlib data directory does not exist: ${QLIB_DATA}"
-    echo "Please check QLIB_DATA_DIR path in .env"
-    exit 1
-fi
-# Validate required subdirectories
-for subdir in calendars features instruments; do
-    if [ ! -d "${QLIB_DATA}/${subdir}" ]; then
-        echo "Error: Qlib data directory missing ${subdir}/: ${QLIB_DATA}"
-        echo "Valid Qlib data dir must contain calendars/, features/, instruments/"
+if [ "${_BACKEND}" = "qlib" ] || [ "${_BACKEND}" = "dual_parity" ] || [ "${_BACKEND}" = "triple_parity" ]; then
+    # qlib backend 需要严格校验 qlib 数据目录
+    if [ -z "${QLIB_DATA}" ]; then
+        echo "Error: QLIB_DATA_DIR not set. Please set Qlib data path in .env"
+        echo "Example: QLIB_DATA_DIR=/path/to/qlib/cn_data"
         exit 1
     fi
-done
-echo "Qlib data validated: ${QLIB_DATA}"
+    if [ ! -d "${QLIB_DATA}" ]; then
+        echo "Error: Qlib data directory does not exist: ${QLIB_DATA}"
+        echo "Please check QLIB_DATA_DIR path in .env"
+        exit 1
+    fi
+    for subdir in calendars features instruments; do
+        if [ ! -d "${QLIB_DATA}/${subdir}" ]; then
+            echo "Error: Qlib data directory missing ${subdir}/: ${QLIB_DATA}"
+            echo "Valid Qlib data dir must contain calendars/, features/, instruments/"
+            exit 1
+        fi
+    done
+    echo "Qlib data validated: ${QLIB_DATA}"
+else
+    echo "Backend: ${_BACKEND} (qlib data validation skipped, using App5 parquet)"
+fi
 
-# Ensure Qlib data symlink
-if [ -n "${QLIB_DATA}" ]; then
+# Ensure Qlib data symlink (if data dir exists, for optional compatibility)
+if [ -n "${QLIB_DATA}" ] && [ -d "${QLIB_DATA}" ]; then
     QLIB_SYMLINK_DIR="$HOME/.qlib/qlib_data"
     if [ ! -L "${QLIB_SYMLINK_DIR}/cn_data" ] || [ "$(readlink -f ${QLIB_SYMLINK_DIR}/cn_data 2>/dev/null)" != "$(readlink -f ${QLIB_DATA})" ]; then
         mkdir -p "${QLIB_SYMLINK_DIR}"

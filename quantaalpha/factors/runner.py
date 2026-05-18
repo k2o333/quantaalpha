@@ -432,6 +432,11 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             },
         }
         noqlib_cfg["backtest_runtime"]["noqlib"].update(runtime_options)
+        # 当 benchmark_mode=mean 时，不需要指数行情数据，改为横截面均值 benchmark
+        benchmark_mode = noqlib_cfg["backtest_runtime"]["noqlib"].get("benchmark_mode")
+        if str(benchmark_mode).lower() == "mean":
+            noqlib_cfg["backtest"]["backtest"]["benchmark"] = "mean"
+            noqlib_cfg["backtest_runtime"]["noqlib"]["benchmark_instruments"] = []
         instruments = _resolve_noqlib_instruments(noqlib_cfg["backtest_runtime"]["noqlib"])
         if instruments:
             noqlib_cfg["backtest_runtime"]["noqlib"]["instruments"] = instruments
