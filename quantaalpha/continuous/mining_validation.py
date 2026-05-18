@@ -245,7 +245,7 @@ class MiningValidationMixin:
                     },
                     elapsed_ms=elapsed_ms,
                 )
-                self._last_factor_errors = [
+                factor_errors = [
                     build_factor_error(
                         factor_id=factor_id,
                         expression=expression,
@@ -254,6 +254,9 @@ class MiningValidationMixin:
                         source="mining_validation",
                     )
                 ]
+                self._last_factor_errors = factor_errors
+                if getattr(self, "_error_feedback_sink", None) is not None:
+                    self._error_feedback_sink.extend(factor_errors)
                 self._record_performance_history(
                     factor_id=factor_id,
                     factor_entry=factor_entry,
@@ -279,7 +282,7 @@ class MiningValidationMixin:
                     },
                     elapsed_ms=elapsed_ms,
                 )
-                self._last_factor_errors = [
+                factor_errors = [
                     build_factor_error(
                         factor_id=factor_id,
                         expression=expression,
@@ -288,6 +291,9 @@ class MiningValidationMixin:
                         source="mining_validation",
                     )
                 ]
+                self._last_factor_errors = factor_errors
+                if getattr(self, "_error_feedback_sink", None) is not None:
+                    self._error_feedback_sink.extend(factor_errors)
                 self._record_performance_history(
                     factor_id=factor_id,
                     factor_entry=factor_entry,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .error_feedback import merge_factor_errors
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
 
@@ -507,7 +508,8 @@ class MiningOrchestrationMixin:
     def _execute_llm_correct_action(self, params: dict, node_id: str) -> "ActionResult":
         from quantaalpha.continuous.orchestration import ActionResult
 
-        factor_errors = params.get("factor_errors", []) or []
+        shared_errors = self.get_shared_factor_errors(max_errors=5) if hasattr(self, "get_shared_factor_errors") else []
+        factor_errors = merge_factor_errors(params.get("factor_errors", []) or [], shared_errors)
         if not factor_errors:
             return ActionResult(action="llm_correct", status="no_errors")
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import re
 from typing import Optional
 
@@ -126,12 +127,14 @@ def build_factor_error(
     error_message: str,
     source: str,
     factor_id: str | None = None,
+    created_at: str | None = None,
 ) -> dict:
     error = {
         "expression": expression,
         "error_type": error_type,
         "error_message": error_message,
         "source": source,
+        "created_at": created_at or datetime.now(UTC).isoformat(timespec="seconds"),
     }
     if factor_id:
         error["factor_id"] = factor_id

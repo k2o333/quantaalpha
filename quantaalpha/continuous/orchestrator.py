@@ -18,6 +18,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from .error_feedback import FactorErrorFeedbackSink
 from .scheduler import (
     MiningResult,
     RevalidationResult,
@@ -123,6 +124,7 @@ class MiningOrchestrator:
         self._library_path = library_path
         self._monitor_engine = monitor_engine
         self._workspace_retention_scheduler = None
+        self._error_feedback_sink = FactorErrorFeedbackSink()
 
         # Event callbacks
         self._event_callbacks: list[callable] = []
@@ -157,6 +159,7 @@ class MiningOrchestrator:
                 parquet_library_dir=self.config.factor.parquet_library_dir,
                 performance_history_config=asdict(self.config.factor.performance_history),
                 backtest_noqlib_config=self.config.factor.backtest_noqlib,
+                error_feedback_sink=self._error_feedback_sink,
             )
         return self._revalidation_scheduler
 
@@ -293,6 +296,7 @@ class MiningOrchestrator:
                     ],
                 },
                 app5_freshness_cfg=self.config.mining.app5_freshness,
+                error_feedback_sink=self._error_feedback_sink,
             )
         return self._mining_scheduler
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .error_feedback import factor_error_key, merge_factor_errors
 from .expression_quality import build_factor_error, operator_arity_warning
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
@@ -13,6 +14,12 @@ class MiningGenerationMixin:
 
     def _set_last_factor_errors(self, errors: list[dict]) -> None:
         self._last_factor_errors = list(errors or [])
+
+    def get_shared_factor_errors(self, max_errors: int = 5, sources: set[str] | None = None) -> list[dict]:
+        sink = getattr(self, "_error_feedback_sink", None)
+        if sink is None:
+            return []
+        return sink.select(max_errors=max_errors, sources=sources)
 
     def _retrieve_context(self) -> str:
         """
@@ -339,7 +346,15 @@ class MiningGenerationMixin:
         ]
         return "\n".join(prompt_parts)
 
-    def _build_generation_retry_feedback(self, response: str, attempt: int, errors: list[dict] | None = None) -> str:
+    def _build_generation_retry_feedback(
+        self,
+        response: str,
+        attempt: int,
+        errors: list[dict] | None = None,
+        *,
+        shared_error_limit: int = 3,
+        max_error_text_length: int = 160,
+    ) -> str:
         """Build bounded feedback for a failed continuous LLM generation attempt."""
         excerpt = str(response or "").replace("\n", " ")[:500]
         base = (
@@ -348,15 +363,51 @@ class MiningGenerationMixin:
             "Check operator argument counts exactly; cs_ operators take one argument. "
             f"Previous response excerpt: {excerpt}"
         )
-        if not errors:
-            return base
-        details = []
-        for idx, error in enumerate(errors, 1):
-            details.append(
-                f"{idx}. {error.get('error_type')}: {error.get('error_message')} "
-                f"expr={error.get('expression')}"
+        sections = []
+        current_errors = merge_factor_errors(errors or [])
+        if current_errors:
+            sections.append(
+                "--- Current Attempt Errors ---\n"
+                + "\n".join(
+                    self._format_factor_error_for_prompt(error, idx, max_error_text_length)
+                    for idx, error in enumerate(current_errors, 1)
+                )
             )
-        return base + "\n\n--- Correction History ---\n" + "\n".join(details)
+
+        current_keys = {factor_error_key(error) for error in current_errors}
+        shared_errors = [
+            error
+            for error in merge_factor_errors(
+                self.get_shared_factor_errors(max_errors=shared_error_limit)
+            )
+            if error.get("source") != "llm_generation" and factor_error_key(error) not in current_keys
+        ][:shared_error_limit]
+        if shared_errors:
+            sections.append(
+                "--- Shared Error Context ---\n"
+                + "\n".join(
+                    self._format_factor_error_for_prompt(error, idx, max_error_text_length)
+                    for idx, error in enumerate(shared_errors, 1)
+                )
+            )
+        if not sections:
+            return base
+        return base + "\n\n" + "\n\n".join(sections)
+
+    def _format_factor_error_for_prompt(self, error: dict, idx: int, max_length: int) -> str:
+        def trunc(value) -> str:
+            text = str(value or "").replace("\n", " ")
+            if len(text) <= max_length:
+                return text
+            return text[: max(0, max_length - 3)] + "..."
+
+        factor_id = error.get("factor_id")
+        factor_part = f" factor_id={trunc(factor_id)}" if factor_id else ""
+        return (
+            f"{idx}. source={trunc(error.get('source'))}{factor_part} "
+            f"type={trunc(error.get('error_type'))}: {trunc(error.get('error_message'))} "
+            f"expr={trunc(error.get('expression'))}"
+        )
 
     def _parse_llm_response(self, response: str) -> list[dict]:
         """Parse LLM response into factor dicts."""

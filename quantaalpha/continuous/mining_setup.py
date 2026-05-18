@@ -39,6 +39,7 @@ class MiningSetupMixin:
         performance_history_config: Optional[dict] = None,
         app5_freshness_cfg: Optional[dict] = None,
         factor_value_dir: Optional[str] = None,
+        error_feedback_sink=None,
     ):
         import os
 
@@ -85,6 +86,7 @@ class MiningSetupMixin:
         self._performance_history_config = performance_history_config or {}
         self._app5_freshness_cfg = app5_freshness_cfg or {}
         self.factor_value_dir = factor_value_dir or "third_party/quantaalpha/data/factorlib/factor_values"
+        self._error_feedback_sink = error_feedback_sink
         self._performance_history_store = None
         if self._performance_history_config.get("enabled", False):
             try:

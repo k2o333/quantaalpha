@@ -39,6 +39,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         per_factor_timeout_seconds: int = 300,
         performance_history_config: Optional[dict] = None,
         backtest_noqlib_config: Optional[dict] = None,
+        error_feedback_sink=None,
     ):
         import os
 
@@ -64,6 +65,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self._execution_dataframe_cache = None
         self._performance_history_config = performance_history_config or {}
         self._backtest_noqlib_config = dict(backtest_noqlib_config or {})
+        self._error_feedback_sink = error_feedback_sink
         self._performance_history_store = None
         if self._performance_history_config.get("enabled", False):
             try:
@@ -281,7 +283,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             arity_warning = self._operator_arity_warning(translated_expression)
             if arity_warning:
                 logger.warning(f"Factor {factor_id} has invalid expression arity after translation: {arity_warning}")
-                self._last_factor_errors = [
+                factor_errors = [
                     build_factor_error(
                         factor_id=factor_id,
                         expression=expression,
@@ -290,6 +292,9 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                         source="revalidation",
                     )
                 ]
+                self._last_factor_errors = factor_errors
+                if self._error_feedback_sink is not None:
+                    self._error_feedback_sink.extend(factor_errors)
                 self._record_performance_history(
                     factor_id=factor_id,
                     factor_entry=factor_entry,
