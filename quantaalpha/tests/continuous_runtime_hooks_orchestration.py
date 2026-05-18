@@ -1027,3 +1027,158 @@ class TestPhase6LLMAdvisorRuntime:
         assert set(captured_context.keys()) == expected_keys
         assert "factor_code" not in captured_context
         assert "raw_state" not in captured_context
+
+
+class TestInlineLLMCorrectionRuntime:
+    """Inline correction should repair structural factor errors without graph changes."""
+
+    def _make_scheduler_with_correction(self, tmp_path, orchestrator_cfg):
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        return DefaultMiningScheduler(
+            library_path=str(lib_path),
+            orchestration_cfg=orchestrator_cfg,
+        )
+
+    def _single_action_cfg(self):
+        return {
+            "enabled": True,
+            "start_node": "mutation",
+            "max_steps_per_cycle": 2,
+            "nodes": [
+                {
+                    "id": "mutation",
+                    "kind": "action",
+                    "action": "mutation",
+                    "next": [{"goto": "stop"}],
+                },
+                {
+                    "id": "stop",
+                    "kind": "terminal",
+                    "next": [],
+                },
+            ],
+            "conditions": [],
+        }
+
+    def test_inline_correction_skips_without_provider_and_preserves_original_result(self, tmp_path):
+        """factor_errors alone should not change counts when no corrector is configured."""
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        scheduler = self._make_scheduler_with_correction(tmp_path, self._single_action_cfg())
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            mock_action.return_value = ActionResult(
+                action="mutation",
+                status="degraded",
+                generated_factors=0,
+                validated_factors=0,
+                added_factors=0,
+                metadata={
+                    "factor_errors": [
+                        {
+                            "expression": "cs_mean($close, $volume)",
+                            "error_type": "arity",
+                            "error_message": "cs_mean expects 1 arguments, got 2",
+                            "source": "mutation",
+                        }
+                    ]
+                },
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        assert result["factors_generated"] == 0
+        assert result["factors_validated"] == 0
+        assert result["factors_added"] == 0
+        step0 = result["orchestration_trace"]["steps"][0]
+        assert step0["action"] == "mutation"
+        assert step0["action_status"] == "degraded"
+
+    def test_inline_correction_merges_valid_corrected_factor_counts_before_context_update(self, tmp_path):
+        """Validated corrected expressions should be merged into the original action result."""
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        class Corrector:
+            def correct(self, errors, context):
+                assert context["cycle_id"]
+                assert errors[0]["error_type"] == "arity"
+                return [{"factor_expression": "cs_mean($close)"}]
+
+        scheduler = self._make_scheduler_with_correction(tmp_path, self._single_action_cfg())
+        scheduler._llm_correct_provider = Corrector()
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action, patch.object(
+            scheduler,
+            "_validate_corrected_factors",
+            return_value=[
+                {
+                    "factor_id": "corrected_1",
+                    "factor_expression": "cs_mean($close)",
+                }
+            ],
+        ):
+            mock_action.return_value = ActionResult(
+                action="mutation",
+                status="degraded",
+                generated_factors=0,
+                validated_factors=0,
+                added_factors=0,
+                metadata={
+                    "factor_errors": [
+                        {
+                            "expression": "cs_mean($close, $volume)",
+                            "error_type": "arity",
+                            "error_message": "cs_mean expects 1 arguments, got 2",
+                            "source": "mutation",
+                        }
+                    ]
+                },
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        assert result["factors_generated"] == 1
+        assert result["factors_validated"] == 1
+        assert result["factors_added"] == 1
+        assert result["factor_ids"] == ["corrected_1"]
+        step0 = result["orchestration_trace"]["steps"][0]
+        assert step0["action_status"] == "success"
+
+    def test_inline_correction_provider_failure_preserves_original_routing(self, tmp_path):
+        """Corrector failure must not block the original action result from being applied."""
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        class FailingCorrector:
+            def correct(self, errors, context):
+                raise RuntimeError("corrector unavailable")
+
+        scheduler = self._make_scheduler_with_correction(tmp_path, self._single_action_cfg())
+        scheduler._llm_correct_provider = FailingCorrector()
+
+        with patch.object(scheduler, "_execute_orchestrated_action") as mock_action:
+            mock_action.return_value = ActionResult(
+                action="mutation",
+                status="degraded",
+                generated_factors=0,
+                validated_factors=0,
+                added_factors=0,
+                metadata={
+                    "factor_errors": [
+                        {
+                            "expression": "cs_mean($close, $volume)",
+                            "error_type": "arity",
+                            "error_message": "cs_mean expects 1 arguments, got 2",
+                            "source": "mutation",
+                        }
+                    ]
+                },
+            )
+
+            result = scheduler._run_orchestrated_cycle()
+
+        assert result["errors"] == []
+        assert result["factors_added"] == 0
+        assert result["orchestration_trace"]["steps"][0]["next_node"] == "stop"

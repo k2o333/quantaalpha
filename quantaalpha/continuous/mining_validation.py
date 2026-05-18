@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .expression_quality import build_factor_error, operator_arity_warning, unsupported_translation_warning
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
 
@@ -229,6 +230,73 @@ class MiningValidationMixin:
             translated_expression, translation_warnings = _translate_factor_expression(expression)
             if translation_warnings:
                 logger.info(f"Translation warnings for {factor_id}: {'; '.join(translation_warnings)}")
+            unsupported_warning = unsupported_translation_warning(translation_warnings)
+            if unsupported_warning:
+                elapsed_ms = int((time.time() - validation_started) * 1000)
+                validation_result = self._enrich_validation_result(
+                    {
+                        "status": "failure",
+                        "summary": {
+                            "stability_score": None,
+                            "validation_summary": f"Unsupported expression after translation: {unsupported_warning}",
+                            "ic_mean": None,
+                            "rank_ic_mean": None,
+                        },
+                    },
+                    elapsed_ms=elapsed_ms,
+                )
+                self._last_factor_errors = [
+                    build_factor_error(
+                        factor_id=factor_id,
+                        expression=expression,
+                        error_type="translate",
+                        error_message=unsupported_warning,
+                        source="mining_validation",
+                    )
+                ]
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    validation_result=validation_result,
+                    source="mining_validation",
+                    translated_expression=translated_expression,
+                    error_message=f"Unsupported expression after translation: {unsupported_warning}",
+                )
+                return validation_result
+
+            arity_warning = operator_arity_warning(translated_expression)
+            if arity_warning:
+                elapsed_ms = int((time.time() - validation_started) * 1000)
+                validation_result = self._enrich_validation_result(
+                    {
+                        "status": "failure",
+                        "summary": {
+                            "stability_score": None,
+                            "validation_summary": f"Invalid expression arity after translation: {arity_warning}",
+                            "ic_mean": None,
+                            "rank_ic_mean": None,
+                        },
+                    },
+                    elapsed_ms=elapsed_ms,
+                )
+                self._last_factor_errors = [
+                    build_factor_error(
+                        factor_id=factor_id,
+                        expression=expression,
+                        error_type="arity",
+                        error_message=arity_warning,
+                        source="mining_validation",
+                    )
+                ]
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    validation_result=validation_result,
+                    source="mining_validation",
+                    translated_expression=translated_expression,
+                    error_message=f"Invalid expression arity after translation: {arity_warning}",
+                )
+                return validation_result
 
             # Validation thresholds - use instance configuration
             min_ic = self.min_ic

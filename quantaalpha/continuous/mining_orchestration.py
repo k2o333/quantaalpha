@@ -121,6 +121,8 @@ class MiningOrchestrationMixin:
                 node_id=action_spec.node_id,
             )
 
+            self._maybe_apply_inline_correction(action_result, context)
+
             # Update context with result
             context = orchestrator.apply_result(context, action_result)
 
@@ -153,6 +155,10 @@ class MiningOrchestrationMixin:
                 "next_node": next_node,
                 "error": action_result.error,
             }
+            if action_result.metadata.get("correction_result"):
+                correction_result = action_result.metadata["correction_result"]
+                step_trace["correction_status"] = correction_result.get("status")
+                step_trace["correction_added_factors"] = len(correction_result.get("factor_ids", []) or [])
             orchestration_trace["steps"].append(step_trace)
 
             if next_node is None:
@@ -349,17 +355,20 @@ class MiningOrchestrationMixin:
 
             factor_ids = result.get("factor_ids", [])
             result_status = result.get("status", "degraded")
+            metadata = {
+                "factor_ids": factor_ids,
+                "node_id": node_id,
+                "evolution_summary": result,
+            }
+            if result.get("factor_errors"):
+                metadata["factor_errors"] = result["factor_errors"]
             return ActionResult(
                 action="mutation",
                 status=result_status,
                 generated_factors=result.get("successful_tasks", 0),
                 validated_factors=result.get("successful_tasks", 0),
                 added_factors=result.get("successful_tasks", 0),
-                metadata={
-                    "factor_ids": factor_ids,
-                    "node_id": node_id,
-                    "evolution_summary": result,
-                },
+                metadata=metadata,
             )
 
         except Exception as e:
@@ -437,17 +446,20 @@ class MiningOrchestrationMixin:
 
             factor_ids = result.get("factor_ids", [])
             result_status = result.get("status", "degraded")
+            metadata = {
+                "factor_ids": factor_ids,
+                "node_id": node_id,
+                "evolution_summary": result,
+            }
+            if result.get("factor_errors"):
+                metadata["factor_errors"] = result["factor_errors"]
             return ActionResult(
                 action="crossover",
                 status=result_status,
                 generated_factors=result.get("successful_tasks", 0),
                 validated_factors=result.get("successful_tasks", 0),
                 added_factors=result.get("successful_tasks", 0),
-                metadata={
-                    "factor_ids": factor_ids,
-                    "node_id": node_id,
-                    "evolution_summary": result,
-                },
+                metadata=metadata,
             )
 
         except Exception as e:
@@ -457,6 +469,126 @@ class MiningOrchestrationMixin:
                 status="error",
                 error=str(e),
             )
+
+    def _maybe_apply_inline_correction(self, action_result: "ActionResult", context) -> None:
+        """Merge one inline correction attempt into an action result when available."""
+
+        factor_errors = action_result.metadata.get("factor_errors", [])
+        if not factor_errors or getattr(self, "_llm_correct_provider", None) is None:
+            return
+
+        correction_result = self._execute_llm_correct_action(
+            {
+                "factor_errors": factor_errors,
+                "cycle_id": context.cycle_id,
+                "step_index": context.step_index,
+                "source_action": action_result.action,
+            },
+            "llm_correct",
+        )
+        action_result.metadata["correction_result"] = {
+            **correction_result.metadata,
+            "status": correction_result.status,
+        }
+        if correction_result.added_factors <= 0:
+            return
+
+        action_result.generated_factors += correction_result.generated_factors
+        action_result.validated_factors += correction_result.validated_factors
+        action_result.added_factors += correction_result.added_factors
+        action_result.status = "success"
+
+        corrected_ids = correction_result.metadata.get("factor_ids", [])
+        if corrected_ids:
+            factor_ids = list(action_result.metadata.get("factor_ids", []) or [])
+            factor_ids.extend(corrected_ids)
+            action_result.metadata["factor_ids"] = factor_ids
+
+    def _execute_llm_correct_action(self, params: dict, node_id: str) -> "ActionResult":
+        from quantaalpha.continuous.orchestration import ActionResult
+
+        factor_errors = params.get("factor_errors", []) or []
+        if not factor_errors:
+            return ActionResult(action="llm_correct", status="no_errors")
+
+        provider = getattr(self, "_llm_correct_provider", None)
+        if provider is None:
+            return ActionResult(action="llm_correct", status="no_provider")
+
+        correction_context = {
+            "cycle_id": params.get("cycle_id", ""),
+            "step_index": params.get("step_index", 0),
+            "source_action": params.get("source_action", ""),
+            "max_attempts": 1,
+        }
+        try:
+            corrected = provider.correct(factor_errors, correction_context)
+        except Exception as exc:
+            logger.warning(f"llm_correct on node '{node_id}': provider failed: {exc}")
+            return ActionResult(
+                action="llm_correct",
+                status="error",
+                error=str(exc),
+                metadata={"factor_errors": factor_errors, "error": str(exc)},
+            )
+
+        corrected_candidates = self._normalize_corrected_candidates(corrected)
+        if not corrected_candidates:
+            return ActionResult(
+                action="llm_correct",
+                status="malformed",
+                metadata={"factor_errors": factor_errors},
+            )
+
+        validated = self._validate_corrected_factors(corrected_candidates)
+        factor_ids = [factor.get("factor_id") for factor in validated if factor.get("factor_id")]
+        return ActionResult(
+            action="llm_correct",
+            status="success" if validated else "no_corrections",
+            generated_factors=len(corrected_candidates),
+            validated_factors=len(validated),
+            added_factors=len(validated),
+            metadata={
+                "factor_errors": factor_errors,
+                "factor_ids": factor_ids,
+                "corrected_expressions": [
+                    factor.get("factor_expression", "") for factor in validated
+                ],
+            },
+        )
+
+    def _normalize_corrected_candidates(self, corrected) -> list[dict]:
+        if corrected is None:
+            return []
+        if isinstance(corrected, (str, dict)):
+            corrected = [corrected]
+        if not isinstance(corrected, list):
+            return []
+
+        candidates = []
+        for item in corrected:
+            if isinstance(item, str):
+                expression = item.strip()
+                raw = {"factor_expression": expression}
+            elif isinstance(item, dict):
+                expression = str(item.get("factor_expression") or item.get("expression") or "").strip()
+                raw = {**item, "factor_expression": expression}
+            else:
+                continue
+            if not expression:
+                continue
+            candidates.append(self._normalize_factor_entry(raw))
+        return candidates
+
+    def _validate_corrected_factors(self, corrected_candidates: list[dict]) -> list[dict]:
+        validated = []
+        for factor in corrected_candidates:
+            factor_id = factor.get("factor_id") or self._generate_mutated_factor_id("corrected", factor.get("factor_expression", ""))
+            factor["factor_id"] = factor_id
+            validation_result = self._validate_factor(factor_id, factor)
+            if validation_result and validation_result.get("status") == "success":
+                validated.append(factor)
+        return validated
 
     def _execute_llm_advisor(
         self,

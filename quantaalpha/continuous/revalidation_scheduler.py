@@ -3,6 +3,13 @@ from __future__ import annotations
 import json
 import re
 
+from .expression_quality import (
+    build_factor_error,
+    iter_call_args,
+    operator_arity_warning,
+    split_top_level_args,
+    unsupported_translation_warning,
+)
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
 
@@ -274,6 +281,15 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             arity_warning = self._operator_arity_warning(translated_expression)
             if arity_warning:
                 logger.warning(f"Factor {factor_id} has invalid expression arity after translation: {arity_warning}")
+                self._last_factor_errors = [
+                    build_factor_error(
+                        factor_id=factor_id,
+                        expression=expression,
+                        error_type="arity",
+                        error_message=arity_warning,
+                        source="revalidation",
+                    )
+                ]
                 self._record_performance_history(
                     factor_id=factor_id,
                     factor_entry=factor_entry,
@@ -391,10 +407,7 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
             return False
 
     def _unsupported_translation_warning(self, translation_warnings: list[str]) -> Optional[str]:
-        for warning in translation_warnings:
-            if "不支持的功能" in warning or "unsupported" in warning.lower():
-                return warning
-        return None
+        return unsupported_translation_warning(translation_warnings)
 
     def _backtest_budget_warning(self, translated_expression: str) -> Optional[str]:
         if self._per_factor_timeout_seconds <= 0:
@@ -413,108 +426,13 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         )
 
     def _operator_arity_warning(self, translated_expression: str) -> Optional[str]:
-        required_args = {
-            "ts_corr": 3,
-            "ts_cov": 3,
-            "ts_regresi": 3,
-            "ts_regbeta": 3,
-            "ts_slope": 3,
-            "ts_resi": 2,
-            "ts_delay": 2,
-            "ts_delta": 2,
-            "ts_mean": 2,
-            "ts_std": 2,
-            "ts_var": 2,
-            "ts_sum": 2,
-            "ts_quantile": 3,
-            "cs_mean": 1,
-            "cs_std": 1,
-            "cs_rank": 1,
-            "cs_skew": 1,
-            "cs_kurt": 1,
-            "cs_median": 1,
-            "cs_sum": 1,
-            "cs_scale": 1,
-        }
-        for operator, expected in required_args.items():
-            for args in self._iter_call_args(translated_expression, operator):
-                if len(args) != expected:
-                    return f"{operator} expects {expected} arguments, got {len(args)}"
-        integer_window_args = {
-            "ts_corr": [2],
-            "ts_cov": [2],
-            "ts_regresi": [2],
-            "ts_regbeta": [2],
-            "ts_resi": [1],
-            "ts_delay": [1],
-            "ts_delta": [1],
-            "ts_mean": [1],
-            "ts_std": [1],
-            "ts_var": [1],
-            "ts_sum": [1],
-            "ts_quantile": [1],
-        }
-        for operator, arg_positions in integer_window_args.items():
-            for args in self._iter_call_args(translated_expression, operator):
-                for arg_position in arg_positions:
-                    if len(args) <= arg_position:
-                        continue
-                    value = args[arg_position].strip()
-                    if not re.fullmatch(r"-?\d+", value):
-                        return (
-                            f"{operator} expects integer window argument "
-                            f"at position {arg_position + 1}, got {value}"
-                        )
-        return None
+        return operator_arity_warning(translated_expression)
 
     def _iter_call_args(self, expression: str, operator: str) -> list[list[str]]:
-        calls: list[list[str]] = []
-        needle = f"{operator}("
-        start = 0
-        while True:
-            idx = expression.find(needle, start)
-            if idx < 0:
-                break
-            args_start = idx + len(needle)
-            depth = 1
-            pos = args_start
-            while pos < len(expression) and depth > 0:
-                char = expression[pos]
-                if char == "(":
-                    depth += 1
-                elif char == ")":
-                    depth -= 1
-                pos += 1
-            if depth != 0:
-                calls.append([])
-                start = args_start
-                continue
-            calls.append(self._split_top_level_args(expression[args_start : pos - 1]))
-            start = pos
-        return calls
+        return iter_call_args(expression, operator)
 
     def _split_top_level_args(self, args_text: str) -> list[str]:
-        args: list[str] = []
-        depth = 0
-        current: list[str] = []
-        for char in args_text:
-            if char == "(":
-                depth += 1
-                current.append(char)
-            elif char == ")":
-                depth -= 1
-                current.append(char)
-            elif char == "," and depth == 0:
-                arg = "".join(current).strip()
-                if arg:
-                    args.append(arg)
-                current = []
-            else:
-                current.append(char)
-        arg = "".join(current).strip()
-        if arg:
-            args.append(arg)
-        return args
+        return split_top_level_args(args_text)
 
     def _log_revalidation_metrics(self, factor_id: str, ic_result: object | None) -> None:
         if ic_result is None:

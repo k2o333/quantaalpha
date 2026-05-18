@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from .expression_quality import build_factor_error, operator_arity_warning
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
 
 
 class MiningGenerationMixin:
     """Responsibility slice for DefaultMiningScheduler."""
+
+    def get_last_factor_errors(self) -> list[dict]:
+        return list(getattr(self, "_last_factor_errors", []) or [])
+
+    def _set_last_factor_errors(self, errors: list[dict]) -> None:
+        self._last_factor_errors = list(errors or [])
 
     def _retrieve_context(self) -> str:
         """
@@ -121,7 +128,7 @@ class MiningGenerationMixin:
             return ""
         except Exception as e:
             logger.warning(f"Context retrieval failed: {e}")
-            return ""
+            return self._build_fallback_context()
 
     def _build_similarity_query(self) -> str:
         """
@@ -233,6 +240,7 @@ class MiningGenerationMixin:
             - evaluation: initial evaluation dict with status
         """
         logger.info("Generating new factors")
+        self._set_last_factor_errors([])
 
         generated_factors = []
 
@@ -273,6 +281,7 @@ class MiningGenerationMixin:
 
             prompt = self._build_generation_prompt(context)
             retry_feedback = ""
+            accepted: list[dict] = []
 
             for attempt in range(1, 4):
                 user_prompt = prompt
@@ -288,11 +297,16 @@ class MiningGenerationMixin:
 
                 if response:
                     factors = self._parse_llm_response(response)
-                    if factors:
+                    errors = self.get_last_factor_errors()
+                    if factors and not errors:
+                        if accepted:
+                            return (accepted + factors)[: self.max_per_run]
                         return factors
+                    if factors:
+                        accepted.extend(factors)
                     logger.info(f"LLM generation attempt {attempt}/3 produced no valid factors")
-                    retry_feedback = self._build_generation_retry_feedback(response, attempt)
-            return []
+                    retry_feedback = self._build_generation_retry_feedback(response, attempt, errors)
+            return accepted[: self.max_per_run]
 
         except ImportError:
             logger.info("LLM client not available")
@@ -325,15 +339,24 @@ class MiningGenerationMixin:
         ]
         return "\n".join(prompt_parts)
 
-    def _build_generation_retry_feedback(self, response: str, attempt: int) -> str:
+    def _build_generation_retry_feedback(self, response: str, attempt: int, errors: list[dict] | None = None) -> str:
         """Build bounded feedback for a failed continuous LLM generation attempt."""
         excerpt = str(response or "").replace("\n", " ")[:500]
-        return (
+        base = (
             f"Previous LLM response produced no valid factors on attempt {attempt}/3. "
             "Return only a JSON array with valid factor_expression values. "
             "Check operator argument counts exactly; cs_ operators take one argument. "
             f"Previous response excerpt: {excerpt}"
         )
+        if not errors:
+            return base
+        details = []
+        for idx, error in enumerate(errors, 1):
+            details.append(
+                f"{idx}. {error.get('error_type')}: {error.get('error_message')} "
+                f"expr={error.get('expression')}"
+            )
+        return base + "\n\n--- Correction History ---\n" + "\n".join(details)
 
     def _parse_llm_response(self, response: str) -> list[dict]:
         """Parse LLM response into factor dicts."""
@@ -341,6 +364,7 @@ class MiningGenerationMixin:
         import re
 
         factors = []
+        factor_errors = []
 
         try:
             # Try direct JSON parsing
@@ -356,11 +380,40 @@ class MiningGenerationMixin:
                             expr = factor.get("factor_expression", "")
                             if expr and not self._is_parsable(expr):
                                 logger.info(f"Skipping unparsable LLM factor: {expr[:80]}")
+                                factor_errors.append(
+                                    build_factor_error(
+                                        expression=expr,
+                                        error_type="parse",
+                                        error_message=f"Expression is not parsable: {expr[:80]}",
+                                        source="llm_generation",
+                                    )
+                                )
+                                continue
+                            arity_warning = operator_arity_warning(expr)
+                            if arity_warning:
+                                logger.info(f"Skipping invalid-arity LLM factor: {expr[:80]} ({arity_warning})")
+                                factor_errors.append(
+                                    build_factor_error(
+                                        expression=expr,
+                                        error_type="arity",
+                                        error_message=arity_warning,
+                                        source="llm_generation",
+                                    )
+                                )
                                 continue
                             factors.append(factor)
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Failed to parse LLM response as JSON: {e}")
+            factor_errors.append(
+                build_factor_error(
+                    expression=str(response or "")[:500],
+                    error_type="parse",
+                    error_message=f"Failed to parse LLM response as JSON: {e}",
+                    source="llm_generation",
+                )
+            )
 
+        self._set_last_factor_errors(factor_errors)
         return factors
 
     def _generate_via_mutation(self) -> list[dict]:
@@ -375,6 +428,7 @@ class MiningGenerationMixin:
             List of mutated factor dicts.
         """
         try:
+            self._set_last_factor_errors([])
             if getattr(self, "library_backend", "json") == "parquet":
                 from quantaalpha.factors.factor_store_facade import FactorStoreFacade
 
@@ -425,6 +479,17 @@ class MiningGenerationMixin:
                         # Filter through is_parsable to ensure syntactic validity
                         if not self._is_parsable(mutated_expr):
                             logger.info(f"Mutation unparsable, skipping: {mutated_expr[:80]}")
+                            factor_errors = getattr(self, "_last_factor_errors", []) or []
+                            factor_errors.append(
+                                build_factor_error(
+                                    expression=mutated_expr,
+                                    error_type="parse",
+                                    error_message=f"Mutation expression is not parsable: {mutated_expr[:80]}",
+                                    source="mutation",
+                                    factor_id=template.get("factor_id"),
+                                )
+                            )
+                            self._set_last_factor_errors(factor_errors)
                             continue
                         # Create factor entry
                         factor_id = self._generate_mutated_factor_id(template.get("factor_id", "unknown"), mutated_expr)

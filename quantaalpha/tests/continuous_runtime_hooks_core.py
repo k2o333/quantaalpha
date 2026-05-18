@@ -440,6 +440,24 @@ class TestValidateFactor:
         assert result["status"] == "failure"
         assert "No expression" in result["summary"]["validation_summary"]
 
+    def test_validate_factor_rejects_invalid_arity_before_executor(self, tmp_path):
+        """Mining validation should fail fast on structural arity errors."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            result = scheduler._validate_factor(
+                "bad_arity",
+                {"factor_id": "bad_arity", "factor_expression": "cs_mean($close, $volume)"},
+            )
+
+        assert result["status"] == "failure"
+        assert "cs_mean expects 1 arguments, got 2" in result["summary"]["validation_summary"]
+        mock_executor_class.assert_not_called()
+
     def test_validate_factor_translates_quantaalpha_expression_before_execution(self, tmp_path):
         """Verify validation translates raw QuantaAlpha expressions before execution."""
         from quantaalpha.continuous.implementations import DefaultMiningScheduler
@@ -1090,3 +1108,78 @@ class TestGeneratedFactorCandidateContract:
         assert "Previous LLM response produced no valid factors" in second_prompt
         assert len(generated) == 1
         assert generated[0]["factor_name"] == "Fixed"
+
+    def test_generate_via_llm_retries_with_specific_arity_feedback(self, tmp_path):
+        """Path 2 should send exact operator arity failures back to the LLM."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path))
+        scheduler._is_parsable = lambda expr: True
+
+        invalid_response = json.dumps(
+            [
+                {
+                    "factor_name": "BrokenArity",
+                    "factor_expression": "cs_mean($close, $volume)",
+                    "tags": {"data_dependency": ["price_volume"]},
+                }
+            ]
+        )
+        valid_response = json.dumps(
+            [
+                {
+                    "factor_name": "FixedArity",
+                    "factor_expression": "cs_mean($close)",
+                    "tags": {"data_dependency": ["price_volume"]},
+                }
+            ]
+        )
+
+        with patch("quantaalpha.llm.client.APIBackend") as mock_backend_class:
+            mock_backend = MagicMock()
+            mock_backend.build_messages_and_create_chat_completion.side_effect = [
+                invalid_response,
+                valid_response,
+            ]
+            mock_backend_class.return_value = mock_backend
+
+            generated = scheduler._generate_via_llm("context")
+
+        assert mock_backend.build_messages_and_create_chat_completion.call_count == 2
+        second_prompt = mock_backend.build_messages_and_create_chat_completion.call_args_list[1].kwargs["user_prompt"]
+        assert "cs_mean expects 1 arguments, got 2" in second_prompt
+        assert "cs_mean($close, $volume)" in second_prompt
+        assert len(generated) == 1
+        assert generated[0]["factor_name"] == "FixedArity"
+
+    def test_parse_llm_response_records_structural_factor_errors(self):
+        """Rejected Path 2 expressions should remain available as structured factor_errors."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        scheduler = DefaultMiningScheduler()
+        scheduler._is_parsable = lambda expr: "invalid @@@" not in expr
+
+        response = json.dumps(
+            [
+                {
+                    "factor_name": "BrokenParse",
+                    "factor_expression": "invalid @@@ broken",
+                    "tags": {"data_dependency": ["price_volume"]},
+                },
+                {
+                    "factor_name": "BrokenArity",
+                    "factor_expression": "cs_mean($close, $volume)",
+                    "tags": {"data_dependency": ["price_volume"]},
+                },
+            ]
+        )
+
+        factors = scheduler._parse_llm_response(response)
+
+        assert factors == []
+        errors = scheduler.get_last_factor_errors()
+        assert [err["error_type"] for err in errors] == ["parse", "arity"]
+        assert errors[0]["expression"] == "invalid @@@ broken"
+        assert errors[1]["expression"] == "cs_mean($close, $volume)"
