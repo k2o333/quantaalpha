@@ -38,6 +38,10 @@ def test_validate_factor_expression_uses_only_admitted_expression_fields() -> No
         validate_factor_expression_against_allowlist("$not_admitted + $daily_basic_turnover_rate", allowlist)
     with pytest.raises(ValueError, match="UNSUPPORTED_FUNCTION"):
         validate_factor_expression_against_allowlist("BADFUNC($daily_basic_turnover_rate)", allowlist)
+    with pytest.raises(ValueError, match="LOOKAHEAD_FUNCTION"):
+        validate_factor_expression_against_allowlist("DELAY($daily_basic_turnover_rate, -1)", allowlist)
+    with pytest.raises(ValueError, match="LOOKAHEAD_FUNCTION"):
+        validate_factor_expression_against_allowlist("Ref($daily_basic_turnover_rate, -2)", allowlist)
 
 
 def test_structured_rejection_feedback_is_prompt_safe() -> None:
@@ -95,6 +99,10 @@ profiles:
   test:
     fields:
       - feature_name: "$daily_basic_turnover_rate"
+        semantic_type: ratio
+        unit: percent
+        scale: 1
+        source_methodology: tushare_daily_basic_turnover_rate
         source_kind: daily_panel
         source_interface: daily_basic
         source_field: turnover_rate
@@ -123,10 +131,12 @@ profiles:
     assert set(capabilities) == {"daily_panel_features"}
     assert capabilities["daily_panel_features"]["fields"] == ["$daily_basic_turnover_rate"]
     assert capabilities["daily_panel_features"]["layer"] == "daily_panel"
+    assert capabilities["daily_panel_features"]["field_metadata"]["$daily_basic_turnover_rate"]["unit"] == "percent"
     assert "storage_kind" not in capabilities["daily_panel_features"]
     rendered = render_data_capabilities(capabilities)
     assert "daily_panel_features" in rendered
     assert "$daily_basic_turnover_rate" in rendered
+    assert "$daily_basic_turnover_rate(unit=percent, scale=1.0, semantic_type=ratio" in rendered
     assert "$share_float_asof" not in rendered
 
 

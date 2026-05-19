@@ -1,3 +1,4 @@
+import gc
 import pickle
 import sys
 from pathlib import Path
@@ -371,13 +372,13 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         workspace_path = exp.experiment_workspace.workspace_path
 
         market_provider = NoQlibMarketDataProvider(noqlib_cfg)
-        market_frame = market_provider.load_market_frame()
-        market = market_frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
         if backend == "vnpy":
             from quantaalpha.backtest.vnpy.expression_engine import VnpyExpressionEngine
 
+            market_frame = market_provider.load_market_frame()
             expression_engine = VnpyExpressionEngine(market_frame)
         else:
+            market = market_provider.load_market_data()
             expression_engine = NoQlibExpressionEngine(market)
         features = self._load_noqlib_template_features(
             config=qlib_cfg,
@@ -385,11 +386,24 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             workspace_path=workspace_path,
         )
         labels = expression_engine.compute_label(noqlib_cfg.get("dataset", {}).get("label", "Ref($close, -2)/Ref($close, -1) - 1"))
+        # Free expression engine — features/labels are computed
+        del expression_engine
+        if backend == "vnpy":
+            del market_frame
+        gc.collect()
         dataset = NoQlibDatasetBuilder(noqlib_cfg).build(features, labels)
+        # Free raw feature/label frames — dataset owns the data now
+        del features, labels
+        gc.collect()
         prediction = NoQlibModelRunner(noqlib_cfg).fit_predict(dataset)
         label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
         metrics = signal_metrics(prediction, label_for_signal)
+        if backend == "vnpy":
+            market = market_provider.load_market_data()
         portfolio_metrics, _daily_report, _positions = NoQlibTopkDropoutBacktester(noqlib_cfg, market).run(prediction)
+        # Free large intermediates after backtest
+        del prediction, dataset, market
+        gc.collect()
         metrics.update(portfolio_metrics)
         result = pd.DataFrame({"value": metrics})
         logger.info(f"{backend} backtesting results: \n{result}")
@@ -403,6 +417,8 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         data_loader_cfg = handler.get("data_loader", {}).get("kwargs", {}).get("config", {})
         label_exprs = data_loader_cfg.get("label", [["Ref($close, -2)/Ref($close, -1) - 1"], ["LABEL0"]])[0]
         runtime_options = dict(getattr(self, "_noqlib_config", {}) or {})
+        if isinstance(runtime_options.get("standard_frame"), dict):
+            runtime_options["standard_frame"] = _market_only_standard_frame_config(runtime_options["standard_frame"])
         noqlib_cfg = {
             "data": {
                 "market": handler.get("instruments", qlib_cfg.get("market", "csi300")),
@@ -598,6 +614,12 @@ def _iter_loader_configs(loader_config: dict) -> list[dict]:
     if class_name.endswith("NestedDataLoader"):
         return list(kwargs.get("dataloader_l", []))
     return [loader_config]
+
+
+def _market_only_standard_frame_config(config: dict) -> dict:
+    """Keep only the standard-frame keys needed to build OHLCV market data."""
+    keep = {"daily_interface", "adjustment", "materialized_cache_root"}
+    return {key: value for key, value in config.items() if key in keep}
 
 
 def _resolve_noqlib_instruments(noqlib_options: dict) -> list[str]:

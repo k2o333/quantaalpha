@@ -60,6 +60,23 @@ def test_shared_polars_kernel_evaluates_canonical_and_aliases() -> None:
     assert result.loc[idx, "rank2"] == pytest.approx(1.0)
 
 
+def test_shared_polars_kernel_accepts_ts_delta_alias() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    kernel = SharedPolarsExpressionKernel(_market(), compat_mode="h5_coder")
+    result = kernel.compute(
+        [
+            {
+                "factor_id": "delta2",
+                "factor_name": "delta2",
+                "factor_expression": "TS_DELTA($close, 2)",
+            }
+        ]
+    )
+
+    assert result.loc[(pd.Timestamp("2020-01-03"), "A"), "delta2"] == pytest.approx(2.0)
+
+
 def test_shared_polars_kernel_evaluates_alpha158_operator_subset() -> None:
     from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
 

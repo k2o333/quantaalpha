@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import re
 import warnings
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -158,7 +159,7 @@ class App5StandardFrameBuilder:
         return (
             frame.with_columns(
                 vwap_expr.fill_null(pl.col("$close")).alias("$vwap"),
-                pl.when(pct.abs() > 1.0).then(pct / 100.0).otherwise(pct).alias("$return"),
+                (pct / 100.0).alias("$return"),
             )
             .select(["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"])
             .unique(subset=["datetime", "instrument"], keep="first", maintain_order=True)
@@ -271,6 +272,8 @@ class App5StandardFrameBuilder:
         )
         source = source.select(select_exprs).unique(subset=["datetime", "instrument"], keep="first", maintain_order=True)
         joined = frame.join(source, on=["datetime", "instrument"], how="left")
+        del source  # Free source DataFrame after join
+        gc.collect()
         for field_item in fields:
             if field_item.missing_policy == "required" and joined.get_column(field_item.feature_name).null_count() > 0:
                 raise ValueError(f"required optional standard-frame field has missing values: {field_item.feature_name}")
@@ -315,6 +318,8 @@ class App5StandardFrameBuilder:
                     joined = self._join_event_window_batch(joined, request, group)
                 elif group[0].source_kind == "canonical_financial_asof":
                     joined = self._join_canonical_financial_asof_batch(joined, request, group)
+                elif group[0].source_kind == "pit_panel_asof":
+                    joined = self._join_pit_panel_asof_batch(joined, request, group)
                 else:
                     raise ValueError(f"unsupported feature-view source_kind: {group[0].source_kind}")
             except Exception as exc:
@@ -338,9 +343,10 @@ class App5StandardFrameBuilder:
         source_fields = list(dict.fromkeys(field.source_field for field in fields))
         source = self.adapter.read(
             source_interface,
-            start_date=request.start_date,
-            end_date=request.end_date,
+            start_date=None,
+            end_date=None,
             columns=["ts_code", effective_date_column, *source_fields],
+            filters=_asof_lte_filters(frame, effective_date_column),
             unique=True,
         )
         max_date = frame.get_column("datetime").max()
@@ -372,21 +378,23 @@ class App5StandardFrameBuilder:
             source_columns.append(amount_column)
         events = self.adapter.read(
             first.source_interface,
-            start_date=request.start_date,
-            end_date=request.end_date,
+            start_date=None,
+            end_date=None,
             columns=list(dict.fromkeys(source_columns)),
+            filters=_event_window_filters(frame, event_date_column, visibility_column, window_days),
             unique=True,
         )
         max_date = frame.get_column("datetime").max()
         if not events.is_empty():
-            events = events.with_columns(
-                _date_expr(event_date_column).alias(event_date_column),
-                _date_expr(visibility_column).alias(visibility_column),
-            )
+            date_exprs = [_date_expr(event_date_column).alias(event_date_column)]
+            if visibility_column != event_date_column:
+                date_exprs.append(_date_expr(visibility_column).alias(visibility_column))
+            events = events.with_columns(date_exprs)
             if max_date is not None:
                 events = events.filter(pl.col(visibility_column) <= max_date)
         calendar = frame.select(pl.col("datetime").cast(pl.Date).alias("trade_date")).unique().sort("trade_date")
         instruments = sorted(frame.get_column("instrument").unique().to_list())
+        # Free events reference after date-filtering — build_event_window_features will own it
         joined = frame
         for field_item in fields:
             prefix = _event_prefix(field_item.feature_name, window_days)
@@ -400,15 +408,19 @@ class App5StandardFrameBuilder:
                 window_days=window_days,
                 prefix=prefix,
             )
-            source_column = field_item.feature_name.lstrip("$")
+            source_column = _event_source_column(field_item.feature_name, window_days, amount_column=amount_column)
             feature_frame = features.select(
                 pl.col("trade_date").cast(pl.Date).alias("datetime"),
                 pl.col("instrument").cast(pl.Utf8),
                 pl.col(source_column).cast(_dtype(field_item.dtype), strict=False).alias(field_item.feature_name),
             )
+            del features  # Free per-field features immediately
             joined = joined.join(feature_frame, on=["datetime", "instrument"], how="left")
+            del feature_frame
             if field_item.missing_policy == "zero":
                 joined = joined.with_columns(pl.col(field_item.feature_name).fill_null(0))
+        del events  # Free events source
+        gc.collect()
         return joined
 
     def _join_canonical_financial_asof_batch(
@@ -417,6 +429,10 @@ class App5StandardFrameBuilder:
         request: StandardFrameRequest,
         fields: Sequence[MiningAdmissionField],
     ) -> pl.DataFrame:
+        # Keep the as-of join in the builder so multiple admitted financial fields
+        # from one canonical table share a single lazy scan and one join to the
+        # standard-frame date/instrument universe. This mirrors the feature-layer
+        # ann_date visibility rule while avoiding per-field reloads.
         table = str(fields[0].payload["canonical_table"])
         table_root = Path(str(fields[0].payload.get("canonical_root") or Path(request.storage_root) / "canonical_app5")) / table
         parquet_files = sorted(path for path in table_root.rglob("*.parquet") if path.is_file())
@@ -467,7 +483,85 @@ class App5StandardFrameBuilder:
                 by="instrument",
                 strategy="backward",
             )
+        del financial  # Free financial source after join
+        gc.collect()
         return self._project_joined_feature_columns(joined.drop("ann_date"), fields).sort(["datetime", "instrument"])
+
+    def _join_pit_panel_asof_batch(
+        self,
+        frame: pl.DataFrame,
+        request: StandardFrameRequest,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        first = fields[0]
+        visibility_column = str(first.payload["visibility_column"])
+        aggregation = str(first.payload.get("aggregation") or "first")
+        if aggregation not in {"first", "sum", "mean", "count"}:
+            raise ValueError(f"unsupported pit_panel_asof aggregation for {first.feature_name}: {aggregation}")
+        source_fields = list(dict.fromkeys(field.source_field for field in fields))
+        source = self.adapter.read(
+            first.source_interface,
+            start_date=None,
+            end_date=None,
+            columns=list(dict.fromkeys(["ts_code", visibility_column, *source_fields])),
+            filters=_asof_lte_filters(frame, visibility_column),
+            unique=True,
+        )
+        if source.is_empty():
+            return frame.with_columns(
+                [
+                    pl.lit(None).cast(_dtype(field.dtype)).alias(field.feature_name)
+                    for field in fields
+                ]
+            )
+        max_date = frame.get_column("datetime").max()
+        source = source.with_columns(
+            pl.col("ts_code").cast(pl.Utf8).alias("instrument"),
+            _date_expr(visibility_column).alias("__visible_date"),
+        ).filter(pl.col("__visible_date").is_not_null())
+        if max_date is not None:
+            source = source.filter(pl.col("__visible_date") <= max_date)
+        if source.is_empty():
+            return frame.with_columns(
+                [
+                    pl.lit(None).cast(_dtype(field.dtype)).alias(field.feature_name)
+                    for field in fields
+                ]
+            )
+        agg_exprs = []
+        for field_item in fields:
+            value = pl.col(field_item.source_field).cast(_dtype(field_item.dtype), strict=False)
+            if aggregation == "sum":
+                expr = value.sum()
+            elif aggregation == "mean":
+                expr = value.mean()
+            elif aggregation == "count":
+                expr = pl.len().cast(_dtype(field_item.dtype))
+            else:
+                expr = value.first()
+            agg_exprs.append(expr.alias(field_item.source_field))
+        pit = (
+            source.group_by(["instrument", "__visible_date"], maintain_order=True)
+            .agg(agg_exprs)
+            .sort(["instrument", "__visible_date"])
+        )
+        left = frame.sort(["instrument", "datetime"])
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Sortedness of columns cannot be checked when 'by' groups provided",
+                category=UserWarning,
+            )
+            joined = left.join_asof(
+                pit,
+                left_on="datetime",
+                right_on="__visible_date",
+                by="instrument",
+                strategy="backward",
+            )
+        del source, pit  # Free source and aggregated pit data after join
+        gc.collect()
+        return self._project_joined_feature_columns(joined.drop("__visible_date"), fields).sort(["datetime", "instrument"])
 
     def _project_joined_feature_columns(
         self,
@@ -539,18 +633,86 @@ def _optional_field_from_mapping(payload: Mapping[str, Any]) -> OptionalStandard
 
 
 def _date_expr(column: str) -> pl.Expr:
-    return pl.col(column).cast(pl.Utf8).str.replace_all(r"\D", "").str.slice(0, 8).str.strptime(pl.Date, "%Y%m%d")
+    digits = pl.col(column).cast(pl.Utf8).str.replace_all(r"\D", "")
+    normalized = (
+        pl.when(digits.str.len_chars() == 6)
+        .then(digits + pl.lit("01"))
+        .otherwise(digits.str.slice(0, 8))
+    )
+    return normalized.str.strptime(pl.Date, "%Y%m%d", strict=False)
+
+
+def _compact_date(value: date | datetime | str | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().strftime("%Y%m%d")
+    if isinstance(value, date):
+        return value.strftime("%Y%m%d")
+    digits = re.sub(r"\D", "", str(value))
+    return digits[:8] if digits else None
+
+
+def _frame_date_bounds(frame: pl.DataFrame) -> tuple[date | None, date | None]:
+    if frame.is_empty() or "datetime" not in frame.columns:
+        return None, None
+    dates = frame.get_column("datetime")
+    return dates.min(), dates.max()
+
+
+def _asof_lte_filters(frame: pl.DataFrame, date_column: str) -> list[tuple[str, str, object]]:
+    _min_date, max_date = _frame_date_bounds(frame)
+    compact_max = _compact_date(max_date)
+    if compact_max is None:
+        return []
+    return [(date_column, "<=", compact_max)]
+
+
+def _event_window_filters(
+    frame: pl.DataFrame,
+    event_date_column: str,
+    visibility_column: str,
+    window_days: int,
+) -> list[tuple[str, str, object]]:
+    min_date, max_date = _frame_date_bounds(frame)
+    compact_max = _compact_date(max_date)
+    if compact_max is None:
+        return []
+    filters: list[tuple[str, str, object]] = [(visibility_column, "<=", compact_max)]
+    if min_date is not None:
+        event_start = min_date - timedelta(days=window_days)
+        compact_start = _compact_date(event_start)
+        if compact_start is not None:
+            filters.append((event_date_column, "between", (compact_start, compact_max)))
+    return filters
 
 
 def _event_prefix(feature_name: str, window_days: int) -> str:
     name = feature_name.lstrip("$")
-    suffixes = (f"_count_{window_days}d", f"_amount_{window_days}d", "_recency_days")
+    suffixes = (
+        f"_count_{window_days}d",
+        f"_amount_{window_days}d",
+        f"_vol_{window_days}d",
+        f"_ratio_{window_days}d",
+        "_recency_days",
+    )
     for suffix in suffixes:
         if name.endswith(suffix):
             return name[: -len(suffix)]
-    match = re.match(r"(.+?)_(count|amount|recency)(?:_\d+d|_days)?$", name)
+    match = re.match(r"(.+?)_(count|amount|vol|ratio|recency)(?:_\d+d|_days)?$", name)
     if match:
         return match.group(1)
+    return name
+
+
+def _event_source_column(feature_name: str, window_days: int, *, amount_column: str | None) -> str:
+    name = feature_name.lstrip("$")
+    if name.endswith(f"_count_{window_days}d"):
+        return name
+    if name.endswith("_recency_days"):
+        return name
+    if amount_column:
+        return f"{_event_prefix(feature_name, window_days)}_amount_{window_days}d"
     return name
 
 

@@ -87,14 +87,19 @@ def _configure_standard_frame_capabilities(
         from quantaalpha.backtest.mining_admission import (
             capabilities_from_mining_admission_profile,
             load_mining_admission_profile,
+            profile_from_standard_frame_config,
         )
 
-        profile_name = str(standard_frame_cfg.get("admission_profile") or "expanded_app5_v1")
-        profile = load_mining_admission_profile(admission_profile_path, profile_name)
-        standard_frame_cfg["admission_profile"] = profile.name
-        standard_frame_cfg["admission_profile_hash"] = profile.version_hash()
-        standard_frame_cfg["admitted_fields"] = [field.identity() for field in profile.fields]
-        standard_frame_cfg.pop("optional_fields", None)
+        if standard_frame_cfg.get("admitted_fields") and standard_frame_cfg.get("admission_profile_hash"):
+            profile = profile_from_standard_frame_config(standard_frame_cfg)
+        else:
+            profile_name = str(standard_frame_cfg.get("admission_profile") or "expanded_app5_v1")
+            resolved_path = _resolve_profile_path(str(admission_profile_path), backtest_noqlib_config)
+            profile = load_mining_admission_profile(resolved_path, profile_name)
+            standard_frame_cfg["admission_profile_path"] = str(resolved_path)
+            standard_frame_cfg["admission_profile"] = profile.name
+            standard_frame_cfg["admission_profile_hash"] = profile.version_hash()
+            standard_frame_cfg["admitted_fields"] = [field.identity() for field in profile.fields]
         backtest_noqlib_config["standard_frame"] = standard_frame_cfg
         data_capabilities = capabilities_from_mining_admission_profile(profile)
         if data_capabilities and "data_capabilities" not in quality_gate_config:
@@ -113,6 +118,16 @@ def _configure_standard_frame_capabilities(
         if data_capabilities and "data_capabilities" not in quality_gate_config:
             quality_gate_config["data_capabilities"] = data_capabilities
         _prepare_standard_frame(backtest_noqlib_config)
+
+
+def _resolve_profile_path(path: str, backtest_noqlib_config: dict) -> Path:
+    profile_path = Path(path).expanduser()
+    if profile_path.is_absolute():
+        return profile_path
+    project_root = backtest_noqlib_config.get("project_root")
+    if project_root:
+        return (Path(str(project_root)).expanduser() / profile_path).resolve()
+    return profile_path.resolve()
 
 
 class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):

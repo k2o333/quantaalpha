@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import time
 from pathlib import Path
@@ -54,17 +55,23 @@ class VnpyBacktestBackend:
             raise ValueError("no factors available for vnpy backtest")
         market_provider = NoQlibMarketDataProvider(self.config)
         market_frame = market_provider.load_market_frame()
-        market = market_frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
         translation_mode = self.config.get("backtest_runtime", {}).get("vnpy", {}).get("expression_translation", "shared_polars")
         expression_engine = VnpyExpressionEngine(market_frame, translation_mode=translation_mode)
         features = expression_engine.compute(factor_defs)
         labels = expression_engine.compute_label(self.config.get("dataset", {}).get("label", "Ref($close, -2) / Ref($close, -1) - 1"))
+        del expression_engine, market_frame
+        gc.collect()
         dataset = VnpyDatasetBuilder(self.config).build(features, labels)
+        del features, labels
+        gc.collect()
         prediction = NoQlibModelRunner(self.config).fit_predict(dataset)
         label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
         signal_metric_values = signal_metrics(prediction, label_for_signal)
         metrics = dict(signal_metric_values)
+        market = market_provider.load_market_data()
         portfolio_metrics, daily_report, positions = NoQlibTopkDropoutBacktester(self.config, market).run(prediction)
+        del prediction, dataset, market
+        gc.collect()
         metrics.update(portfolio_metrics)
         metrics["backend"] = "vnpy"
         metrics["metric_namespaces"] = build_metric_namespaces(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import builtins
 
 import pytest
 
@@ -21,11 +22,15 @@ profiles:
   test:
     base_standard_frame:
       daily_interface: stk_factor_pro
-      adjustment: qfq
+      adjustment: hfq
     fields:
       - feature_name: "$daily_basic_turnover_rate"
         rationale: "liquidity smoke field"
         admitted_by: "FDR-2026-0025"
+        semantic_type: ratio
+        unit: percent
+        scale: 1
+        source_methodology: tushare_daily_basic
         source_kind: daily_panel
         source_interface: daily_basic
         source_field: turnover_rate
@@ -44,6 +49,7 @@ profiles:
     assert profile.fields[0].source_kind == "daily_panel"
     assert profile.fields[0].base.feature_name == "$daily_basic_turnover_rate"
     assert profile.fields[0].rationale == "liquidity smoke field"
+    assert profile.fields[0].semantic_type == "ratio"
     assert profile.daily_panel_optional_fields()[0].source_interface == "daily_basic"
 
 
@@ -59,6 +65,10 @@ profiles:
   test:
     fields:
       - feature_name: "$bad"
+        semantic_type: ratio
+        unit: percent
+        scale: 1
+        source_methodology: invalid_source_kind_test
         source_kind: raw_parquet
         source_interface: daily_basic
         source_field: turnover_rate
@@ -86,6 +96,10 @@ profiles:
   test:
     fields:
       - feature_name: "$bad"
+        semantic_type: count
+        unit: records
+        scale: 1
+        source_methodology: invalid_source_kind_class_test
         source_kind: event_window
         source_interface: daily_basic
         event_date_column: ann_date
@@ -115,6 +129,10 @@ profiles:
   test:
     fields:
       - feature_name: "$share_float_asof"
+        semantic_type: shares
+        unit: shares
+        scale: 1
+        source_methodology: tushare_share_float
         source_kind: dimension_asof
         source_interface: share_float
         source_field: float_share
@@ -128,6 +146,33 @@ profiles:
     )
 
     with pytest.raises(ValueError, match="dimension_asof.*not expression-safe"):
+        load_mining_admission_profile(profile_path, "test")
+
+
+def test_expression_field_requires_semantic_metadata(tmp_path: Path) -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    _write_profile(
+        profile_path,
+        """
+version: 1
+profiles:
+  test:
+    fields:
+      - feature_name: "$daily_basic_turnover_rate"
+        source_kind: daily_panel
+        source_interface: daily_basic
+        source_field: turnover_rate
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: same_trade_date_no_lookahead
+        missing_policy: nan
+        allowed_usage: [expression, backtest_standard_frame]
+""",
+    )
+
+    with pytest.raises(ValueError, match="expression field.*missing semantic metadata.*semantic_type.*unit.*scale.*source_methodology"):
         load_mining_admission_profile(profile_path, "test")
 
 
@@ -145,6 +190,10 @@ profiles:
   test:
     fields:
       - feature_name: "$inc_n_income_attr_p_asof"
+        semantic_type: amount
+        unit: CNY
+        scale: 1
+        source_methodology: canonical_financial_report
         source_kind: canonical_financial_asof
         canonical_table: financial_report
         source_interface: income_vip
@@ -159,6 +208,46 @@ profiles:
 
     with pytest.raises(ValueError, match="canonical registry.*financial_report.*inc_n_income_attr_p"):
         load_mining_admission_profile(profile_path, "test", registry_path=registry_path)
+
+
+def test_canonical_registry_import_failure_has_actionable_message(tmp_path: Path, monkeypatch) -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    _write_profile(
+        profile_path,
+        """
+version: 1
+profiles:
+  test:
+    fields:
+      - feature_name: "$inc_total_revenue_asof"
+        semantic_type: amount
+        unit: CNY
+        scale: 1
+        source_methodology: canonical_financial_report
+        source_kind: canonical_financial_asof
+        canonical_table: financial_report
+        source_interface: income_vip
+        source_field: inc_total_revenue
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: ann_date_asof_no_lookahead
+        missing_policy: nan
+        allowed_usage: [expression]
+""",
+    )
+    real_import = builtins.__import__
+
+    def blocked_import(name, *args, **kwargs):
+        if name == "app5.canonical.registry":
+            raise ImportError("blocked")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+
+    with pytest.raises(ValueError, match="app5 canonical registry is required.*PYTHONPATH"):
+        load_mining_admission_profile(profile_path, "test")
 
 
 def test_standard_frame_request_from_mapping_accepts_admitted_field_dicts() -> None:
@@ -200,6 +289,10 @@ profiles:
   test:
     fields:
       - feature_name: "$daily_basic_turnover_rate"
+        semantic_type: ratio
+        unit: percent
+        scale: 1
+        source_methodology: tushare_daily_basic
         source_kind: daily_panel
         source_interface: daily_basic
         source_field: turnover_rate
@@ -227,4 +320,116 @@ profiles:
     assert report["accepted_fields"] == ["$daily_basic_turnover_rate", "$share_float_asof"]
     assert report["prompt_groups"]["daily_panel_features"] == ["$daily_basic_turnover_rate"]
     assert report["routes"]["$daily_basic_turnover_rate"]["materializer"] == "_join_daily_panel_batch"
+    assert report["routes"]["$daily_basic_turnover_rate"]["semantic_type"] == "ratio"
     assert report["routes"]["$share_float_asof"]["prompt_visible"] is False
+
+
+def test_production_expanded_profile_exposes_audited_expression_interfaces() -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+    profile = load_mining_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+
+    expression_fields = [field for field in profile.fields if "expression" in field.allowed_usage]
+    expression_interfaces = {field.source_interface for field in expression_fields}
+
+    assert len(expression_interfaces) == 24
+    assert "stock_basic" not in expression_interfaces
+    assert "trade_cal" not in expression_interfaces
+    assert "index_weight" not in expression_interfaces
+    assert "daily" not in expression_interfaces
+    assert "pledge_stat" not in expression_interfaces
+    assert "disclosure_date" not in expression_interfaces
+
+
+def test_production_expanded_profile_has_expression_field_semantics() -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+    profile = load_mining_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+    fields_by_name = {field.feature_name: field for field in profile.fields}
+    expression_fields = [field for field in profile.fields if "expression" in field.allowed_usage]
+    expression_names = {field.feature_name for field in expression_fields}
+
+    assert "$daily_pct_chg" not in expression_names
+    assert "$pledge_stat_amount_180d" not in fields_by_name
+    assert "$pledge_stat_ratio_180d" in fields_by_name
+    assert fields_by_name["$pledge_stat_ratio_180d"].allowed_usage == ("context", "backtest_standard_frame")
+    assert "$new_share_amount_180d" not in fields_by_name
+    assert "$new_share_vol_180d" in expression_names
+    assert "$pledge_detail_amount_180d" not in fields_by_name
+    assert "$pledge_detail_vol_180d" in expression_names
+    assert "$stk_holdertrade_amount_180d" not in fields_by_name
+    assert "$stk_holdertrade_vol_180d" in expression_names
+
+    for field in expression_fields:
+        assert field.semantic_type
+        assert field.unit
+        assert field.scale is not None
+        assert field.source_methodology
+
+
+def test_real_hfq_expanded_profile_smoke_materializes_small_frame() -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    storage_root = Path("/home/quan/testdata/aspipe_v4/data")
+    if not (storage_root / "stk_factor_pro" / "clean" / "active").exists():
+        pytest.skip("local App5 real data is not available")
+    profile = load_mining_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+
+    result = App5StandardFrameBuilder(storage_root=storage_root).build(
+        StandardFrameRequest(
+            start_date="20240102",
+            end_date="20240110",
+            instruments=("000001.SZ",),
+            daily_interface="stk_factor_pro",
+            adjustment="hfq",
+            admitted_fields=profile.fields,
+            storage_root=str(storage_root),
+        )
+    )
+
+    assert result.frame.height > 0
+    assert result.manifest["standard_frame"]["adjustment"] == "hfq"
+    assert "$inc_total_revenue_asof" in result.frame.columns
+    assert "$repurchase_count_30d" in result.frame.columns
+    assert "$share_float_asof" in result.frame.columns
+
+
+def test_mining_admission_profile_can_be_rebuilt_from_standard_frame_config() -> None:
+    from quantaalpha.backtest.mining_admission import profile_from_standard_frame_config
+
+    profile = profile_from_standard_frame_config(
+        {
+            "admission_profile": "mini",
+            "admission_profile_hash": "sha256:test",
+            "admitted_fields": [
+                {
+                    "base": {
+                        "source_interface": "daily_basic",
+                        "source_field": "pe",
+                        "feature_name": "$daily_basic_pe",
+                        "dtype": "float64",
+                        "join_key": ["datetime", "instrument"],
+                        "time_policy": "same_trade_date_no_lookahead",
+                        "missing_policy": "nan",
+                        "allowed_usage": ["expression", "backtest_standard_frame"],
+                    },
+                    "source_kind": "daily_panel",
+                    "payload": {"source_interface": "daily_basic", "source_field": "pe"},
+                }
+            ],
+        }
+    )
+
+    assert profile.name == "mini"
+    assert profile.version_hash() == "sha256:test"
+    assert profile.expression_feature_names() == ("$daily_basic_pe",)

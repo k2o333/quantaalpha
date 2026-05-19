@@ -24,6 +24,10 @@ profiles:
       adjustment: raw
     fields:
       - feature_name: "$daily_basic_turnover_rate"
+        semantic_type: ratio
+        unit: percent
+        scale: 1
+        source_methodology: tushare_daily_basic
         source_kind: daily_panel
         source_interface: daily_basic
         source_field: turnover_rate

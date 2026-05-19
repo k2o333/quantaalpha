@@ -26,7 +26,9 @@ class NoQlibMarketDataProvider:
     def load_market_data(self) -> pd.DataFrame:
         """返回 qlib 风格 `(datetime, instrument)` MultiIndex DataFrame。"""
         frame = self.load_market_frame()
-        return frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
+        result = frame.to_pandas()
+        del frame  # Free Polars copy before Pandas index operations
+        return result.set_index(["datetime", "instrument"]).sort_index()
 
     def load_market_frame(self) -> pl.DataFrame:
         """返回标准 market frame，内部读取与标准化保持 polars 路径。"""
@@ -140,11 +142,11 @@ class NoQlibMarketDataProvider:
             )
         if "$return" in frame.columns and "pct_chg" in frame.columns:
             pct = pl.col("pct_chg").cast(pl.Float64)
-            pct_ret = pl.when(pct.abs() > 1.0).then(pct / 100.0).otherwise(pct)
+            pct_ret = pct / 100.0
             ret_expr = pl.coalesce([pl.col("$return").cast(pl.Float64), pct_ret, pl.lit(0.0)])
         elif "pct_chg" in frame.columns:
             pct = pl.col("pct_chg").cast(pl.Float64).fill_null(0.0)
-            ret_expr = pl.when(pct.abs() > 1.0).then(pct / 100.0).otherwise(pct)
+            ret_expr = pct / 100.0
         elif "$return" in frame.columns:
             ret_expr = pl.col("$return").cast(pl.Float64).fill_null(0.0)
         else:

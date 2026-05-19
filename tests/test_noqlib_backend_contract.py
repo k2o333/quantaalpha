@@ -95,6 +95,29 @@ def test_noqlib_risk_metrics_matches_qlib_risk_analysis():
     )
 
 
+def test_noqlib_market_data_provider_treats_pct_chg_as_percent() -> None:
+    from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
+
+    frame = pl.DataFrame(
+        {
+            "trade_date": ["20240102", "20240103", "20240104"],
+            "ts_code": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "open": [10.0, 10.1, 10.2],
+            "high": [10.3, 10.4, 10.5],
+            "low": [9.9, 10.0, 10.1],
+            "close": [10.1, 10.2, 10.3],
+            "vol": [1000.0, 1000.0, 1000.0],
+            "amount": [1010.0, 1020.0, 1030.0],
+            "pct_chg": [0.56, -0.85, 1.2],
+        }
+    )
+    provider = NoQlibMarketDataProvider({"backtest_runtime": {"noqlib": {}}})
+
+    normalized = provider._normalize_frame(frame)
+
+    assert normalized.get_column("$return").to_list() == pytest.approx([0.0056, -0.0085, 0.012])
+
+
 def test_noqlib_backend_runs_tiny_csv_without_qlib(tmp_path, monkeypatch):
     from quantaalpha.backtest.facade import BacktestFacade
 

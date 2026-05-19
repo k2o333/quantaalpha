@@ -155,7 +155,7 @@ def normalize_capability_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     }
 
     # Pass through semantic keys
-    for key in ("mode", "layer", "is_auxiliary"):
+    for key in ("mode", "layer", "is_auxiliary", "field_metadata"):
         if key in spec:
             normalized[key] = spec[key]
 
@@ -302,6 +302,7 @@ def render_data_capabilities(capabilities: Mapping[str, Mapping[str, Any]] | Non
         join_mode = spec.get("join_mode", DEFAULT_CAPABILITY_SPEC["join_mode"])
         hints = ", ".join(spec.get("factor_hints", [])) or "general research"
         layer = spec.get("layer")
+        field_metadata = spec.get("field_metadata") or {}
         storage_kind = spec.get("storage_kind")
         storage_path = spec.get("storage_path")
         versioned = spec.get("versioned")
@@ -311,6 +312,28 @@ def render_data_capabilities(capabilities: Mapping[str, Mapping[str, Any]] | Non
         ]
         if layer is not None:
             parts.append(f"  layer={layer}")
+        if isinstance(field_metadata, Mapping) and field_metadata:
+            rendered_metadata = []
+            for field_name in sorted(field_metadata):
+                metadata = field_metadata[field_name]
+                if not isinstance(metadata, Mapping):
+                    continue
+                unit = metadata.get("unit")
+                scale = metadata.get("scale")
+                semantic_type = metadata.get("semantic_type")
+                source_methodology = metadata.get("source_methodology")
+                duplicate_of = metadata.get("duplicate_of")
+                field_parts = [
+                    f"unit={unit}",
+                    f"scale={scale}",
+                    f"semantic_type={semantic_type}",
+                    f"source_methodology={source_methodology}",
+                ]
+                if duplicate_of:
+                    field_parts.append(f"duplicate_of={duplicate_of}")
+                rendered_metadata.append(f"{field_name}({', '.join(field_parts)})")
+            if rendered_metadata:
+                parts.append(f"  field_metadata={'; '.join(rendered_metadata)}")
         if storage_kind is not None:
             parts.append(f"  storage_kind={storage_kind}")
         if storage_path is not None:

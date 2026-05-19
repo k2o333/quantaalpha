@@ -64,7 +64,7 @@ def test_expanded_data_uat_profile_adds_admitted_optional_fields() -> None:
     assert config.cycle_budget_seconds == 900
     assert config.validation.max_revalidation_per_run == 0
     assert standard_frame["admission_profile"] == "expanded-data"
-    assert config.factor.backtest_noqlib["factor_coder_runtime"] == "dual_h5_parquet"
+    assert config.factor.backtest_noqlib["factor_coder_runtime"] == "polars_parquet"
     assert len(standard_frame["optional_fields"]) >= 3
     assert "$daily_basic_turnover_rate" in {item["feature_name"] for item in standard_frame["optional_fields"]}
     assert config.mining.agent_loop.step_model_routing["construct"] == "litellm_mistral"
@@ -82,6 +82,10 @@ profiles:
   mini:
     fields:
       - feature_name: "$daily_basic_pe"
+        semantic_type: valuation_ratio
+        unit: ratio
+        scale: 1
+        source_methodology: tushare_daily_basic
         source_kind: daily_panel
         source_interface: daily_basic
         source_field: pe
@@ -116,6 +120,7 @@ profiles:
     _apply_uat_profile(config, "expanded-data")
 
     standard_frame = config.factor.backtest_noqlib["standard_frame"]
+    assert config.factor.backtest_noqlib["factor_coder_runtime"] == "polars_parquet"
     assert "optional_fields" not in standard_frame
     assert [item["base"]["feature_name"] for item in standard_frame["admitted_fields"]] == ["$daily_basic_pe"]
     assert standard_frame["admission_profile"] == "mini"
@@ -132,6 +137,10 @@ profiles:
   mini:
     fields:
       - feature_name: "$daily_basic_pe"
+        semantic_type: valuation_ratio
+        unit: ratio
+        scale: 1
+        source_methodology: tushare_daily_basic
         source_kind: daily_panel
         source_interface: daily_basic
         source_field: pe

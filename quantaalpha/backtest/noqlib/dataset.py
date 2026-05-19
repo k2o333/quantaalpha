@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,22 +47,20 @@ class NoQlibDatasetBuilder:
         label_column = "LABEL0"
         features.columns = feature_columns
         labels.columns = [label_column]
-        infer_features = features.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        infer_features = _cross_section_rank_norm(infer_features)
-        combined = pd.concat([infer_features, labels], axis=1)
+        raw_labels = labels[label_column].copy().sort_index()
+        combined = pd.concat([features, labels], axis=1)
+        del features, labels
+        gc.collect()
+        combined[feature_columns] = combined[feature_columns].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        combined[feature_columns] = _cross_section_rank_norm(combined[feature_columns])
         combined[[label_column]] = _cross_section_rank_norm(combined[[label_column]])
-
-        learn_combined = pd.concat([features, labels], axis=1).dropna(subset=[label_column])
-        learn_combined[feature_columns] = learn_combined[feature_columns].replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        learn_combined[feature_columns] = _cross_section_rank_norm(learn_combined[feature_columns])
-        learn_combined[[label_column]] = _cross_section_rank_norm(learn_combined[[label_column]])
         return NoQlibDataset(
             combined=combined.sort_index(),
             feature_columns=feature_columns,
             label_column=label_column,
             segments=_segments(self.config),
-            learn_combined=learn_combined.sort_index(),
-            raw_labels=labels[label_column].sort_index(),
+            learn_combined=None,
+            raw_labels=raw_labels,
         )
 
 

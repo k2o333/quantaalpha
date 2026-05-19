@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import re
 import shutil
 import sys
@@ -113,6 +114,11 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
 
     marker_path = data_root / ".standard_frame_source.json"
     required_columns = sorted(str(item["feature_name"]) for item in optional_fields if isinstance(item, dict) and item.get("feature_name"))
+    coder_runtime = str(
+        noqlib_config.get("factor_coder_runtime")
+        or os.environ.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "")
+    ).strip().lower()
+    need_h5_oracle = coder_runtime not in {"parquet_only", "parquet"}
     if marker_path.exists():
         try:
             marker = json.loads(marker_path.read_text(encoding="utf-8"))
@@ -120,14 +126,18 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
             all_targets_ready = True
             for candidate_data_root, candidate_debug_root in zip(data_roots, debug_roots):
                 if (
-                    not (candidate_data_root / "daily_pv.h5").exists()
-                    or not (candidate_debug_root / "daily_pv.h5").exists()
-                    or not (candidate_data_root / "standard_frame.parquet").exists()
+                    not (candidate_data_root / "standard_frame.parquet").exists()
                     or not (candidate_debug_root / "standard_frame.parquet").exists()
                 ):
                     all_targets_ready = False
                     break
-                if not set(required_columns).issubset(pd.read_hdf(candidate_debug_root / "daily_pv.h5", key="data", stop=1).columns):
+                if need_h5_oracle and (
+                    not (candidate_data_root / "daily_pv.h5").exists()
+                    or not (candidate_debug_root / "daily_pv.h5").exists()
+                ):
+                    all_targets_ready = False
+                    break
+                if need_h5_oracle and not set(required_columns).issubset(pd.read_hdf(candidate_debug_root / "daily_pv.h5", key="data", stop=1).columns):
                     all_targets_ready = False
                     break
             if (
@@ -140,19 +150,25 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
             pass
 
     result = App5StandardFrameBuilder(storage_root=storage_root).build(request)
+    source_manifest = result.manifest
     frame = result.frame.sort(["datetime", "instrument"])
+    del result
     if frame.is_empty():
         raise ValueError("standard-frame coder data source is empty")
 
-    def _write_runtime_data(target_root: Path, source_frame) -> None:
+    # Only write H5 oracle when the coder runtime needs it (saves a full
+    # Polars→Pandas conversion per write — up to ~4 GB for large frames).
+    import gc as _gc
+
+    def _write_runtime_data(target_root: Path, source_frame, *, write_h5: bool) -> None:
         from quantaalpha.factors.coder.runtime_data import write_standard_frame_runtime_data
 
         target_root.mkdir(parents=True, exist_ok=True)
         write_standard_frame_runtime_data(
             frame=source_frame,
             target_root=target_root,
-            source_manifest=result.manifest,
-            write_h5_oracle=True,
+            source_manifest=source_manifest,
+            write_h5_oracle=write_h5,
         )
         (target_root / "README.md").write_text(
             "# How to read files.\n"
@@ -165,19 +181,46 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
             encoding="utf-8",
         )
 
+    def _copy_runtime_artifacts(primary_root: Path, target_root: Path) -> None:
+        """Copy already-written artifacts instead of re-materializing the frame."""
+        target_root.mkdir(parents=True, exist_ok=True)
+        for filename in ("standard_frame.parquet", "standard_frame_manifest.json", "daily_pv.h5", "README.md"):
+            src = primary_root / filename
+            dst = target_root / filename
+            if src.exists() and not dst.exists():
+                shutil.copy2(str(src), str(dst))
+            elif src.exists() and dst.exists() and src.stat().st_mtime > dst.stat().st_mtime:
+                shutil.copy2(str(src), str(dst))
+
     debug_frame = frame.head(min(frame.height, 100_000))
-    for target_root in data_roots:
-        _write_runtime_data(target_root, frame)
-    for target_root in debug_roots:
-        _write_runtime_data(target_root, debug_frame)
+    row_count = frame.height
+    columns = frame.columns
+
+    # Write primary roots, copy to secondary roots to avoid repeat materialization.
+    data_roots_list = list(data_roots)
+    if data_roots_list:
+        _write_runtime_data(data_roots_list[0], frame, write_h5=need_h5_oracle)
+        for secondary_root in data_roots_list[1:]:
+            _copy_runtime_artifacts(data_roots_list[0], secondary_root)
+
+    debug_roots_list = list(debug_roots)
+    if debug_roots_list:
+        _write_runtime_data(debug_roots_list[0], debug_frame, write_h5=need_h5_oracle)
+        for secondary_root in debug_roots_list[1:]:
+            _copy_runtime_artifacts(debug_roots_list[0], secondary_root)
+
+    # Free large frames explicitly before writing the marker
+    del debug_frame, frame
+    _gc.collect()
+
     marker_payload = {
         "request_hash": request_hash,
-        "rows": frame.height,
-        "columns": frame.columns,
-        "manifest": result.manifest,
+        "rows": row_count,
+        "columns": columns,
+        "manifest": source_manifest,
     }
     marker_path.write_text(json.dumps(marker_payload, ensure_ascii=True, indent=2, sort_keys=True, default=str), encoding="utf-8")
-    logger.info(f"Materialized factor coder data from App5 standard frame: rows={frame.height} columns={frame.columns} data_root={data_root}")
+    logger.info(f"Materialized factor coder data from App5 standard frame: rows={row_count} columns={columns} data_root={data_root}")
     return True
 
 

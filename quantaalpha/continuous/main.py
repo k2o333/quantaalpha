@@ -738,7 +738,7 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
             backtest_noqlib = {}
             setattr(factor_config, "backtest_noqlib", backtest_noqlib)
     backtest_noqlib["market_data_source"] = "app5_standard_frame"
-    backtest_noqlib["factor_coder_runtime"] = "dual_h5_parquet"
+    backtest_noqlib["factor_coder_runtime"] = "polars_parquet"
     standard_frame = backtest_noqlib.setdefault("standard_frame", {})
     admission_profile_path = standard_frame.get("admission_profile_path")
     if admission_profile_path:
@@ -747,7 +747,6 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
         standard_frame["admission_profile"] = profile.name
         standard_frame["admission_profile_hash"] = profile.version_hash()
         standard_frame["admitted_fields"] = [field.identity() for field in profile.fields]
-        standard_frame.pop("optional_fields", None)
     else:
         allowlist = build_default_daily_panel_allowlist()
         standard_frame["admission_profile"] = "expanded-data"

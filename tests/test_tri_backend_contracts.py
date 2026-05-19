@@ -227,6 +227,10 @@ def test_app5_standard_frame_builder_materializes_manifest(tmp_path: Path) -> No
     )
 
     assert {"datetime", "instrument", "$open", "$return", "$daily_basic_turnover_rate"} <= set(result.frame.columns)
+    assert result.frame.select(["datetime", "$return"]).to_dicts() == [
+        {"datetime": date(2024, 1, 2), "$return": 0.01},
+        {"datetime": date(2024, 1, 3), "$return": pytest.approx(0.098039)},
+    ]
     assert result.manifest["standard_frame"]["row_count"] == 2
     assert result.parquet_path and Path(result.parquet_path).exists()
     assert result.manifest_path and Path(result.manifest_path).exists()
@@ -326,9 +330,11 @@ def test_app5_standard_frame_materializes_dimension_asof_fields(tmp_path: Path) 
         }
     )
 
+    calls = []
+
     class FakeAdapter:
         def read(self, interface_name, **kwargs):
-            del kwargs
+            calls.append((interface_name, kwargs))
             return {"daily": daily_frame, "share_float": share_float_frame}[interface_name]
 
     result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
@@ -361,6 +367,8 @@ def test_app5_standard_frame_materializes_dimension_asof_fields(tmp_path: Path) 
         {"datetime": date(2024, 1, 2), "$share_float_asof": None},
         {"datetime": date(2024, 1, 5), "$share_float_asof": 100.0},
     ]
+    share_float_read = next(kwargs for interface_name, kwargs in calls if interface_name == "share_float")
+    assert share_float_read["filters"] == [("ann_date", "<=", "20240105")]
 
 
 def test_app5_standard_frame_materializes_event_window_from_frame_calendar(tmp_path: Path) -> None:
@@ -390,9 +398,11 @@ def test_app5_standard_frame_materializes_event_window_from_frame_calendar(tmp_p
         }
     )
 
+    calls = []
+
     class FakeAdapter:
         def read(self, interface_name, **kwargs):
-            del kwargs
+            calls.append((interface_name, kwargs))
             return {"daily": daily_frame, "repurchase": repurchase_frame}[interface_name]
 
     result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
@@ -426,6 +436,11 @@ def test_app5_standard_frame_materializes_event_window_from_frame_calendar(tmp_p
     assert result.frame.select(["datetime", "$repurchase_count_7d"]).to_dicts() == [
         {"datetime": date(2024, 1, 3), "$repurchase_count_7d": 1},
         {"datetime": date(2024, 1, 8), "$repurchase_count_7d": 2},
+    ]
+    event_read = next(kwargs for interface_name, kwargs in calls if interface_name == "repurchase")
+    assert event_read["filters"] == [
+        ("ann_date", "<=", "20240108"),
+        ("event_date", "between", ("20231227", "20240108")),
     ]
 
 
@@ -495,6 +510,80 @@ def test_app5_standard_frame_materializes_canonical_financial_asof_without_futur
         {"datetime": date(2024, 4, 10), "$inc_n_income_attr_p_asof": 100.0},
         {"datetime": date(2024, 4, 30), "$inc_n_income_attr_p_asof": 120.0},
     ]
+
+
+def test_app5_standard_frame_materializes_generic_pit_panel_asof_batch(tmp_path: Path) -> None:
+    from quantaalpha.backtest.contracts import OptionalStandardFrameField
+    from quantaalpha.backtest.mining_admission import MiningAdmissionField
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240410", "20240430"],
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.8, 10.8],
+            "close": [10.2, 11.2],
+            "vol": [1000.0, 1100.0],
+            "amount": [1020.0, 1232.0],
+            "pct_chg": [1.0, 2.0],
+        }
+    )
+    pit_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ", "000001.SZ"],
+            "ann_date": ["20240401", "20240420", "20240420"],
+            "hold_ratio": [10.0, 11.0, 13.0],
+        }
+    )
+
+    calls = []
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            calls.append((interface_name, kwargs))
+            if interface_name == "daily":
+                return daily_frame
+            if interface_name == "top10_holders":
+                return pit_frame
+            raise AssertionError(interface_name)
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(
+            start_date="2024-04-01",
+            end_date="2024-04-30",
+            daily_interface="daily",
+            admitted_fields=(
+                MiningAdmissionField(
+                    base=OptionalStandardFrameField(
+                        source_interface="top10_holders",
+                        source_field="hold_ratio",
+                        feature_name="$top10_holders_hold_ratio_asof",
+                        dtype="float64",
+                        join_key=("datetime", "instrument"),
+                        time_policy="ann_date_asof_no_lookahead",
+                        missing_policy="nan",
+                        allowed_usage=("expression", "backtest_standard_frame"),
+                    ),
+                    source_kind="pit_panel_asof",
+                    payload={
+                        "source_interface": "top10_holders",
+                        "source_field": "hold_ratio",
+                        "visibility_column": "ann_date",
+                        "aggregation": "sum",
+                    },
+                ),
+            ),
+        )
+    )
+
+    assert result.frame.select(["datetime", "$top10_holders_hold_ratio_asof"]).to_dicts() == [
+        {"datetime": date(2024, 4, 10), "$top10_holders_hold_ratio_asof": 10.0},
+        {"datetime": date(2024, 4, 30), "$top10_holders_hold_ratio_asof": 24.0},
+    ]
+    pit_read = next(kwargs for interface_name, kwargs in calls if interface_name == "top10_holders")
+    assert pit_read["filters"] == [("ann_date", "<=", "20240430")]
 
 
 def test_app5_standard_frame_qfq_adjustment_uses_explicit_adjusted_prices(tmp_path: Path) -> None:

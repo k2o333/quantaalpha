@@ -218,6 +218,9 @@ def validate_factor_expression_against_allowlist(expression: str, allowlist: Dai
     unsupported = [name for name in functions if name not in SUPPORTED_EXPRESSION_FUNCTIONS]
     if unsupported:
         raise ValueError(f"UNSUPPORTED_FUNCTION: {unsupported[0]}")
+    lookahead = _lookahead_function_warning(expression)
+    if lookahead:
+        raise ValueError(f"LOOKAHEAD_FUNCTION: {lookahead}")
 
 
 def build_structured_rejection_feedback(
@@ -240,6 +243,15 @@ def build_structured_rejection_feedback(
         "message": message,
         "remediation": remediation,
     }
+
+
+def _lookahead_function_warning(expression: str) -> str | None:
+    for function_name in ("DELAY", "Ref", "REF"):
+        pattern = rf"\b{function_name}\s*\([^,]+,\s*(-\d+)\s*\)"
+        match = re.search(pattern, expression)
+        if match:
+            return f"{function_name} does not allow negative periods in factor expressions: {match.group(1)}"
+    return None
 
 
 def _normalize_daily_panel_interfaces(interfaces: Sequence[str] | None) -> tuple[str, ...]:

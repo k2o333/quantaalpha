@@ -189,7 +189,7 @@ class SharedPolarsExpressionKernel:
     def _call(self, name: str, args: list[KernelValue | float | KernelSequence]) -> KernelValue | KernelSequence:
         if name == "DELAY" and len(args) == 2:
             return _delay(_expect_value(args[0]), int(_expect_number(args[1])))
-        if name == "DELTA" and len(args) == 2:
+        if name in {"DELTA", "TS_DELTA"} and len(args) == 2:
             value = _expect_value(args[0])
             return value - _delay(value, int(_expect_number(args[1])))
         if name == "TS_MEAN" and len(args) == 2:

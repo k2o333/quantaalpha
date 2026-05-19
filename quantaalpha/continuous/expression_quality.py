@@ -66,6 +66,8 @@ def operator_arity_warning(translated_expression: str) -> Optional[str]:
                         f"{operator} expects integer window argument "
                         f"at position {arg_position + 1}, got {value}"
                     )
+                if operator == "ts_delay" and int(value) < 0:
+                    return f"ts_delay does not allow negative lookahead periods in factor expressions: {value}"
     return None
 
 

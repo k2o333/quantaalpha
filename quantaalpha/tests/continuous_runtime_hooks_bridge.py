@@ -842,6 +842,17 @@ class TestPerFactorTimeoutEnforcement:
 
         assert warning is None
 
+    def test_default_backtest_flags_negative_ts_delay_lookahead(self, tmp_path):
+        from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+        scheduler = DefaultRevalidationScheduler(library_path=str(lib_path))
+
+        warning = scheduler._operator_arity_warning("close / ts_delay(close, -1) - 1")
+
+        assert warning == "ts_delay does not allow negative lookahead periods in factor expressions: -1"
+
     def test_default_backtest_accepts_vnpy_ts_resi_two_arg_form(self, tmp_path):
         from quantaalpha.continuous.implementations import DefaultRevalidationScheduler
 

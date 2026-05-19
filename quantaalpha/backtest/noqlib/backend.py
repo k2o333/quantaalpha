@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import time
 from pathlib import Path
@@ -57,12 +58,19 @@ class NoQlibBacktestBackend:
         expression_engine = NoQlibExpressionEngine(feature_market)
         features = expression_engine.compute(factor_defs)
         labels = expression_engine.compute_label(self.config.get("dataset", {}).get("label", "Ref($close, -2) / Ref($close, -1) - 1"))
+        # Free expression engine after feature/label computation
+        del expression_engine, feature_market
+        gc.collect()
         dataset = NoQlibDatasetBuilder(self.config).build(features, labels)
+        del features, labels
+        gc.collect()
         prediction = NoQlibModelRunner(self.config).fit_predict(dataset)
         label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
         signal_metric_values = signal_metrics(prediction, label_for_signal)
         metrics = dict(signal_metric_values)
         portfolio_metrics, daily_report, positions = NoQlibTopkDropoutBacktester(self.config, market).run(prediction)
+        del prediction, dataset, market
+        gc.collect()
         metrics.update(portfolio_metrics)
         metrics["metric_namespaces"] = build_metric_namespaces(
             signal_metrics=signal_metric_values,

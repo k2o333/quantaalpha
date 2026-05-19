@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import pandas as pd
 import polars as pl
 import pytest
@@ -119,3 +122,119 @@ def test_data_folder_intro_supports_standard_frame_parquet(tmp_path, monkeypatch
 
     assert "standard_frame.parquet" in intro
     assert "$daily_basic_turnover_rate" in intro
+
+
+def test_prepare_standard_frame_uses_configured_parquet_runtime_without_h5_oracle(tmp_path, monkeypatch) -> None:
+    from quantaalpha.backtest import standard_frame as standard_frame_module
+    from quantaalpha.factors import qlib_utils
+    from quantaalpha.factors.coder import config as coder_config
+    from quantaalpha.factors.coder import runtime_data
+
+    data_root = tmp_path / "factor_data"
+    debug_root = tmp_path / "factor_data_debug"
+    monkeypatch.setattr(coder_config.FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
+    monkeypatch.setattr(coder_config.FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(debug_root))
+    monkeypatch.setattr(qlib_utils.FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
+    monkeypatch.setattr(qlib_utils.FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(debug_root))
+    monkeypatch.setattr(qlib_utils.shutil, "copy2", lambda *_args, **_kwargs: None)
+
+    class FakeBuilder:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def build(self, _request):
+            return SimpleNamespace(
+                frame=_standard_frame(),
+                manifest={"cache_identity": "fixture"},
+            )
+
+    write_h5_flags = []
+
+    def fake_write_standard_frame_runtime_data(*, frame, target_root, source_manifest, write_h5_oracle):
+        del source_manifest
+        write_h5_flags.append(write_h5_oracle)
+        target_root.mkdir(parents=True, exist_ok=True)
+        frame.write_parquet(target_root / "standard_frame.parquet")
+        (target_root / "standard_frame_manifest.json").write_text("{}", encoding="utf-8")
+        if write_h5_oracle:
+            (target_root / "daily_pv.h5").write_text("unexpected", encoding="utf-8")
+
+    monkeypatch.setattr(standard_frame_module, "App5StandardFrameBuilder", FakeBuilder)
+    monkeypatch.setattr(runtime_data, "write_standard_frame_runtime_data", fake_write_standard_frame_runtime_data)
+
+    assert qlib_utils.prepare_data_folder_from_standard_frame(
+        {
+            "project_root": str(Path(__file__).resolve().parents[3]),
+            "factor_coder_runtime": "parquet",
+            "standard_frame": {
+                "optional_fields": [
+                    {
+                        "source_interface": "daily_basic",
+                        "source_field": "turnover_rate",
+                        "feature_name": "$daily_basic_turnover_rate",
+                        "time_policy": "same_trade_date_no_lookahead",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert write_h5_flags == [False, False]
+    assert (data_root / "standard_frame.parquet").exists()
+    assert not (data_root / "daily_pv.h5").exists()
+
+
+def test_prepare_standard_frame_parquet_runtime_reuses_cache_without_h5(tmp_path, monkeypatch) -> None:
+    from quantaalpha.backtest import standard_frame as standard_frame_module
+    from quantaalpha.backtest.standard_frame import request_from_mapping
+    from quantaalpha.factors import qlib_utils
+    from quantaalpha.factors.coder import config as coder_config
+
+    data_root = tmp_path / "factor_data"
+    debug_root = tmp_path / "factor_data_debug"
+    optional_fields = [
+        {
+            "source_interface": "daily_basic",
+            "source_field": "turnover_rate",
+            "feature_name": "$daily_basic_turnover_rate",
+            "time_policy": "same_trade_date_no_lookahead",
+        }
+    ]
+    request_hash = request_from_mapping(
+        {
+            "storage_root": str(tmp_path / "data"),
+            "optional_fields": optional_fields,
+        }
+    ).identity_hash()
+    for root in (data_root, debug_root):
+        root.mkdir(parents=True)
+        _standard_frame().write_parquet(root / "standard_frame.parquet")
+        (root / "standard_frame_manifest.json").write_text("{}", encoding="utf-8")
+    (data_root / ".standard_frame_source.json").write_text(
+        f'{{"request_hash": "{request_hash}", "columns": ["$daily_basic_turnover_rate"]}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(coder_config.FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
+    monkeypatch.setattr(coder_config.FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(debug_root))
+    monkeypatch.setattr(qlib_utils.FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
+    monkeypatch.setattr(qlib_utils.FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(debug_root))
+
+    class ShouldNotBuild:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def build(self, _request):
+            raise AssertionError("parquet runtime should reuse cache without requiring daily_pv.h5")
+
+    monkeypatch.setattr(standard_frame_module, "App5StandardFrameBuilder", ShouldNotBuild)
+
+    assert qlib_utils.prepare_data_folder_from_standard_frame(
+        {
+            "project_root": str(Path(__file__).resolve().parents[3]),
+            "factor_coder_runtime": "parquet",
+            "standard_frame": {
+                "storage_root": str(tmp_path / "data"),
+                "optional_fields": optional_fields,
+            },
+        }
+    )
