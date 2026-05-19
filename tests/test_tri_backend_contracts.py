@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -229,6 +230,271 @@ def test_app5_standard_frame_builder_materializes_manifest(tmp_path: Path) -> No
     assert result.manifest["standard_frame"]["row_count"] == 2
     assert result.parquet_path and Path(result.parquet_path).exists()
     assert result.manifest_path and Path(result.manifest_path).exists()
+
+
+def test_app5_standard_frame_batches_daily_panel_optional_fields(tmp_path: Path) -> None:
+    from quantaalpha.backtest.contracts import OptionalStandardFrameField
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240102", "20240103"],
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.5, 10.5],
+            "close": [10.2, 11.2],
+            "vol": [1000.0, 1100.0],
+            "amount": [1020.0, 1232.0],
+            "pct_chg": [1.0, 9.8039],
+        }
+    )
+    daily_basic_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240102", "20240103"],
+            "turnover_rate": [1.2, 1.3],
+            "pe": [10.0, 11.0],
+        }
+    )
+    calls: list[tuple[str, tuple[str, ...]]] = []
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            calls.append((interface_name, tuple(kwargs.get("columns") or ())))
+            return {"daily": daily_frame, "daily_basic": daily_basic_frame}[interface_name]
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(
+            start_date="2024-01-02",
+            end_date="2024-01-03",
+            storage_root=str(tmp_path),
+            optional_fields=(
+                OptionalStandardFrameField(
+                    source_interface="daily_basic",
+                    source_field="turnover_rate",
+                    feature_name="$daily_basic_turnover_rate",
+                    dtype="float64",
+                    join_key=("datetime", "instrument"),
+                    time_policy="same_trade_date_no_lookahead",
+                    missing_policy="required",
+                    allowed_usage=("expression", "backtest_standard_frame"),
+                ),
+                OptionalStandardFrameField(
+                    source_interface="daily_basic",
+                    source_field="pe",
+                    feature_name="$daily_basic_pe",
+                    dtype="float64",
+                    join_key=("datetime", "instrument"),
+                    time_policy="same_trade_date_no_lookahead",
+                    missing_policy="nan",
+                    allowed_usage=("expression", "backtest_standard_frame"),
+                ),
+            ),
+        )
+    )
+
+    assert "$daily_basic_turnover_rate" in result.frame.columns
+    assert "$daily_basic_pe" in result.frame.columns
+    daily_basic_reads = [columns for interface_name, columns in calls if interface_name == "daily_basic"]
+    assert daily_basic_reads == [("trade_date", "ts_code", "turnover_rate", "pe")]
+
+
+def test_app5_standard_frame_materializes_dimension_asof_fields(tmp_path: Path) -> None:
+    from quantaalpha.backtest.contracts import OptionalStandardFrameField
+    from quantaalpha.backtest.mining_admission import MiningAdmissionField
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240102", "20240105"],
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.5, 10.5],
+            "close": [10.2, 11.2],
+            "vol": [1000.0, 1100.0],
+            "amount": [1020.0, 1232.0],
+            "pct_chg": [1.0, 9.8039],
+        }
+    )
+    share_float_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "ann_date": ["20240103", "20240106"],
+            "float_share": [100.0, 200.0],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            return {"daily": daily_frame, "share_float": share_float_frame}[interface_name]
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(
+            storage_root=str(tmp_path),
+            admitted_fields=(
+                MiningAdmissionField(
+                    base=OptionalStandardFrameField(
+                        source_interface="share_float",
+                        source_field="float_share",
+                        feature_name="$share_float_asof",
+                        dtype="float64",
+                        join_key=("datetime", "instrument"),
+                        time_policy="effective_date_asof_no_lookahead",
+                        missing_policy="nan",
+                        allowed_usage=("context", "backtest_standard_frame"),
+                    ),
+                    source_kind="dimension_asof",
+                    payload={
+                        "source_interface": "share_float",
+                        "source_field": "float_share",
+                        "effective_date_column": "ann_date",
+                    },
+                ),
+            ),
+        )
+    )
+
+    assert result.frame.select(["datetime", "$share_float_asof"]).to_dicts() == [
+        {"datetime": date(2024, 1, 2), "$share_float_asof": None},
+        {"datetime": date(2024, 1, 5), "$share_float_asof": 100.0},
+    ]
+
+
+def test_app5_standard_frame_materializes_event_window_from_frame_calendar(tmp_path: Path) -> None:
+    from quantaalpha.backtest.contracts import OptionalStandardFrameField
+    from quantaalpha.backtest.mining_admission import MiningAdmissionField
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240103", "20240108"],
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.5, 10.5],
+            "close": [10.2, 11.2],
+            "vol": [1000.0, 1100.0],
+            "amount": [1020.0, 1232.0],
+            "pct_chg": [1.0, 9.8039],
+        }
+    )
+    repurchase_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "event_date": ["20240102", "20240105"],
+            "ann_date": ["20240103", "20240108"],
+            "amount": [10.0, 20.0],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            return {"daily": daily_frame, "repurchase": repurchase_frame}[interface_name]
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(
+            storage_root=str(tmp_path),
+            admitted_fields=(
+                MiningAdmissionField(
+                    base=OptionalStandardFrameField(
+                        source_interface="repurchase",
+                        source_field="amount",
+                        feature_name="$repurchase_count_7d",
+                        dtype="float64",
+                        join_key=("datetime", "instrument"),
+                        time_policy="event_visible_window_no_lookahead",
+                        missing_policy="zero",
+                        allowed_usage=("expression", "backtest_standard_frame"),
+                    ),
+                    source_kind="event_window",
+                    payload={
+                        "source_interface": "repurchase",
+                        "event_date_column": "event_date",
+                        "visibility_column": "ann_date",
+                        "amount_column": "amount",
+                        "window_days": 7,
+                    },
+                ),
+            ),
+        )
+    )
+
+    assert result.frame.select(["datetime", "$repurchase_count_7d"]).to_dicts() == [
+        {"datetime": date(2024, 1, 3), "$repurchase_count_7d": 1},
+        {"datetime": date(2024, 1, 8), "$repurchase_count_7d": 2},
+    ]
+
+
+def test_app5_standard_frame_materializes_canonical_financial_asof_without_future_leakage(tmp_path: Path) -> None:
+    from quantaalpha.backtest.contracts import OptionalStandardFrameField
+    from quantaalpha.backtest.mining_admission import MiningAdmissionField
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240410", "20240430"],
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.5, 10.5],
+            "close": [10.2, 11.2],
+            "vol": [1000.0, 1100.0],
+            "amount": [1020.0, 1232.0],
+            "pct_chg": [1.0, 9.8039],
+        }
+    )
+    canonical_root = tmp_path / "canonical_app5" / "financial_report"
+    canonical_root.mkdir(parents=True)
+    pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "ann_date": ["20240420", "20240401"],
+            "end_date": ["20231231", "20231231"],
+            "report_type": ["1", "1"],
+            "comp_type": ["1", "1"],
+            "inc_n_income_attr_p": [120.0, 100.0],
+        }
+    ).write_parquet(canonical_root / "part-000.parquet")
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            return daily_frame
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(
+            storage_root=str(tmp_path),
+            admitted_fields=(
+                MiningAdmissionField(
+                    base=OptionalStandardFrameField(
+                        source_interface="income_vip",
+                        source_field="inc_n_income_attr_p",
+                        feature_name="$inc_n_income_attr_p_asof",
+                        dtype="float64",
+                        join_key=("datetime", "instrument"),
+                        time_policy="ann_date_asof_no_lookahead",
+                        missing_policy="nan",
+                        allowed_usage=("expression", "backtest_standard_frame"),
+                    ),
+                    source_kind="canonical_financial_asof",
+                    payload={
+                        "canonical_table": "financial_report",
+                        "source_interface": "income_vip",
+                        "source_field": "inc_n_income_attr_p",
+                    },
+                ),
+            ),
+        )
+    )
+
+    assert result.frame.select(["datetime", "$inc_n_income_attr_p_asof"]).to_dicts() == [
+        {"datetime": date(2024, 4, 10), "$inc_n_income_attr_p_asof": 100.0},
+        {"datetime": date(2024, 4, 30), "$inc_n_income_attr_p_asof": 120.0},
+    ]
 
 
 def test_app5_standard_frame_qfq_adjustment_uses_explicit_adjusted_prices(tmp_path: Path) -> None:

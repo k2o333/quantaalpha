@@ -721,6 +721,7 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
 
 def _apply_expanded_data_profile(pipeline_config) -> None:
     from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
     from quantaalpha.continuous.scheduler import ModelConfig
 
     pipeline_config.validation.max_revalidation_per_run = 0
@@ -739,10 +740,19 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
     backtest_noqlib["market_data_source"] = "app5_standard_frame"
     backtest_noqlib["factor_coder_runtime"] = "dual_h5_parquet"
     standard_frame = backtest_noqlib.setdefault("standard_frame", {})
-    allowlist = build_default_daily_panel_allowlist()
-    standard_frame["admission_profile"] = "expanded-data"
-    standard_frame["admission_allowlist_hash"] = allowlist.version_hash()
-    standard_frame["optional_fields"] = [asdict(field) for field in allowlist.expression_fields()]
+    admission_profile_path = standard_frame.get("admission_profile_path")
+    if admission_profile_path:
+        profile_name = str(standard_frame.get("admission_profile") or "expanded_app5_v1")
+        profile = load_mining_admission_profile(admission_profile_path, profile_name)
+        standard_frame["admission_profile"] = profile.name
+        standard_frame["admission_profile_hash"] = profile.version_hash()
+        standard_frame["admitted_fields"] = [field.identity() for field in profile.fields]
+        standard_frame.pop("optional_fields", None)
+    else:
+        allowlist = build_default_daily_panel_allowlist()
+        standard_frame["admission_profile"] = "expanded-data"
+        standard_frame["admission_allowlist_hash"] = allowlist.version_hash()
+        standard_frame["optional_fields"] = [asdict(field) for field in allowlist.expression_fields()]
 
     mining_config = getattr(pipeline_config, "mining", None)
     if mining_config is not None:
@@ -1281,6 +1291,7 @@ class ContinuousOrchestrator:
 def main():
     """CLI entry point for the continuous runtime."""
     import argparse
+    import json
 
     parser = argparse.ArgumentParser(
         description="24H Continuous Factor Runtime",
@@ -1288,7 +1299,7 @@ def main():
     )
     parser.add_argument(
         "command",
-        choices=["start", "once"],
+        choices=["start", "once", "validate-admission"],
         help="Command: 'start' for continuous loop, 'once' for single cycle",
     )
     parser.add_argument(
@@ -1313,6 +1324,16 @@ def main():
         default="",
         help="Apply bounded local UAT limits without editing pipeline.yaml",
     )
+    parser.add_argument(
+        "--profile",
+        default="config/factor_mining_data_admission.yaml",
+        help="Path to mining admission YAML for validate-admission",
+    )
+    parser.add_argument(
+        "--profile-name",
+        default="expanded_app5_v1",
+        help="Profile name in mining admission YAML for validate-admission",
+    )
 
     args = parser.parse_args()
 
@@ -1320,6 +1341,10 @@ def main():
         start(config=args.config, verbose=args.verbose, skip_update=args.skip_update, uat_profile=args.uat_profile)
     elif args.command == "once":
         once(config=args.config, verbose=args.verbose, skip_update=args.skip_update, uat_profile=args.uat_profile)
+    elif args.command == "validate-admission":
+        from quantaalpha.backtest.mining_admission import validate_admission_profile
+
+        print(json.dumps(validate_admission_profile(args.profile, args.profile_name), ensure_ascii=False, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

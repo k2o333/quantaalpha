@@ -69,6 +69,52 @@ def stop_event_check(func):
     return wrapper
 
 
+def _prepare_standard_frame(config: dict) -> None:
+    prepare_func = globals().get("prepare_data_folder_from_standard_frame")
+    if prepare_func is None:
+        from quantaalpha.factors.qlib_utils import prepare_data_folder_from_standard_frame as prepare_func
+
+    prepare_func(config)
+
+
+def _configure_standard_frame_capabilities(
+    backtest_noqlib_config: dict,
+    quality_gate_config: dict,
+) -> None:
+    standard_frame_cfg = dict(backtest_noqlib_config.get("standard_frame") or {})
+    admission_profile_path = standard_frame_cfg.get("admission_profile_path")
+    if admission_profile_path:
+        from quantaalpha.backtest.mining_admission import (
+            capabilities_from_mining_admission_profile,
+            load_mining_admission_profile,
+        )
+
+        profile_name = str(standard_frame_cfg.get("admission_profile") or "expanded_app5_v1")
+        profile = load_mining_admission_profile(admission_profile_path, profile_name)
+        standard_frame_cfg["admission_profile"] = profile.name
+        standard_frame_cfg["admission_profile_hash"] = profile.version_hash()
+        standard_frame_cfg["admitted_fields"] = [field.identity() for field in profile.fields]
+        standard_frame_cfg.pop("optional_fields", None)
+        backtest_noqlib_config["standard_frame"] = standard_frame_cfg
+        data_capabilities = capabilities_from_mining_admission_profile(profile)
+        if data_capabilities and "data_capabilities" not in quality_gate_config:
+            quality_gate_config["data_capabilities"] = data_capabilities
+        _prepare_standard_frame(backtest_noqlib_config)
+        return
+
+    optional_fields = standard_frame_cfg.get("optional_fields") or ()
+    if optional_fields:
+        from quantaalpha.factors.data_capability import capabilities_from_standard_frame_optional_fields
+
+        data_capabilities = capabilities_from_standard_frame_optional_fields(
+            optional_fields,
+            manifest_version=standard_frame_cfg.get("admission_allowlist_hash"),
+        )
+        if data_capabilities and "data_capabilities" not in quality_gate_config:
+            quality_gate_config["data_capabilities"] = data_capabilities
+        _prepare_standard_frame(backtest_noqlib_config)
+
+
 class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     skip_loop_error = (FactorEmptyError,)
 
@@ -112,19 +158,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
             # Quality gate config
             self.quality_gate_config = quality_gate_config or {}
-            standard_frame_cfg = dict(self.backtest_noqlib_config.get("standard_frame") or {})
-            optional_fields = standard_frame_cfg.get("optional_fields") or ()
-            if optional_fields:
-                from quantaalpha.factors.data_capability import capabilities_from_standard_frame_optional_fields
-                from quantaalpha.factors.qlib_utils import prepare_data_folder_from_standard_frame
-
-                data_capabilities = capabilities_from_standard_frame_optional_fields(
-                    optional_fields,
-                    manifest_version=standard_frame_cfg.get("admission_allowlist_hash"),
-                )
-                if data_capabilities and "data_capabilities" not in self.quality_gate_config:
-                    self.quality_gate_config["data_capabilities"] = data_capabilities
-                prepare_data_folder_from_standard_frame(self.backtest_noqlib_config)
+            _configure_standard_frame_capabilities(self.backtest_noqlib_config, self.quality_gate_config)
             factor_coder_runtime = str(self.backtest_noqlib_config.get("factor_coder_runtime") or "").strip()
             if factor_coder_runtime:
                 os.environ["QUANTAALPHA_FACTOR_CODER_RUNTIME"] = factor_coder_runtime
