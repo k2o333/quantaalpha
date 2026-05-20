@@ -77,6 +77,19 @@ def test_shared_polars_kernel_accepts_ts_delta_alias() -> None:
     assert result.loc[(pd.Timestamp("2020-01-03"), "A"), "delta2"] == pytest.approx(2.0)
 
 
+def test_shared_polars_kernel_accepts_prod_alias_from_documented_dsl() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel, canonicalize_expression
+
+    assert canonicalize_expression("PROD(close, 2)").canonical == "TS_PROD($close, 2)"
+
+    kernel = SharedPolarsExpressionKernel(_market(), compat_mode="h5_coder")
+    result = kernel.compute_expression("PROD($close, 2)", "prod2")
+
+    assert result.loc[(pd.Timestamp("2020-01-01"), "A"), "prod2"] == pytest.approx(1.0)
+    assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "prod2"] == pytest.approx(2.0)
+    assert result.loc[(pd.Timestamp("2020-01-02"), "B"), "prod2"] == pytest.approx(6.0)
+
+
 def test_shared_polars_kernel_evaluates_alpha158_operator_subset() -> None:
     from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
 

@@ -215,3 +215,51 @@ def test_factor_workspace_dual_runtime_keeps_h5_and_writes_parquet_result(tmp_pa
     assert (workspace.workspace_path / "result.h5").exists()
     assert (workspace.workspace_path / "result.parquet").exists()
     assert (workspace.workspace_path / "factor_runtime_parity.json").exists()
+
+
+def test_factor_workspace_polars_runtime_returns_feedback_for_expression_errors(tmp_path, monkeypatch) -> None:
+    from jinja2 import Template
+
+    from quantaalpha.factors.coder.config import FACTOR_COSTEER_SETTINGS
+    from quantaalpha.factors.coder.factor import FactorFBWorkspace, FactorTask
+    from quantaalpha.factors.coder.runtime_data import write_standard_frame_runtime_data
+
+    data_root = tmp_path / "data"
+    write_standard_frame_runtime_data(
+        frame=_standard_frame(),
+        target_root=data_root,
+        source_manifest={"cache_identity": "fixture"},
+        write_h5_oracle=True,
+    )
+    expression = "UNSUPPORTED($close, 2)"
+    template = Template(
+        (QUANTAALPHA_ROOT / "quantaalpha/factors/coder/template.jinjia2").read_text(
+            encoding="utf-8"
+        )
+    )
+    task = FactorTask(
+        factor_name="bad_expr",
+        factor_description="fixture",
+        factor_formulation="fixture",
+        factor_expression=expression,
+    )
+    workspace = FactorFBWorkspace(target_task=task, raise_exception=False)
+    workspace.workspace_path = tmp_path / "workspace"
+    workspace.inject_code(
+        **{
+            "factor.py": template.render(
+                expression=expression,
+                factor_name="bad_expr",
+            )
+        }
+    )
+
+    monkeypatch.setattr(FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
+    monkeypatch.setattr(FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(data_root))
+    monkeypatch.setenv("QUANTAALPHA_FACTOR_CODER_RUNTIME", "polars_parquet")
+
+    message, result = workspace.execute("All")
+
+    assert result is None
+    assert "Runtime Error: unsupported function or arity: UNSUPPORTED/2" in message
+    assert "Expected parquet output file not found." in message

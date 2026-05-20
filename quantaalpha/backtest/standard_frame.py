@@ -31,6 +31,8 @@ class StandardFrameRequest:
     start_date: str | None = None
     end_date: str | None = None
     instruments: tuple[str, ...] = ()
+    include_markets: tuple[str, ...] = ()
+    exclude_markets: tuple[str, ...] = ()
     daily_interface: str = "daily"
     adjustment: str = "raw"
     optional_fields: tuple[OptionalStandardFrameField, ...] = ()
@@ -43,6 +45,8 @@ class StandardFrameRequest:
             "daily_interface": self.daily_interface,
             "adjustment": self.adjustment,
             "end_date": self.end_date,
+            "exclude_markets": list(self.exclude_markets),
+            "include_markets": list(self.include_markets),
             "instruments": list(self.instruments),
             "admitted_fields": [field_item.identity() for field_item in self.admitted_fields],
             "optional_fields": [asdict(field_item) for field_item in self.optional_fields],
@@ -135,6 +139,7 @@ class App5StandardFrameBuilder:
             )
         if request.instruments:
             raw = raw.filter(pl.col("ts_code").cast(pl.Utf8).is_in(list(request.instruments)))
+        raw = _filter_frame_by_markets(raw, request.include_markets, request.exclude_markets)
         frame = raw.with_columns(
             _date_expr("trade_date").alias("datetime"),
             pl.col("ts_code").cast(pl.Utf8).alias("instrument"),
@@ -597,6 +602,8 @@ def request_from_mapping(payload: Mapping[str, Any]) -> StandardFrameRequest:
         start_date=payload.get("start_date"),
         end_date=payload.get("end_date"),
         instruments=tuple(str(item) for item in payload.get("instruments", ()) or ()),
+        include_markets=tuple(str(item) for item in payload.get("include_markets", ()) or ()),
+        exclude_markets=tuple(str(item) for item in payload.get("exclude_markets", ()) or ()),
         daily_interface=str(payload.get("daily_interface", "daily")),
         adjustment=str(payload.get("adjustment", "raw")),
         optional_fields=tuple(_optional_field_from_mapping(item) for item in optional_fields_payload),
@@ -640,6 +647,26 @@ def _date_expr(column: str) -> pl.Expr:
         .otherwise(digits.str.slice(0, 8))
     )
     return normalized.str.strptime(pl.Date, "%Y%m%d", strict=False)
+
+
+def _filter_frame_by_markets(
+    frame: pl.DataFrame,
+    include_markets: Sequence[str],
+    exclude_markets: Sequence[str],
+) -> pl.DataFrame:
+    include = [str(value).upper() for value in include_markets if str(value).strip()]
+    exclude = [str(value).upper() for value in exclude_markets if str(value).strip()]
+    if not include and not exclude:
+        return frame
+    if "ts_code" not in frame.columns:
+        return frame
+    market = pl.col("ts_code").cast(pl.Utf8).str.to_uppercase().str.extract(r"\.([A-Z]+)$", 1)
+    predicate = pl.lit(True)
+    if include:
+        predicate = predicate & market.is_in(include)
+    if exclude:
+        predicate = predicate & (~market.is_in(exclude))
+    return frame.filter(predicate)
 
 
 def _compact_date(value: date | datetime | str | None) -> str | None:

@@ -236,6 +236,40 @@ def test_app5_standard_frame_builder_materializes_manifest(tmp_path: Path) -> No
     assert result.manifest_path and Path(result.manifest_path).exists()
 
 
+def test_app5_standard_frame_excludes_configured_markets() -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "920001.BJ", "600000.SH"],
+            "trade_date": ["20240102", "20240102", "20240102"],
+            "open": [10.0, 20.0, 30.0],
+            "high": [10.5, 20.5, 30.5],
+            "low": [9.5, 19.5, 29.5],
+            "close": [10.2, 20.2, 30.2],
+            "vol": [1000.0, 2000.0, 3000.0],
+            "amount": [1020.0, 4040.0, 9060.0],
+            "pct_chg": [1.0, 2.0, 3.0],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del interface_name, kwargs
+            return daily_frame
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter()).build(
+        StandardFrameRequest(
+            start_date="2024-01-02",
+            end_date="2024-01-02",
+            include_markets=("SH", "SZ"),
+            exclude_markets=("BJ",),
+        )
+    )
+
+    assert result.frame.get_column("instrument").to_list() == ["000001.SZ", "600000.SH"]
+
+
 def test_app5_standard_frame_batches_daily_panel_optional_fields(tmp_path: Path) -> None:
     from quantaalpha.backtest.contracts import OptionalStandardFrameField
     from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest

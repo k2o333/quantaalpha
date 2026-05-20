@@ -200,7 +200,7 @@ class SharedPolarsExpressionKernel:
             return self._rolling_for_mode("sum", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "SUMAC" and len(args) == 2:
             return self._rolling_for_mode("sum", _expect_value(args[0]), int(_expect_number(args[1])))
-        if name == "TS_PROD" and len(args) == 2:
+        if name in {"PROD", "TS_PROD"} and len(args) == 2:
             return _rolling_product_loose(_expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_STD" and len(args) == 2:
             return self._rolling_for_mode("std", _expect_value(args[0]), int(_expect_number(args[1])))

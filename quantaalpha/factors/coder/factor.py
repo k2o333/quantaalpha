@@ -222,6 +222,12 @@ class FactorFBWorkspace(FBWorkspace):
                     raise CustomRuntimeError(execution_feedback)
                 else:
                     execution_error = CustomRuntimeError(execution_feedback)
+            except Exception as e:
+                execution_feedback = f"Runtime Error: {e}"
+                if self.raise_exception:
+                    raise CustomRuntimeError(execution_feedback) from e
+                else:
+                    execution_error = CustomRuntimeError(execution_feedback)
 
             runtime_mode = str(env.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "h5")).strip().lower()
             if runtime_mode == "polars_parquet":

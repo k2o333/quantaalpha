@@ -26,6 +26,7 @@ QLIB_ALIAS_MAP = {
     "Mean": "TS_MEAN",
     "Std": "TS_STD",
     "Sum": "TS_SUM",
+    "PROD": "TS_PROD",
     "Rank": "TS_RANK",
     "Min": "TS_MIN",
     "Max": "TS_MAX",
