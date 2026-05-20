@@ -140,6 +140,37 @@ profiles:
     assert "$share_float_asof" not in rendered
 
 
+def test_index_daily_is_not_admitted_as_daily_panel_expression_source(tmp_path) -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    profile_path.write_text(
+        """
+version: 1
+profiles:
+  test:
+    fields:
+      - feature_name: "$index_daily_pct_chg"
+        semantic_type: benchmark_return
+        unit: percent
+        scale: 1
+        source_methodology: tushare_index_daily
+        source_kind: daily_panel
+        source_interface: index_daily
+        source_field: pct_chg
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: same_trade_date_no_lookahead
+        missing_policy: nan
+        allowed_usage: [expression, backtest_standard_frame]
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="source_kind.*daily_panel.*primary_class.*benchmark"):
+        load_mining_admission_profile(profile_path, "test")
+
+
 def test_construct_prompt_field_hint_includes_base_and_admitted_fields() -> None:
     from types import SimpleNamespace
     from unittest.mock import MagicMock

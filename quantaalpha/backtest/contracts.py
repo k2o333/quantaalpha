@@ -59,6 +59,7 @@ EXPLICIT_APP5_INTERFACE_CLASSIFICATION: dict[str, tuple[str, str]] = {
     "cyq_perf": ("daily_panel", "Daily chip-performance panel joined by trade date and instrument."),
     "stock_hsgt": ("daily_panel", "Daily northbound/southbound holding panel."),
     "index_weight": ("benchmark", "Index constituent weight source for benchmark/universe construction."),
+    "index_daily": ("benchmark", "Index OHLCV/return source for benchmark-relative evaluation context."),
     "trade_cal": ("tradability", "Exchange calendar source for tradable days."),
     "suspend_d": ("tradability", "Suspension state constrains tradable instruments."),
     "stock_st": ("tradability", "ST state constrains production trading eligibility."),

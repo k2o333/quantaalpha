@@ -42,6 +42,8 @@ def test_all_current_app5_clean_active_interfaces_are_classified() -> None:
     assert admissions
     names = {item.interface for item in admissions}
     assert {"daily", "daily_basic", "trade_cal", "income_vip", "stock_basic"} <= names
+    assert "index_daily" in names
+    assert {item.interface: item.primary_class for item in admissions}["index_daily"] == "benchmark"
     assert len(names) == len(admissions)
     for item in admissions:
         assert item.primary_class in APP5_INTERFACE_CLASSES
@@ -179,6 +181,19 @@ def test_app5_standard_frame_builder_materializes_manifest(tmp_path: Path) -> No
     from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
 
     storage_root = tmp_path / "data"
+    index_daily_active = storage_root / "index_daily" / "clean" / "active"
+    index_daily_active.mkdir(parents=True)
+    pl.DataFrame(
+        {
+            "ts_code": ["000300.SH"],
+            "trade_date": ["20240102"],
+            "open": [3400.0],
+            "high": [3410.0],
+            "low": [3390.0],
+            "close": [3405.0],
+            "pct_chg": [0.1],
+        }
+    ).write_parquet(index_daily_active / "index_daily.parquet")
     daily_frame = pl.DataFrame(
         {
             "ts_code": ["000001.SZ", "000001.SZ"],
@@ -232,6 +247,11 @@ def test_app5_standard_frame_builder_materializes_manifest(tmp_path: Path) -> No
         {"datetime": date(2024, 1, 3), "$return": pytest.approx(0.098039)},
     ]
     assert result.manifest["standard_frame"]["row_count"] == 2
+    admissions_by_interface = {
+        item["interface"]: item["primary_class"]
+        for item in result.manifest["app5_interface_admissions"]
+    }
+    assert admissions_by_interface["index_daily"] == "benchmark"
     assert result.parquet_path and Path(result.parquet_path).exists()
     assert result.manifest_path and Path(result.manifest_path).exists()
 
