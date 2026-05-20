@@ -90,14 +90,6 @@ class CrossoverOperator:
         else:
             factors_str = "  N/A\n"
         
-        metrics_str = ""
-        if parent.backtest_metrics:
-            for k, v in parent.backtest_metrics.items():
-                if v is not None:
-                    metrics_str += f"  - {k}: {v:.4f}\n"
-        if not metrics_str:
-            metrics_str = "  N/A\n"
-        
         template = self.prompts.get("parent_template", "")
         if template:
             return template.format(
@@ -106,8 +98,8 @@ class CrossoverOperator:
                 direction_id=parent.direction_id,
                 hypothesis=parent.hypothesis[:300] if parent.hypothesis else "N/A",
                 factors=factors_str,
-                metrics=metrics_str,
-                feedback=parent.feedback[:200] if parent.feedback else "N/A"
+                metrics="Withheld to avoid feeding sample-internal performance results into LLM generation.\n",
+                feedback="Withheld to avoid feeding evaluator feedback from the same historical sample into LLM generation.",
             )
         
         # Default format
@@ -117,9 +109,9 @@ class CrossoverOperator:
 **Factors**:
 {factors_str}
 **Metrics**:
-{metrics_str}
+Withheld to avoid feeding sample-internal performance results into LLM generation.
 **Feedback**:
-{parent.feedback[:200] if parent.feedback else 'N/A'}
+Withheld to avoid feeding evaluator feedback from the same historical sample into LLM generation.
 ---
 """
     
@@ -262,7 +254,7 @@ class CrossoverOperator:
         for i, p in enumerate(parents):
             summary = f"""**Parent {i+1}** (Direction {p.direction_id}, {p.phase.value}):
 - Hypothesis: {p.hypothesis[:200] if p.hypothesis else 'N/A'}...
-- Key Metric: RankIC={p.backtest_metrics.get('RankIC', 'N/A')}"""
+- Factors: {', '.join(str(f.get('name', 'unknown')) for f in p.factors[:3]) if p.factors else 'N/A'}"""
             parent_summaries.append(summary)
         
         # Use template from prompts if available

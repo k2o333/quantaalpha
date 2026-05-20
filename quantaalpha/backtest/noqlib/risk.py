@@ -27,6 +27,18 @@ def risk_metrics(excess_return: pd.Series) -> dict[str, float]:
     }
 
 
+def risk_metrics_by_year(excess_return: pd.Series) -> dict[str, dict[str, float]]:
+    """按自然年切分日超额收益并计算 no-qlib 风险指标。"""
+    if excess_return.empty:
+        return {}
+    if not isinstance(excess_return.index, pd.DatetimeIndex):
+        series = excess_return.copy()
+        series.index = pd.to_datetime(series.index)
+    else:
+        series = excess_return
+    return {str(year): risk_metrics(group) for year, group in series.groupby(series.index.year)}
+
+
 def _ratio(numerator: float, denominator: float) -> float:
     return float(numerator / denominator) if denominator > 1e-12 else 0.0
 

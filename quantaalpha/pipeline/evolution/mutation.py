@@ -106,15 +106,8 @@ class MutationOperator:
         else:
             parent_factors = "N/A"
         
-        parent_metrics = ""
-        if parent.backtest_metrics:
-            for k, v in parent.backtest_metrics.items():
-                if v is not None:
-                    parent_metrics += f"- {k}: {v:.4f}\n"
-        if not parent_metrics:
-            parent_metrics = "N/A"
-        
-        parent_feedback = parent.feedback or "N/A"
+        parent_metrics = "Withheld to avoid feeding sample-internal performance results into LLM generation."
+        parent_feedback = "Withheld to avoid feeding evaluator feedback from the same historical sample into LLM generation."
         
         # Build prompt
         system_prompt = self.prompts.get("system", "")
@@ -236,7 +229,7 @@ class MutationOperator:
         suffix_template = self.prompts.get("suffix_template")
         if suffix_template:
             return suffix_template.format(
-                parent_summary=parent.to_summary_text(),
+                parent_summary=parent.to_prompt_context_text(),
                 new_hypothesis=mutation_result.get('new_hypothesis', 'Explore new direction'),
                 exploration_direction=mutation_result.get('exploration_direction', ''),
                 orthogonality_reason=mutation_result.get('orthogonality_reason', '')
@@ -252,7 +245,7 @@ class MutationOperator:
 This is a mutation exploration round that requires generating an orthogonal new strategy based on the parent strategy.
 
 ### Parent Strategy Summary
-{parent.to_summary_text()}
+{parent.to_prompt_context_text()}
 
 ### Mutation Direction Suggestions
 - **New Hypothesis Direction**: {mutation_result.get('new_hypothesis', 'Explore new direction')}

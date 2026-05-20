@@ -80,6 +80,17 @@ def test_noqlib_risk_metrics_rejects_nan_and_inf_returns():
         risk_metrics(returns)
 
 
+def test_combined_factor_template_backtest_covers_full_test_segment():
+    template_path = ROOT / "quantaalpha" / "factors" / "factor_template" / "conf_combined_factors.yaml"
+    cfg = yaml.safe_load(template_path.read_text(encoding="utf-8"))
+
+    test_segment = cfg["task"]["dataset"]["kwargs"]["segments"]["test"]
+    backtest = cfg["port_analysis_config"]["backtest"]
+
+    assert backtest["start_time"] == test_segment[0]
+    assert backtest["end_time"] == test_segment[1]
+
+
 def test_noqlib_risk_metrics_matches_qlib_risk_analysis():
     qlib_evaluate = pytest.importorskip("qlib.contrib.evaluate")
     from quantaalpha.backtest.noqlib.risk import risk_metrics

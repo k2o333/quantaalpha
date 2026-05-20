@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .risk import risk_metrics
+from .risk import risk_metrics, risk_metrics_by_year
 
 
 class NoQlibTopkDropoutBacktester:
@@ -180,6 +180,7 @@ class NoQlibTopkDropoutBacktester:
             return {}, report, positions
         excess = report["return"] - report["bench"] - report["cost"]
         metrics = risk_metrics(excess)
+        metrics["yearly_excess_return"] = risk_metrics_by_year(excess)
         metrics["missing_close_valuation_count"] = float(missing_close_valuation_count)
         metrics["missing_open_buy_skip_count"] = float(missing_open_buy_skip_count)
         metrics["missing_open_sell_skip_count"] = float(missing_open_sell_skip_count)

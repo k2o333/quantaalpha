@@ -220,6 +220,8 @@ def build_metric_namespaces(
     }
     if "return" in daily_columns and {"bench", "cost"}.issubset(daily_columns):
         namespaces["excess_vs_benchmark"]["daily_series"] = "return - bench - cost"
+    if "yearly_excess_return" in portfolio_metrics:
+        namespaces["excess_vs_benchmark"]["yearly_excess_return"] = portfolio_metrics["yearly_excess_return"]
     if qlib_return_provenance is not None:
         if isinstance(qlib_return_provenance, QlibReturnProvenance):
             provenance_payload = qlib_return_provenance.to_dict()

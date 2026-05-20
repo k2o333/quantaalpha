@@ -67,7 +67,7 @@ port_analysis_config: &port_analysis_config
             n_drop: 5
     backtest:
         start_time: 2021-01-01
-        end_time: 2021-12-31
+        end_time: 2025-12-26
         account: 100000000
         benchmark: *benchmark
         exchange_kwargs:

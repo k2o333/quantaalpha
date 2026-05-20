@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+from quantaalpha.pipeline.evolution.mutation import MutationOperator
+from quantaalpha.pipeline.evolution.crossover import CrossoverOperator
+from quantaalpha.pipeline.evolution.trajectory import RoundPhase, StrategyTrajectory
+
+
+def _parent() -> StrategyTrajectory:
+    return StrategyTrajectory(
+        trajectory_id="parent_a",
+        direction_id=0,
+        round_idx=0,
+        phase=RoundPhase.ORIGINAL,
+        hypothesis="Momentum volatility hypothesis",
+        factors=[{"name": "factor_a", "expression": "RANK($close)"}],
+        backtest_metrics={"RankIC": 0.1234, "annualized_return": 0.7395},
+        feedback="Observed annualized_return=0.7395 and RankIC=0.1234 on the test window.",
+    )
+
+
+def test_mutation_generation_prompt_hides_parent_backtest_feedback(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeAPIBackend:
+        def build_messages_and_create_chat_completion(self, *, user_prompt: str, system_prompt: str, **kwargs):
+            del system_prompt, kwargs
+            captured["user_prompt"] = user_prompt
+            return '{"new_hypothesis":"x","exploration_direction":"y","orthogonality_reason":"z","expected_characteristics":"w"}'
+
+    monkeypatch.setattr("quantaalpha.pipeline.evolution.mutation.APIBackend", FakeAPIBackend)
+
+    MutationOperator().generate_mutation(_parent())
+
+    prompt = captured["user_prompt"]
+    assert "0.1234" not in prompt
+    assert "0.7395" not in prompt
+    assert "annualized_return" not in prompt
+    assert "Observed" not in prompt
+
+
+def test_crossover_generation_prompt_hides_parent_backtest_feedback(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class FakeAPIBackend:
+        def build_messages_and_create_chat_completion(self, *, user_prompt: str, system_prompt: str, **kwargs):
+            del system_prompt, kwargs
+            captured["user_prompt"] = user_prompt
+            return '{"hybrid_hypothesis":"x","fusion_logic":"y","innovation_points":"z","expected_benefits":"w"}'
+
+    monkeypatch.setattr("quantaalpha.pipeline.evolution.crossover.APIBackend", FakeAPIBackend)
+
+    CrossoverOperator().generate_crossover([_parent(), _parent()])
+
+    prompt = captured["user_prompt"]
+    assert "0.1234" not in prompt
+    assert "0.7395" not in prompt
+    assert "annualized_return" not in prompt
+    assert "Observed" not in prompt

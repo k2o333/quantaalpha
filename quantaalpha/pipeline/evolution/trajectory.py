@@ -169,6 +169,20 @@ class StrategyTrajectory:
 
         return "\n\n".join(parts)
 
+    def to_prompt_context_text(self) -> str:
+        """Generate parent context for LLM prompts without sample-performance feedback."""
+        parts = []
+        if self.hypothesis:
+            parts.append(f"Hypothesis: {self.hypothesis[:500]}...")
+        if self.factors:
+            factor_strs = []
+            for f in self.factors[:5]:
+                name = f.get("name", "unknown")
+                expr = f.get("expression", "")[:100]
+                factor_strs.append(f"  - {name}: {expr}")
+            parts.append("Factors:\n" + "\n".join(factor_strs))
+        return "\n\n".join(parts)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         d = asdict(self)
