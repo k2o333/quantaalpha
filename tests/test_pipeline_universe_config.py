@@ -1,0 +1,15 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+
+def test_pipeline_noqlib_uses_hs300_zz500_zz1000_instruments_file() -> None:
+    project_root = Path(__file__).resolve().parents[3]
+    config = yaml.safe_load((project_root / "config" / "pipeline.yaml").read_text(encoding="utf-8"))
+
+    noqlib = config["factor"]["backtest_noqlib"]
+
+    assert noqlib["instruments_path"] == "config/instruments/hs300_zz500_zz1000.txt"
+    assert (project_root / noqlib["instruments_path"]).exists()
