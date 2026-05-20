@@ -272,6 +272,23 @@ class TestMiningOrchestrator:
 
         assert result.errors == ["Revalidation scheduler not enabled"]
 
+    def test_runtime_revalidation_limit_zero_short_circuits_candidate_loading(self):
+        """max_revalidation_per_run=0 should not read the factor library."""
+        from types import SimpleNamespace
+
+        from quantaalpha.continuous.main import ContinuousOrchestrator
+
+        runtime = SimpleNamespace(
+            config=SimpleNamespace(
+                validation=SimpleNamespace(max_revalidation_per_run=0),
+            )
+        )
+
+        result = ContinuousOrchestrator._run_revalidation(runtime)
+
+        assert result["total_candidates"] == 0
+        assert result["candidate_factors_source"] == "disabled"
+
     def test_run_mining_not_enabled(self):
         """Test running mining when not enabled."""
         from quantaalpha.continuous import MiningOrchestrator, SchedulerConfig

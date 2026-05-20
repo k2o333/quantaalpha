@@ -763,9 +763,9 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
             mining_config.agent_loop.step_model_routing = {}
         mining_config.agent_loop.step_model_routing.update(
             {
-                "propose": "litellm_mistral",
-                "construct": "litellm_mistral",
-                "feedback": "litellm_mistral",
+                "propose": "litellm_minimax",
+                "construct": "litellm_minimax",
+                "feedback": "litellm_minimax",
             }
         )
         mining_config.ensemble.enabled = True
@@ -774,7 +774,7 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
         mining_config.ensemble.min_responses = 1
         mining_config.ensemble.max_wait_seconds = 45
         mining_config.ensemble.early_quorum = True
-        mining_config.ensemble.models = [ModelConfig(name="litellm_mistral", tier=2)]
+        mining_config.ensemble.models = [ModelConfig(name="litellm_minimax", tier=2)]
 
 
 class ContinuousOrchestrator:
@@ -1061,6 +1061,10 @@ class ContinuousOrchestrator:
         # Step 3: Impact-based revalidation
         if self.config.enable_revalidation:
             try:
+                logger.info(
+                    "Starting revalidation phase: max_revalidation_per_run=%s",
+                    self.config.validation.max_revalidation_per_run,
+                )
                 revalidation_result = self._run_revalidation()
                 result["validation"]["total"] = revalidation_result.get("total_candidates", 0)
                 result["validation"]["passed"] = revalidation_result.get("revalidated_count", 0)
@@ -1098,6 +1102,7 @@ class ContinuousOrchestrator:
             try:
                 elapsed = time.time() - cycle_start_time
                 mining_budget = max(0, int(budget - elapsed))
+                logger.info("Starting mining phase: budget_seconds=%s elapsed=%.2f", mining_budget, elapsed)
                 if mining_budget <= 0:
                     logger.warning(
                         f"Cycle budget exhausted before mining: {elapsed:.2f}s >= {budget}s (budget_exhausted)"
@@ -1192,6 +1197,19 @@ class ContinuousOrchestrator:
     def _run_revalidation(self) -> dict:
         """Run revalidation cycle with impact classifier integration."""
         from quantaalpha.continuous.scheduler import RevalidationResult
+
+        if self.config.validation.max_revalidation_per_run <= 0:
+            logger.info("Revalidation disabled for this cycle: max_revalidation_per_run=0")
+            return {
+                "total_candidates": 0,
+                "revalidated_count": 0,
+                "status_changes": [],
+                "errors": [],
+                "duration_seconds": 0.0,
+                "impact_groups": [],
+                "candidate_factors": 0,
+                "candidate_factors_source": "disabled",
+            }
 
         # Get stale interfaces to determine impact groups
         stale_interfaces = []

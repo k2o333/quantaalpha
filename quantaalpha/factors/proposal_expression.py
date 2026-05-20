@@ -261,6 +261,18 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         return variables
 
     def _validate_expression_capabilities(self, expression: str, trace: Trace) -> tuple[bool, str]:
+        from quantaalpha.factors.coder.factor_ast import get_bare_identifiers
+
+        bare_identifiers = sorted(get_bare_identifiers(expression))
+        if bare_identifiers:
+            return (
+                False,
+                "Unsupported bare identifiers in expression: "
+                + ", ".join(bare_identifiers)
+                + ". Factor expressions must use only $-prefixed admitted data fields and supported functions; "
+                "do not reference factor names or temporary variables.",
+            )
+
         referenced = self._extract_expression_variables(expression)
         allowed_fields = self._allowed_expression_fields(trace)
         unknown_fields = sorted(field for field in referenced if field not in allowed_fields)
@@ -418,7 +430,12 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 exp = QlibFactorExperiment(sub_tasks=tasks)
             except TypeError:
                 exp = QlibFactorExperiment()
-                exp.sub_tasks = tasks
+                try:
+                    exp.sub_tasks = tasks
+                except AttributeError:
+                    from types import SimpleNamespace
+
+                    exp = SimpleNamespace(sub_tasks=tasks)
         exp.tasks = tasks
         if not hasattr(exp, "sub_tasks"):
             exp.sub_tasks = tasks
@@ -1043,6 +1060,8 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         flag = True
                     else:
                         continue
+            if flag:
+                break
         else:
             # Loop completed without break (all retries exhausted)
             if best_partial_response_dict and best_partial_names:

@@ -100,6 +100,9 @@ class _RecordingAPIBackend:
     def __init__(self, *args, **kwargs):
         pass
 
+    def build_messages(self, user_prompt, system_prompt):
+        return {"user_prompt": user_prompt, "system_prompt": system_prompt}
+
     def build_messages_and_create_chat_completion(self, user_prompt, system_prompt, json_mode=False, task_type=None):
         type(self).last_system_prompt = system_prompt
         return """
@@ -122,6 +125,9 @@ class _FakeRegulator:
         if "WEIGHTED_SUM" in expression:
             return False
         return isinstance(expression, str)
+
+    def parse_diagnostic(self, expression):
+        return self.is_parsable(expression), None
 
     def evaluate(self, expression):
         return True, {
@@ -155,12 +161,27 @@ class TestFactorProposalGuardrails(unittest.TestCase):
         trace = Trace(scen=_FakeScenario())
         gen = factor_proposal.AlphaAgentHypothesisGen(_FakeScenario(), potential_direction="挖掘日频时间序列因子")
 
-        original_backend = factor_proposal.APIBackend
-        factor_proposal.APIBackend = _RecordingAPIBackend
+        globals_dict = factor_proposal.AlphaAgentHypothesisGen.gen.__globals__
+        original_backend = globals_dict["APIBackend"]
+        original_call_structured = globals_dict["call_structured"]
+        globals_dict["APIBackend"] = _RecordingAPIBackend
+
+        def fake_call_structured(api, messages, **kwargs):
+            return globals_dict["robust_json_parse"](
+                api.build_messages_and_create_chat_completion(
+                    messages["user_prompt"],
+                    messages["system_prompt"],
+                    json_mode=kwargs.get("json_mode", False),
+                    task_type=kwargs.get("task_type"),
+                )
+            )
+
+        globals_dict["call_structured"] = fake_call_structured
         try:
             gen.gen(trace)
         finally:
-            factor_proposal.APIBackend = original_backend
+            globals_dict["APIBackend"] = original_backend
+            globals_dict["call_structured"] = original_call_structured
 
         system_prompt = _RecordingAPIBackend.last_system_prompt
         self.assertIsNotNone(system_prompt)
@@ -187,6 +208,9 @@ class TestFactorProposalGuardrails(unittest.TestCase):
             def __init__(self, *args, **kwargs):
                 pass
 
+            def build_messages(self, user_prompt, system_prompt):
+                return {"user_prompt": user_prompt, "system_prompt": system_prompt}
+
             def build_messages_and_create_chat_completion(self, user_prompt, system_prompt, json_mode=False, task_type=None):
                 return """
                 {
@@ -199,12 +223,27 @@ class TestFactorProposalGuardrails(unittest.TestCase):
                 }
                 """
 
-        original_backend = factor_proposal.APIBackend
-        factor_proposal.APIBackend = ProposalAPIBackend
+        globals_dict = factor_proposal.AlphaAgentHypothesis2FactorExpression._convert_with_history_limit.__globals__
+        original_backend = globals_dict["APIBackend"]
+        original_call_structured = globals_dict["call_structured"]
+        globals_dict["APIBackend"] = ProposalAPIBackend
+
+        def fake_call_structured(api, messages, **kwargs):
+            return globals_dict["robust_json_parse"](
+                api.build_messages_and_create_chat_completion(
+                    messages["user_prompt"],
+                    messages["system_prompt"],
+                    json_mode=kwargs.get("json_mode", False),
+                    task_type=kwargs.get("task_type"),
+                )
+            )
+
+        globals_dict["call_structured"] = fake_call_structured
         try:
             converter.convert(hypothesis, trace)
         finally:
-            factor_proposal.APIBackend = original_backend
+            globals_dict["APIBackend"] = original_backend
+            globals_dict["call_structured"] = original_call_structured
 
         self.assertGreaterEqual(len(fake_regulator.is_parsable_calls), 2)
         self.assertTrue(all(isinstance(expr, str) for expr in fake_regulator.is_parsable_calls))
@@ -237,6 +276,9 @@ class TestFactorProposalGuardrails(unittest.TestCase):
             def __init__(self, *args, **kwargs):
                 pass
 
+            def build_messages(self, user_prompt, system_prompt):
+                return {"user_prompt": user_prompt, "system_prompt": system_prompt}
+
             def build_messages_and_create_chat_completion(self, user_prompt, system_prompt, json_mode=False, task_type=None):
                 return """
                 {
@@ -249,12 +291,27 @@ class TestFactorProposalGuardrails(unittest.TestCase):
                 }
                 """
 
-        original_backend = factor_proposal.APIBackend
-        factor_proposal.APIBackend = ProposalAPIBackend
+        globals_dict = factor_proposal.AlphaAgentHypothesis2FactorExpression._convert_with_history_limit.__globals__
+        original_backend = globals_dict["APIBackend"]
+        original_call_structured = globals_dict["call_structured"]
+        globals_dict["APIBackend"] = ProposalAPIBackend
+
+        def fake_call_structured(api, messages, **kwargs):
+            return globals_dict["robust_json_parse"](
+                api.build_messages_and_create_chat_completion(
+                    messages["user_prompt"],
+                    messages["system_prompt"],
+                    json_mode=kwargs.get("json_mode", False),
+                    task_type=kwargs.get("task_type"),
+                )
+            )
+
+        globals_dict["call_structured"] = fake_call_structured
         try:
             experiment = converter.convert(hypothesis, trace)
         finally:
-            factor_proposal.APIBackend = original_backend
+            globals_dict["APIBackend"] = original_backend
+            globals_dict["call_structured"] = original_call_structured
 
         self.assertEqual(len(experiment.sub_tasks), 1)
         self.assertEqual(experiment.sub_tasks[0].factor_expression, "TS_STD($return, 21)")
@@ -300,6 +357,9 @@ class TestFactorProposalGuardrails(unittest.TestCase):
             def __init__(self, *args, **kwargs):
                 pass
 
+            def build_messages(self, user_prompt, system_prompt):
+                return {"user_prompt": user_prompt, "system_prompt": system_prompt}
+
             def build_messages_and_create_chat_completion(
                 self, user_prompt, system_prompt, json_mode=False, task_type=None
             ):
@@ -326,16 +386,51 @@ class TestFactorProposalGuardrails(unittest.TestCase):
                 }
                 """
 
-        original_backend = factor_proposal.APIBackend
-        factor_proposal.APIBackend = ProposalAPIBackend
+        globals_dict = factor_proposal.AlphaAgentHypothesis2FactorExpression._convert_with_history_limit.__globals__
+        original_backend = globals_dict["APIBackend"]
+        original_call_structured = globals_dict["call_structured"]
+        globals_dict["APIBackend"] = ProposalAPIBackend
+
+        def fake_call_structured(api, messages, **kwargs):
+            return globals_dict["robust_json_parse"](
+                api.build_messages_and_create_chat_completion(
+                    messages["user_prompt"],
+                    messages["system_prompt"],
+                    json_mode=kwargs.get("json_mode", False),
+                    task_type=kwargs.get("task_type"),
+                )
+            )
+
+        globals_dict["call_structured"] = fake_call_structured
         try:
             experiment = converter.convert(hypothesis, trace)
         finally:
-            factor_proposal.APIBackend = original_backend
+            globals_dict["APIBackend"] = original_backend
+            globals_dict["call_structured"] = original_call_structured
 
         self.assertEqual(ProposalAPIBackend.calls, 2)
         self.assertEqual(len(experiment.sub_tasks), 1)
         self.assertEqual(experiment.sub_tasks[0].factor_name, "Supported_Factor")
+
+    def test_expression_capability_validation_rejects_bare_factor_names(self):
+        converter = factor_proposal.AlphaAgentHypothesis2FactorExpression(consistency_enabled=False)
+        trace = Trace(scen=_FakeScenario())
+
+        valid, feedback = converter._validate_expression_capabilities(
+            "ZSCORE(Parent_Momentum_5D) * ZSCORE(Parent_Liquidity_20D)",
+            trace,
+        )
+
+        self.assertFalse(valid)
+        self.assertIn("Unsupported bare identifiers", feedback)
+        self.assertIn("Parent_Momentum_5D", feedback)
+
+        valid, feedback = converter._validate_expression_capabilities(
+            "ZSCORE(TS_DELTA($close, 5)) * ZSCORE(TS_MEAN($volume, 20))",
+            trace,
+        )
+
+        self.assertTrue(valid, feedback)
 
 
 if __name__ == "__main__":

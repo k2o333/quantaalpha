@@ -65,18 +65,31 @@ def generate_data_folder_from_qlib(use_local: bool = True):
 def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
     """Materialize coder H5 source data from an App5 standard-frame config."""
 
-    standard_frame_cfg = dict(noqlib_config.get("standard_frame") or {})
-    optional_fields = standard_frame_cfg.get("optional_fields") or ()
-    if not optional_fields:
-        return False
-
-    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, request_from_mapping
-
     workspace_root = Path(__file__).resolve().parents[4]
     project_root = Path(noqlib_config.get("project_root") or workspace_root).expanduser().resolve()
     if not (project_root / "docs" / "01-govern").exists():
         project_root = workspace_root
     logger.info(f"Preparing App5 standard-frame coder data with project_root={project_root}")
+    standard_frame_cfg = dict(noqlib_config.get("standard_frame") or {})
+    optional_fields = standard_frame_cfg.get("optional_fields") or ()
+    admitted_fields = standard_frame_cfg.get("admitted_fields") or ()
+    if not admitted_fields and standard_frame_cfg.get("admission_profile_path"):
+        from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+        profile_path = Path(str(standard_frame_cfg["admission_profile_path"]))
+        if not profile_path.is_absolute():
+            profile_path = project_root / profile_path
+        profile_name = str(standard_frame_cfg.get("admission_profile") or "expanded_app5_v1")
+        profile = load_mining_admission_profile(profile_path, profile_name)
+        admitted_fields = [field.identity() for field in profile.fields]
+        standard_frame_cfg["admitted_fields"] = admitted_fields
+        standard_frame_cfg["admission_profile"] = profile.name
+        standard_frame_cfg["admission_profile_hash"] = profile.version_hash()
+    if not optional_fields and not admitted_fields:
+        return False
+
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, request_from_mapping
+
     storage_root = Path(noqlib_config.get("app5_storage_root") or standard_frame_cfg.get("storage_root") or "data")
     if not storage_root.is_absolute():
         storage_root = project_root / storage_root
@@ -113,12 +126,23 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
     debug_roots = tuple(dict.fromkeys([debug_root, workspace_debug_root, default_debug_root]))
 
     marker_path = data_root / ".standard_frame_source.json"
-    required_columns = sorted(str(item["feature_name"]) for item in optional_fields if isinstance(item, dict) and item.get("feature_name"))
+    required_columns = sorted(
+        {
+            str(item["feature_name"])
+            for item in optional_fields
+            if isinstance(item, dict) and item.get("feature_name")
+        }
+        | {
+            str(item["base"]["feature_name"])
+            for item in admitted_fields
+            if isinstance(item, dict) and isinstance(item.get("base"), dict) and item["base"].get("feature_name")
+        }
+    )
     coder_runtime = str(
         noqlib_config.get("factor_coder_runtime")
         or os.environ.get("QUANTAALPHA_FACTOR_CODER_RUNTIME", "")
     ).strip().lower()
-    need_h5_oracle = coder_runtime not in {"parquet_only", "parquet"}
+    need_h5_oracle = coder_runtime not in {"parquet_only", "parquet", "polars_parquet"}
     if marker_path.exists():
         try:
             marker = json.loads(marker_path.read_text(encoding="utf-8"))

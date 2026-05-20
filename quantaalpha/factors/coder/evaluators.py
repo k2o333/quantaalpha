@@ -72,6 +72,17 @@ class FactorEvaluatorForCoder(CoSTEEREvaluator):
             
             if not self.factor_regulator.is_parsable(expr):
                 return False, f"AST Regularization Check Failed: Expression cannot be parsed: {expr}"
+
+            from quantaalpha.factors.coder.factor_ast import get_bare_identifiers
+
+            bare_identifiers = sorted(get_bare_identifiers(expr))
+            if bare_identifiers:
+                return (
+                    False,
+                    "AST Regularization Check Failed: Expression uses unsupported bare identifiers: "
+                    + ", ".join(bare_identifiers)
+                    + ". Use only $-prefixed admitted data fields and supported functions.",
+                )
             
             success, eval_dict = self.factor_regulator.evaluate(expr)
             if not success:

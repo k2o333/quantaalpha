@@ -476,6 +476,41 @@ def collect_unique_vars(node: Node, unique_vars: set) -> None:
         collect_unique_vars(node.operand, unique_vars)
 
 
+def collect_bare_identifiers(node: Node, bare_identifiers: set) -> None:
+    """
+    Recursively collect unprefixed variable identifiers from an AST.
+
+    Factor expressions may use function names and `$`-prefixed data fields. A
+    bare VarNode is neither, so it usually means the LLM copied a factor name
+    or invented a temporary variable.
+    """
+    if isinstance(node, VarNode):
+        if not node.name.startswith("$"):
+            bare_identifiers.add(node.name)
+    elif isinstance(node, NumberNode):
+        pass
+    elif isinstance(node, FunctionNode):
+        for arg in node.args:
+            collect_bare_identifiers(arg, bare_identifiers)
+    elif isinstance(node, BinaryOpNode):
+        collect_bare_identifiers(node.left, bare_identifiers)
+        collect_bare_identifiers(node.right, bare_identifiers)
+    elif isinstance(node, ConditionalNode):
+        collect_bare_identifiers(node.condition, bare_identifiers)
+        collect_bare_identifiers(node.true_expr, bare_identifiers)
+        collect_bare_identifiers(node.false_expr, bare_identifiers)
+    elif isinstance(node, UnaryOpNode):
+        collect_bare_identifiers(node.operand, bare_identifiers)
+
+
+def get_bare_identifiers(expr: str) -> set[str]:
+    """Return unprefixed variable identifiers used by an expression."""
+    tree = parse_expression(expr)
+    bare_identifiers: set[str] = set()
+    collect_bare_identifiers(tree, bare_identifiers)
+    return bare_identifiers
+
+
 def count_all_nodes(expr: str) -> int:
     """
     Count the number of Node instances (numeric constants) in the given expression.

@@ -112,13 +112,13 @@ class FactorRegulator(Evaluator):
             parse_expression(expression)
         except Exception as exc:
             message = str(exc)
-            logger.error(f"Failed to parse expression: {expression}. Error: {message}")
+            logger.warning(f"Failed to parse expression: {expression}. Error: {message}")
             return False, message
 
         # DSL function signature validation
         sig_error = self._validate_dsl_function_signatures(expression)
         if sig_error:
-            logger.error(f"DSL signature violation in expression: {expression}. Error: {sig_error}")
+            logger.warning(f"DSL signature violation in expression: {expression}. Error: {sig_error}")
             return False, sig_error
 
         return True, None

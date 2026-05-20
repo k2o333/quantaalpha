@@ -67,8 +67,8 @@ def test_expanded_data_uat_profile_adds_admitted_optional_fields() -> None:
     assert config.factor.backtest_noqlib["factor_coder_runtime"] == "polars_parquet"
     assert len(standard_frame["optional_fields"]) >= 3
     assert "$daily_basic_turnover_rate" in {item["feature_name"] for item in standard_frame["optional_fields"]}
-    assert config.mining.agent_loop.step_model_routing["construct"] == "litellm_mistral"
-    assert config.mining.ensemble.models[0].name == "litellm_mistral"
+    assert config.mining.agent_loop.step_model_routing["construct"] == "litellm_minimax"
+    assert config.mining.ensemble.models[0].name == "litellm_minimax"
 
 
 def test_expanded_data_uat_profile_loads_yaml_admission_when_configured(tmp_path) -> None:

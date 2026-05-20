@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import ast
 
 from .expression_quality import (
     build_factor_error,
@@ -12,6 +13,95 @@ from .expression_quality import (
 )
 from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
+
+
+def _vnpy_expression_compatibility_warning(expression: str, columns: set[str]) -> str:
+    """Return a warning if an expression references unavailable vnpy symbols."""
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        return f"syntax error: {exc.msg}"
+
+    allowed_functions = {
+        "abs",
+        "cs_kurt",
+        "cs_mean",
+        "cs_median",
+        "cs_rank",
+        "cs_scale",
+        "cs_skew",
+        "cs_std",
+        "cs_sum",
+        "exp",
+        "floor",
+        "greater",
+        "inv",
+        "less",
+        "log",
+        "pow1",
+        "pow2",
+        "quesval",
+        "quesval2",
+        "sign",
+        "sqrt",
+        "ta_atr",
+        "ta_bb_lower",
+        "ta_bb_middle",
+        "ta_bb_upper",
+        "ta_macd",
+        "ta_rsi",
+        "ts_abs",
+        "ts_argmax",
+        "ts_argmin",
+        "ts_corr",
+        "ts_count",
+        "ts_cov",
+        "ts_decay_linear",
+        "ts_delta",
+        "ts_delay",
+        "ts_ema",
+        "ts_greater",
+        "ts_kurt",
+        "ts_less",
+        "ts_log",
+        "ts_max",
+        "ts_mean",
+        "ts_min",
+        "ts_pctchange",
+        "ts_percentile",
+        "ts_product",
+        "ts_quantile",
+        "ts_rank",
+        "ts_regbeta",
+        "ts_regresi",
+        "ts_resi",
+        "ts_rsquare",
+        "ts_skew",
+        "ts_slope",
+        "ts_std",
+        "ts_sum",
+        "ts_sumif",
+        "ts_var",
+        "ts_wma",
+        "ts_zscore",
+    }
+    called_functions: set[str] = set()
+    variables: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            called_functions.add(node.func.id)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            variables.add(node.id)
+
+    unknown_functions = sorted(name for name in called_functions if name not in allowed_functions)
+    unknown_variables = sorted(name for name in variables - called_functions if name not in columns)
+    issues = []
+    if unknown_variables:
+        issues.append("unknown variables: " + ", ".join(unknown_variables))
+    if unknown_functions:
+        issues.append("unknown functions: " + ", ".join(unknown_functions))
+    return "; ".join(issues)
 
 
 class DefaultRevalidationScheduler(RevalidationScheduler):
@@ -330,6 +420,24 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     status="failure",
                     translated_expression=translated_expression,
                     error_message=f"No data available for backtest of {factor_id}",
+                )
+                return False
+
+            compatibility_warning = _vnpy_expression_compatibility_warning(
+                translated_expression,
+                set(df.columns) if df is not None else set(),
+            )
+            if compatibility_warning:
+                logger.warning(
+                    f"Factor {factor_id} skipped before backtest: expression incompatible with current execution frame: "
+                    f"{compatibility_warning}"
+                )
+                self._record_performance_history(
+                    factor_id=factor_id,
+                    factor_entry=factor_entry,
+                    status="failure",
+                    translated_expression=translated_expression,
+                    error_message=f"Expression incompatible with current execution frame: {compatibility_warning}",
                 )
                 return False
 

@@ -184,6 +184,86 @@ def test_prepare_standard_frame_uses_configured_parquet_runtime_without_h5_oracl
     assert not (data_root / "daily_pv.h5").exists()
 
 
+def test_prepare_standard_frame_loads_admission_profile_path_without_expanded_cli_profile(tmp_path, monkeypatch) -> None:
+    from quantaalpha.backtest import standard_frame as standard_frame_module
+    from quantaalpha.factors import qlib_utils
+    from quantaalpha.factors.coder import config as coder_config
+    from quantaalpha.factors.coder import runtime_data
+
+    project_root = tmp_path / "project"
+    (project_root / "docs" / "01-govern").mkdir(parents=True)
+    profile_path = project_root / "config" / "factor_mining_data_admission.yaml"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text(
+        """
+version: 1
+profiles:
+  expanded_app5_v1:
+    fields:
+      - feature_name: "$daily_basic_turnover_rate"
+        source_kind: daily_panel
+        source_interface: daily_basic
+        source_field: turnover_rate
+        dtype: float64
+        join_key: ["datetime", "instrument"]
+        time_policy: same_trade_date_no_lookahead
+        missing_policy: nan
+        allowed_usage: ["expression", "backtest_standard_frame"]
+        semantic_type: turnover
+        unit: ratio
+        scale: 1.0
+        source_methodology: same-day daily panel field
+""",
+        encoding="utf-8",
+    )
+
+    data_root = tmp_path / "factor_data"
+    debug_root = tmp_path / "factor_data_debug"
+    monkeypatch.setattr(coder_config.FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
+    monkeypatch.setattr(coder_config.FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(debug_root))
+    monkeypatch.setattr(qlib_utils.FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
+    monkeypatch.setattr(qlib_utils.FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(debug_root))
+    monkeypatch.setattr(qlib_utils.shutil, "copy2", lambda *_args, **_kwargs: None)
+
+    seen_admitted_fields = []
+
+    class FakeBuilder:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def build(self, request):
+            seen_admitted_fields.extend(field.feature_name for field in request.admitted_fields)
+            return SimpleNamespace(
+                frame=_standard_frame(),
+                manifest={"cache_identity": "fixture"},
+            )
+
+    def fake_write_standard_frame_runtime_data(*, frame, target_root, source_manifest, write_h5_oracle):
+        del source_manifest
+        target_root.mkdir(parents=True, exist_ok=True)
+        frame.write_parquet(target_root / "standard_frame.parquet")
+        (target_root / "standard_frame_manifest.json").write_text("{}", encoding="utf-8")
+        assert write_h5_oracle is False
+
+    monkeypatch.setattr(standard_frame_module, "App5StandardFrameBuilder", FakeBuilder)
+    monkeypatch.setattr(runtime_data, "write_standard_frame_runtime_data", fake_write_standard_frame_runtime_data)
+
+    assert qlib_utils.prepare_data_folder_from_standard_frame(
+        {
+            "project_root": str(project_root),
+            "app5_storage_root": str(tmp_path / "data"),
+            "factor_coder_runtime": "polars_parquet",
+            "standard_frame": {
+                "admission_profile_path": "config/factor_mining_data_admission.yaml",
+                "admission_profile": "expanded_app5_v1",
+            },
+        }
+    )
+    assert seen_admitted_fields == ["$daily_basic_turnover_rate"]
+    assert (data_root / "standard_frame.parquet").exists()
+    assert not (data_root / "daily_pv.h5").exists()
+
+
 def test_prepare_standard_frame_parquet_runtime_reuses_cache_without_h5(tmp_path, monkeypatch) -> None:
     from quantaalpha.backtest import standard_frame as standard_frame_module
     from quantaalpha.backtest.standard_frame import request_from_mapping
