@@ -44,21 +44,42 @@ def load_backtest_results(task: Dict[str, Any], project_root: Path) -> None:
                 if key in metrics_data:
                     flat[f"__{key}"] = metrics_data[key]
 
-            # Load cumulative excess return data from CSV
-            csv_path = metrics_files[0].replace("_backtest_metrics.json", "_cumulative_excess.csv")
-            if os.path.exists(csv_path):
-                import pandas as pd
-
-                df = pd.read_csv(csv_path)
-                if "date" in df.columns and "cumulative_excess_return" in df.columns:
-                    cumulative_data = df[["date", "cumulative_excess_return"]].to_dict("records")
-                    flat["cumulative_curve"] = [{"date": r["date"], "value": r["cumulative_excess_return"]} for r in cumulative_data]
+            cumulative_curve = _load_cumulative_curve(metrics_files[0])
+            if cumulative_curve:
+                flat["cumulative_curve"] = cumulative_curve
 
             task["metrics"] = flat
     except Exception as e:
         import traceback
 
         traceback.print_exc()  # print for debugging, but don't crash
+
+
+def _load_cumulative_curve(metrics_path: str) -> list[dict[str, Any]]:
+    parquet_path = metrics_path.replace("_backtest_metrics.json", "_cumulative_excess.parquet")
+    if os.path.exists(parquet_path):
+        import polars as pl
+
+        df = pl.read_parquet(parquet_path)
+        return _curve_records(df.select(["date", "cumulative_excess_return"]).to_dicts())
+
+    # Historical artifacts before PLAN-2026-0074 used CSV.
+    csv_path = metrics_path.replace("_backtest_metrics.json", "_cumulative_excess.csv")
+    if os.path.exists(csv_path):
+        import pandas as pd
+
+        df = pd.read_csv(csv_path)
+        if "date" in df.columns and "cumulative_excess_return" in df.columns:
+            return _curve_records(df[["date", "cumulative_excess_return"]].to_dict("records"))
+    return []
+
+
+def _curve_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"date": str(record["date"]), "value": record["cumulative_excess_return"]}
+        for record in records
+        if "date" in record and "cumulative_excess_return" in record
+    ]
 
 
 def update_mining_metrics(

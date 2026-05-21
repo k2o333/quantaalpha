@@ -9,6 +9,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quantaalpha.backtest.artifacts import (
+    write_cumulative_excess_parquet,
+    write_daily_report_parquet,
+    write_positions_parquet,
+)
+
 
 def save_results(
     *,
@@ -46,17 +52,11 @@ def save_results(
     output_path.write_text(json.dumps(_json_safe(result_data), ensure_ascii=False, indent=2), encoding="utf-8")
     if daily_report is not None and not daily_report.empty:
         prefix = output_name if output_name else exp_name
-        full_report_path = output_dir / f"{prefix}_long_only_daily_report.csv"
-        daily_report.to_csv(full_report_path)
-        csv_path = output_dir / f"{prefix}_cumulative_excess.csv"
-        save_df = pd.DataFrame(index=daily_report.index)
-        save_df["daily_excess_return"] = daily_report["return"] - daily_report["bench"] - daily_report["cost"]
-        save_df["cumulative_excess_return"] = save_df["daily_excess_return"].cumsum()
-        save_df.index.name = "date"
-        save_df.to_csv(csv_path)
+        write_daily_report_parquet(daily_report, output_dir, prefix)
+        write_cumulative_excess_parquet(daily_report, output_dir, prefix)
     if positions is not None and not positions.empty:
         prefix = output_name if output_name else exp_name
-        positions.to_csv(output_dir / f"{prefix}_long_only_positions.csv", index=False)
+        write_positions_parquet(positions, output_dir, prefix)
     return output_path
 
 

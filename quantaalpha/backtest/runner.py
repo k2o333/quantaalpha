@@ -29,6 +29,7 @@ from .contracts import build_metric_namespaces
 from .qlib_provenance import qlib_excess_return_provenance
 from .runner_library import run_from_library_impl
 from .runner_reporting import print_results, save_results
+from .artifacts import write_cumulative_excess_parquet
 from .runner_universe import load_stock_filter_metadata
 
 project_root = Path(__file__).resolve().parents[2]
@@ -777,20 +778,23 @@ class BacktestRunner:
                                 output_dir.mkdir(parents=True, exist_ok=True)
 
                                 file_prefix = output_name if output_name else exp_name
-                                csv_path = (
-                                    output_dir / f"{file_prefix}_cumulative_excess.csv"
-                                )
                                 save_df = daily_df[["excess_return"]].copy()
                                 save_df.columns = ["daily_excess_return"]
                                 save_df["cumulative_excess_return"] = save_df[
                                     "daily_excess_return"
                                 ].cumsum()
 
-                                save_df.index.name = "date"
-                                save_df.to_csv(csv_path)
-                                logger.debug(f"  Daily excess return saved: {csv_path}")
-                            except Exception as csv_err:
-                                logger.warning(f"Failed to save daily CSV: {csv_err}")
+                                parquet_path = write_cumulative_excess_parquet(
+                                    save_df, output_dir, file_prefix
+                                )
+                                logger.debug(
+                                    "  Daily excess return saved: %s", parquet_path
+                                )
+                            except Exception as artifact_err:
+                                logger.warning(
+                                    "Failed to save daily excess return artifact: %s",
+                                    artifact_err,
+                                )
 
                             analysis = risk_analysis(excess_return_with_cost)
 

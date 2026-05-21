@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 
 
@@ -114,6 +115,64 @@ def test_save_results_preserves_missing_price_counters(tmp_path: Path) -> None:
     assert saved_metrics["missing_open_buy_skip_count"] == 3
     assert saved_metrics["missing_open_sell_skip_count"] == 4
     assert saved_metrics["missing_price_example_count"] == 5
+
+
+def test_save_results_writes_parquet_artifacts_with_explicit_date_columns(tmp_path: Path) -> None:
+    from quantaalpha.backtest.noqlib.result_writer import save_results
+
+    daily_report = pd.DataFrame(
+        {
+            "return": [0.01, -0.02],
+            "bench": [0.001, 0.002],
+            "cost": [0.0001, 0.0002],
+            "turnover": [0.5, 0.4],
+            "cash": [100.0, 98.0],
+            "equity": [101.0, 99.0],
+        },
+        index=pd.Index(pd.to_datetime(["2021-01-01", "2021-01-02"]), name="datetime"),
+    )
+    positions = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2021-01-01", "2021-01-02"]),
+            "instrument": ["A", "B"],
+            "weight": [0.6, 0.4],
+        }
+    )
+
+    save_results(
+        config={"experiment": {"output_dir": str(tmp_path), "output_metrics_file": "metrics.json"}},
+        metrics={"annualized_return": 0.1},
+        exp_name="parquet_artifacts",
+        factor_source="custom",
+        num_factors=1,
+        elapsed=0.1,
+        output_name="demo",
+        daily_report=daily_report,
+        positions=positions,
+    )
+
+    daily_path = tmp_path / "demo_long_only_daily_report.parquet"
+    excess_path = tmp_path / "demo_cumulative_excess.parquet"
+    positions_path = tmp_path / "demo_long_only_positions.parquet"
+
+    assert daily_path.exists()
+    assert excess_path.exists()
+    assert positions_path.exists()
+    assert not (tmp_path / "demo_long_only_daily_report.csv").exists()
+    assert not (tmp_path / "demo_cumulative_excess.csv").exists()
+    assert not (tmp_path / "demo_long_only_positions.csv").exists()
+
+    daily = pl.read_parquet(daily_path)
+    assert daily.columns[:4] == ["date", "return", "bench", "cost"]
+    assert daily.height == 2
+
+    excess = pl.read_parquet(excess_path)
+    assert excess.columns == ["date", "daily_excess_return", "cumulative_excess_return"]
+    assert excess["daily_excess_return"].to_list() == pytest.approx([0.0089, -0.0222])
+    assert excess["cumulative_excess_return"].to_list() == pytest.approx([0.0089, -0.0133])
+
+    saved_positions = pl.read_parquet(positions_path)
+    assert saved_positions.columns == ["date", "instrument", "weight"]
 
 
 @pytest.mark.real_data
