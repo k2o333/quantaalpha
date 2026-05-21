@@ -106,6 +106,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
     MIN_VALID_RATIO = 0.6
     MAX_NAN_RATIO = 0.4
     MIN_UNIQUE_VALUES = 2
+    MAX_PRE_BACKTEST_CORRELATION = 0.70
     """
     Docker run
     Everything in a folder
@@ -530,7 +531,33 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             return cleaned
         cleaned = cleaned.dropna(how="any")
         keep_columns = [col for col in cleaned.columns if cleaned[col].nunique() >= self.MIN_UNIQUE_VALUES]
-        return cleaned.loc[:, keep_columns]
+        cleaned = cleaned.loc[:, keep_columns]
+        return self._prune_correlated_candidates(cleaned)
+
+    def _prune_correlated_candidates(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df.shape[1] < 2:
+            return df
+
+        corr = df.corr().abs()
+        dropped: set[str] = set()
+        for left_idx, left in enumerate(corr.columns):
+            if left in dropped:
+                continue
+            for right in corr.columns[left_idx + 1 :]:
+                if right in dropped:
+                    continue
+                value = corr.loc[left, right]
+                if pd.isna(value) or float(value) <= self.MAX_PRE_BACKTEST_CORRELATION:
+                    continue
+                dropped.add(right)
+                logger.warning(
+                    f"Dropping factor {right} from combined dataframe: "
+                    f"pre_backtest_correlation={float(value):.3f} with {left}."
+                )
+        if not dropped:
+            return df
+        keep_columns = [col for col in df.columns if col not in dropped]
+        return df.loc[:, keep_columns]
 
     def process_factor_data(self, exp_or_list: List[QlibFactorExperiment] | QlibFactorExperiment) -> pd.DataFrame:
         """

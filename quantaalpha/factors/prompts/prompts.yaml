@@ -103,6 +103,8 @@ function_lib_description: |-
   - **MIN(A, B)**: Minimum value between A and B.
   - **INV(A)**: Reciprocal (1/x) of each element in sequence A.
   - **FLOOR(A)**: Floor of each element in sequence A.
+  - **FILL_NULL(A, fill_value)**: Replaces missing values (null/NaN) in sequence A with constant float `fill_value`.
+  - **CS_FILL_NULL(A)**: Replaces missing values (null/NaN) in sequence A with the daily cross-sectional mean of A. Highly recommended to prevent NaN propagation.
   
   ### **Conditional and Logical Functions**
   - **COUNT(C, n)**: Count of samples satisfying condition C in the past n periods. Here, C is a logical expression, e.g., `$close > $open`.
@@ -260,6 +262,9 @@ factor_feedback_generation:
         {% if task.get("complexity_feedback") and task.complexity_feedback %}
         - **Complexity Feedback**: {{ task.complexity_feedback }}
           **Important**: This factor has been flagged for excessive complexity. Please consider simplifying the expression in future iterations. Factors that are too complex (long symbol length, too many base features, or excessive parameters) are prone to overfitting and poor generalization to test sets.
+        {% endif %}
+        {% if task.get("similarity_feedback") and task.similarity_feedback %}
+        - **Similarity Feedback**: {{ task.similarity_feedback }}
         {% endif %}
         {% if task.factor_implementation == "False" %}
         **Note: This factor was not implemented in the current experiment. Only the hypothesis for implemented factors can be verified.**

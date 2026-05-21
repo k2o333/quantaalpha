@@ -277,6 +277,73 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         except Exception as e:
             logger.warning(f"Failed to calculate complexity info: {e}")
 
+        # Extract similarity information to prevent factor homogenization
+        try:
+            from quantaalpha.factors.similarity_engine import SimilarityEngine
+            sim_config = getattr(self.scen, "config", {}).get("similarity_engine", {})
+            if not sim_config:
+                sim_config = {
+                    "enabled": True,
+                    "ensemble_mode": "weighted",
+                    "rejection_threshold": 0.85,
+                    "metrics": {
+                        "ast": {"enabled": True, "weight": 0.5, "veto_threshold": 0.8},
+                        "jaccard": {"enabled": True, "weight": 0.5, "veto_threshold": 0.9}
+                    }
+                }
+            engine = SimilarityEngine(sim_config)
+            
+            # Extract past factor expressions
+            prev_exprs = []
+            if exp.based_experiments:
+                for prev_exp in exp.based_experiments:
+                    for prev_task in prev_exp.sub_tasks:
+                        info = prev_task.get_task_information_and_implementation_result()
+                        prev_expr = info.get("factor_expression", "")
+                        if prev_expr:
+                            prev_exprs.append(prev_expr)
+
+            for idx, task_detail in enumerate(tasks_factors):
+                factor_expr = task_detail.get("factor_expression", "")
+                if factor_expr:
+                    similarities = []
+                    for prev_expr in prev_exprs:
+                        res = engine.compute_pairwise(factor_expr, prev_expr)
+                        if res.final_score > 0.4:
+                            similarities.append({
+                                "expr": prev_expr,
+                                "score": res.final_score,
+                                "is_redundant": res.is_redundant
+                            })
+                    
+                    # Also compare with other factors in the current round to avoid mutual duplication
+                    for other_idx, other_task_detail in enumerate(tasks_factors):
+                        if other_idx != idx:
+                            other_expr = other_task_detail.get("factor_expression", "")
+                            if other_expr and other_expr != factor_expr:
+                                res = engine.compute_pairwise(factor_expr, other_expr)
+                                if res.final_score > 0.4:
+                                    similarities.append({
+                                        "expr": f"{other_expr} (Current Round)",
+                                        "score": res.final_score,
+                                        "is_redundant": res.is_redundant
+                                    })
+
+                    if similarities:
+                        similarities.sort(key=lambda x: x["score"], reverse=True)
+                        similarity_feedback = []
+                        for sim in similarities[:3]:
+                            status = "REDUNDANT" if sim["is_redundant"] else "HIGHLY SIMILAR"
+                            similarity_feedback.append(
+                                f"- {status} (Score: {sim['score']:.2f}) with factor: `{sim['expr']}`"
+                            )
+                        task_detail["similarity_feedback"] = (
+                            "Factor Homogenization Warning:\n" + "\n".join(similarity_feedback) +
+                            "\nThis factor has high structural similarity to existing factors. Please modify the hypothesis or select different operators in the next iteration to explore a more orthogonal factor space."
+                        )
+        except Exception as e:
+            logger.warning(f"Failed to calculate similarity feedback: {e}")
+
         # Process the results to filter important metrics
         combined_result = process_results(current_result, sota_result)
 

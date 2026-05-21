@@ -235,3 +235,54 @@ def _provider_uri() -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def test_polars_kernel_fill_null_and_zero_variance_zscore() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+    
+    # Create market with some nulls / identical values
+    rows = []
+    # Day 1: A has NaN, B has 2.0
+    # Day 2: A has 3.0, B has 3.0 (Zero cross-sectional variance!)
+    # Day 3: A has 4.0, B has 5.0
+    for dt, val_a, val_b in [
+        (pd.Timestamp("2020-01-01"), None, 2.0),
+        (pd.Timestamp("2020-01-02"), 3.0, 3.0),
+        (pd.Timestamp("2020-01-03"), 4.0, 5.0),
+    ]:
+        rows.append({
+            "datetime": dt,
+            "instrument": "A",
+            "$close": val_a,
+            "$volume": 100.0,
+        })
+        rows.append({
+            "datetime": dt,
+            "instrument": "B",
+            "$close": val_b,
+            "$volume": 100.0,
+        })
+    market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
+    
+    kernel = SharedPolarsExpressionKernel(market)
+    result = kernel.compute([
+        {"factor_id": "f_fill", "factor_name": "f_fill", "factor_expression": "FILL_NULL($close, 0.0)"},
+        {"factor_id": "f_cs_fill", "factor_name": "f_cs_fill", "factor_expression": "CS_FILL_NULL($close)"},
+        {"factor_id": "f_zscore", "factor_name": "f_zscore", "factor_expression": "ZSCORE($close)"},
+        {"factor_id": "f_ts_zscore", "factor_name": "f_ts_zscore", "factor_expression": "TS_ZSCORE($close, 2)"},
+    ])
+    
+    # 1. FILL_NULL: on Day 1, A should be 0.0 instead of NaN, B should be 2.0
+    assert result.loc[(pd.Timestamp("2020-01-01"), "A"), "f_fill"] == pytest.approx(0.0)
+    assert result.loc[(pd.Timestamp("2020-01-01"), "B"), "f_fill"] == pytest.approx(2.0)
+    
+    # 2. CS_FILL_NULL: on Day 1, A should be filled with B's value (2.0)
+    assert result.loc[(pd.Timestamp("2020-01-01"), "A"), "f_cs_fill"] == pytest.approx(2.0)
+    assert result.loc[(pd.Timestamp("2020-01-01"), "B"), "f_cs_fill"] == pytest.approx(2.0)
+    
+    # 3. ZSCORE with zero cross-sectional variance: Day 2 close has std dev = 0. Should return 0.0 instead of NaN
+    assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "f_zscore"] == pytest.approx(0.0)
+    assert result.loc[(pd.Timestamp("2020-01-02"), "B"), "f_zscore"] == pytest.approx(0.0)
+    
+    # 4. TS_ZSCORE protection test: insufficient/zero rolling std returns 0.0 instead of NaN
+    assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "f_ts_zscore"] == pytest.approx(0.0)

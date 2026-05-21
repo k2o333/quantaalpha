@@ -232,12 +232,16 @@ class SharedPolarsExpressionKernel:
             return _cs_rank(_expect_value(args[0]), compat_mode=self.compat_mode)
         if name == "ZSCORE" and len(args) == 1:
             return _cs_zscore(_expect_value(args[0]))
+        if name == "FILL_NULL" and len(args) == 2:
+            return _fill_null_nan(_expect_value(args[0]), float(_expect_number(args[1])))
+        if name == "CS_FILL_NULL" and len(args) == 1:
+            return _cs_fill_null(_expect_value(args[0]), "mean")
         if name == "NEG" and len(args) == 1:
             return -_expect_value(args[0]) if isinstance(args[0], KernelValue) else -_expect_number(args[0])
         if name == "TS_ZSCORE" and len(args) in {1, 2}:
             value = _expect_value(args[0])
             window = int(_expect_number(args[1])) if len(args) == 2 else 5
-            return (_rolling("mean", value, window) * -1 + value) / _rolling("std", value, window)
+            return _ts_zscore(value, window)
         if name == "TS_PCTCHANGE" and len(args) == 2:
             value = _expect_value(args[0])
             period = int(_expect_number(args[1]))
@@ -810,9 +814,34 @@ def _cs_zscore(value: KernelValue) -> KernelValue:
         frame.select(
             "datetime",
             "instrument",
-            pl.when(pl.col("_std") == 0).then(None).otherwise((pl.col("data") - pl.col("_mean")) / pl.col("_std")).alias("data"),
+            pl.when((pl.col("_std") == 0) | pl.col("_std").is_null() | pl.col("_std").is_nan()).then(0.0).otherwise((pl.col("data") - pl.col("_mean")) / pl.col("_std")).alias("data"),
         )
     )
+
+
+def _ts_zscore(value: KernelValue, window: int) -> KernelValue:
+    mean_kv = _rolling("mean", value, window)
+    std_kv = _rolling("std", value, window)
+    frame = value.frame.join(mean_kv.frame, on=["datetime", "instrument"], suffix="_mean")
+    frame = frame.join(std_kv.frame, on=["datetime", "instrument"], suffix="_std")
+    expr = pl.when(
+        (pl.col("data_std") == 0) | pl.col("data_std").is_null() | pl.col("data_std").is_nan()
+    ).then(0.0).otherwise(
+        (pl.col("data") - pl.col("data_mean")) / pl.col("data_std")
+    )
+    return KernelValue(frame.select("datetime", "instrument", expr.alias("data")))
+
+
+def _cs_fill_null(value: KernelValue, fill_mode: str = "mean") -> KernelValue:
+    if fill_mode == "mean":
+        cs_val = pl.col("data").mean().over("datetime")
+    elif fill_mode == "median":
+        cs_val = pl.col("data").median().over("datetime")
+    else:
+        raise UnsupportedExpressionError(f"unsupported fill mode: {fill_mode}")
+    cs_val_safe = cs_val.fill_nan(None).fill_null(0.0)
+    expr = pl.col("data").fill_nan(None).fill_null(cs_val_safe)
+    return KernelValue(value.frame.select("datetime", "instrument", expr.alias("data")))
 
 
 def _cs_median(value: KernelValue) -> KernelValue:

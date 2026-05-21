@@ -425,6 +425,38 @@ class TestValidateFactor:
 
             assert result["status"] == "success"
             assert result["summary"]["ic_mean"] == -0.03
+            assert result["signal_direction"] == -1
+            assert result["direction_adjusted_expression"] == "NEG($close)"
+
+    def test_negative_rank_ic_above_threshold_is_accepted(self, tmp_path):
+        """Verify strong negative Rank IC is treated as a valid inverse signal."""
+        from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+        lib_path = tmp_path / "lib.json"
+        lib_path.write_text(json.dumps({"metadata": {}, "factors": {}}))
+
+        scheduler = DefaultMiningScheduler(library_path=str(lib_path), min_ic=0.02, min_rank_ic=0.03)
+
+        with patch("third_party.glue.factor_executor.FactorExecutor") as mock_executor_class:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.ic_value = -0.03
+            mock_result.ic_result = MagicMock()
+            mock_result.ic_result.positive_ratio = 0.4
+            mock_result.ic_result.icir = -1.2
+            mock_result.ic_result.rank_ic_mean = -0.04
+            mock_instance.execute_single.return_value = mock_result
+            mock_executor_class.return_value = mock_instance
+
+            result = scheduler._validate_factor(
+                "inverse_rank_factor",
+                {"factor_id": "inverse_rank_factor", "factor_expression": "$close"},
+            )
+
+            assert result["status"] == "success"
+            assert result["summary"]["rank_ic_mean"] == -0.04
+            assert result["signal_direction"] == -1
 
     def test_no_expression_returns_failure(self, tmp_path):
         """Verify factor without expression returns failure."""

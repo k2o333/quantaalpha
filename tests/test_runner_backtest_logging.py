@@ -93,6 +93,29 @@ def test_develop_runs_correlation_dedup_when_sota_factors_exist(tmp_path: Path) 
     assert result.result == "result-frame"
 
 
+def test_combined_quality_gate_prunes_highly_correlated_candidates() -> None:
+    runner = object.__new__(QlibFactorRunner)
+    index = pd.MultiIndex.from_product(
+        [
+            pd.date_range("2024-01-01", periods=4, freq="D"),
+            ["A"],
+        ],
+        names=["datetime", "instrument"],
+    )
+    frame = pd.DataFrame(
+        {
+            "base": [1.0, 2.0, 3.0, 4.0],
+            "duplicate": [2.0, 4.0, 6.0, 8.0],
+            "orthogonal": [1.0, -1.0, 1.0, -1.0],
+        },
+        index=index,
+    )
+
+    result = runner._apply_combined_quality_gate(frame)
+
+    assert list(result.columns) == ["base", "orthogonal"]
+
+
 def test_factor_template_noqlib_config_uses_mean_benchmark_mode() -> None:
     runner = object.__new__(QlibFactorRunner)
     runner.set_noqlib_config({"benchmark_mode": "mean"})

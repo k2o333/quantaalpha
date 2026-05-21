@@ -62,6 +62,7 @@ class MiningValidationMixin:
         *,
         elapsed_ms: int | None = None,
         ic_result: object | None = None,
+        original_expression: str | None = None,
     ) -> dict | None:
         """Enrich validation result with flat field metrics for consumers.
 
@@ -85,6 +86,14 @@ class MiningValidationMixin:
         if ic_result is not None and hasattr(ic_result, "rank_icir"):
             enriched.setdefault("Rank ICIR", getattr(ic_result, "rank_icir"))
         enriched.setdefault("positive_ratio", positive_ratio)
+        ic_mean = enriched.get("IC")
+        if isinstance(ic_mean, (int, float)):
+            signal_direction = -1 if ic_mean < 0 else 1
+            enriched.setdefault("signal_direction", signal_direction)
+            if signal_direction < 0 and original_expression:
+                enriched.setdefault("direction_adjusted_expression", f"NEG({original_expression})")
+            elif original_expression:
+                enriched.setdefault("direction_adjusted_expression", original_expression)
         if elapsed_ms is not None:
             enriched.setdefault("validation_elapsed_ms", elapsed_ms)
         return enriched
@@ -373,7 +382,7 @@ class MiningValidationMixin:
                     raw_rank_ic = ic_result.rank_ic_mean
                     if raw_rank_ic is not None and isinstance(raw_rank_ic, (int, float)):
                         rank_ic_mean = raw_rank_ic
-                        passes_rank_ic = rank_ic_mean >= min_rank_ic
+                        passes_rank_ic = abs(rank_ic_mean) >= min_rank_ic
 
                 # Compute stability score (simple heuristic)
                 stability_score = 0.5
@@ -415,6 +424,7 @@ class MiningValidationMixin:
                         },
                         elapsed_ms=elapsed_ms,
                         ic_result=ic_result,
+                        original_expression=expression,
                     )
                     self._record_performance_history(
                         factor_id=factor_id,
@@ -446,6 +456,7 @@ class MiningValidationMixin:
                         },
                         elapsed_ms=elapsed_ms,
                         ic_result=ic_result,
+                        original_expression=expression,
                     )
                     self._record_performance_history(
                         factor_id=factor_id,
