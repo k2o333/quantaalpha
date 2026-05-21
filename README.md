@@ -33,7 +33,7 @@ QuantaAlpha 当前主要由 9 个闭环组成：
    Original / Mutation / Crossover 的进化式探索由 `pipeline/evolution/*` 控制。
 
 9. 因子自动化运营
-   挖掘后的候选因子由 `factor_ops` 串接 Gate、Evaluate、Lifecycle、Consumer、daily workflow 和 monthly report。模块说明见 [factor_ops README](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factor_ops/README.md)，操作手册见 [Runbook.md](/home/quan/testdata/aspipe_v4/docs/tasks/factor-ops-cli-workflow/Runbook.md)。
+   挖掘后的候选因子由 `factor_ops` 串接 Gate、Evaluate、Lifecycle、Consumer、daily workflow 和 monthly report。模块说明见 [factor_ops README](/home/quan/testdata/aspipe_v4/third_party/quantaalpha/quantaalpha/factor_ops/README.md)，操作手册见 [Runbook.md](/home/quan/testdata/aspipe_v4/docs/tasks/archive/factor-ops-cli-workflow/Runbook.md)。
 
 ## 关键入口
 
