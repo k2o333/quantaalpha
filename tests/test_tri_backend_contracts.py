@@ -290,6 +290,59 @@ def test_app5_standard_frame_excludes_configured_markets() -> None:
     assert result.frame.get_column("instrument").to_list() == ["000001.SZ", "600000.SH"]
 
 
+def test_app5_standard_frame_fills_missing_calendar_panel_rows() -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20240102", "20240104"],
+            "open": [10.0, 11.0],
+            "high": [10.5, 11.5],
+            "low": [9.5, 10.5],
+            "close": [10.0, 11.0],
+            "vol": [1000.0, 1200.0],
+            "amount": [1000.0, 1320.0],
+            "pct_chg": [0.0, 10.0],
+        }
+    )
+    trade_cal_frame = pl.DataFrame(
+        {
+            "cal_date": ["20240102", "20240103", "20240104"],
+            "is_open": [1, 1, 1],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            return {"daily": daily_frame, "trade_cal": trade_cal_frame}[interface_name]
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter()).build(
+        StandardFrameRequest(
+            start_date="2024-01-02",
+            end_date="2024-01-04",
+            instruments=("000001.SZ",),
+        )
+    )
+
+    rows = result.frame.sort(["datetime", "instrument"]).to_dicts()
+    assert [row["datetime"] for row in rows] == [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+    synthetic = rows[1]
+    assert synthetic["instrument"] == "000001.SZ"
+    assert synthetic["$open"] == 10.0
+    assert synthetic["$high"] == 10.0
+    assert synthetic["$low"] == 10.0
+    assert synthetic["$close"] == 10.0
+    assert synthetic["$vwap"] == 10.0
+    assert synthetic["$volume"] == 0.0
+    assert synthetic["$return"] == 0.0
+    assert synthetic["$close_was_missing"] is True
+    assert synthetic["$volume_was_missing"] is True
+    assert synthetic["$is_suspended_or_no_trade"] is True
+    assert result.manifest["standard_frame"]["fill_policy_version"] == "standard_frame_ohlcv_fill_v1"
+
+
 def test_app5_standard_frame_batches_daily_panel_optional_fields(tmp_path: Path) -> None:
     from quantaalpha.backtest.contracts import OptionalStandardFrameField
     from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest

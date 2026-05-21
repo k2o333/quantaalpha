@@ -24,6 +24,17 @@ from quantaalpha.backtest.contracts import (
 from quantaalpha.backtest.mining_admission import MiningAdmissionField
 
 
+STANDARD_FRAME_FILL_POLICY_VERSION = "standard_frame_ohlcv_fill_v1"
+STANDARD_FRAME_MISSING_MARKER_COLUMNS = (
+    "$open_was_missing",
+    "$high_was_missing",
+    "$low_was_missing",
+    "$close_was_missing",
+    "$volume_was_missing",
+    "$is_suspended_or_no_trade",
+)
+
+
 @dataclass(frozen=True)
 class StandardFrameRequest:
     """Request identity for an App5 backtest standard frame."""
@@ -49,6 +60,7 @@ class StandardFrameRequest:
             "include_markets": list(self.include_markets),
             "instruments": list(self.instruments),
             "admitted_fields": [field_item.identity() for field_item in self.admitted_fields],
+            "fill_policy_version": STANDARD_FRAME_FILL_POLICY_VERSION,
             "optional_fields": [asdict(field_item) for field_item in self.optional_fields],
             "start_date": self.start_date,
             "storage_root": self.storage_root,
@@ -147,11 +159,14 @@ class App5StandardFrameBuilder:
             pl.col(source_price_columns[1]).cast(pl.Float64, strict=False).alias("$high"),
             pl.col(source_price_columns[2]).cast(pl.Float64, strict=False).alias("$low"),
             pl.col(source_price_columns[3]).cast(pl.Float64, strict=False).alias("$close"),
-            pl.col("vol").cast(pl.Float64, strict=False).fill_null(0.0).alias("$volume"),
+            pl.col("vol").cast(pl.Float64, strict=False).alias("$volume"),
+            pl.col("amount").cast(pl.Float64, strict=False).alias("__amount"),
+            (pl.col("pct_chg").cast(pl.Float64, strict=False) / 100.0).alias("__source_return"),
+            pl.lit(True).alias("__has_source_row"),
         )
         raw_vwap_expr = (
             pl.when(pl.col("$volume") > 0)
-            .then(pl.col("amount").cast(pl.Float64, strict=False) * 10.0 / pl.col("$volume"))
+            .then(pl.col("__amount") * 10.0 / pl.col("$volume"))
             .otherwise(pl.col("$close"))
         )
         if adjustment == "raw":
@@ -160,15 +175,136 @@ class App5StandardFrameBuilder:
             # App5 does not expose adjusted VWAP; qlib bin data also lacks a persisted vwap field.
             # Use adjusted close as the explicit parity-safe vwap proxy.
             vwap_expr = pl.col("$close")
-        pct = pl.col("pct_chg").cast(pl.Float64, strict=False).fill_null(0.0)
-        return (
+        base = (
             frame.with_columns(
-                vwap_expr.fill_null(pl.col("$close")).alias("$vwap"),
-                (pct / 100.0).alias("$return"),
+                _missing_float_expr("$open").alias("$open_was_missing"),
+                _missing_float_expr("$high").alias("$high_was_missing"),
+                _missing_float_expr("$low").alias("$low_was_missing"),
+                _missing_float_expr("$close").alias("$close_was_missing"),
+                _missing_float_expr("$volume").alias("$volume_was_missing"),
+                vwap_expr.fill_nan(None).fill_null(pl.col("$close")).alias("$vwap"),
             )
-            .select(["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"])
+            .select(
+                [
+                    "datetime",
+                    "instrument",
+                    "$open",
+                    "$high",
+                    "$low",
+                    "$close",
+                    "$volume",
+                    "$vwap",
+                    "__source_return",
+                    "__has_source_row",
+                    *STANDARD_FRAME_MISSING_MARKER_COLUMNS[:-1],
+                ]
+            )
             .unique(subset=["datetime", "instrument"], keep="first", maintain_order=True)
             .sort(["datetime", "instrument"])
+        )
+        return self._apply_core_fill_policy(base, request)
+
+    def _apply_core_fill_policy(self, frame: pl.DataFrame, request: StandardFrameRequest) -> pl.DataFrame:
+        panel = self._complete_daily_panel(frame, request)
+        source_row = pl.col("__has_source_row").fill_null(False)
+        raw_volume_missing = _missing_float_expr("$volume")
+        raw_volume_zero = pl.col("$volume").fill_nan(None).fill_null(0.0) <= 0.0
+        filled_close = pl.col("$close").fill_nan(None).forward_fill().over("instrument")
+        panel = panel.with_columns(
+            source_row.alias("__has_source_row"),
+            filled_close.alias("__filled_close"),
+            pl.when(source_row).then(_missing_marker_expr("$open_was_missing")).otherwise(True).alias("$open_was_missing"),
+            pl.when(source_row).then(_missing_marker_expr("$high_was_missing")).otherwise(True).alias("$high_was_missing"),
+            pl.when(source_row).then(_missing_marker_expr("$low_was_missing")).otherwise(True).alias("$low_was_missing"),
+            pl.when(source_row).then(_missing_marker_expr("$close_was_missing")).otherwise(True).alias("$close_was_missing"),
+            pl.when(source_row).then(_missing_marker_expr("$volume_was_missing")).otherwise(True).alias("$volume_was_missing"),
+            ((~source_row) | raw_volume_missing | raw_volume_zero).alias("$is_suspended_or_no_trade"),
+        )
+        panel = panel.with_columns(
+            *[
+                pl.when(pl.col("__has_source_row"))
+                .then(pl.col(column).fill_nan(None).fill_null(pl.col("__filled_close")))
+                .otherwise(pl.col("__filled_close"))
+                .alias(column)
+                for column in ("$open", "$high", "$low")
+            ],
+            pl.col("__filled_close").alias("$close"),
+            pl.col("$volume").fill_nan(None).fill_null(0.0).alias("$volume"),
+            pl.col("$vwap").fill_nan(None).fill_null(pl.col("__filled_close")).alias("$vwap"),
+        )
+        prior_close = pl.col("$close").shift(1).over("instrument")
+        close_return = pl.when(prior_close.is_null() | (prior_close == 0)).then(0.0).otherwise((pl.col("$close") / prior_close) - 1.0)
+        return (
+            panel.with_columns(
+                pl.when(pl.col("$is_suspended_or_no_trade"))
+                .then(0.0)
+                .otherwise(pl.col("__source_return").fill_nan(None).fill_null(close_return))
+                .alias("$return")
+            )
+            .select(
+                [
+                    "datetime",
+                    "instrument",
+                    "$open",
+                    "$high",
+                    "$low",
+                    "$close",
+                    "$volume",
+                    "$vwap",
+                    "$return",
+                    *STANDARD_FRAME_MISSING_MARKER_COLUMNS,
+                ]
+            )
+            .sort(["datetime", "instrument"])
+        )
+
+    def _complete_daily_panel(self, frame: pl.DataFrame, request: StandardFrameRequest) -> pl.DataFrame:
+        calendar = self._standard_frame_calendar(frame, request)
+        if calendar.is_empty():
+            return frame
+        if request.instruments:
+            instruments = list(request.instruments)
+        else:
+            instruments = frame.get_column("instrument").drop_nulls().unique().sort().to_list()
+        if not instruments:
+            return frame
+        panel = calendar.join(pl.DataFrame({"instrument": instruments}), how="cross")
+        return panel.join(frame, on=["datetime", "instrument"], how="left").sort(["datetime", "instrument"])
+
+    def _standard_frame_calendar(self, frame: pl.DataFrame, request: StandardFrameRequest) -> pl.DataFrame:
+        try:
+            trade_cal = self.adapter.read(
+                "trade_cal",
+                start_date=request.start_date,
+                end_date=request.end_date,
+                columns=["cal_date", "trade_date", "is_open"],
+                unique=True,
+            )
+        except (KeyError, AssertionError):
+            return frame.select("datetime").unique().sort("datetime")
+        except Exception as exc:  # pragma: no cover - defensive context for external adapters
+            warnings.warn(
+                f"standard frame trade calendar unavailable; falling back to source dates: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return frame.select("datetime").unique().sort("datetime")
+        if trade_cal.is_empty():
+            warnings.warn(
+                "standard frame trade calendar is empty; falling back to source dates",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return frame.select("datetime").unique().sort("datetime")
+        date_column = "cal_date" if "cal_date" in trade_cal.columns else "trade_date"
+        calendar = trade_cal
+        if "is_open" in calendar.columns:
+            calendar = calendar.filter(pl.col("is_open").cast(pl.Int64, strict=False) == 1)
+        return (
+            calendar.select(_date_expr(date_column).alias("datetime"))
+            .filter(pl.col("datetime").is_not_null())
+            .unique()
+            .sort("datetime")
         )
 
     def _join_optional_field(
@@ -293,6 +429,7 @@ class App5StandardFrameBuilder:
             "standard_frame": {
                 "columns": frame.columns,
                 "adjustment": request.adjustment,
+                "fill_policy_version": STANDARD_FRAME_FILL_POLICY_VERSION,
                 "row_count": frame.height,
                 "required_columns": ["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"],
             },
@@ -647,6 +784,15 @@ def _date_expr(column: str) -> pl.Expr:
         .otherwise(digits.str.slice(0, 8))
     )
     return normalized.str.strptime(pl.Date, "%Y%m%d", strict=False)
+
+
+def _missing_float_expr(column: str) -> pl.Expr:
+    value = pl.col(column).cast(pl.Float64, strict=False)
+    return value.is_null() | value.is_nan()
+
+
+def _missing_marker_expr(column: str) -> pl.Expr:
+    return pl.col(column).fill_null(True).cast(pl.Boolean, strict=False).fill_null(True)
 
 
 def _filter_frame_by_markets(
