@@ -298,6 +298,12 @@ def _resolve_config_instruments(noqlib_config: dict[str, Any]) -> list[str]:
     instruments_path = noqlib_config.get("instruments_path")
     if instruments_path:
         path = Path(str(instruments_path)).expanduser()
+        if not path.is_absolute():
+            workspace_root = Path(__file__).resolve().parents[5]
+            project_root = Path(noqlib_config.get("project_root") or workspace_root).expanduser().resolve()
+            if not (project_root / "docs" / "01-govern").exists():
+                project_root = workspace_root
+            path = project_root / path
         if not path.exists():
             raise FileNotFoundError(f"noqlib instruments_path not found: {path}")
         values: list[str] = []

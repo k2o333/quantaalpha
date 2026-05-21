@@ -614,6 +614,55 @@ def test_noqlib_resolves_qlib_instruments_path(tmp_path):
     assert _resolve_config_instruments({"instruments_path": str(instruments_path)}) == ["000001.SZ", "000002.SZ"]
 
 
+def test_noqlib_resolves_relative_instruments_path(tmp_path):
+    from quantaalpha.backtest.noqlib.data_provider import _resolve_config_instruments
+    from quantaalpha.factors.runner import _resolve_noqlib_instruments
+
+    workspace_root = Path(__file__).resolve().parents[3]
+    test_instruments_dir = workspace_root / "config" / "instruments"
+    test_instruments_dir.mkdir(parents=True, exist_ok=True)
+    test_file = test_instruments_dir / "test_relative_path_resolution.txt"
+    test_file.write_text("000001.SZ\n000002.SZ\n", encoding="utf-8")
+
+    try:
+        relative_path = "config/instruments/test_relative_path_resolution.txt"
+
+        res1 = _resolve_config_instruments({"instruments_path": relative_path, "project_root": str(tmp_path)})
+        assert res1 == ["000001.SZ", "000002.SZ"]
+
+        res2 = _resolve_noqlib_instruments({"instruments_path": relative_path, "project_root": str(tmp_path)})
+        assert res2 == ["000001.SZ", "000002.SZ"]
+    finally:
+        if test_file.exists():
+            test_file.unlink()
+
+
+def test_noqlib_runtime_paths_do_not_depend_on_cwd(tmp_path, monkeypatch):
+    from quantaalpha.factors.runner import QlibFactorRunner
+
+    workspace_root = Path(__file__).resolve().parents[3]
+    runner = object.__new__(QlibFactorRunner)
+    runner._noqlib_config = {"instruments": ["000001.SZ"]}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("QUANTAALPHA_NOQLIB_APP5_STORAGE_ROOT", raising=False)
+
+    config = runner._factor_template_to_noqlib_config(
+        {
+            "data_handler_config": {
+                "instruments": "csi300",
+                "start_time": "2020-01-01",
+                "end_time": "2020-01-31",
+            },
+            "task": {"dataset": {"kwargs": {"segments": {}}}, "model": {"kwargs": {}}},
+            "port_analysis_config": {"backtest": {"benchmark": "SH000300"}},
+        }
+    )
+
+    noqlib_config = config["backtest_runtime"]["noqlib"]
+    assert noqlib_config["project_root"] == str(workspace_root)
+    assert noqlib_config["app5_storage_root"] == str(workspace_root / "data" / "app5")
+
+
 def test_noqlib_topk_dropout_matches_qlib_selection_sequence():
     from quantaalpha.backtest.noqlib.portfolio import _next_topk_dropout_holdings
 

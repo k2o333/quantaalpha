@@ -419,6 +419,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         runtime_options = dict(getattr(self, "_noqlib_config", {}) or {})
         if isinstance(runtime_options.get("standard_frame"), dict):
             runtime_options["standard_frame"] = _market_only_standard_frame_config(runtime_options["standard_frame"])
+        workspace_root = Path(__file__).resolve().parents[4]
         noqlib_cfg = {
             "data": {
                 "market": handler.get("instruments", qlib_cfg.get("market", "csi300")),
@@ -437,10 +438,10 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             "backtest_runtime": {
                 "backend": backend,
                 "noqlib": {
-                    "project_root": str(Path.cwd()),
+                    "project_root": str(workspace_root),
                     "app5_storage_root": os.environ.get(
                         "QUANTAALPHA_NOQLIB_APP5_STORAGE_ROOT",
-                        str(Path.cwd() / "data" / "app5"),
+                        str(workspace_root / "data" / "app5"),
                     ),
                     "daily_interface": os.environ.get("QUANTAALPHA_NOQLIB_DAILY_INTERFACE", "daily"),
                     "benchmark_instruments": [str(port_cfg.get("backtest", {}).get("benchmark", "SH000300"))],
@@ -634,6 +635,12 @@ def _resolve_noqlib_instruments(noqlib_options: dict) -> list[str]:
     if not instruments_path:
         return []
     path = Path(instruments_path)
+    if not path.is_absolute():
+        workspace_root = Path(__file__).resolve().parents[4]
+        project_root = Path(noqlib_options.get("project_root") or workspace_root).expanduser().resolve()
+        if not (project_root / "docs" / "01-govern").exists():
+            project_root = workspace_root
+        path = project_root / path
     if not path.exists():
         raise FileNotFoundError(f"noqlib instruments_path not found: {path}")
     if path.suffix.lower() == ".json":
