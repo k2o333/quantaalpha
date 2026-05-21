@@ -14,6 +14,7 @@ import yaml
 
 from quantaalpha.log import logger
 from quantaalpha.llm.client import APIBackend
+from .metric_feedback import format_metric_feedback, format_text_feedback
 from .trajectory import StrategyTrajectory, RoundPhase
 
 
@@ -98,8 +99,12 @@ class CrossoverOperator:
                 direction_id=parent.direction_id,
                 hypothesis=parent.hypothesis[:300] if parent.hypothesis else "N/A",
                 factors=factors_str,
-                metrics="Withheld to avoid feeding sample-internal performance results into LLM generation.\n",
-                feedback="Withheld to avoid feeding evaluator feedback from the same historical sample into LLM generation.",
+                metrics=format_metric_feedback(parent.backtest_metrics, label="Parent Backtest Metrics"),
+                feedback=format_text_feedback(
+                    parent.feedback,
+                    parent.feedback_details,
+                    label="Parent Evaluation Feedback",
+                ),
             )
         
         # Default format
@@ -109,9 +114,9 @@ class CrossoverOperator:
 **Factors**:
 {factors_str}
 **Metrics**:
-Withheld to avoid feeding sample-internal performance results into LLM generation.
+{format_metric_feedback(parent.backtest_metrics, label="Parent Backtest Metrics")}
 **Feedback**:
-Withheld to avoid feeding evaluator feedback from the same historical sample into LLM generation.
+{format_text_feedback(parent.feedback, parent.feedback_details, label="Parent Evaluation Feedback")}
 ---
 """
     

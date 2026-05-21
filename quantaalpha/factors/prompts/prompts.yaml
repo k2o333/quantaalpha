@@ -266,6 +266,9 @@ factor_feedback_generation:
         {% if task.get("similarity_feedback") and task.similarity_feedback %}
         - **Similarity Feedback**: {{ task.similarity_feedback }}
         {% endif %}
+        {% if task.get("metric_feedback") and task.metric_feedback %}
+        - **Backtest Metrics**: {{ task.metric_feedback }}
+        {% endif %}
         {% if task.factor_implementation == "False" %}
         **Note: This factor was not implemented in the current experiment. Only the hypothesis for implemented factors can be verified.**
         {% endif %}
@@ -372,9 +375,18 @@ hypothesis2experiment:
         - **Complex factors with many nested functions, conditional branches, and parameters are OVERFITTING indicators.**
         - Avoid deep nesting (e.g., RANK(POW(TS_CORR(...))) is too nested)
         - Avoid complex conditional expressions (e.g., (A > B) ? (C * D / E) : (F * G / H))
-        - Prefer linear combinations over multiplicative chains
+        - Prefer one core signal, or at most two short terms, over multiplicative chains
         - Use fewer function calls and simpler operations
         - **Target expression length: 50-150 characters for optimal generalization.**
+      - **Forbidden Complexity Patterns (MUST NOT USE):**
+        - Do not repeat the same long denominator/sub-expression more than once in a factor.
+        - Do not build weighted multi-window blends such as `0.5 * TS_STD(..., 5) + 0.3 * TS_STD(..., 10) + 0.2 * TS_STD(..., 20)`.
+        - Do not combine `RANK(...) + ZSCORE(...)` versions of the same signal in one factor.
+        - Do not use more than one rolling window family in a single expression unless the whole expression stays under 150 characters.
+        - If you need liquidity or volatility adjustment, use a single concise denominator, e.g. `TS_STD($return, 20) + 1e-8`.
+      - **Retry Simplification Rule:**
+        - If feedback reports a Symbol Length, Parsimony, or acceptability failure, regenerate all failed factors from scratch as simple one-line expressions under 150 characters.
+        - On retry, never submit an expression longer than the failed expression and never preserve repeated sub-expressions from the failed expression.
       - **If previous factors were flagged for complexity, you MUST generate MUCH simpler alternatives in the next iteration.**
 
     3. **CRITICAL: Expression Syntax Constraints (MUST FOLLOW):**
@@ -446,6 +458,13 @@ hypothesis2experiment:
     - $low: low price of the stock on that day.
     - $volume: volume of the stock on that day.
     - $return: daily return of the stock on that day.
+    - $daily_basic_turnover_rate: daily turnover rate of the stock on that day.
+
+    Data coverage constraint:
+    - The factor expression MUST use only the variables listed above.
+    - Do NOT use sparse optional fields even if a hypothesis, mutation, crossover, or previous context mentions them.
+    - Forbidden examples include `$moneyflow_*`, `$*_asof`, `$report_rc_*`, `$forecast_*`, `$cyq_*`, and any undeclared field.
+    - If the current hypothesis mentions unsupported or sparse fields, translate the idea into the allowed daily-level variables above.
 
     Allowed operators and functions in factor expressions are: 
     {{function_lib_description}}
@@ -489,6 +508,8 @@ expression_duplication: |-
     - **Root Cause**: Complex expressions with many nested functions, conditional branches, and parameters fit noise in training data rather than true market patterns.
     - **Action Required**: Generate a FUNDAMENTALLY SIMPLER expression. Do NOT just remove a few characters - redesign the factor from scratch.
     - **Target Length**: 50-150 characters for optimal generalization. Anything over 200 is suspicious.
+    - **Retry Hard Rule**: The next expression for this factor MUST be under 150 characters and MUST NOT reuse repeated long sub-expressions from the failed expression.
+    - **Forbidden on Retry**: weighted multi-window blends, duplicated denominators, and `RANK(...) + ZSCORE(...)` combinations of the same signal.
     - **Example of GOOD** (~50 chars): `RANK(TS_MEAN($return, 20))`
     - **Example of ACCEPTABLE** (~100 chars): `RANK(TS_CORR($close, $volume, 10)) * SIGN(TS_MEAN($return, 5))`
     - **Example of BAD** (> 200 chars): Any expression with multiple nested functions, complex conditionals, or many arithmetic operations.

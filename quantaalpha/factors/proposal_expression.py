@@ -618,7 +618,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         )
                     )
 
-                    api = APIBackend(max_retry_override=1)
+                    api = APIBackend()
                     last_provider_label = self._format_construct_provider_label(api)
                     messages = api.build_messages(user_prompt, system_prompt)
                     response_dict = call_structured(
@@ -789,7 +789,7 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         flag = False
         expression_duplication_prompt = None
         MAX_RETRIES = getattr(self, "max_construct_retries", 2)
-        api = APIBackend(max_retry_override=1)
+        api = APIBackend()
         final_response_dict = None
         last_failure_reason = None
         best_partial_response_dict = None

@@ -619,7 +619,7 @@ class TestMultiHypothesisEmptyFactorsDict:
 
                         result = h2e.convert_multi_hypothesis(bundle, mock_trace)
 
-        MockAPI.assert_called_with(max_retry_override=1)
+        MockAPI.assert_called_with()
         assert len(result.tasks) == 1
         assert result.tasks[0].factor_name == "factor_valid"
         combined_feedback = "\n".join(str(item) for item in seen_feedback if item)

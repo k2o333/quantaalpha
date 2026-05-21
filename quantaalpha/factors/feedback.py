@@ -15,6 +15,10 @@ from quantaalpha.core.proposal import (
 from quantaalpha.log import logger
 from quantaalpha.llm.client import APIBackend, call_structured
 from quantaalpha.llm.tool_schemas import FEEDBACK_TOOL
+from quantaalpha.pipeline.evolution.metric_feedback import (
+    extract_backtest_metrics,
+    format_metric_feedback,
+)
 from quantaalpha.utils import convert2bool
 
 # Max retries for JSON parsing (now handled by call_structured degradation, kept for safety)
@@ -42,6 +46,14 @@ def _feedback_generation_failed(error: Exception | None) -> HypothesisFeedback:
         reason=reason,
         decision=False,
     )
+
+
+def _attach_backtest_metric_feedback(tasks_factors: list[dict], result) -> None:
+    metrics = extract_backtest_metrics(result)
+    metric_feedback = format_metric_feedback(metrics)
+    for task_detail in tasks_factors:
+        if str(task_detail.get("factor_implementation")) == "True":
+            task_detail["metric_feedback"] = metric_feedback
 
 
 def process_results(current_result, sota_result):
@@ -152,6 +164,7 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         hypothesis_text = hypothesis.hypothesis
         current_result = exp.result
         tasks_factors = [task.get_task_information_and_implementation_result() for task in exp.sub_tasks]
+        _attach_backtest_metric_feedback(tasks_factors, current_result)
         # Safely get SOTA result, handle case where based_experiments might be empty or result is None
         sota_result = None
         if exp.based_experiments and len(exp.based_experiments) > 0:
@@ -243,6 +256,7 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         hypothesis_text = hypothesis.hypothesis
         current_result = exp.result
         tasks_factors = [task.get_task_information_and_implementation_result() for task in exp.sub_tasks]
+        _attach_backtest_metric_feedback(tasks_factors, current_result)
         # Safely get SOTA result, handle case where based_experiments might be empty or result is None
         sota_result = None
         if exp.based_experiments and len(exp.based_experiments) > 0:

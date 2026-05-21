@@ -15,6 +15,7 @@ import yaml
 
 from quantaalpha.log import logger
 from quantaalpha.llm.client import APIBackend
+from .metric_feedback import format_metric_feedback, format_text_feedback
 from .trajectory import StrategyTrajectory, RoundPhase
 
 
@@ -106,8 +107,12 @@ class MutationOperator:
         else:
             parent_factors = "N/A"
         
-        parent_metrics = "Withheld to avoid feeding sample-internal performance results into LLM generation."
-        parent_feedback = "Withheld to avoid feeding evaluator feedback from the same historical sample into LLM generation."
+        parent_metrics = format_metric_feedback(parent.backtest_metrics, label="Parent Backtest Metrics")
+        parent_feedback = format_text_feedback(
+            parent.feedback,
+            parent.feedback_details,
+            label="Parent Evaluation Feedback",
+        )
         
         # Build prompt
         system_prompt = self.prompts.get("system", "")

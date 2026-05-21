@@ -18,7 +18,7 @@ def _parent() -> StrategyTrajectory:
     )
 
 
-def test_mutation_generation_prompt_hides_parent_backtest_feedback(monkeypatch) -> None:
+def test_mutation_generation_prompt_includes_parent_backtest_feedback(monkeypatch) -> None:
     captured: dict[str, str] = {}
 
     class FakeAPIBackend:
@@ -32,13 +32,12 @@ def test_mutation_generation_prompt_hides_parent_backtest_feedback(monkeypatch) 
     MutationOperator().generate_mutation(_parent())
 
     prompt = captured["user_prompt"]
-    assert "0.1234" not in prompt
-    assert "0.7395" not in prompt
-    assert "annualized_return" not in prompt
-    assert "Observed" not in prompt
+    assert "Rank IC=0.1234" in prompt
+    assert "Annualized Return=0.7395" in prompt
+    assert "Observed annualized_return=0.7395" in prompt
 
 
-def test_crossover_generation_prompt_hides_parent_backtest_feedback(monkeypatch) -> None:
+def test_crossover_generation_prompt_includes_parent_backtest_feedback(monkeypatch) -> None:
     captured: dict[str, str] = {}
 
     class FakeAPIBackend:
@@ -52,7 +51,6 @@ def test_crossover_generation_prompt_hides_parent_backtest_feedback(monkeypatch)
     CrossoverOperator().generate_crossover([_parent(), _parent()])
 
     prompt = captured["user_prompt"]
-    assert "0.1234" not in prompt
-    assert "0.7395" not in prompt
-    assert "annualized_return" not in prompt
-    assert "Observed" not in prompt
+    assert "Rank IC=0.1234" in prompt
+    assert "Annualized Return=0.7395" in prompt
+    assert "Observed annualized_return=0.7395" in prompt
