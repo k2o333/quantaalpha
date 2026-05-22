@@ -154,6 +154,12 @@ class NoQlibMarketDataProvider:
                 pl.col("close").cast(pl.Float64) / pl.col("close").cast(pl.Float64).shift(1).over("instrument") - 1.0
             ).fill_null(0.0)
         datetime_expr = _datetime_expr(frame)
+        core_output_columns = ["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"]
+        optional_output_columns = [
+            column
+            for column in frame.columns
+            if column.startswith("$") and column not in set(core_output_columns)
+        ]
         normalized = (
             frame.with_columns(
                 pl.col("instrument").cast(pl.Utf8),
@@ -167,8 +173,12 @@ class NoQlibMarketDataProvider:
                 pl.col("close").cast(pl.Float64).alias("$close"),
                 pl.col("volume").cast(pl.Float64).alias("$volume"),
                 pl.col("vwap").cast(pl.Float64).alias("$vwap"),
+                *[
+                    pl.col(column).cast(pl.Float64, strict=False).alias(column)
+                    for column in optional_output_columns
+                ],
             )
-            .select(["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"])
+            .select([*core_output_columns, *optional_output_columns])
             .sort(["datetime", "instrument"])
         )
         validate_standard_frame_columns(normalized.columns)

@@ -194,6 +194,8 @@ class SharedPolarsExpressionKernel:
             return value - _delay(value, int(_expect_number(args[1])))
         if name == "TS_MEAN" and len(args) == 2:
             return self._rolling_for_mode("mean", _expect_value(args[0]), int(_expect_number(args[1])))
+        if name == "MEAN" and len(args) == 2:
+            return self._rolling_for_mode("mean", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "MEAN" and len(args) == 1:
             return _cs_aggregate(_expect_value(args[0]), "mean")
         if name == "TS_SUM" and len(args) == 2:
@@ -203,6 +205,8 @@ class SharedPolarsExpressionKernel:
         if name in {"PROD", "TS_PROD"} and len(args) == 2:
             return _rolling_product_loose(_expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_STD" and len(args) == 2:
+            return self._rolling_for_mode("std", _expect_value(args[0]), int(_expect_number(args[1])))
+        if name == "STD" and len(args) == 2:
             return self._rolling_for_mode("std", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "STD" and len(args) == 1:
             return _cs_aggregate(_expect_value(args[0]), "std")
@@ -219,6 +223,10 @@ class SharedPolarsExpressionKernel:
         if name == "TS_MAX" and len(args) == 2:
             return self._rolling_for_mode("max", _expect_value(args[0]), int(_expect_number(args[1])))
         if name == "TS_MEDIAN" and len(args) == 2:
+            window = int(_expect_number(args[1]))
+            min_samples = 1 if self.compat_mode == "h5_coder" else window
+            return _rolling_quantile(_expect_value(args[0]), window, 0.5, min_samples=min_samples)
+        if name == "MEDIAN" and len(args) == 2:
             window = int(_expect_number(args[1]))
             min_samples = 1 if self.compat_mode == "h5_coder" else window
             return _rolling_quantile(_expect_value(args[0]), window, 0.5, min_samples=min_samples)

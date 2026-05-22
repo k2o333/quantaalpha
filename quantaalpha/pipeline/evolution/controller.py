@@ -687,7 +687,17 @@ class EvolutionController:
 
     @classmethod
     def _historical_record_to_trajectory(cls, record: dict[str, Any], rank_ic: float) -> StrategyTrajectory:
+        from quantaalpha.pipeline.evolution.metric_feedback import extract_backtest_metrics
+
         metadata = cls._load_json_object(record.get("metadata_json"))
+        raw_metrics = extract_backtest_metrics(cls._load_json_object(record.get("backtest_results_json")))
+        backtest_metrics = {
+            "IC": raw_metrics.get("IC"),
+            "RankIC": raw_metrics.get("Rank IC", rank_ic),
+            "information_ratio": raw_metrics.get("Information Ratio"),
+            "annualized_return": raw_metrics.get("Annualized Return"),
+        }
+        backtest_metrics = {key: value for key, value in backtest_metrics.items() if value is not None}
         factor_id = str(record.get("factor_id") or "")
         factor_name = str(record.get("factor_name") or factor_id)
         expression = str(record.get("factor_expression") or "")
@@ -713,7 +723,7 @@ class EvolutionController:
                     "factor_id": factor_id,
                 }
             ],
-            backtest_metrics={"RankIC": rank_ic},
+            backtest_metrics=backtest_metrics or {"RankIC": rank_ic},
             extra_info={
                 "evaluation": {
                     "status": record.get("evaluation_status") or "active",

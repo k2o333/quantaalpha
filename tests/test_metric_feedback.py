@@ -50,3 +50,33 @@ def test_format_metric_feedback_warns_on_low_ic() -> None:
     text = format_metric_feedback({"IC": 0.001, "RankIC": -0.002})
 
     assert "low predictive power" in text
+
+
+def test_historical_parent_candidate_preserves_full_backtest_metrics() -> None:
+    from quantaalpha.pipeline.evolution.controller import EvolutionController
+
+    trajectory = EvolutionController._historical_record_to_trajectory(
+        {
+            "factor_id": "factor_a",
+            "factor_name": "FactorA",
+            "factor_expression": "RANK(TS_DELTA($close, 5))",
+            "evaluation_status": "active",
+            "backtest_results_json": (
+                '{"IC": 0.0123, "Rank IC": 0.0456, '
+                '"information_ratio": 1.25, "annualized_return": 0.0789}'
+            ),
+            "metadata_json": "{}",
+        },
+        rank_ic=0.0456,
+    )
+
+    text = format_metric_feedback(trajectory.backtest_metrics, label="Parent Backtest Metrics")
+
+    assert trajectory.backtest_metrics["IC"] == 0.0123
+    assert trajectory.backtest_metrics["RankIC"] == 0.0456
+    assert trajectory.backtest_metrics["information_ratio"] == 1.25
+    assert trajectory.backtest_metrics["annualized_return"] == 0.0789
+    assert "IC=0.0123" in text
+    assert "Rank IC=0.0456" in text
+    assert "Information Ratio=1.2500" in text
+    assert "Annualized Return=0.0789" in text

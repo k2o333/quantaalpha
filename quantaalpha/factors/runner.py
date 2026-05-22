@@ -645,8 +645,19 @@ def _iter_loader_configs(loader_config: dict) -> list[dict]:
 
 
 def _market_only_standard_frame_config(config: dict) -> dict:
-    """Keep only the standard-frame keys needed to build OHLCV market data."""
-    keep = {"daily_interface", "adjustment", "materialized_cache_root"}
+    """Keep standard-frame keys needed by noqlib market and expression data."""
+    keep = {
+        "daily_interface",
+        "adjustment",
+        "include_markets",
+        "exclude_markets",
+        "materialized_cache_root",
+        "admission_profile_path",
+        "admission_profile",
+        "admission_profile_hash",
+        "admitted_fields",
+        "optional_fields",
+    }
     return {key: value for key, value in config.items() if key in keep}
 
 

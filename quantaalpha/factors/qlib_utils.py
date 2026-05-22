@@ -97,9 +97,10 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
         **standard_frame_cfg,
         "storage_root": str(storage_root),
     }
-    if not payload.get("instruments") and noqlib_config.get("instruments"):
+    use_backtest_universe = _factor_coder_uses_backtest_universe(noqlib_config)
+    if use_backtest_universe and not payload.get("instruments") and noqlib_config.get("instruments"):
         payload["instruments"] = tuple(str(item) for item in noqlib_config["instruments"])
-    if not payload.get("instruments") and noqlib_config.get("instruments_path"):
+    if use_backtest_universe and not payload.get("instruments") and noqlib_config.get("instruments_path"):
         instruments_path = Path(noqlib_config["instruments_path"])
         if not instruments_path.is_absolute():
             instruments_path = project_root / instruments_path
@@ -246,6 +247,16 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
     marker_path.write_text(json.dumps(marker_payload, ensure_ascii=True, indent=2, sort_keys=True, default=str), encoding="utf-8")
     logger.info(f"Materialized factor coder data from App5 standard frame: rows={row_count} columns={columns} data_root={data_root}")
     return True
+
+
+def _factor_coder_uses_backtest_universe(noqlib_config: dict) -> bool:
+    """Whether factor-coder standard-frame materialization should inherit backtest instruments."""
+    scope = str(noqlib_config.get("factor_coder_universe_scope") or "backtest").strip().lower()
+    if scope in {"all", "full", "full_market", "global"}:
+        return False
+    if scope in {"backtest", "instruments", "configured"}:
+        return True
+    raise ValueError(f"unsupported factor_coder_universe_scope: {scope}")
 
 
 def get_file_desc(p: Path, variable_list=[]) -> str:

@@ -318,3 +318,10 @@ def test_prepare_standard_frame_parquet_runtime_reuses_cache_without_h5(tmp_path
             },
         }
     )
+
+
+def test_factor_coder_universe_scope_can_decouple_from_backtest_instruments() -> None:
+    from quantaalpha.factors.qlib_utils import _factor_coder_uses_backtest_universe
+
+    assert _factor_coder_uses_backtest_universe({"factor_coder_universe_scope": "backtest"})
+    assert not _factor_coder_uses_backtest_universe({"factor_coder_universe_scope": "all"})

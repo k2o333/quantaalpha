@@ -60,6 +60,28 @@ def test_shared_polars_kernel_evaluates_canonical_and_aliases() -> None:
     assert result.loc[idx, "rank2"] == pytest.approx(1.0)
 
 
+def test_shared_polars_kernel_treats_two_arg_cross_sectional_names_as_rolling_aliases() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    market = _market()
+    result = SharedPolarsExpressionKernel(market).compute(
+        [
+            {"factor_id": "mean", "factor_name": "mean", "factor_expression": "MEAN($close, 2)"},
+            {"factor_id": "std", "factor_name": "std", "factor_expression": "STD($close, 2)"},
+            {"factor_id": "median", "factor_name": "median", "factor_expression": "MEDIAN($close, 2)"},
+        ]
+    )
+    expected = SharedPolarsExpressionKernel(market).compute(
+        [
+            {"factor_id": "mean", "factor_name": "mean", "factor_expression": "TS_MEAN($close, 2)"},
+            {"factor_id": "std", "factor_name": "std", "factor_expression": "TS_STD($close, 2)"},
+            {"factor_id": "median", "factor_name": "median", "factor_expression": "TS_MEDIAN($close, 2)"},
+        ]
+    )
+
+    pd.testing.assert_frame_equal(result, expected)
+
+
 def test_shared_polars_kernel_accepts_ts_delta_alias() -> None:
     from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
 

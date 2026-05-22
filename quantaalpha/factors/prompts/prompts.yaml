@@ -395,6 +395,9 @@ hypothesis2experiment:
       - Do not add trailing unmatched `)` at the end of an expression.
       - Before finalizing, count `(` and `)` for each expression; the counts must be equal.
       - If a previous retry reports a parser error, regenerate the expression from scratch instead of lightly editing it.
+      - Use TS_MEAN(A, n), TS_STD(A, n), and TS_MEDIAN(A, n) for rolling windows.
+      - Do NOT write MEAN(A, n), STD(A, n), or MEDIAN(A, n). MEAN(A), STD(A), and MEDIAN(A) are cross-sectional one-argument operators only.
+      - Prefer concise patterns that have historically worked in this parquet/noqlib search space, such as `RANK(TS_DELTA($close, 5))`, `TS_STD($volume * $daily_basic_turnover_rate, 20)`, `RANK(REGRESI($return, SEQUENCE(20), 20))`, and `RANK(TS_STD($return, 5) / (TS_STD($return, 60) + 1e-8))`.
 
     4.**Key Considerations in Factor Construction:**
       - **Data Preprocessing and Standardization:**
