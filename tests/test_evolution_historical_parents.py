@@ -21,6 +21,9 @@ def _write_factor(
     expression: str,
     status: str = "active",
     rank_ic: float = 0.04,
+    ic: float = 0.01,
+    annualized_return: float = 0.08,
+    information_ratio: float = 0.7,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     ParquetFactorLibrary(str(store_path)).write_factor_delta(
@@ -42,7 +45,14 @@ def _write_factor(
                     "stability_score": 0.8,
                 }
             ),
-            "backtest_results_json": json.dumps({"Rank IC": rank_ic}),
+            "backtest_results_json": json.dumps(
+                {
+                    "IC": ic,
+                    "Rank IC": rank_ic,
+                    "annualized_return": annualized_return,
+                    "information_ratio": information_ratio,
+                }
+            ),
         }
     )
 
@@ -54,7 +64,13 @@ def _runtime_trajectory(trajectory_id: str, expression: str, rank_ic: float) -> 
         round_idx=0,
         phase=RoundPhase.ORIGINAL,
         factors=[{"name": trajectory_id, "expression": expression}],
-        backtest_metrics={"RankIC": rank_ic},
+        backtest_metrics={
+            "IC": rank_ic / 2,
+            "RankIC": rank_ic,
+            "annualized_return": rank_ic * 2,
+            "information_ratio": rank_ic * 10,
+        },
+        extra_info={"evaluation": {"status": "active"}, "source": "trajectory_pool"},
     )
 
 
@@ -110,3 +126,82 @@ def test_historical_parent_injection_filters_status_metric_and_duplicates(tmp_pa
     assert [parent.trajectory_id for parent in historical] == ["library:active_high"]
     assert historical[0].get_primary_metric() == 0.05
     assert historical[0].factors[0]["expression"] == "RANK(close)"
+
+
+def test_historical_parent_injection_uses_trajectory_pool_when_library_has_no_active(tmp_path):
+    store_path = tmp_path / "factorlib"
+    _write_factor(store_path, factor_id="candidate_high", expression="RANK(volume)", status="candidate", rank_ic=0.08)
+
+    controller = EvolutionController(
+        EvolutionConfig(
+            num_directions=1,
+            mutation_enabled=False,
+            crossover_enabled=True,
+            parquet_library_dir=str(store_path),
+            historical_parent_sources={
+                "trajectory_pool": {"enabled": True, "min_rank_ic": 0.03, "count": 3},
+                "factor_library": {"enabled": True, "statuses": ["active"], "min_rank_ic": 0.03, "count": 3},
+            },
+        )
+    )
+    controller.pool.add(_runtime_trajectory("pool_high_a", "RANK(close)", 0.052))
+    controller.pool.add(_runtime_trajectory("pool_high_b", "RANK(open)", 0.041))
+    controller.pool.add(_runtime_trajectory("pool_high_c", "RANK(high)", 0.035))
+
+    historical = controller._load_historical_parent_candidates([])
+
+    assert [parent.trajectory_id for parent in historical] == ["pool_high_a", "pool_high_b", "pool_high_c"]
+    assert all(parent.extra_info.get("source") == "trajectory_pool" for parent in historical)
+
+
+def test_historical_parent_injection_dedupes_sources_by_best_rank_ic(tmp_path):
+    store_path = tmp_path / "factorlib"
+    _write_factor(store_path, factor_id="library_weaker", expression="RANK(close)", rank_ic=0.04)
+
+    controller = EvolutionController(
+        EvolutionConfig(
+            num_directions=1,
+            mutation_enabled=False,
+            crossover_enabled=True,
+            parquet_library_dir=str(store_path),
+            historical_parent_sources={
+                "trajectory_pool": {"enabled": True, "min_rank_ic": 0.03, "count": 3},
+                "factor_library": {"enabled": True, "statuses": ["active"], "min_rank_ic": 0.03, "count": 3},
+            },
+        )
+    )
+    controller.pool.add(_runtime_trajectory("pool_stronger", "RANK(close)", 0.06))
+
+    historical = controller._load_historical_parent_candidates([])
+
+    assert [parent.trajectory_id for parent in historical] == ["pool_stronger"]
+    assert historical[0].get_primary_metric() == 0.06
+
+
+def test_historical_parent_prompt_text_includes_core_metrics(tmp_path):
+    store_path = tmp_path / "factorlib"
+    _write_factor(
+        store_path,
+        factor_id="library_metrics",
+        expression="RANK(close)",
+        rank_ic=0.0456,
+        ic=0.0123,
+        annualized_return=0.0789,
+        information_ratio=1.25,
+    )
+    controller = EvolutionController(
+        EvolutionConfig(
+            parquet_library_dir=str(store_path),
+            historical_parent_sources={
+                "factor_library": {"enabled": True, "statuses": ["active"], "min_rank_ic": 0.03, "count": 1},
+            },
+        )
+    )
+
+    parent = controller._load_historical_parent_candidates([])[0]
+    text = parent.to_summary_text()
+
+    assert "IC=0.0123" in text
+    assert "RankIC=0.0456" in text
+    assert "annualized_return=0.0789" in text
+    assert "information_ratio=1.2500" in text

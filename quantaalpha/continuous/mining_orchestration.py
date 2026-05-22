@@ -634,6 +634,23 @@ class MiningOrchestrationMixin:
         if provider is None:
             provider = getattr(self, "_llm_advisor_provider", None)
 
+        if isinstance(provider, str):
+            logger.info(
+                f"llm_advisor on node '{node_id}': provider name '{provider}' has no bound advisor, "
+                f"falling back to '{fallback_next}'"
+            )
+            return ActionResult(
+                action="llm_advisor",
+                status="fallback",
+                metadata={
+                    "selected_next": fallback_next,
+                    "fallback_used": True,
+                    "fallback_reason": "provider_name_unbound",
+                    "llm_provider": provider,
+                    "advisor_context": advisor_context,
+                },
+            )
+
         if provider is None:
             logger.warning(
                 f"llm_advisor on node '{node_id}': no provider configured, "

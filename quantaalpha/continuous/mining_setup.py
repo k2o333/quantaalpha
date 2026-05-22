@@ -276,6 +276,9 @@ class MiningSetupMixin:
                 result.factors_added = pipeline_result.get("factors_added", 0)
                 result.factor_ids = pipeline_result.get("factor_ids", [])
                 result.errors.extend(pipeline_result.get("errors", []))
+                result.quality_gate_lifecycle = pipeline_result.get("quality_gate_lifecycle", {})
+                result.best_metrics = pipeline_result.get("best_metrics", {})
+                result.historical_parent_injection_counts = pipeline_result.get("historical_parent_injection_counts", {})
             else:
                 # Legacy mode: use _generate_factors
                 context = self._retrieve_context()

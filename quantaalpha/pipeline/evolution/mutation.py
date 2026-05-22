@@ -77,7 +77,8 @@ class MutationOperator:
     def generate_mutation(
         self,
         parent: StrategyTrajectory,
-        use_detailed_prompt: bool = True
+        use_detailed_prompt: bool = True,
+        mutation_mode: str = "exploit",
     ) -> dict[str, str]:
         """
         Generate a mutated (orthogonal) strategy from parent.
@@ -113,6 +114,7 @@ class MutationOperator:
             parent.feedback_details,
             label="Parent Evaluation Feedback",
         )
+        mode_guidance = self._mutation_mode_guidance(mutation_mode)
         
         # Build prompt
         system_prompt = self.prompts.get("system", "")
@@ -124,11 +126,13 @@ class MutationOperator:
                 parent_metrics=parent_metrics,
                 parent_feedback=parent_feedback
             )
+            user_prompt = f"{user_prompt}\n\n{mode_guidance}"
         else:
             user_prompt = self.prompts.get("simple_user", "").format(
                 parent_hypothesis=parent_hypothesis,
                 parent_factors=parent_factors
             )
+            user_prompt = f"{user_prompt}\n\n{mode_guidance}"
         
         # Call LLM
         try:
@@ -215,8 +219,23 @@ class MutationOperator:
         else:
             import random
             return random.choice(fallback_templates)
+
+    @staticmethod
+    def _mutation_mode_guidance(mutation_mode: str) -> str:
+        mode = str(mutation_mode or "exploit").strip().lower()
+        if mode == "explore":
+            return (
+                "Mutation Mode: explore\n"
+                "- Generate an orthogonal theme, but state why the child should beat the parent Rank IC.\n"
+                "- Keep the outperformance hypothesis tied to concrete IC, Rank IC, annualized return, or information-ratio improvement."
+            )
+        return (
+            "Mutation Mode: exploit\n"
+            "- preserve the parent signal family and at least one core structure unless coverage or instability caused failure.\n"
+            "- Improve windows, normalization, coverage, stability, tradability, Rank IC, annualized return, or information ratio."
+        )
     
-    def generate_mutation_prompt_suffix(self, parent: StrategyTrajectory) -> str:
+    def generate_mutation_prompt_suffix(self, parent: StrategyTrajectory, mutation_mode: str = "exploit") -> str:
         """
         Generate a prompt suffix to be appended to the hypothesis generator.
         
@@ -228,17 +247,20 @@ class MutationOperator:
         Returns:
             Prompt suffix string
         """
-        mutation_result = self.generate_mutation(parent, use_detailed_prompt=True)
+        mutation_result = self.generate_mutation(parent, use_detailed_prompt=True, mutation_mode=mutation_mode)
+        parent_metrics = format_metric_feedback(parent.backtest_metrics, label="Parent Backtest Metrics")
+        mode_guidance = self._mutation_mode_guidance(mutation_mode)
         
         # Use template from prompts if available
         suffix_template = self.prompts.get("suffix_template")
         if suffix_template:
-            return suffix_template.format(
+            suffix = suffix_template.format(
                 parent_summary=parent.to_prompt_context_text(),
                 new_hypothesis=mutation_result.get('new_hypothesis', 'Explore new direction'),
                 exploration_direction=mutation_result.get('exploration_direction', ''),
                 orthogonality_reason=mutation_result.get('orthogonality_reason', '')
             )
+            return f"{suffix}\n\n### Parent Metrics\n{parent_metrics}\n\n### Mutation Objective\n{mode_guidance}\n"
         
         # Default suffix (English)
         suffix = f"""
@@ -251,6 +273,12 @@ This is a mutation exploration round that requires generating an orthogonal new 
 
 ### Parent Strategy Summary
 {parent.to_prompt_context_text()}
+
+### Parent Metrics
+{parent_metrics}
+
+### Mutation Objective
+{mode_guidance}
 
 ### Mutation Direction Suggestions
 - **New Hypothesis Direction**: {mutation_result.get('new_hypothesis', 'Explore new direction')}

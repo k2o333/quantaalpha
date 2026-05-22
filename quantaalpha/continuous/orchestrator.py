@@ -191,6 +191,9 @@ class MiningOrchestrator:
                     "min_rank_ic": self.config.mining.quality_gate.min_rank_ic,
                     "max_correlation": self.config.mining.quality_gate.max_correlation,
                     "min_sharpe": self.config.mining.quality_gate.min_sharpe,
+                    "min_information_ratio": self.config.mining.quality_gate.min_information_ratio,
+                    "persistence": self.config.mining.quality_gate.persistence,
+                    "promotion": self.config.mining.quality_gate.promotion,
                 },
                 evolution_cfg={
                     "enabled": self.config.mining.evolution.enabled,
@@ -205,6 +208,9 @@ class MiningOrchestrator:
                     "historical_active_parent_count": self.config.mining.evolution.historical_active_parent_count,
                     "historical_parent_min_rank_ic": self.config.mining.evolution.historical_parent_min_rank_ic,
                     "historical_parent_statuses": self.config.mining.evolution.historical_parent_statuses,
+                    "historical_parent_sources": self.config.mining.evolution.historical_parent_sources,
+                    "mutation_mode_weights": self.config.mining.evolution.mutation_mode_weights,
+                    "mutation_mode_schedule": self.config.mining.evolution.mutation_mode_schedule,
                 },
                 state_cfg={
                     "pool_save_path": self.config.mining.state.pool_save_path,

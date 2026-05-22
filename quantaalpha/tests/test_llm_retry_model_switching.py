@@ -10,6 +10,7 @@ These tests verify:
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 
@@ -40,6 +41,8 @@ def _make_minimal_backend():
     backend.chat_seed = None
     backend.retry_wait_seconds = 0  # No sleep in tests
     backend._provider_pool = None
+    backend._request_timeout_seconds = None
+    backend._max_retry_override = None
     backend.get_model_for_task = APIBackend.get_model_for_task.__get__(backend, APIBackend)
     return backend
 
@@ -115,6 +118,34 @@ class TestOpenAIClientRetryBoundary:
             and "provider=provider-a" in message
             for message in log_messages
         )
+
+    def test_litellm_internal_server_error_at_create_boundary_is_retryable(self):
+        """LiteLLM proxy 500s raised before a response object exists must enter our retry path."""
+        from quantaalpha.llm.client import EmptyLLMResponseError, LLM_SETTINGS, openai
+
+        backend = _make_minimal_backend()
+        response = httpx.Response(
+            status_code=500,
+            request=httpx.Request("POST", "https://litellm.test/v1/chat/completions"),
+            json={"error": {"message": "provider returned choices=null"}},
+        )
+        backend.chat_client.chat.completions.create.side_effect = openai.InternalServerError(
+            "Internal server error",
+            response=response,
+            body={"error": {"message": "provider returned choices=null"}},
+        )
+
+        with patch.object(LLM_SETTINGS, "log_llm_chat_content", False), \
+             patch.object(LLM_SETTINGS, "use_auto_chat_cache_seed_gen", False), \
+             patch.object(LLM_SETTINGS, "chat_temperature", 0.7), \
+             patch.object(LLM_SETTINGS, "chat_max_tokens", 1000), \
+             patch.object(LLM_SETTINGS, "chat_frequency_penalty", 0.0), \
+             patch.object(LLM_SETTINGS, "chat_presence_penalty", 0.0):
+            with pytest.raises(EmptyLLMResponseError, match="liteLLM proxy InternalServerError"):
+                backend._create_chat_completion_inner_function(
+                    messages=[{"role": "user", "content": "test"}],
+                    reasoning_flag=False,
+                )
 
     def test_provider_pool_request_uses_provider_matching_current_model_before_switch_threshold(self):
         """Normal retries must not round-robin to a provider whose model differs from the current model."""

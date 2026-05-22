@@ -221,6 +221,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             self._last_hypothesis = None
             self._last_experiment = None
             self._last_feedback = None
+            self._last_save_result = {}
             logger.info(f"Initialized AlphaAgentLoop, backtest in {'local' if use_local else 'Docker'}, backend={self.backtest_backend}")
             if potential_direction:
                 logger.info(f"Initial direction: {potential_direction}")
@@ -728,7 +729,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             # Get compact config from loop if available
             compact_config = getattr(self, "_parquet_compact_config", None)
 
-            save_factors_to_parquet(
+            self._last_save_result = save_factors_to_parquet(
                 experiment=prev_out["factor_backtest"],
                 parquet_store_path=str(parquet_store_path),
                 experiment_id=experiment_id,
@@ -743,6 +744,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 parent_trajectory_ids=parent_trajectory_ids,
                 compact_config=compact_config,
                 round_summary=round_summary,
+                quality_gate_config=self.quality_gate_config,
             )
             logger.info(f"Saved factors to Parquet store: {parquet_store_path} (phase={evolution_phase})")
 
@@ -939,6 +941,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             "parent_trajectory_ids": self.parent_trajectory_ids,
             "loop_idx": self.loop_idx,
             "round_idx": self.round_idx,
+            "save_result": getattr(self, "_last_save_result", {}),
         }
 
 

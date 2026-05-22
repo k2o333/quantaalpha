@@ -129,9 +129,12 @@ class MiningPipelineMixin:
                     "historical_active_parent_count": effective_evolution_cfg.get("historical_active_parent_count", 0),
                     "historical_parent_min_rank_ic": effective_evolution_cfg.get("historical_parent_min_rank_ic", 0.0),
                     "historical_parent_statuses": effective_evolution_cfg.get("historical_parent_statuses", ["active"]),
+                    "historical_parent_sources": effective_evolution_cfg.get("historical_parent_sources", {}),
+                    "mutation_mode_weights": effective_evolution_cfg.get("mutation_mode_weights", {"exploit": 0.75, "explore": 0.25}),
+                    "mutation_mode_schedule": effective_evolution_cfg.get("mutation_mode_schedule", "fixed"),
                 }
 
-                run_evolution_loop(
+                evolution_summary = run_evolution_loop(
                     initial_direction=direction,
                     evolution_cfg=ev_cfg,
                     exec_cfg={
@@ -159,6 +162,9 @@ class MiningPipelineMixin:
                 result["factors_generated"] = len(factor_ids)
                 result["factors_validated"] = len(factor_ids)
                 result["factors_added"] = len(factor_ids)
+                result["quality_gate_lifecycle"] = evolution_summary.get("quality_gate_lifecycle", {})
+                result["best_metrics"] = evolution_summary.get("best_metrics", {})
+                result["historical_parent_injection_counts"] = evolution_summary.get("historical_parent_injection_counts", {})
 
             except Exception as e:
                 logger.error(f"Evolution mining failed: {e}")
@@ -204,6 +210,9 @@ class MiningPipelineMixin:
                     result["factors_generated"] = len(factor_ids)
                     result["factors_validated"] = len(factor_ids)
                     result["factors_added"] = len(factor_ids)
+                    save_result = getattr(loop, "_last_save_result", {}) or {}
+                    result["quality_gate_lifecycle"] = save_result.get("quality_gate_lifecycle", {})
+                    result["best_metrics"] = save_result.get("best_metrics", {})
 
                     # Record success/failure for escalation
                     if factor_ids:

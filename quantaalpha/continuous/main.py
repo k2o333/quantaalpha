@@ -444,6 +444,12 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
                 "errors": t.get("errors", []),
             }
 
+        if cycle_result.get("factor_quality"):
+            fq = cycle_result["factor_quality"]
+            summary.factor_quality_lifecycle = fq.get("lifecycle", {})
+            summary.best_factor_metrics = fq.get("best_metrics", {})
+            summary.historical_parent_injection_counts = fq.get("historical_parent_injection_counts", {})
+
         if cycle_result.get("candidate_factors") is not None:
             summary.candidate_factors_count = cycle_result["candidate_factors"]
             summary.candidate_factors_source = cycle_result.get("candidate_factors_source", "revalidation")
@@ -563,6 +569,12 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
                     "triggered": t.get("triggered", False),
                     "errors": t.get("errors", []),
                 }
+
+            if cycle_result.get("factor_quality"):
+                fq = cycle_result["factor_quality"]
+                summary.factor_quality_lifecycle = fq.get("lifecycle", {})
+                summary.best_factor_metrics = fq.get("best_metrics", {})
+                summary.historical_parent_injection_counts = fq.get("historical_parent_injection_counts", {})
 
             if cycle_result.get("candidate_factors") is not None:
                 summary.candidate_factors_count = cycle_result["candidate_factors"]
@@ -761,20 +773,16 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
             setattr(mining_config, "ensemble", SimpleNamespace())
         if not hasattr(mining_config.agent_loop, "step_model_routing"):
             mining_config.agent_loop.step_model_routing = {}
-        mining_config.agent_loop.step_model_routing.update(
-            {
-                "propose": "litellm_minimax",
-                "construct": "litellm_minimax",
-                "feedback": "litellm_minimax",
-            }
-        )
+        mining_config.agent_loop.step_model_routing.setdefault("propose", "litellm_modelbig")
+        mining_config.agent_loop.step_model_routing.setdefault("construct", "litellm_modelbig")
+        mining_config.agent_loop.step_model_routing.setdefault("feedback", "litellm_modelbig")
         mining_config.ensemble.enabled = True
         mining_config.ensemble.strategy = "collect_all"
         mining_config.ensemble.max_workers = 1
         mining_config.ensemble.min_responses = 1
         mining_config.ensemble.max_wait_seconds = 45
         mining_config.ensemble.early_quorum = True
-        mining_config.ensemble.models = [ModelConfig(name="litellm_minimax", tier=2)]
+        mining_config.ensemble.models = [ModelConfig(name="litellm_modelbig", tier=2)]
 
 
 class ContinuousOrchestrator:
@@ -1115,6 +1123,11 @@ class ContinuousOrchestrator:
                 result["mining"]["generated"] = mining_result.get("factors_generated", 0)
                 result["mining"]["validated"] = mining_result.get("factors_validated", 0)
                 result["mining"]["added"] = mining_result.get("factors_added", 0)
+                result["factor_quality"] = {
+                    "lifecycle": mining_result.get("quality_gate_lifecycle", {}),
+                    "best_metrics": mining_result.get("best_metrics", {}),
+                    "historical_parent_injection_counts": mining_result.get("historical_parent_injection_counts", {}),
+                }
                 if mining_result.get("errors"):
                     result["mining"]["errors"] = mining_result["errors"]
                 elapsed = time.time() - cycle_start_time
@@ -1302,6 +1315,9 @@ class ContinuousOrchestrator:
             "factor_ids": mining_result.factor_ids,
             "errors": mining_result.errors,
             "duration_seconds": mining_result.duration_seconds,
+            "quality_gate_lifecycle": getattr(mining_result, "quality_gate_lifecycle", {}),
+            "best_metrics": getattr(mining_result, "best_metrics", {}),
+            "historical_parent_injection_counts": getattr(mining_result, "historical_parent_injection_counts", {}),
         }
 
 

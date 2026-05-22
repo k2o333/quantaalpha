@@ -817,6 +817,91 @@ def test_noqlib_portfolio_return_matches_real_qlib_fixed_prediction_when_data_av
     )
 
 
+def test_noqlib_missing_open_buy_diagnostic_records_instrument_date_and_reason():
+    from quantaalpha.backtest.noqlib.portfolio import NoQlibTopkDropoutBacktester
+
+    index = pd.MultiIndex.from_tuples(
+        [
+            (pd.Timestamp("2020-01-01"), "A"),
+            (pd.Timestamp("2020-01-01"), "B"),
+            (pd.Timestamp("2020-01-02"), "A"),
+            (pd.Timestamp("2020-01-02"), "B"),
+        ],
+        names=["datetime", "instrument"],
+    )
+    market = pd.DataFrame(
+        {
+            "$open": [10.0, 10.0, float("nan"), 11.0],
+            "$close": [10.0, 10.0, 10.0, 11.0],
+            "$return": [0.0, 0.0, 0.0, 0.1],
+        },
+        index=index,
+    )
+    prediction = pd.Series([2.0, 1.0], index=pd.MultiIndex.from_tuples([(pd.Timestamp("2020-01-01"), "A"), (pd.Timestamp("2020-01-01"), "B")], names=["datetime", "instrument"]))
+    config = {
+        "backtest": {
+            "strategy": {"kwargs": {"topk": 1, "n_drop": 1}},
+            "backtest": {
+                "start_time": "2020-01-02",
+                "end_time": "2020-01-02",
+                "benchmark": "mean",
+                "exchange_kwargs": {"open_cost": 0.0, "close_cost": 0.0, "min_cost": 0.0},
+            },
+        }
+    }
+
+    metrics, _report, positions = NoQlibTopkDropoutBacktester(config, market).run(prediction)
+
+    assert metrics["missing_open_buy_skip_count"] == 1.0
+    assert positions.empty
+    assert metrics["missing_price_examples"][0] == {
+        "date": "2020-01-02",
+        "instrument": "A",
+        "field": "$open",
+        "action": "skip_buy",
+        "reason": "non_finite_or_non_positive_price",
+    }
+
+
+def test_noqlib_missing_price_diagnostics_are_bounded():
+    from quantaalpha.backtest.noqlib.portfolio import NoQlibTopkDropoutBacktester
+
+    rows = []
+    prediction_rows = []
+    for day in pd.date_range("2020-01-01", periods=30, freq="D"):
+        rows.append((day, "A", float("nan"), 10.0, 0.0))
+        previous_day = day - pd.Timedelta(days=1)
+        prediction_rows.append((previous_day, "A", 1.0))
+    market_index = pd.MultiIndex.from_tuples([(row[0], row[1]) for row in rows], names=["datetime", "instrument"])
+    market = pd.DataFrame(
+        {
+            "$open": [row[2] for row in rows],
+            "$close": [row[3] for row in rows],
+            "$return": [row[4] for row in rows],
+        },
+        index=market_index,
+    )
+    pred_index = pd.MultiIndex.from_tuples([(row[0], row[1]) for row in prediction_rows], names=["datetime", "instrument"])
+    prediction = pd.Series([row[2] for row in prediction_rows], index=pred_index)
+    config = {
+        "backtest": {
+            "strategy": {"kwargs": {"topk": 1, "n_drop": 1}},
+            "backtest": {
+                "start_time": "2020-01-01",
+                "end_time": "2020-01-30",
+                "benchmark": "mean",
+                "exchange_kwargs": {"open_cost": 0.0, "close_cost": 0.0, "min_cost": 0.0},
+            },
+        }
+    }
+
+    metrics, _report, _positions = NoQlibTopkDropoutBacktester(config, market).run(prediction)
+
+    assert metrics["missing_open_buy_skip_count"] > 20.0
+    assert metrics["missing_price_example_count"] == 20.0
+    assert len(metrics["missing_price_examples"]) == 20
+
+
 def _rotating_prediction(dates: pd.DatetimeIndex, instruments: list[str]) -> pd.Series:
     index = []
     values = []

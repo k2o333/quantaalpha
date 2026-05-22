@@ -232,6 +232,31 @@ def _is_bounded_llm_task_failure(error: Exception) -> bool:
     return any(marker in text for marker in bounded_markers)
 
 
+def _aggregate_quality_gate_lifecycle(save_results: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"evaluated": 0, "active_promoted": 0, "candidate_only": 0, "rejected": 0}
+    for result in save_results:
+        lifecycle = result.get("quality_gate_lifecycle") or {}
+        for key in counts:
+            counts[key] += int(lifecycle.get(key, 0) or 0)
+    return counts
+
+
+def _best_metric_payload(save_results: list[dict[str, Any]]) -> dict[str, Any]:
+    best: dict[str, Any] = {}
+    best_rank_ic = None
+    for result in save_results:
+        metrics = result.get("best_metrics") or {}
+        rank_ic = metrics.get("Rank IC")
+        try:
+            rank_ic_value = float(rank_ic)
+        except (TypeError, ValueError):
+            rank_ic_value = None
+        if best_rank_ic is None or (rank_ic_value is not None and rank_ic_value > best_rank_ic):
+            best = dict(metrics)
+            best_rank_ic = rank_ic_value
+    return best
+
+
 def _parallel_task_worker(
     task: dict[str, Any],
     directions: list[str],
@@ -515,6 +540,9 @@ def run_evolution_loop(
     historical_active_parent_count = int(evolution_cfg.get("historical_active_parent_count", 0) or 0)
     historical_parent_min_rank_ic = float(evolution_cfg.get("historical_parent_min_rank_ic", 0.0) or 0.0)
     historical_parent_statuses = evolution_cfg.get("historical_parent_statuses") or ["active"]
+    historical_parent_sources = evolution_cfg.get("historical_parent_sources") or {}
+    mutation_mode_weights = evolution_cfg.get("mutation_mode_weights") or {"exploit": 0.75, "explore": 0.25}
+    mutation_mode_schedule = str(evolution_cfg.get("mutation_mode_schedule", "fixed") or "fixed")
     # 优先使用显式参数,fallback 到 logger 状态(向后兼容)
     if log_root is None:
         log_root = str(logger.storage.path)
@@ -525,6 +553,7 @@ def run_evolution_loop(
     failure_threshold = None if raw_failure_threshold in (None, "") else int(raw_failure_threshold)
     failures: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    save_results: list[dict[str, Any]] = []
     total_tasks = 0
 
     # Generate initial directions using the resolution helper
@@ -584,6 +613,9 @@ def run_evolution_loop(
         historical_active_parent_count=historical_active_parent_count,
         historical_parent_min_rank_ic=historical_parent_min_rank_ic,
         historical_parent_statuses=list(historical_parent_statuses),
+        historical_parent_sources=dict(historical_parent_sources),
+        mutation_mode_weights=dict(mutation_mode_weights),
+        mutation_mode_schedule=mutation_mode_schedule,
     )
 
     controller = EvolutionController(config)
@@ -652,6 +684,9 @@ def run_evolution_loop(
                     )
                     controller.report_task_complete(task, trajectory)
                     completed_tasks.append(task)
+                    save_result = traj_data.get("save_result")
+                    if isinstance(save_result, dict):
+                        save_results.append(save_result)
                     logger.info(f"Trajectory done: {trajectory.trajectory_id}, RankIC={trajectory.get_primary_metric()}")
             result_by_task_idx = {result["task_idx"]: result for result in results}
             for task_idx, task in enumerate(tasks):
@@ -705,6 +740,9 @@ def run_evolution_loop(
                     feedback=traj_data.get("feedback"),
                 )
                 controller.report_task_complete(task, trajectory)
+                save_result = traj_data.get("save_result")
+                if isinstance(save_result, dict):
+                    save_results.append(save_result)
                 logger.info(f"Task done: trajectory_id={trajectory.trajectory_id}, RankIC={trajectory.get_primary_metric()}")
             except Exception as e:
                 if _is_bounded_llm_task_failure(e):
@@ -731,6 +769,14 @@ def run_evolution_loop(
     logger.info(f"Pool stats: {controller.pool.get_statistics()}")
     logger.info("=" * 60)
     summary = _log_failure_summary(failures, total_tasks, skipped)
+    summary["quality_gate_lifecycle"] = _aggregate_quality_gate_lifecycle(save_results)
+    summary["best_metrics"] = _best_metric_payload(save_results)
+    summary["historical_parent_injection_counts"] = getattr(controller, "_historical_parent_injection_counts", {})
+    logger.info(
+        "Quality gate lifecycle summary: "
+        f"{summary['quality_gate_lifecycle']}; best_metrics={summary['best_metrics']}; "
+        f"historical_parent_injection_counts={summary['historical_parent_injection_counts']}"
+    )
     if failure_threshold is not None and summary["failed_tasks"] >= failure_threshold:
         summary["status"] = "failed"
         if cleanup_on_finish:

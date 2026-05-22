@@ -11,7 +11,7 @@ The controller orchestrates the evolutionary process:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 import threading
@@ -72,6 +72,9 @@ class EvolutionConfig:
     historical_active_parent_count: int = 0
     historical_parent_min_rank_ic: float = 0.0
     historical_parent_statuses: list[str] | None = None
+    historical_parent_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
+    mutation_mode_weights: dict[str, float] = field(default_factory=lambda: {"exploit": 0.75, "explore": 0.25})
+    mutation_mode_schedule: str = "fixed"
 
 
 class EvolutionController:
@@ -126,6 +129,7 @@ class EvolutionController:
         # Track trajectories to mutate in current mutation round
         self._mutation_targets: list[StrategyTrajectory] = []
         self._mutation_idx = 0  # Current index in mutation targets
+        self._historical_parent_injection_counts: dict[str, dict[str, int]] = {}
     
     def get_current_state(self) -> dict[str, Any]:
         """Get current evolution state."""
@@ -243,13 +247,15 @@ class EvolutionController:
                 if existing:
                     continue
                 
-                suffix = self.mutation_op.generate_mutation_prompt_suffix(parent)
+                mutation_mode = self._select_mutation_mode(idx)
+                suffix = self.mutation_op.generate_mutation_prompt_suffix(parent, mutation_mode=mutation_mode)
                 tasks.append({
                     "phase": RoundPhase.MUTATION,
                     "direction_id": idx,
                     "parent_trajectories": [parent],
                     "strategy_suffix": suffix,
                     "round_idx": self._current_round,
+                    "mutation_mode": mutation_mode,
                 })
             
             # If no tasks, transition phase for next call
@@ -450,7 +456,8 @@ class EvolutionController:
                 continue
             
             # Generate mutation guidance
-            suffix = self.mutation_op.generate_mutation_prompt_suffix(parent)
+            mutation_mode = self._select_mutation_mode(self._mutation_idx)
+            suffix = self.mutation_op.generate_mutation_prompt_suffix(parent, mutation_mode=mutation_mode)
             
             task = {
                 "phase": RoundPhase.MUTATION,
@@ -458,10 +465,25 @@ class EvolutionController:
                 "parent_trajectories": [parent],
                 "strategy_suffix": suffix,
                 "round_idx": self._current_round,
+                "mutation_mode": mutation_mode,
             }
             
             self._mutation_idx += 1
             return task
+
+    def _select_mutation_mode(self, mutation_index: int) -> str:
+        """Select fixed exploit/explore mutation mode from configured weights."""
+        weights = self.config.mutation_mode_weights or {"exploit": 0.75, "explore": 0.25}
+        exploit_weight = max(float(weights.get("exploit", 0.75) or 0.0), 0.0)
+        explore_weight = max(float(weights.get("explore", 0.25) or 0.0), 0.0)
+        if explore_weight <= 0:
+            return "exploit"
+        if exploit_weight <= 0:
+            return "explore"
+        total = exploit_weight + explore_weight
+        cycle = max(1, round(total / min(exploit_weight, explore_weight)))
+        explore_slots = max(1, round(cycle * explore_weight / total))
+        return "explore" if mutation_index % cycle >= cycle - explore_slots else "exploit"
         
         # All mutation tasks complete, transition to next phase
         self._mutation_targets = []  # Reset for next mutation round
@@ -575,16 +597,142 @@ class EvolutionController:
         if not historical:
             return candidates
 
-        merged = [*candidates, *historical]
+        merged = self._dedupe_trajectories_by_expression([*candidates, *historical])
         logger.info(
             "Historical parent injection: added "
-            f"{len(historical)} parquet candidates to {len(candidates)} runtime candidates "
+            f"{len(historical)} historical candidates to {len(candidates)} runtime candidates "
             f"(total={len(merged)})"
         )
         return merged
 
     def _load_historical_parent_candidates(self, candidates: list[StrategyTrajectory]) -> list[StrategyTrajectory]:
+        existing_ids = {
+            fid
+            for trajectory in candidates
+            for fid in (
+                trajectory.trajectory_id,
+                *trajectory.parent_ids,
+                str(trajectory.extra_info.get("source_factor_id", "")),
+            )
+            if fid
+        }
+        existing_expressions = {
+            str(factor.get("expression") or factor.get("factor_expression") or "")
+            for trajectory in candidates
+            for factor in trajectory.factors
+        }
+        selected: list[StrategyTrajectory] = []
+        self._historical_parent_injection_counts = {}
+        source_cfg = self._historical_parent_source_config()
+
+        trajectory_cfg = source_cfg.get("trajectory_pool") or {}
+        if trajectory_cfg.get("enabled", False):
+            pool_selected = self._load_trajectory_pool_parent_candidates(
+                trajectory_cfg,
+                existing_ids=existing_ids,
+                existing_expressions=existing_expressions,
+            )
+            selected.extend(pool_selected)
+            for trajectory in pool_selected:
+                existing_ids.add(trajectory.trajectory_id)
+                existing_expressions.update(
+                    str(factor.get("expression") or factor.get("factor_expression") or "")
+                    for factor in trajectory.factors
+                )
+
+        library_cfg = source_cfg.get("factor_library") or {}
+        if library_cfg.get("enabled", False):
+            selected.extend(
+                self._load_factor_library_parent_candidates(
+                    library_cfg,
+                    existing_ids=existing_ids,
+                    existing_expressions=existing_expressions,
+                )
+            )
+
+        return self._dedupe_trajectories_by_expression(selected)
+
+    def _historical_parent_source_config(self) -> dict[str, dict[str, Any]]:
+        if self.config.historical_parent_sources:
+            return self.config.historical_parent_sources
         count = max(0, int(self.config.historical_active_parent_count or 0))
+        if count <= 0:
+            return {}
+        return {
+            "factor_library": {
+                "enabled": True,
+                "statuses": list(self.config.historical_parent_statuses or ["active"]),
+                "min_rank_ic": float(self.config.historical_parent_min_rank_ic or 0.0),
+                "count": count,
+            }
+        }
+
+    def _load_trajectory_pool_parent_candidates(
+        self,
+        cfg: dict[str, Any],
+        *,
+        existing_ids: set[str],
+        existing_expressions: set[str],
+    ) -> list[StrategyTrajectory]:
+        count = max(0, int(cfg.get("count", 0) or 0))
+        min_rank_ic = float(cfg.get("min_rank_ic", 0.0) or 0.0)
+        allowed_statuses = set(cfg.get("statuses") or [])
+        stats = {
+            "scanned": 0,
+            "selected": 0,
+            "skipped_missing_metrics": 0,
+            "skipped_below_threshold": 0,
+            "skipped_duplicate": 0,
+        }
+        selected: list[StrategyTrajectory] = []
+        pool = sorted(self.pool.get_all(), key=lambda item: item.get_primary_metric() or 0.0, reverse=True)
+        for trajectory in pool:
+            stats["scanned"] += 1
+            if len(selected) >= count:
+                break
+            if trajectory.trajectory_id in existing_ids:
+                stats["skipped_duplicate"] += 1
+                continue
+            expressions = {
+                str(factor.get("expression") or factor.get("factor_expression") or "")
+                for factor in trajectory.factors
+            }
+            if expressions & existing_expressions:
+                stats["skipped_duplicate"] += 1
+                continue
+            if allowed_statuses:
+                status = str(trajectory.extra_info.get("evaluation", {}).get("status") or "")
+                if status not in allowed_statuses:
+                    stats["skipped_below_threshold"] += 1
+                    continue
+            rank_ic = trajectory.get_primary_metric()
+            if rank_ic is None:
+                stats["skipped_missing_metrics"] += 1
+                continue
+            if rank_ic < min_rank_ic:
+                stats["skipped_below_threshold"] += 1
+                continue
+            trajectory.extra_info.setdefault("source", "trajectory_pool")
+            selected.append(trajectory)
+        stats["selected"] = len(selected)
+        self._historical_parent_injection_counts["trajectory_pool"] = stats
+        logger.info(
+            "Historical parent injection source=trajectory_pool: "
+            f"scanned={stats['scanned']}, selected={stats['selected']}, "
+            f"skipped_missing_metrics={stats['skipped_missing_metrics']}, "
+            f"skipped_below_threshold={stats['skipped_below_threshold']}, "
+            f"skipped_duplicate={stats['skipped_duplicate']}"
+        )
+        return selected
+
+    def _load_factor_library_parent_candidates(
+        self,
+        cfg: dict[str, Any],
+        *,
+        existing_ids: set[str],
+        existing_expressions: set[str],
+    ) -> list[StrategyTrajectory]:
+        count = max(0, int(cfg.get("count", 0) or 0))
         if count <= 0:
             return []
 
@@ -605,60 +753,69 @@ class EvolutionController:
             logger.info("Historical parent injection: parquet library is empty")
             return []
 
-        existing_ids = {
-            fid
-            for trajectory in candidates
-            for fid in (
-                trajectory.trajectory_id,
-                *trajectory.parent_ids,
-                str(trajectory.extra_info.get("source_factor_id", "")),
-            )
-            if fid
-        }
-        existing_expressions = {
-            str(factor.get("expression") or factor.get("factor_expression") or "")
-            for trajectory in candidates
-            for factor in trajectory.factors
-        }
-        allowed_statuses = set(self.config.historical_parent_statuses or ["active"])
+        allowed_statuses = set(cfg.get("statuses") or self.config.historical_parent_statuses or ["active"])
+        min_rank_ic = float(cfg.get("min_rank_ic", self.config.historical_parent_min_rank_ic or 0.0) or 0.0)
         selected: list[StrategyTrajectory] = []
-        skipped_status = 0
-        skipped_metric = 0
-        skipped_duplicate = 0
-
+        stats = {
+            "scanned": 0,
+            "selected": 0,
+            "skipped_status": 0,
+            "skipped_missing_metrics": 0,
+            "skipped_below_threshold": 0,
+            "skipped_duplicate": 0,
+        }
         records = frame.to_dicts()
         records.sort(key=lambda item: self._rank_ic_from_backtest_json(item.get("backtest_results_json")), reverse=True)
         for record in records:
+            stats["scanned"] += 1
             if len(selected) >= count:
                 break
 
             status = str(record.get("evaluation_status") or "")
             if status not in allowed_statuses:
-                skipped_status += 1
+                stats["skipped_status"] += 1
                 continue
 
             rank_ic = self._rank_ic_from_backtest_json(record.get("backtest_results_json"))
-            if rank_ic < float(self.config.historical_parent_min_rank_ic or 0.0):
-                skipped_metric += 1
+            if rank_ic == 0.0:
+                stats["skipped_missing_metrics"] += 1
+                continue
+            if rank_ic < min_rank_ic:
+                stats["skipped_below_threshold"] += 1
                 continue
 
             factor_id = str(record.get("factor_id") or "")
             expression = str(record.get("factor_expression") or "")
             if not factor_id or not expression or factor_id in existing_ids or expression in existing_expressions:
-                skipped_duplicate += 1
+                stats["skipped_duplicate"] += 1
                 continue
 
             selected.append(self._historical_record_to_trajectory(record, rank_ic))
-            existing_ids.add(factor_id)
-            existing_expressions.add(expression)
 
+        stats["selected"] = len(selected)
+        self._historical_parent_injection_counts["factor_library"] = stats
         logger.info(
-            "Historical parent injection: scanned "
-            f"{len(records)} parquet factors, selected={len(selected)}, "
-            f"skipped_status={skipped_status}, skipped_metric={skipped_metric}, "
-            f"skipped_duplicate={skipped_duplicate}"
+            "Historical parent injection source=factor_library: "
+            f"scanned={stats['scanned']}, selected={stats['selected']}, "
+            f"skipped_status={stats['skipped_status']}, "
+            f"skipped_missing_metrics={stats['skipped_missing_metrics']}, "
+            f"skipped_below_threshold={stats['skipped_below_threshold']}, "
+            f"skipped_duplicate={stats['skipped_duplicate']}"
         )
         return selected
+
+    @staticmethod
+    def _dedupe_trajectories_by_expression(trajectories: list[StrategyTrajectory]) -> list[StrategyTrajectory]:
+        best_by_expression: dict[str, StrategyTrajectory] = {}
+        for trajectory in trajectories:
+            expression = ""
+            if trajectory.factors:
+                expression = str(trajectory.factors[0].get("expression") or trajectory.factors[0].get("factor_expression") or "")
+            key = expression or trajectory.trajectory_id
+            current = best_by_expression.get(key)
+            if current is None or (trajectory.get_primary_metric() or 0.0) > (current.get_primary_metric() or 0.0):
+                best_by_expression[key] = trajectory
+        return sorted(best_by_expression.values(), key=lambda item: item.get_primary_metric() or 0.0, reverse=True)
 
     @staticmethod
     def _load_json_object(value: Any) -> dict[str, Any]:

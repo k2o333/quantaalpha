@@ -230,14 +230,32 @@ class BackendCompletionMixin:
                 f"provider={pool_provider or getattr(self, '_current_retry_provider_name', None)} "
                 f"thread={threading.get_ident()} stream={effective_stream} call_site={llm_call_site or tag}"
             )
-            response = self.chat_client.chat.completions.create(**kwargs)
+            try:
+                response = self.chat_client.chat.completions.create(**kwargs)
+            except openai.InternalServerError as e:
+                logger.warning(
+                    f"[llm] liteLLM proxy InternalServerError before response object was returned; "
+                    f"model={model} provider={pool_provider or getattr(self, '_current_retry_provider_name', None)} "
+                    f"call_site={llm_call_site or tag}; raising EmptyLLMResponseError for retry switching: {e}"
+                )
+                raise EmptyLLMResponseError(f"liteLLM proxy InternalServerError for model {model}: {e}") from e
+            except Exception as e:
+                err_msg = str(e)
+                if "AssertionError" in err_msg and "choices" in err_msg:
+                    logger.warning(f"LiteLLM proxy choices assertion error detected: {err_msg}; raising EmptyLLMResponseError for retry switching")
+                    raise EmptyLLMResponseError(f"LiteLLM proxy choices assertion failure: {err_msg}") from e
+                raise
 
             if effective_stream:
                 resp = ""
                 for chunk in response:
-                    content = chunk.choices[0].delta.content if len(chunk.choices) > 0 and chunk.choices[0].delta.content is not None else ""
+                    content = ""
+                    if chunk is not None and hasattr(chunk, "choices") and chunk.choices is not None and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta is not None and hasattr(delta, "content") and delta.content is not None:
+                            content = delta.content
                     resp += content
-                    if len(chunk.choices) > 0 and chunk.choices[0].finish_reason is not None:
+                    if chunk is not None and hasattr(chunk, "choices") and chunk.choices is not None and len(chunk.choices) > 0 and chunk.choices[0].finish_reason is not None:
                         finish_reason = chunk.choices[0].finish_reason
 
                 # Check for empty response after streaming
@@ -250,15 +268,19 @@ class BackendCompletionMixin:
                     logger.info(f"{LogColors.CYAN}Response:{display_resp}{LogColors.END}", tag="llm_messages")
 
             else:
-                resp = response.choices[0].message.content
-                finish_reason = response.choices[0].finish_reason
+                # Defensive guard: handle potential empty/None response.choices without raising IndexError/AttributeError
+                resp = None
+                finish_reason = None
+                if response is not None and hasattr(response, "choices") and response.choices is not None and len(response.choices) > 0:
+                    resp = response.choices[0].message.content
+                    finish_reason = response.choices[0].finish_reason
 
                 # Extract tool_calls if present. Some OpenAI-compatible proxies
                 # return tool_calls with finish_reason="stop", so presence of
                 # message.tool_calls is the authority.
                 tool_calls_result = None
-                message = response.choices[0].message
-                if hasattr(message, "tool_calls") and message.tool_calls:
+                message = response.choices[0].message if (response is not None and hasattr(response, "choices") and response.choices is not None and len(response.choices) > 0) else None
+                if message is not None and hasattr(message, "tool_calls") and message.tool_calls:
                     tool_calls_result = []
                     for tc in message.tool_calls:
                         tool_calls_result.append(

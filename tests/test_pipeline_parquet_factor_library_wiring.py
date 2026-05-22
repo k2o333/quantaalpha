@@ -14,6 +14,7 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock, call
 
 import pytest
+import pandas as pd
 
 from quantaalpha.factors.parquet_library import ParquetFactorLibrary
 
@@ -44,6 +45,12 @@ def _make_mock_experiment():
     workspace.workspace_path = "/tmp/test_workspace"
     experiment.sub_workspace_list = [workspace]
 
+    return experiment
+
+
+def _make_mock_experiment_with_result(result):
+    experiment = _make_mock_experiment()
+    experiment.result = result
     return experiment
 
 
@@ -221,6 +228,127 @@ class TestSaveFactorsToParquetHelper:
         assert len(delta_files) == 1, "Only the successful factor should be saved"
         df = pl.read_parquet(str(delta_files[0]))
         assert df["factor_id"].to_list() == [success_id]
+
+    def test_save_helper_stores_below_promotion_threshold_as_candidate(self, tmp_factorlib_dir):
+        """Below-promotion results are retained for diagnostics but not marked active."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series(
+                {
+                    "IC": 0.021,
+                    "Rank IC": 0.021,
+                    "information_ratio": 0.42,
+                    "annualized_return": 0.12,
+                }
+            )
+        )
+        store_path = Path(tmp_factorlib_dir) / "candidate_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        df = pl.read_parquet(str(delta_files[0]))
+        assert df["evaluation_status"].to_list() == ["candidate"]
+
+    def test_save_helper_returns_quality_lifecycle_summary_and_best_metrics(self, tmp_factorlib_dir):
+        """Save result exposes lifecycle counts and best optimization metrics for run summaries."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series(
+                {
+                    "IC": 0.028,
+                    "Rank IC": 0.041,
+                    "information_ratio": 0.51,
+                    "annualized_return": 0.18,
+                }
+            )
+        )
+        store_path = Path(tmp_factorlib_dir) / "summary_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        assert result["quality_gate_lifecycle"] == {
+            "evaluated": 1,
+            "active_promoted": 1,
+            "candidate_only": 0,
+            "rejected": 0,
+        }
+        assert result["best_metrics"]["IC"] == 0.028
+        assert result["best_metrics"]["Rank IC"] == 0.041
+        assert result["best_metrics"]["annualized_return"] == 0.18
+        assert result["best_metrics"]["information_ratio"] == 0.51
+
+    def test_save_helper_promotes_passing_backtest_result_to_active(self, tmp_factorlib_dir):
+        """Passing Rank IC and information-ratio promotion thresholds become active."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series(
+                {
+                    "IC": 0.028,
+                    "Rank IC": 0.041,
+                    "information_ratio": 0.51,
+                    "annualized_return": 0.18,
+                }
+            )
+        )
+        store_path = Path(tmp_factorlib_dir) / "active_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        df = pl.read_parquet(str(delta_files[0]))
+        assert df["evaluation_status"].to_list() == ["active"]
+
+    def test_save_helper_rejects_missing_required_promotion_metrics(self, tmp_factorlib_dir):
+        """Missing required promotion metrics are rejected instead of silently promoted."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(pd.Series({"IC": 0.028}))
+        store_path = Path(tmp_factorlib_dir) / "rejected_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        df = pl.read_parquet(str(delta_files[0]))
+        assert df["evaluation_status"].to_list() == ["rejected"]
 
     def test_pipeline_save_sequence_uses_microsecond_timestamp_plus_index(self, tmp_factorlib_dir):
         """Two factors in one batch have different increasing sequence values greater than a legacy round number."""

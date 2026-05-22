@@ -13,7 +13,7 @@ def _parent() -> StrategyTrajectory:
         phase=RoundPhase.ORIGINAL,
         hypothesis="Momentum volatility hypothesis",
         factors=[{"name": "factor_a", "expression": "RANK($close)"}],
-        backtest_metrics={"RankIC": 0.1234, "annualized_return": 0.7395},
+        backtest_metrics={"IC": 0.0567, "RankIC": 0.1234, "annualized_return": 0.7395, "information_ratio": 1.4567},
         feedback="Observed annualized_return=0.7395 and RankIC=0.1234 on the test window.",
     )
 
@@ -32,7 +32,9 @@ def test_mutation_generation_prompt_includes_parent_backtest_feedback(monkeypatc
     MutationOperator().generate_mutation(_parent())
 
     prompt = captured["user_prompt"]
+    assert "IC=0.0567" in prompt
     assert "Rank IC=0.1234" in prompt
+    assert "Information Ratio=1.4567" in prompt
     assert "Annualized Return=0.7395" in prompt
     assert "Observed annualized_return=0.7395" in prompt
 
@@ -54,3 +56,34 @@ def test_crossover_generation_prompt_includes_parent_backtest_feedback(monkeypat
     assert "Rank IC=0.1234" in prompt
     assert "Annualized Return=0.7395" in prompt
     assert "Observed annualized_return=0.7395" in prompt
+
+
+def test_mutation_suffix_exploit_mode_preserves_parent_core_structure(monkeypatch) -> None:
+    class FakeAPIBackend:
+        def build_messages_and_create_chat_completion(self, **kwargs):
+            return '{"new_hypothesis":"x","exploration_direction":"y","orthogonality_reason":"z","expected_characteristics":"w"}'
+
+    monkeypatch.setattr("quantaalpha.pipeline.evolution.mutation.APIBackend", FakeAPIBackend)
+
+    suffix = MutationOperator().generate_mutation_prompt_suffix(_parent(), mutation_mode="exploit")
+
+    assert "Mutation Mode: exploit" in suffix
+    assert "preserve the parent signal family" in suffix
+    assert "IC=0.0567" in suffix
+    assert "Rank IC=0.1234" in suffix
+    assert "Information Ratio=1.4567" in suffix
+    assert "Annualized Return=0.7395" in suffix
+
+
+def test_mutation_suffix_explore_mode_requires_outperformance_hypothesis(monkeypatch) -> None:
+    class FakeAPIBackend:
+        def build_messages_and_create_chat_completion(self, **kwargs):
+            return '{"new_hypothesis":"x","exploration_direction":"y","orthogonality_reason":"z","expected_characteristics":"w"}'
+
+    monkeypatch.setattr("quantaalpha.pipeline.evolution.mutation.APIBackend", FakeAPIBackend)
+
+    suffix = MutationOperator().generate_mutation_prompt_suffix(_parent(), mutation_mode="explore")
+
+    assert "Mutation Mode: explore" in suffix
+    assert "why the child should beat the parent Rank IC" in suffix
+    assert "Rank IC=0.1234" in suffix

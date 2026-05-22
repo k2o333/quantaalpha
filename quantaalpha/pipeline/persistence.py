@@ -97,6 +97,82 @@ def _extract_first_metric(result: Any, metric_names: Iterable[str]) -> float | N
     return None
 
 
+def _extract_backtest_metric_payload(result: Any) -> dict[str, float | None]:
+    """Extract durable backtest metrics for factor-library persistence."""
+    return {
+        "IC": _extract_metric(result, "IC"),
+        "ICIR": _extract_metric(result, "ICIR"),
+        "Rank IC": _extract_first_metric(result, ("Rank IC", "RankIC", "rank_ic", "rank_ic_mean")),
+        "Rank ICIR": _extract_first_metric(result, ("Rank ICIR", "RankICIR", "rank_icir")),
+        "annualized_return": _extract_first_metric(
+            result,
+            (
+                "1day.excess_return_with_cost.annualized_return",
+                "annualized_return",
+                "Annualized Return",
+            ),
+        ),
+        "information_ratio": _extract_first_metric(
+            result,
+            (
+                "1day.excess_return_with_cost.information_ratio",
+                "information_ratio",
+                "Information Ratio",
+                "Sharpe",
+                "sharpe",
+            ),
+        ),
+        "max_drawdown": _extract_first_metric(
+            result,
+            (
+                "1day.excess_return_with_cost.max_drawdown",
+                "max_drawdown",
+                "Max Drawdown",
+            ),
+        ),
+    }
+
+
+def _quality_gate_status(
+    metrics: dict[str, float | None],
+    quality_gate_config: dict | None,
+) -> tuple[str, dict[str, Any]]:
+    """Assign explicit factor lifecycle status from configured promotion gates."""
+    if not quality_gate_config:
+        return "pending_validation", {"enabled": False, "reason": "quality_gate_config_missing"}
+
+    cfg = dict(quality_gate_config or {})
+    persistence_cfg = dict(cfg.get("persistence") or {})
+    promotion_cfg = dict(cfg.get("promotion") or {})
+    below_status = str(persistence_cfg.get("below_threshold") or "candidate")
+    missing_status = str(persistence_cfg.get("missing_metrics") or "rejected")
+    active_status = str(promotion_cfg.get("status") or "active")
+
+    min_rank_ic = float(promotion_cfg.get("min_rank_ic", cfg.get("min_rank_ic", 0.03)) or 0.0)
+    min_information_ratio = promotion_cfg.get("min_information_ratio", cfg.get("min_information_ratio"))
+    if min_information_ratio is None:
+        min_information_ratio = cfg.get("min_sharpe", 0.3)
+    min_information_ratio = float(min_information_ratio or 0.0)
+
+    rank_ic = metrics.get("Rank IC")
+    information_ratio = metrics.get("information_ratio")
+    decision = {
+        "enabled": True,
+        "min_rank_ic": min_rank_ic,
+        "min_information_ratio": min_information_ratio,
+        "rank_ic": rank_ic,
+        "information_ratio": information_ratio,
+    }
+    if rank_ic is None or information_ratio is None:
+        decision.update({"status": missing_status, "reason": "missing_required_metrics"})
+        return missing_status, decision
+    if rank_ic >= min_rank_ic and information_ratio >= min_information_ratio:
+        decision.update({"status": active_status, "reason": "passed_promotion_gate"})
+        return active_status, decision
+    decision.update({"status": below_status, "reason": "below_promotion_gate"})
+    return below_status, decision
+
+
 def _round_summary_value(round_summary, key: str, default=None):
     if round_summary is None:
         return default
@@ -230,6 +306,7 @@ def save_factors_to_parquet(
     parent_trajectory_ids: list | None = None,
     compact_config: dict | None = None,
     round_summary=None,
+    quality_gate_config: dict | None = None,
 ):
     """Save factors from experiment to the Parquet factor library."""
     from quantaalpha.factors.factor_store_facade import FactorStoreFacade
@@ -246,8 +323,11 @@ def save_factors_to_parquet(
     successful_ids = set(_round_summary_value(round_summary, "successful_factor_ids", []) or [])
     failed_ids = set(_round_summary_value(round_summary, "failed_factor_ids", []) or [])
     has_factor_tracking = bool(successful_ids or failed_ids)
+    backtest_metrics = _extract_backtest_metric_payload(getattr(experiment, "result", None))
+    filtered_backtest_metrics = {key: value for key, value in backtest_metrics.items() if value is not None}
 
     skipped = 0
+    lifecycle_counts = {"evaluated": 0, "active_promoted": 0, "candidate_only": 0, "rejected": 0}
     for idx, task in enumerate(sub_tasks):
         factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
         factor_expr = getattr(task, "factor_expression", "")
@@ -260,6 +340,34 @@ def save_factors_to_parquet(
             continue
 
         expression_hash = hashlib.sha256(factor_expr.encode()).hexdigest()[:16]
+        lifecycle_status, lifecycle_decision = _quality_gate_status(
+            backtest_metrics,
+            quality_gate_config,
+        )
+        lifecycle_counts["evaluated"] += 1
+        if lifecycle_status == "active":
+            lifecycle_counts["active_promoted"] += 1
+            logger.info(
+                "quality_gate: promoted active "
+                f"factor={factor_name} rank_ic={lifecycle_decision.get('rank_ic')} "
+                f"information_ratio={lifecycle_decision.get('information_ratio')}"
+            )
+        elif lifecycle_status == "candidate":
+            lifecycle_counts["candidate_only"] += 1
+            logger.info(
+                "quality_gate: stored candidate "
+                f"factor={factor_name} rank_ic={lifecycle_decision.get('rank_ic')} "
+                f"information_ratio={lifecycle_decision.get('information_ratio')}"
+            )
+        elif lifecycle_status == "rejected":
+            lifecycle_counts["rejected"] += 1
+            logger.info(
+                "quality_gate: rejected "
+                f"factor={factor_name} reason={lifecycle_decision.get('reason')} "
+                f"rank_ic={lifecycle_decision.get('rank_ic')} "
+                f"information_ratio={lifecycle_decision.get('information_ratio')}"
+            )
+
         metadata = {
             "experiment_id": experiment_id,
             "round_number": round_number,
@@ -277,6 +385,7 @@ def save_factors_to_parquet(
             "llm_model_version": "unknown",
             "prompt_template_hash": None,
             "parent_factor_id": None,
+            "quality_gate_decision": lifecycle_decision,
         }
 
         entry = {
@@ -285,17 +394,20 @@ def save_factors_to_parquet(
             "factor_expression": factor_expr,
             "factor_expression_normalized": factor_expr,
             "expression_hash": expression_hash,
-            "evaluation_status": "pending_validation",
+            "evaluation_status": lifecycle_status,
             "created_at": now_iso,
             "updated_at": now_iso,
             "sequence": base_sequence + idx,
             "op": "upsert",
             "tags_json": json.dumps([]),
             "metadata_json": json.dumps(metadata),
-            "backtest_results_json": json.dumps({}),
+            "backtest_results_json": json.dumps(filtered_backtest_metrics),
         }
         store.write_factor(entry)
 
     saved = len(sub_tasks) - skipped
     logger.info(f"Saved {saved} factors to Parquet store: {parquet_store_path}")
-    return maybe_compact_after_save(store, compact_config)
+    compact_result = maybe_compact_after_save(store, compact_config)
+    compact_result["quality_gate_lifecycle"] = lifecycle_counts
+    compact_result["best_metrics"] = filtered_backtest_metrics
+    return compact_result

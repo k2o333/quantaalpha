@@ -176,6 +176,9 @@ class RunSummary:
         "cooldown_count": 0,
     })
     factor_ops: dict[str, Any] = field(default_factory=dict)
+    factor_quality_lifecycle: dict[str, int] = field(default_factory=dict)
+    best_factor_metrics: dict[str, Any] = field(default_factory=dict)
+    historical_parent_injection_counts: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -215,6 +218,11 @@ class RunSummary:
                 "circuit_breaker": self.circuit_breaker,
             },
             "factor_ops": self.factor_ops,
+            "factor_quality": {
+                "lifecycle": self.factor_quality_lifecycle,
+                "best_metrics": self.best_factor_metrics,
+                "historical_parent_injection_counts": self.historical_parent_injection_counts,
+            },
         }
         return result
 
@@ -252,6 +260,7 @@ class RunSummary:
             "consecutive_zero_pass": 0,
             "cooldown_count": 0,
         })
+        factor_quality = data.get("factor_quality", {})
         return cls(
             schema_version=data.get("schema_version", SCHEMA_VERSION),
             cycle_timestamp=data.get("cycle_timestamp", ""),
@@ -270,6 +279,9 @@ class RunSummary:
             budget_remaining_seconds=run_summary.get("budget_remaining_seconds", 0.0),
             circuit_breaker=cb_data,
             factor_ops=data.get("factor_ops", {}),
+            factor_quality_lifecycle=factor_quality.get("lifecycle", {}),
+            best_factor_metrics=factor_quality.get("best_metrics", {}),
+            historical_parent_injection_counts=factor_quality.get("historical_parent_injection_counts", {}),
         )
 
 

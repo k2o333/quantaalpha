@@ -194,6 +194,9 @@ class EvolutionConfig:
     historical_active_parent_count: int = 0
     historical_parent_min_rank_ic: float = 0.0
     historical_parent_statuses: list[str] = field(default_factory=lambda: ["active"])
+    historical_parent_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
+    mutation_mode_weights: dict[str, float] = field(default_factory=lambda: {"exploit": 0.75, "explore": 0.25})
+    mutation_mode_schedule: str = "fixed"
 
     @classmethod
     def from_dict(cls, d: dict) -> "EvolutionConfig":
@@ -209,6 +212,9 @@ class EvolutionConfig:
             historical_active_parent_count=d.get("historical_active_parent_count", 0),
             historical_parent_min_rank_ic=d.get("historical_parent_min_rank_ic", 0.0),
             historical_parent_statuses=list(d.get("historical_parent_statuses", ["active"])),
+            historical_parent_sources=dict(d.get("historical_parent_sources", {}) or {}),
+            mutation_mode_weights=dict(d.get("mutation_mode_weights", {"exploit": 0.75, "explore": 0.25}) or {}),
+            mutation_mode_schedule=d.get("mutation_mode_schedule", "fixed"),
         )
 
 
@@ -237,6 +243,9 @@ class QualityGateConfig:
     min_rank_ic: float = 0.03
     max_correlation: float = 0.7
     min_sharpe: float = 0.3
+    min_information_ratio: float | None = None
+    persistence: dict[str, Any] = field(default_factory=dict)
+    promotion: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "QualityGateConfig":
@@ -245,6 +254,9 @@ class QualityGateConfig:
             min_rank_ic=d.get("min_rank_ic", 0.03),
             max_correlation=d.get("max_correlation", 0.7),
             min_sharpe=d.get("min_sharpe", 0.3),
+            min_information_ratio=d.get("min_information_ratio"),
+            persistence=dict(d.get("persistence", {}) or {}),
+            promotion=dict(d.get("promotion", {}) or {}),
         )
 
 
@@ -864,6 +876,9 @@ class PipelineConfig:
                     "max_rounds": self.mining.evolution.max_rounds,
                     "mutation_enabled": self.mining.evolution.mutation_enabled,
                     "crossover_enabled": self.mining.evolution.crossover_enabled,
+                    "historical_parent_sources": self.mining.evolution.historical_parent_sources,
+                    "mutation_mode_weights": self.mining.evolution.mutation_mode_weights,
+                    "mutation_mode_schedule": self.mining.evolution.mutation_mode_schedule,
                 },
                 "state": {
                     "pool_save_path": self.mining.state.pool_save_path,
@@ -872,6 +887,9 @@ class PipelineConfig:
                 "quality_gate": {
                     "min_ic": self.mining.quality_gate.min_ic,
                     "min_rank_ic": self.mining.quality_gate.min_rank_ic,
+                    "min_information_ratio": self.mining.quality_gate.min_information_ratio,
+                    "persistence": self.mining.quality_gate.persistence,
+                    "promotion": self.mining.quality_gate.promotion,
                 },
                 "app5_freshness": dict(self.mining.app5_freshness),
                 "escalation": {
@@ -1146,4 +1164,7 @@ class MiningResult:
     factor_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
+    quality_gate_lifecycle: dict[str, int] = field(default_factory=dict)
+    best_metrics: dict[str, Any] = field(default_factory=dict)
+    historical_parent_injection_counts: dict[str, dict[str, Any]] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)

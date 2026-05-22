@@ -81,6 +81,7 @@ class NoQlibTopkDropoutBacktester:
                     missing_open_sell_skip_count += 1
                     _record_missing_price(
                         missing_price_examples,
+                        market_data=self.market_data,
                         dt=dt,
                         instrument=inst,
                         field="$open",
@@ -103,6 +104,7 @@ class NoQlibTopkDropoutBacktester:
                     missing_open_buy_skip_count += 1
                     _record_missing_price(
                         missing_price_examples,
+                        market_data=self.market_data,
                         dt=dt,
                         instrument=inst,
                         field="$open",
@@ -133,6 +135,7 @@ class NoQlibTopkDropoutBacktester:
                     missing_close_valuation_count += 1
                     _record_missing_price(
                         missing_price_examples,
+                        market_data=self.market_data,
                         dt=dt,
                         instrument=inst,
                         field="$close",
@@ -185,6 +188,7 @@ class NoQlibTopkDropoutBacktester:
         metrics["missing_open_buy_skip_count"] = float(missing_open_buy_skip_count)
         metrics["missing_open_sell_skip_count"] = float(missing_open_sell_skip_count)
         metrics["missing_price_example_count"] = float(len(missing_price_examples))
+        metrics["missing_price_examples"] = missing_price_examples
         return metrics, report, positions
 
 
@@ -294,6 +298,7 @@ def _price(market_data: pd.DataFrame, dt: pd.Timestamp, instrument: str, field: 
 def _record_missing_price(
     examples: list[dict[str, str]],
     *,
+    market_data: pd.DataFrame,
     dt: pd.Timestamp,
     instrument: str,
     field: str,
@@ -307,8 +312,25 @@ def _record_missing_price(
             "instrument": str(instrument),
             "field": field,
             "action": action,
+            "reason": _missing_price_reason(market_data, dt, instrument, field),
         }
     )
+
+
+def _missing_price_reason(market_data: pd.DataFrame, dt: pd.Timestamp, instrument: str, field: str) -> str:
+    try:
+        row = market_data.loc[(dt, instrument)]
+    except KeyError:
+        return "no_price_row"
+    if field not in row.index:
+        return "missing_price_field"
+    try:
+        value = float(row[field])
+    except (TypeError, ValueError):
+        return "non_numeric_price"
+    if not np.isfinite(value) or value <= 0:
+        return "non_finite_or_non_positive_price"
+    return "unknown"
 
 
 def _trade_cost(trade_value: float, rate: float, min_cost: float) -> float:
