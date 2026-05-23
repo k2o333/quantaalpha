@@ -71,6 +71,35 @@ def test_expanded_data_uat_profile_adds_admitted_optional_fields() -> None:
     assert config.mining.ensemble.models[0].name == "litellm_modelbig"
 
 
+def test_expanded_data_uat_profile_preserves_configured_non_modelbig_routes() -> None:
+    from quantaalpha.continuous.main import _apply_uat_profile
+
+    config = SimpleNamespace(
+        cycle_budget_seconds=3600,
+        validation=SimpleNamespace(max_revalidation_per_run=10, max_mining_per_run=5),
+        mining=SimpleNamespace(
+            evolution=SimpleNamespace(max_rounds=3),
+            orchestration=SimpleNamespace(max_steps_per_cycle=6, nodes=[]),
+            agent_loop=SimpleNamespace(
+                step_model_routing={
+                    "propose": "litellm_sensenova-6.7-flash-lite",
+                    "construct": "litellm_sensenova-6.7-flash-lite",
+                    "calculate": "litellm_sensenova-6.7-flash-lite",
+                    "feedback": "litellm_sensenova-6.7-flash-lite",
+                }
+            ),
+            ensemble=SimpleNamespace(models=[SimpleNamespace(name="litellm_sensenova-6.7-flash-lite", tier=2)]),
+        ),
+        factor=SimpleNamespace(backtest_noqlib={"standard_frame": {"daily_interface": "daily", "adjustment": "raw"}}),
+    )
+
+    _apply_uat_profile(config, "expanded-data")
+
+    assert set(config.mining.agent_loop.step_model_routing) >= {"propose", "construct", "calculate", "feedback"}
+    assert config.mining.agent_loop.step_model_routing["calculate"] == "litellm_sensenova-6.7-flash-lite"
+    assert [model.name for model in config.mining.ensemble.models] == ["litellm_sensenova-6.7-flash-lite"]
+
+
 def test_expanded_data_uat_profile_loads_yaml_admission_when_configured(tmp_path) -> None:
     from quantaalpha.continuous.main import _apply_uat_profile
 

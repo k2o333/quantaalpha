@@ -773,16 +773,19 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
             setattr(mining_config, "ensemble", SimpleNamespace())
         if not hasattr(mining_config.agent_loop, "step_model_routing"):
             mining_config.agent_loop.step_model_routing = {}
-        mining_config.agent_loop.step_model_routing.setdefault("propose", "litellm_modelbig")
-        mining_config.agent_loop.step_model_routing.setdefault("construct", "litellm_modelbig")
-        mining_config.agent_loop.step_model_routing.setdefault("feedback", "litellm_modelbig")
+        default_llm_provider = mining_config.agent_loop.step_model_routing.get("propose") or "litellm_modelbig"
+        mining_config.agent_loop.step_model_routing.setdefault("propose", default_llm_provider)
+        mining_config.agent_loop.step_model_routing.setdefault("construct", default_llm_provider)
+        mining_config.agent_loop.step_model_routing.setdefault("calculate", default_llm_provider)
+        mining_config.agent_loop.step_model_routing.setdefault("feedback", default_llm_provider)
         mining_config.ensemble.enabled = True
         mining_config.ensemble.strategy = "collect_all"
         mining_config.ensemble.max_workers = 1
         mining_config.ensemble.min_responses = 1
         mining_config.ensemble.max_wait_seconds = 45
         mining_config.ensemble.early_quorum = True
-        mining_config.ensemble.models = [ModelConfig(name="litellm_modelbig", tier=2)]
+        if not getattr(mining_config.ensemble, "models", None):
+            mining_config.ensemble.models = [ModelConfig(name=default_llm_provider, tier=2)]
 
 
 class ContinuousOrchestrator:

@@ -328,6 +328,90 @@ class TestSaveFactorsToParquetHelper:
         df = pl.read_parquet(str(delta_files[0]))
         assert df["evaluation_status"].to_list() == ["active"]
 
+    def test_save_helper_applies_capacity_promotion_thresholds(self, tmp_factorlib_dir):
+        """Configured signal-capacity thresholds participate in active promotion decisions."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series(
+                {
+                    "IC": 0.028,
+                    "Rank IC": 0.041,
+                    "information_ratio": 0.51,
+                    "signal_valid_ratio": 0.62,
+                    "signal_active_days": 12.0,
+                    "signal_mean_cross_section_size": 2.8,
+                }
+            )
+        )
+        store_path = Path(tmp_factorlib_dir) / "capacity_candidate_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            quality_gate_config={
+                "promotion": {
+                    "min_rank_ic": 0.03,
+                    "min_information_ratio": 0.3,
+                    "min_signal_valid_ratio": 0.7,
+                    "min_signal_active_days": 10,
+                    "min_signal_mean_cross_section_size": 2.0,
+                },
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        df = pl.read_parquet(str(delta_files[0]))
+        assert df["evaluation_status"].to_list() == ["candidate"]
+
+        metadata = json.loads(df["metadata_json"].item())
+        decision = metadata["quality_gate_decision"]
+        assert decision["reason"] == "below_promotion_gate"
+        assert decision["signal_valid_ratio"] == 0.62
+        assert decision["min_signal_valid_ratio"] == 0.7
+
+    def test_save_helper_rejects_missing_capacity_metrics_when_required(self, tmp_factorlib_dir):
+        """Capacity thresholds are required metrics when configured."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series(
+                {
+                    "IC": 0.028,
+                    "Rank IC": 0.041,
+                    "information_ratio": 0.51,
+                }
+            )
+        )
+        store_path = Path(tmp_factorlib_dir) / "capacity_missing_store"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            quality_gate_config={
+                "promotion": {
+                    "min_rank_ic": 0.03,
+                    "min_information_ratio": 0.3,
+                    "min_signal_valid_ratio": 0.7,
+                },
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        delta_files = list((store_path / "delta").glob("*.parquet"))
+        df = pl.read_parquet(str(delta_files[0]))
+        assert df["evaluation_status"].to_list() == ["rejected"]
+
+        metadata = json.loads(df["metadata_json"].item())
+        decision = metadata["quality_gate_decision"]
+        assert decision["reason"] == "missing_required_metrics"
+        assert decision["missing_metrics"] == ["signal_valid_ratio"]
+
     def test_save_helper_rejects_missing_required_promotion_metrics(self, tmp_factorlib_dir):
         """Missing required promotion metrics are rejected instead of silently promoted."""
         from quantaalpha.pipeline.loop import save_factors_to_parquet

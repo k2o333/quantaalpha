@@ -55,9 +55,22 @@ def test_signal_metrics_returns_expected_keys():
     pred = pd.Series([1, 2, 3, 3, 2, 1], index=index)
     label = pd.Series([1, 2, 3, 1, 2, 3], index=index)
     metrics = signal_metrics(pred, label)
-    assert set(metrics) == {"IC", "ICIR", "Rank IC", "Rank ICIR"}
+    assert {
+        "IC",
+        "ICIR",
+        "Rank IC",
+        "Rank ICIR",
+        "signal_aligned_rows",
+        "signal_active_days",
+        "signal_mean_cross_section_size",
+        "signal_valid_ratio",
+    } <= set(metrics)
     assert metrics["IC"] == 0.0
     assert metrics["Rank IC"] == 0.0
+    assert metrics["signal_aligned_rows"] == 6.0
+    assert metrics["signal_active_days"] == 2.0
+    assert metrics["signal_mean_cross_section_size"] == 3.0
+    assert metrics["signal_valid_ratio"] == 1.0
 
 
 def test_noqlib_risk_metrics_handles_empty_series():

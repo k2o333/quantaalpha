@@ -631,7 +631,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     @stop_event_check
     def factor_calculate(self, prev_out: dict[str, Any]):
         """Compute factor values from factor expressions."""
-        with logger.tag("d"):  # develop
+        with logger.tag("d"), self._with_step_model("calculate"):  # develop
             factor = self.coder.develop(prev_out["factor_construct"])
 
             # Fail-fast: reject None or empty coder output

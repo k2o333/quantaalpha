@@ -130,6 +130,10 @@ def _extract_backtest_metric_payload(result: Any) -> dict[str, float | None]:
                 "Max Drawdown",
             ),
         ),
+        "signal_aligned_rows": _extract_metric(result, "signal_aligned_rows"),
+        "signal_active_days": _extract_metric(result, "signal_active_days"),
+        "signal_mean_cross_section_size": _extract_metric(result, "signal_mean_cross_section_size"),
+        "signal_valid_ratio": _extract_metric(result, "signal_valid_ratio"),
     }
 
 
@@ -154,22 +158,65 @@ def _quality_gate_status(
         min_information_ratio = cfg.get("min_sharpe", 0.3)
     min_information_ratio = float(min_information_ratio or 0.0)
 
-    rank_ic = metrics.get("Rank IC")
-    information_ratio = metrics.get("information_ratio")
+    required_thresholds = {
+        "rank_ic": ("Rank IC", min_rank_ic),
+        "information_ratio": ("information_ratio", min_information_ratio),
+    }
+    optional_capacity_thresholds = {
+        "signal_valid_ratio": "min_signal_valid_ratio",
+        "signal_active_days": "min_signal_active_days",
+        "signal_mean_cross_section_size": "min_signal_mean_cross_section_size",
+    }
+    for metric_key, threshold_key in optional_capacity_thresholds.items():
+        if threshold_key in promotion_cfg:
+            required_thresholds[metric_key] = (metric_key, float(promotion_cfg.get(threshold_key) or 0.0))
+
+    extracted_values = {
+        decision_key: metrics.get(metric_key)
+        for decision_key, (metric_key, _threshold) in required_thresholds.items()
+    }
+    rank_ic = extracted_values["rank_ic"]
+    information_ratio = extracted_values["information_ratio"]
     decision = {
         "enabled": True,
         "min_rank_ic": min_rank_ic,
         "min_information_ratio": min_information_ratio,
-        "rank_ic": rank_ic,
-        "information_ratio": information_ratio,
+        **{
+            f"min_{decision_key}": threshold
+            for decision_key, (_metric_key, threshold) in required_thresholds.items()
+            if decision_key not in {"rank_ic", "information_ratio"}
+        },
+        **extracted_values,
     }
-    if rank_ic is None or information_ratio is None:
-        decision.update({"status": missing_status, "reason": "missing_required_metrics"})
+    missing_metrics = [
+        metric_key
+        for decision_key, (metric_key, _threshold) in required_thresholds.items()
+        if extracted_values[decision_key] is None
+    ]
+    if missing_metrics:
+        decision.update(
+            {
+                "status": missing_status,
+                "reason": "missing_required_metrics",
+                "missing_metrics": missing_metrics,
+            }
+        )
         return missing_status, decision
-    if rank_ic >= min_rank_ic and information_ratio >= min_information_ratio:
+    below_metrics = [
+        metric_key
+        for decision_key, (metric_key, threshold) in required_thresholds.items()
+        if float(extracted_values[decision_key]) < threshold
+    ]
+    if not below_metrics:
         decision.update({"status": active_status, "reason": "passed_promotion_gate"})
         return active_status, decision
-    decision.update({"status": below_status, "reason": "below_promotion_gate"})
+    decision.update(
+        {
+            "status": below_status,
+            "reason": "below_promotion_gate",
+            "below_metrics": below_metrics,
+        }
+    )
     return below_status, decision
 
 
