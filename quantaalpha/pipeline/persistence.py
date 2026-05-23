@@ -458,3 +458,82 @@ def save_factors_to_parquet(
     compact_result["quality_gate_lifecycle"] = lifecycle_counts
     compact_result["best_metrics"] = filtered_backtest_metrics
     return compact_result
+
+
+def get_cross_run_historical_best_reference(parquet_store_path: str) -> dict[str, Any]:
+    """Return active-factor historical best metrics for feedback prompt context."""
+    result: dict[str, Any] = {
+        "available": False,
+        "total_active": 0,
+        "best_rank_ic": None,
+        "best_information_ratio": None,
+        "best_rank_ic_factor_name": None,
+        "best_information_ratio_factor_name": None,
+    }
+    try:
+        from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
+        store = FactorStoreFacade(store_path=str(parquet_store_path))
+        records = store.read_effective_factor_records()
+        active_records = [r for r in records if str(r.get("evaluation_status") or "") == "active"]
+        result["total_active"] = len(active_records)
+
+        best_rank_ic = -float("inf")
+        best_ir = -float("inf")
+        best_rank_ic_name = None
+        best_ir_name = None
+
+        for rec in active_records:
+            name = rec.get("factor_name") or rec.get("factor_id") or "unknown"
+            backtest_json = rec.get("backtest_results_json", "{}")
+            try:
+                backtest = json.loads(backtest_json) if isinstance(backtest_json, str) else backtest_json
+            except (TypeError, json.JSONDecodeError):
+                backtest = {}
+            if not isinstance(backtest, dict):
+                backtest = {}
+
+            rank_ic = _coerce_float(
+                backtest.get("Rank IC")
+                or backtest.get("RankIC")
+                or backtest.get("rank_ic")
+                or backtest.get("rank_ic_mean")
+            )
+            if rank_ic is not None and rank_ic > best_rank_ic:
+                best_rank_ic = float(rank_ic)
+                best_rank_ic_name = name
+
+            information_ratio = _coerce_float(
+                backtest.get("information_ratio")
+                or backtest.get("1day.excess_return_with_cost.information_ratio")
+                or backtest.get("1day.excess_return_without_cost.information_ratio")
+                or backtest.get("Information Ratio")
+                or backtest.get("Sharpe")
+                or backtest.get("sharpe")
+            )
+            if information_ratio is not None and information_ratio > best_ir:
+                best_ir = float(information_ratio)
+                best_ir_name = name
+
+        if best_rank_ic > -float("inf"):
+            result["best_rank_ic"] = best_rank_ic
+            result["best_rank_ic_factor_name"] = best_rank_ic_name
+            result["available"] = True
+        if best_ir > -float("inf"):
+            result["best_information_ratio"] = best_ir
+            result["best_information_ratio_factor_name"] = best_ir_name
+            result["available"] = True
+
+    except Exception as exc:
+        logger.warning(f"Failed to query cross-run historical best: {exc}")
+
+    return result
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None

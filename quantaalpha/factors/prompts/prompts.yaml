@@ -192,6 +192,7 @@ factor_feedback_generation:
 
     You will receive a hypothesis, multiple tasks with their factors, their results, and the SOTA result. 
     Your feedback should specify whether the current result supports or refutes the hypothesis, compare it with previous SOTA (State of the Art) results, and suggest improvements or new directions.
+    If a Cross-Run Historical Best baseline is provided, treat it as a PRODUCTION PARETO BENCHMARK: any new factor that does not approach or surpass these cross-run best metrics is unlikely to survive production evaluation. Use it to calibrate your confidence in recommending replacement.
     Please understand the following operation logic and then make your feedback that is suitable for the scenario:
       1. Logic Explanation:
           - Each hypothesis represents a theoretical framework that can be refined through multiple iterations
@@ -275,10 +276,14 @@ factor_feedback_generation:
     {% endfor %}
     Combined Results: 
     {{ combined_result }}
+    {% if cross_run_reference %}
+    {{ cross_run_reference }}
+    {% endif %}
     
     Analyze the combined result in the context of its ability to:
     1. Support or refute the hypothesis.
     2. Show improvement or deterioration compared to the SOTA experiment.
+    3. Compare against the Cross-Run Historical Best baseline (if provided).
 
     Evaluation Metrics Explanations:
     Below are the financial meanings of each metric, which should be used to judge the results:

@@ -670,8 +670,20 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
     @measure_time
     @stop_event_check
     def feedback(self, prev_out: dict[str, Any]):
+        cross_run_best = None
+        try:
+            parquet_store_path = getattr(self, "_parquet_store_path", None)
+            if parquet_store_path:
+                from quantaalpha.pipeline.persistence import get_cross_run_historical_best_reference
+                cross_run_best = get_cross_run_historical_best_reference(str(parquet_store_path))
+        except Exception as exc:
+            logger.warning(f"Failed to load cross-run historical best for feedback: {exc}")
+
         with self._with_step_model("feedback"):
-            feedback = self.summarizer.generate_feedback(prev_out["factor_backtest"], prev_out["factor_propose"], self.trace)
+            feedback = self.summarizer.generate_feedback(
+                prev_out["factor_backtest"], prev_out["factor_propose"], self.trace,
+                cross_run_best=cross_run_best,
+            )
         with logger.tag("ef"):  # evaluate and feedback
             logger.log_object(feedback, tag="feedback")
         self.trace.hist.append((prev_out["factor_propose"], prev_out["factor_backtest"], feedback))

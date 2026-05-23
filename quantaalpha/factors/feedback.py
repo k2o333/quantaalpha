@@ -240,17 +240,18 @@ feedback_prompts = qa_feedback_prompts
 
 
 class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
-    def generate_feedback(self, exp: Experiment, hypothesis: Hypothesis, trace: Trace) -> HypothesisFeedback:
+    def generate_feedback(self, exp: Experiment, hypothesis: Hypothesis, trace: Trace, cross_run_best: dict | None = None) -> HypothesisFeedback:
         """
         Generate feedback for the given experiment and hypothesis.
 
         Args:
-            exp (QlibFactorExperiment): The experiment to generate feedback for.
+            exp (Experiment): The experiment to generate feedback for.
             hypothesis (QlibFactorHypothesis): The hypothesis to generate feedback for.
             trace (Trace): The trace of the experiment.
+            cross_run_best (dict | None): Optional cross-run historical-best reference from the parquet factor library.
 
         Returns:
-            Any: The feedback generated for the given experiment and hypothesis.
+            HypothesisFeedback: The feedback generated for the given experiment and hypothesis.
         """
         logger.info("Generating feedback...")
         hypothesis_text = hypothesis.hypothesis
@@ -361,6 +362,23 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         # Process the results to filter important metrics
         combined_result = process_results(current_result, sota_result)
 
+        # Cross-run historical-best baseline from parquet factor library
+        cross_run_reference = ""
+        if cross_run_best and cross_run_best.get("available"):
+            parts = [f"Cross-Run Historical Best ({cross_run_best.get('total_active', 0)} active factors):"]
+            if cross_run_best.get("best_rank_ic") is not None:
+                parts.append(
+                    f"  Best Rank IC: {cross_run_best['best_rank_ic']:.4f}"
+                    f"  (factor: {cross_run_best.get('best_rank_ic_factor_name', 'unknown')})"
+                )
+            if cross_run_best.get("best_information_ratio") is not None:
+                parts.append(
+                    f"  Best Information Ratio: {cross_run_best['best_information_ratio']:.4f}"
+                    f"  (factor: {cross_run_best.get('best_information_ratio_factor_name', 'unknown')})"
+                )
+            parts.append("  Use these as PARETO BASELINE: new factors should improve upon these metrics.")
+            cross_run_reference = "\n".join(parts)
+
         # Generate the system prompt
         sys_prompt = Environment(undefined=StrictUndefined).from_string(qa_feedback_prompts["factor_feedback_generation"]["system"]).render(scenario=self.scen.get_scenario_all_desc())
 
@@ -372,6 +390,7 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
                 hypothesis_text=hypothesis_text,
                 task_details=tasks_factors,
                 combined_result=combined_result,
+                cross_run_reference=cross_run_reference,
             )
         )
 
