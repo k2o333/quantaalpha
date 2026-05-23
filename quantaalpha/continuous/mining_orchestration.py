@@ -350,6 +350,7 @@ class MiningOrchestrationMixin:
                 planning_cfg=self._direction_planner_cfg,
                 mutation_enabled=True,
                 crossover_enabled=False,
+                quality_gate_cfg=self._quality_gate_config,
                 budget_seconds=params.get("budget_seconds", self._state_cfg.get("budget_seconds")),
                 log_root=log_root,
             )
@@ -441,6 +442,7 @@ class MiningOrchestrationMixin:
                 planning_cfg=self._direction_planner_cfg,
                 mutation_enabled=False,
                 crossover_enabled=True,
+                quality_gate_cfg=self._quality_gate_config,
                 budget_seconds=params.get("budget_seconds", self._state_cfg.get("budget_seconds")),
                 log_root=log_root,
             )

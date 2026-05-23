@@ -459,6 +459,7 @@ def run_evolution_action(
     planning_cfg: dict[str, Any],
     mutation_enabled: bool = True,
     crossover_enabled: bool = False,
+    quality_gate_cfg: dict[str, Any] | None = None,
     budget_seconds: Optional[int] = None,
     log_root: str | None = None,
 ) -> dict[str, Any]:
@@ -476,6 +477,7 @@ def run_evolution_action(
         planning_cfg: Planning configuration.
         mutation_enabled: Whether to enable mutation phase.
         crossover_enabled: Whether to enable crossover phase.
+        quality_gate_cfg: Quality gate thresholds for factor lifecycle promotion.
         budget_seconds: Maximum seconds for this evolution run.
         log_root: Log root directory.
 
@@ -495,7 +497,7 @@ def run_evolution_action(
         exec_cfg=exec_cfg,
         planning_cfg=planning_cfg,
         stop_event=None,
-        quality_gate_cfg=None,
+        quality_gate_cfg=quality_gate_cfg,
         budget_seconds=budget_seconds,
         log_root=log_root,
     )
