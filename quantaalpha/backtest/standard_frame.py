@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 import warnings
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -41,6 +41,7 @@ class StandardFrameRequest:
 
     start_date: str | None = None
     end_date: str | None = None
+    end_date_policy: str = "configured"
     instruments: tuple[str, ...] = ()
     include_markets: tuple[str, ...] = ()
     exclude_markets: tuple[str, ...] = ()
@@ -50,12 +51,16 @@ class StandardFrameRequest:
     admitted_fields: tuple[MiningAdmissionField, ...] = ()
     storage_root: str = "data"
     materialized_cache_root: str | None = None
+    lookback_days: int | None = None
 
     def identity(self) -> dict[str, Any]:
         return {
             "daily_interface": self.daily_interface,
             "adjustment": self.adjustment,
             "end_date": self.end_date,
+            "end_date_policy": self.end_date_policy,
+            "requested_end_date": self.end_date,
+            "lookback_days": self.lookback_days,
             "exclude_markets": list(self.exclude_markets),
             "include_markets": list(self.include_markets),
             "instruments": list(self.instruments),
@@ -95,6 +100,7 @@ class App5StandardFrameBuilder:
     def build(self, request: StandardFrameRequest) -> StandardFrameBuildResult:
         """Build the minimal frame plus explicitly admitted optional fields."""
         classify_app5_interface(request.daily_interface)
+        request = self._resolve_latest_available_window(request)
         for field_item in request.optional_fields:
             validate_optional_standard_frame_field(field_item)
         for field_item in request.admitted_fields:
@@ -125,6 +131,36 @@ class App5StandardFrameBuilder:
             manifest=manifest,
             parquet_path=parquet_path,
             manifest_path=manifest_path,
+        )
+
+    def _resolve_latest_available_window(self, request: StandardFrameRequest) -> StandardFrameRequest:
+        if request.end_date_policy != "latest_available" or not request.lookback_days:
+            return request
+        dates = self.adapter.read(
+            request.daily_interface,
+            start_date=request.start_date,
+            end_date=None,
+            columns=["trade_date"],
+            unique=True,
+        )
+        if dates.is_empty() or "trade_date" not in dates.columns:
+            return request
+        latest = dates.select(_date_expr("trade_date").max().alias("latest")).item()
+        if latest is None:
+            return request
+        if isinstance(latest, datetime):
+            latest_date = latest.date()
+        elif isinstance(latest, date):
+            latest_date = latest
+        else:
+            latest_date = datetime.strptime(str(latest)[:10].replace("-", ""), "%Y%m%d").date()
+        lower_bound = latest_date - timedelta(days=int(request.lookback_days))
+        configured_start = _parse_date_or_none(request.start_date)
+        effective_start = max(configured_start, lower_bound) if configured_start else lower_bound
+        return replace(
+            request,
+            start_date=effective_start.isoformat(),
+            end_date=latest_date.isoformat(),
         )
 
     def _read_daily_frame(self, request: StandardFrameRequest) -> pl.DataFrame:
@@ -430,6 +466,9 @@ class App5StandardFrameBuilder:
                 "columns": frame.columns,
                 "adjustment": request.adjustment,
                 "fill_policy_version": STANDARD_FRAME_FILL_POLICY_VERSION,
+                "effective_start_date": _frame_date_bound(frame, "min"),
+                "effective_end_date": _frame_date_bound(frame, "max"),
+                "data_max_date": _frame_date_bound(frame, "max"),
                 "row_count": frame.height,
                 "required_columns": ["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"],
             },
@@ -735,9 +774,15 @@ def request_from_mapping(payload: Mapping[str, Any]) -> StandardFrameRequest:
     admitted_fields_payload = payload.get("admitted_fields", ()) or ()
     if not isinstance(admitted_fields_payload, Sequence) or isinstance(admitted_fields_payload, (str, bytes)):
         raise ValueError("standard_frame.admitted_fields must be a sequence")
+    end_date_policy = str(payload.get("end_date_policy") or "configured").strip().lower()
+    if end_date_policy not in {"configured", "latest_available"}:
+        raise ValueError(f"unsupported standard_frame.end_date_policy: {end_date_policy}")
+    configured_end_date = payload.get("end_date")
+    effective_end_date = None if end_date_policy == "latest_available" else configured_end_date
     return StandardFrameRequest(
         start_date=payload.get("start_date"),
-        end_date=payload.get("end_date"),
+        end_date=effective_end_date,
+        end_date_policy=end_date_policy,
         instruments=tuple(str(item) for item in payload.get("instruments", ()) or ()),
         include_markets=tuple(str(item) for item in payload.get("include_markets", ()) or ()),
         exclude_markets=tuple(str(item) for item in payload.get("exclude_markets", ()) or ()),
@@ -747,7 +792,34 @@ def request_from_mapping(payload: Mapping[str, Any]) -> StandardFrameRequest:
         admitted_fields=tuple(_admitted_field_from_mapping(item) for item in admitted_fields_payload),
         storage_root=str(payload.get("storage_root", "data")),
         materialized_cache_root=payload.get("materialized_cache_root"),
+        lookback_days=int(payload["lookback_days"]) if payload.get("lookback_days") is not None else None,
     )
+
+
+def _parse_date_or_none(value: str | None) -> date | None:
+    if not value:
+        return None
+    text = str(value)
+    if len(text) == 8 and text.isdigit():
+        return datetime.strptime(text, "%Y%m%d").date()
+    return datetime.fromisoformat(text[:10]).date()
+
+
+def _frame_date_bound(frame: pl.DataFrame, bound: str) -> str | None:
+    if frame.is_empty() or "datetime" not in frame.columns:
+        return None
+    expr = pl.col("datetime").min() if bound == "min" else pl.col("datetime").max()
+    value = frame.select(expr.alias("value")).item()
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value)
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    return text[:10]
 
 
 def _admitted_field_from_mapping(payload: Mapping[str, Any]) -> MiningAdmissionField:

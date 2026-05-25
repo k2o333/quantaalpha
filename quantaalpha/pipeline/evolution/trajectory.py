@@ -223,6 +223,18 @@ class TrajectoryPool:
         self._trajectories: dict[str, StrategyTrajectory] = {}
         self._by_direction: dict[int, list[str]] = {}  # direction_id -> [traj_ids]
         self._by_phase: dict[RoundPhase, list[str]] = {p: [] for p in RoundPhase}
+        self._load_diagnostics: dict[str, Any] = {
+            "save_path": str(self.save_path) if self.save_path else "",
+            "exists": bool(self.save_path and self.save_path.exists()),
+            "fresh_start": bool(fresh_start),
+            "loaded_size": 0,
+            "error": "",
+        }
+        self._save_diagnostics: dict[str, Any] = {
+            "save_path": str(self.save_path) if self.save_path else "",
+            "saved_size": 0,
+            "error": "",
+        }
 
         # Only load existing data if fresh_start is False
         if not fresh_start and self.save_path and self.save_path.exists():
@@ -429,8 +441,21 @@ class TrajectoryPool:
             "saved_at": datetime.now().isoformat(),
         }
 
-        with open(self.save_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        try:
+            with open(self.save_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._save_diagnostics = {
+                "save_path": str(self.save_path),
+                "saved_size": len(self._trajectories),
+                "error": "",
+            }
+        except Exception as e:
+            self._save_diagnostics = {
+                "save_path": str(self.save_path),
+                "saved_size": 0,
+                "error": str(e),
+            }
+            raise
 
         # Note: AgentLog doesn't have debug() method, using info() instead
         logger.info(f"Saved trajectory pool to {self.save_path}")
@@ -447,9 +472,23 @@ class TrajectoryPool:
             self._trajectories = {tid: StrategyTrajectory.from_dict(tdata) for tid, tdata in data.get("trajectories", {}).items()}
             self._by_direction = {int(k): v for k, v in data.get("by_direction", {}).items()}
             self._by_phase = {RoundPhase(k): v for k, v in data.get("by_phase", {}).items()}
+            self._load_diagnostics = {
+                "save_path": str(self.save_path),
+                "exists": True,
+                "fresh_start": False,
+                "loaded_size": len(self._trajectories),
+                "error": "",
+            }
 
             logger.info(f"Loaded {len(self._trajectories)} trajectories from {self.save_path}")
         except Exception as e:
+            self._load_diagnostics = {
+                "save_path": str(self.save_path),
+                "exists": True,
+                "fresh_start": False,
+                "loaded_size": 0,
+                "error": str(e),
+            }
             logger.warning(f"Failed to load trajectory pool: {e}")
 
     def get_statistics(self) -> dict[str, Any]:
@@ -460,6 +499,8 @@ class TrajectoryPool:
             "by_direction": {d: len(ids) for d, ids in self._by_direction.items()},
             "successful_trajectories": sum(1 for t in self._trajectories.values() if t.is_successful()),
             "latest_round": self.get_latest_round_idx(),
+            "load_diagnostics": dict(self._load_diagnostics),
+            "save_diagnostics": dict(self._save_diagnostics),
         }
 
     def clear(self):

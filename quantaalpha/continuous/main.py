@@ -392,6 +392,12 @@ def _run_once_cycle(orchestrator, pipeline_config, skip_update: bool = False) ->
         schema_version="1.0",
         cycle_timestamp=start_time.isoformat(),
         cycle_type="once",
+        skip_update=skip_update,
+        trigger_source="once",
+        update_provenance={
+            "caller": "quantaalpha.continuous.main:once",
+            "quality_evidence": not skip_update,
+        },
         config_snapshot={
             "min_ic": pipeline_config.validation.min_ic,
             "max_revalidation_per_run": pipeline_config.validation.max_revalidation_per_run,
@@ -519,6 +525,12 @@ def _run_continuous_loop(orchestrator, pipeline_config, skip_update: bool = Fals
             schema_version="1.0",
             cycle_timestamp=cycle_start.isoformat(),
             cycle_type="start",
+            skip_update=skip_update,
+            trigger_source="start",
+            update_provenance={
+                "caller": "quantaalpha.continuous.main:start",
+                "quality_evidence": not skip_update,
+            },
             config_snapshot={
                 "min_ic": pipeline_config.validation.min_ic,
                 "max_revalidation_per_run": pipeline_config.validation.max_revalidation_per_run,

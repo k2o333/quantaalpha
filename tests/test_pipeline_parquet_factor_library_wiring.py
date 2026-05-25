@@ -399,6 +399,60 @@ class TestSaveFactorsToParquetHelper:
             },
         ]
 
+    def test_save_helper_records_metric_isolation_for_same_metrics_different_values(self, tmp_factorlib_dir):
+        """Same backtest metrics are only acceptable when factor-value identity evidence is present."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series({"IC": 0.028, "Rank IC": 0.041, "information_ratio": 0.51})
+        )
+        task_two = MagicMock()
+        task_two.factor_name = "second_factor"
+        task_two.factor_expression = "MEAN($volume, 5)"
+        task_two.factor_description = "Second factor"
+        experiment.sub_tasks.append(task_two)
+
+        workspace_one = Path(tmp_factorlib_dir) / "workspace_one"
+        workspace_two = Path(tmp_factorlib_dir) / "workspace_two"
+        workspace_one.mkdir(parents=True, exist_ok=True)
+        workspace_two.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(
+            {
+                "trade_date": ["20250102", "20250103"],
+                "instrument": ["SH600000", "SH600000"],
+                "test_factor": [1.25, -0.5],
+            }
+        ).write_parquet(workspace_one / "combined_factors_df.parquet")
+        pl.DataFrame(
+            {
+                "trade_date": ["20250102", "20250103"],
+                "instrument": ["SH600000", "SH600000"],
+                "second_factor": [3.0, 4.0],
+            }
+        ).write_parquet(workspace_two / "combined_factors_df.parquet")
+        experiment.sub_workspace_list[0].workspace_path = str(workspace_one)
+        workspace = MagicMock()
+        workspace.workspace_path = str(workspace_two)
+        experiment.sub_workspace_list.append(workspace)
+
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(Path(tmp_factorlib_dir) / "metric_isolation_store"),
+            factor_value_dir=str(Path(tmp_factorlib_dir) / "metric_isolation_values"),
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        isolation = result["metric_isolation"]
+        assert isolation["factor_count"] == 2
+        assert isolation["metric_signature"]["Rank IC"] == 0.041
+        assert len(isolation["factor_value_fingerprints"]) == 2
+        assert len(set(isolation["factor_value_fingerprints"].values())) == 2
+        assert isolation["status"] == "isolated"
+
     def test_save_helper_honors_disabled_factor_value_publication_flag(self, tmp_factorlib_dir):
         """Publication can be disabled even when a factor-value directory is configured."""
         from quantaalpha.pipeline.loop import save_factors_to_parquet

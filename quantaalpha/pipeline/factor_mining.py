@@ -774,6 +774,7 @@ def run_evolution_loop(
     summary["quality_gate_lifecycle"] = _aggregate_quality_gate_lifecycle(save_results)
     summary["best_metrics"] = _best_metric_payload(save_results)
     summary["historical_parent_injection_counts"] = getattr(controller, "_historical_parent_injection_counts", {})
+    summary["trajectory_pool"] = controller.pool.get_statistics()
     logger.info(
         "Quality gate lifecycle summary: "
         f"{summary['quality_gate_lifecycle']}; best_metrics={summary['best_metrics']}; "

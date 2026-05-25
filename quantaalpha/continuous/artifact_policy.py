@@ -60,12 +60,18 @@ class ArtifactPolicyConfig:
         }
 
 
+_RUNTIME_ARTIFACT_POLICY = ArtifactPolicyConfig()
+
+
 def apply_artifact_policy_to_runtime(
     config: ArtifactPolicyConfig,
     *,
     settings: Any | None = None,
 ) -> None:
     """将产物策略应用到进程内 RD-Agent 运行时设置。"""
+
+    global _RUNTIME_ARTIFACT_POLICY
+    _RUNTIME_ARTIFACT_POLICY = config
 
     if settings is None:
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
@@ -74,11 +80,22 @@ def apply_artifact_policy_to_runtime(
 
     if config.pickle_cache == "disabled":
         settings.cache_with_pickle = False
-    settings.artifact_debug_artifacts_enabled = config.debug_artifacts != "disabled"
-    settings.artifact_parity_artifacts_enabled = config.parity_artifacts != "disabled"
-    settings.artifact_failed_workspace_retention = config.failed_workspace_retention
-    settings.artifact_passed_workspace_retention = config.passed_workspace_retention
-    settings.artifact_publish_factor_values_on_pass = config.publish_factor_values_on_pass
+    _set_optional_runtime_attr(settings, "artifact_debug_artifacts_enabled", config.debug_artifacts != "disabled")
+    _set_optional_runtime_attr(settings, "artifact_parity_artifacts_enabled", config.parity_artifacts != "disabled")
+    _set_optional_runtime_attr(settings, "artifact_failed_workspace_retention", config.failed_workspace_retention)
+    _set_optional_runtime_attr(settings, "artifact_passed_workspace_retention", config.passed_workspace_retention)
+    _set_optional_runtime_attr(settings, "artifact_publish_factor_values_on_pass", config.publish_factor_values_on_pass)
+
+
+def _set_optional_runtime_attr(settings: Any, name: str, value: Any) -> None:
+    """Best-effort test-double support without extending strict RD-Agent settings."""
+
+    if settings.__class__.__name__ == "RDAgentSettings":
+        return
+    try:
+        setattr(settings, name, value)
+    except (AttributeError, ValueError, TypeError):
+        return
 
 
 def runtime_parity_artifacts_enabled(*, settings: Any | None = None) -> bool:
@@ -88,7 +105,10 @@ def runtime_parity_artifacts_enabled(*, settings: Any | None = None) -> bool:
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
 
         settings = RD_AGENT_SETTINGS
-    return bool(getattr(settings, "artifact_parity_artifacts_enabled", True))
+        default = _RUNTIME_ARTIFACT_POLICY.parity_artifacts != "disabled"
+    else:
+        default = True
+    return bool(getattr(settings, "artifact_parity_artifacts_enabled", default))
 
 
 def runtime_publish_factor_values_on_pass(*, settings: Any | None = None) -> bool:
@@ -98,7 +118,10 @@ def runtime_publish_factor_values_on_pass(*, settings: Any | None = None) -> boo
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
 
         settings = RD_AGENT_SETTINGS
-    return bool(getattr(settings, "artifact_publish_factor_values_on_pass", False))
+        default = _RUNTIME_ARTIFACT_POLICY.publish_factor_values_on_pass
+    else:
+        default = False
+    return bool(getattr(settings, "artifact_publish_factor_values_on_pass", default))
 
 
 def runtime_failed_workspace_retention(*, settings: Any | None = None) -> str:
@@ -108,7 +131,10 @@ def runtime_failed_workspace_retention(*, settings: Any | None = None) -> str:
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
 
         settings = RD_AGENT_SETTINGS
-    return str(getattr(settings, "artifact_failed_workspace_retention", "full"))
+        default = _RUNTIME_ARTIFACT_POLICY.failed_workspace_retention
+    else:
+        default = "full"
+    return str(getattr(settings, "artifact_failed_workspace_retention", default))
 
 
 def runtime_passed_workspace_retention(*, settings: Any | None = None) -> str:
@@ -118,4 +144,7 @@ def runtime_passed_workspace_retention(*, settings: Any | None = None) -> str:
         from quantaalpha.core.conf import RD_AGENT_SETTINGS
 
         settings = RD_AGENT_SETTINGS
-    return str(getattr(settings, "artifact_passed_workspace_retention", "keep"))
+        default = _RUNTIME_ARTIFACT_POLICY.passed_workspace_retention
+    else:
+        default = "keep"
+    return str(getattr(settings, "artifact_passed_workspace_retention", default))

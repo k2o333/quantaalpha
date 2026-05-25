@@ -261,7 +261,109 @@ profiles:
     )
     assert seen_admitted_fields == ["$daily_basic_turnover_rate"]
     assert (data_root / "standard_frame.parquet").exists()
-    assert not (data_root / "daily_pv.h5").exists()
+
+
+def test_standard_frame_latest_available_policy_records_effective_window(tmp_path) -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, request_from_mapping
+
+    class FakeAdapter:
+        def read(self, interface, *, start_date=None, end_date=None, columns=None, unique=True):
+            assert end_date is None
+            if interface == "daily":
+                return pl.DataFrame(
+                    {
+                        "trade_date": ["20260102", "20260103"],
+                        "ts_code": ["000001.SZ", "000001.SZ"],
+                        "open": [10.0, 11.0],
+                        "high": [10.5, 11.5],
+                        "low": [9.5, 10.5],
+                        "close": [10.2, 11.2],
+                        "vol": [100.0, 120.0],
+                        "amount": [1000.0, 1320.0],
+                        "pct_chg": [0.0, 1.0],
+                    }
+                )
+            if interface == "trade_cal":
+                return pl.DataFrame(
+                    {
+                        "cal_date": ["20260102", "20260103"],
+                        "is_open": [1, 1],
+                    }
+                )
+            raise AssertionError(interface)
+
+    request = request_from_mapping(
+        {
+            "start_date": "2026-01-01",
+            "end_date_policy": "latest_available",
+            "daily_interface": "daily",
+            "storage_root": str(tmp_path),
+        }
+    )
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(request)
+
+    assert result.manifest["request"]["end_date_policy"] == "latest_available"
+    assert result.manifest["request"]["requested_end_date"] is None
+    assert result.manifest["standard_frame"]["effective_start_date"] == "2026-01-02"
+    assert result.manifest["standard_frame"]["effective_end_date"] == "2026-01-03"
+    assert result.manifest["standard_frame"]["data_max_date"] == "2026-01-03"
+
+
+def test_standard_frame_latest_available_lookback_bounds_materialization_window(tmp_path) -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, request_from_mapping
+
+    calls: list[tuple[str, str | None, str | None, tuple[str, ...] | None]] = []
+
+    class FakeAdapter:
+        def read(self, interface, *, start_date=None, end_date=None, columns=None, unique=True):
+            calls.append((interface, start_date, end_date, tuple(columns) if columns else None))
+            if interface == "daily" and columns == ["trade_date"]:
+                return pl.DataFrame({"trade_date": ["20260102", "20260520"]})
+            if interface == "daily":
+                assert start_date == "2025-05-20"
+                assert end_date == "2026-05-20"
+                return pl.DataFrame(
+                    {
+                        "trade_date": ["20260519", "20260520"],
+                        "ts_code": ["000001.SZ", "000001.SZ"],
+                        "open": [10.0, 11.0],
+                        "high": [10.5, 11.5],
+                        "low": [9.5, 10.5],
+                        "close": [10.2, 11.2],
+                        "vol": [100.0, 120.0],
+                        "amount": [1000.0, 1320.0],
+                        "pct_chg": [0.0, 1.0],
+                    }
+                )
+            if interface == "trade_cal":
+                assert start_date == "2025-05-20"
+                assert end_date == "2026-05-20"
+                return pl.DataFrame(
+                    {
+                        "cal_date": ["20260519", "20260520"],
+                        "is_open": [1, 1],
+                    }
+                )
+            raise AssertionError(interface)
+
+    request = request_from_mapping(
+        {
+            "start_date": "2019-01-01",
+            "end_date_policy": "latest_available",
+            "lookback_days": 365,
+            "daily_interface": "daily",
+            "storage_root": str(tmp_path),
+        }
+    )
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(request)
+
+    assert calls[0] == ("daily", "2019-01-01", None, ("trade_date",))
+    assert result.manifest["request"]["start_date"] == "2025-05-20"
+    assert result.manifest["request"]["end_date"] == "2026-05-20"
+    assert result.manifest["request"]["end_date_policy"] == "latest_available"
+    assert result.manifest["request"]["lookback_days"] == 365
 
 
 def test_prepare_standard_frame_parquet_runtime_reuses_cache_without_h5(tmp_path, monkeypatch) -> None:

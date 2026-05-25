@@ -62,6 +62,36 @@ def test_minimal_artifact_policy_disables_pickle_cache_without_touching_workspac
     assert settings.pickle_cache_folder_path_str == "/tmp/pickle_cache"
 
 
+def test_artifact_policy_applies_to_real_rdagent_settings_without_extra_fields():
+    from quantaalpha.continuous.artifact_policy import (
+        ArtifactPolicyConfig,
+        apply_artifact_policy_to_runtime,
+        runtime_parity_artifacts_enabled,
+        runtime_publish_factor_values_on_pass,
+    )
+    from quantaalpha.core.conf import RD_AGENT_SETTINGS
+
+    original_cache = RD_AGENT_SETTINGS.cache_with_pickle
+    try:
+        apply_artifact_policy_to_runtime(
+            ArtifactPolicyConfig.from_dict(
+                {
+                    "mode": "minimal",
+                    "pickle_cache": "disabled",
+                    "parity_artifacts": "disabled",
+                    "publish_factor_values_on_pass": True,
+                }
+            )
+        )
+
+        assert RD_AGENT_SETTINGS.cache_with_pickle is False
+        assert runtime_parity_artifacts_enabled() is False
+        assert runtime_publish_factor_values_on_pass() is True
+    finally:
+        RD_AGENT_SETTINGS.cache_with_pickle = original_cache
+        apply_artifact_policy_to_runtime(ArtifactPolicyConfig())
+
+
 def test_default_artifact_policy_preserves_runtime_cache_setting():
     from quantaalpha.continuous.artifact_policy import (
         ArtifactPolicyConfig,

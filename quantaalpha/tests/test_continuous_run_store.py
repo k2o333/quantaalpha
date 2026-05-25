@@ -74,45 +74,46 @@ class TestDataUpdateSummaryDocSchemaMatch:
         assert not re.search(incorrect_pattern, data_update_doc), \
             "Docstring still shows unchanged_after_update as bool, should be list[str]"
 
-    def test_schema_example_freshness_delta_dict_roundtrip(self):
-        """Verify a DataUpdateSummary with dict freshness_delta survives to_dict roundtrip."""
-        from quantaalpha.continuous.run_store import DataUpdateSummary
+def test_schema_example_freshness_delta_dict_roundtrip():
+    """Verify a DataUpdateSummary with dict freshness_delta survives to_dict roundtrip."""
+    from quantaalpha.continuous.run_store import DataUpdateSummary
 
-        summary = DataUpdateSummary(
-            updated=True,
-            updated_interfaces=["daily"],
-            stale_interfaces=[],
-            latest_dates={"daily": "20260327"},
-            freshness_delta={"daily": 5, "moneyflow": 3},
-            advanced_interfaces=["minutely"],
-            unchanged_after_update=["moneyflow"],
-        )
+    summary = DataUpdateSummary(
+        updated=True,
+        updated_interfaces=["daily"],
+        stale_interfaces=[],
+        latest_dates={"daily": "20260327"},
+        freshness_delta={"daily": 5, "moneyflow": 3},
+        advanced_interfaces=["minutely"],
+        unchanged_after_update=["moneyflow"],
+    )
 
-        d = summary.to_dict()
+    d = summary.to_dict()
 
-        # freshness_delta must be dict in output
-        assert isinstance(d["freshness_delta"], dict), \
-            f"freshness_delta should be dict, got {type(d['freshness_delta'])}"
-        assert d["freshness_delta"] == {"daily": 5, "moneyflow": 3}
+    # freshness_delta must be dict in output
+    assert isinstance(d["freshness_delta"], dict), \
+        f"freshness_delta should be dict, got {type(d['freshness_delta'])}"
+    assert d["freshness_delta"] == {"daily": 5, "moneyflow": 3}
 
-    def test_schema_example_unchanged_after_update_list_roundtrip(self):
-        """Verify a DataUpdateSummary with list unchanged_after_update survives to_dict roundtrip."""
-        from quantaalpha.continuous.run_store import DataUpdateSummary
 
-        summary = DataUpdateSummary(
-            updated=False,
-            updated_interfaces=[],
-            stale_interfaces=["daily"],
-            latest_dates={"daily": "20260327"},
-            unchanged_after_update=["moneyflow", "minutely"],
-        )
+def test_schema_example_unchanged_after_update_list_roundtrip():
+    """Verify a DataUpdateSummary with list unchanged_after_update survives to_dict roundtrip."""
+    from quantaalpha.continuous.run_store import DataUpdateSummary
 
-        d = summary.to_dict()
+    summary = DataUpdateSummary(
+        updated=False,
+        updated_interfaces=[],
+        stale_interfaces=["daily"],
+        latest_dates={"daily": "20260327"},
+        unchanged_after_update=["moneyflow", "minutely"],
+    )
 
-        # unchanged_after_update must be list in output
-        assert isinstance(d["unchanged_after_update"], list), \
-            f"unchanged_after_update should be list, got {type(d['unchanged_after_update'])}"
-        assert d["unchanged_after_update"] == ["moneyflow", "minutely"]
+    d = summary.to_dict()
+
+    # unchanged_after_update must be list in output
+    assert isinstance(d["unchanged_after_update"], list), \
+        f"unchanged_after_update should be list, got {type(d['unchanged_after_update'])}"
+    assert d["unchanged_after_update"] == ["moneyflow", "minutely"]
 
 
 class TestDataUpdateSummaryNewFields:
@@ -195,6 +196,35 @@ class TestDataUpdateSummaryNewFields:
         assert summary.freshness_delta == {}
         assert summary.advanced_interfaces == []
         assert summary.unchanged_after_update == []
+
+
+def test_run_summary_records_skip_update_provenance():
+    from quantaalpha.continuous.run_store import RunSummary
+
+    summary = RunSummary(
+        cycle_type="start",
+        skip_update=True,
+        trigger_source="cli:start",
+        update_provenance={
+            "caller": "quantaalpha.continuous.main:start",
+            "quality_evidence": False,
+        },
+    )
+
+    payload = summary.to_dict()
+
+    assert payload["run_summary"]["skip_update"] is True
+    assert payload["run_summary"]["trigger_source"] == "cli:start"
+    assert payload["run_summary"]["update_provenance"] == {
+        "caller": "quantaalpha.continuous.main:start",
+        "quality_evidence": False,
+    }
+
+    loaded = RunSummary.from_dict(payload)
+
+    assert loaded.skip_update is True
+    assert loaded.trigger_source == "cli:start"
+    assert loaded.update_provenance["quality_evidence"] is False
 
 
 class TestRunSummaryBudgetFields:

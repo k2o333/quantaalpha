@@ -169,6 +169,9 @@ class RunSummary:
     # Wave A/B budget fields
     budget_exhausted: bool = False
     budget_remaining_seconds: float = 0.0
+    skip_update: bool = False
+    trigger_source: str = ""
+    update_provenance: dict[str, Any] = field(default_factory=dict)
     # Circuit breaker status
     circuit_breaker: dict = field(default_factory=lambda: {
         "active": False,
@@ -215,6 +218,9 @@ class RunSummary:
                 "errors": self.errors,
                 "budget_exhausted": self.budget_exhausted,
                 "budget_remaining_seconds": self.budget_remaining_seconds,
+                "skip_update": self.skip_update,
+                "trigger_source": self.trigger_source,
+                "update_provenance": self.update_provenance,
                 "circuit_breaker": self.circuit_breaker,
             },
             "factor_ops": self.factor_ops,
@@ -277,6 +283,9 @@ class RunSummary:
             errors=run_summary.get("errors", []),
             budget_exhausted=run_summary.get("budget_exhausted", False),
             budget_remaining_seconds=run_summary.get("budget_remaining_seconds", 0.0),
+            skip_update=run_summary.get("skip_update", False),
+            trigger_source=run_summary.get("trigger_source", ""),
+            update_provenance=run_summary.get("update_provenance", {}),
             circuit_breaker=cb_data,
             factor_ops=data.get("factor_ops", {}),
             factor_quality_lifecycle=factor_quality.get("lifecycle", {}),

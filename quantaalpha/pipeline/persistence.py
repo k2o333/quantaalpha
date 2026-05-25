@@ -273,6 +273,28 @@ def _delete_workspace_path(workspace_path: str | Path | None) -> bool:
     return not path.exists()
 
 
+def _fingerprint_factor_value_file(path: str | Path) -> str:
+    import polars as pl
+
+    frame = (
+        pl.read_parquet(path)
+        .select(["trade_date", "instrument", "factor_id", "factor_value"])
+        .sort(["trade_date", "instrument", "factor_id"])
+    )
+    payload = frame.write_csv()
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _metric_isolation_status(fingerprints: dict[str, str], factor_count: int) -> str:
+    if factor_count < 2:
+        return "not_required"
+    if len(fingerprints) < factor_count:
+        return "incomplete"
+    if len(set(fingerprints.values())) < len(fingerprints):
+        return "collision_possible"
+    return "isolated"
+
+
 def append_combined_backtest_performance_history(
     *,
     experiment,
@@ -432,6 +454,12 @@ def save_factors_to_parquet(
         "skipped": 0,
         "failed": 0,
     }
+    metric_isolation = {
+        "factor_count": len(sub_tasks),
+        "metric_signature": dict(filtered_backtest_metrics),
+        "factor_value_fingerprints": {},
+        "status": "not_required",
+    }
     workspace_cleanup_enabled = failed_workspace_retention == "summary_only" or passed_workspace_retention == "delete_after_publish"
     workspace_cleanup = {
         "enabled": workspace_cleanup_enabled,
@@ -550,7 +578,7 @@ def save_factors_to_parquet(
                 logger.warning(f"Cannot publish factor values without workspace path: {factor_name} ({factor_id})")
             else:
                 try:
-                    publish_factor_values_from_workspace(
+                    publication = publish_factor_values_from_workspace(
                         workspace_path=workspace_path,
                         factor_name=factor_name,
                         factor_id=factor_id,
@@ -561,6 +589,9 @@ def save_factors_to_parquet(
                             "evolution_phase": evolution_phase,
                             "trajectory_id": trajectory_id,
                         },
+                    )
+                    metric_isolation["factor_value_fingerprints"][factor_id] = _fingerprint_factor_value_file(
+                        publication.output_path
                     )
                     value_publication["published"] += 1
                     current_value_published = True
@@ -603,6 +634,11 @@ def save_factors_to_parquet(
     compact_result = maybe_compact_after_save(store, compact_config)
     compact_result["quality_gate_lifecycle"] = lifecycle_counts
     compact_result["best_metrics"] = filtered_backtest_metrics
+    metric_isolation["status"] = _metric_isolation_status(
+        metric_isolation["factor_value_fingerprints"],
+        len(sub_tasks) - skipped,
+    )
+    compact_result["metric_isolation"] = metric_isolation
     compact_result["factor_value_publication"] = value_publication
     compact_result["workspace_cleanup"] = workspace_cleanup
     return compact_result
