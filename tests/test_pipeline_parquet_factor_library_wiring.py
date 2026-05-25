@@ -441,6 +441,94 @@ class TestSaveFactorsToParquetHelper:
             "failed": 0,
         }
 
+    def test_save_helper_deletes_passed_workspace_after_value_publication(self, tmp_factorlib_dir):
+        """Minimal passed-workspace policy deletes scratch only after durable value publication."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series({"IC": 0.028, "Rank IC": 0.041, "information_ratio": 0.51})
+        )
+        workspace_dir = Path(tmp_factorlib_dir) / "passed_workspace"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(
+            {
+                "trade_date": ["20250102"],
+                "instrument": ["SH600000"],
+                "test_factor": [1.25],
+            }
+        ).write_parquet(workspace_dir / "combined_factors_df.parquet")
+        (workspace_dir / "factor.py").write_text("factor = 1\n", encoding="utf-8")
+        experiment.sub_workspace_list[0].workspace_path = str(workspace_dir)
+
+        factor_value_dir = Path(tmp_factorlib_dir) / "factor_values_cleanup"
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(Path(tmp_factorlib_dir) / "passed_cleanup_store"),
+            factor_value_dir=str(factor_value_dir),
+            passed_workspace_retention="delete_after_publish",
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        factor_id = hashlib.md5(
+            f"{experiment.sub_tasks[0].factor_name}_{experiment.sub_tasks[0].factor_expression}".encode()
+        ).hexdigest()[:16]
+        assert (factor_value_dir / f"{factor_id}.parquet").exists()
+        assert not workspace_dir.exists()
+        assert result["workspace_cleanup"] == {
+            "enabled": True,
+            "deleted": 1,
+            "retained": 0,
+            "failed": 0,
+        }
+
+    def test_save_helper_deletes_failed_workspace_after_compact_summary(self, tmp_factorlib_dir):
+        """Failed candidates keep compact audit summary instead of full workspace scratch."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series({"IC": 0.028, "Rank IC": 0.041, "information_ratio": 0.51})
+        )
+        task = experiment.sub_tasks[0]
+        factor_id = hashlib.md5(f"{task.factor_name}_{task.factor_expression}".encode()).hexdigest()[:16]
+        workspace_dir = Path(tmp_factorlib_dir) / "failed_workspace"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(
+            {
+                "trade_date": ["20250102"],
+                "instrument": ["SH600000"],
+                "test_factor": [1.25],
+            }
+        ).write_parquet(workspace_dir / "combined_factors_df.parquet")
+        (workspace_dir / "runtime_info.py").write_text("info = {}\n", encoding="utf-8")
+        experiment.sub_workspace_list[0].workspace_path = str(workspace_dir)
+        store_path = Path(tmp_factorlib_dir) / "failed_cleanup_store"
+
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            failed_workspace_retention="summary_only",
+            round_summary={
+                "successful_factor_ids": [],
+                "failed_factor_ids": [factor_id],
+                "failed_reasons": {factor_id: ["backtest_exception"]},
+            },
+        )
+
+        summary_path = store_path / "artifact_audit" / f"{factor_id}.failure.json"
+        assert summary_path.exists()
+        assert not workspace_dir.exists()
+        assert result["workspace_cleanup"] == {
+            "enabled": True,
+            "deleted": 1,
+            "retained": 0,
+            "failed": 0,
+        }
+
     def test_save_helper_applies_capacity_promotion_thresholds(self, tmp_factorlib_dir):
         """Configured signal-capacity thresholds participate in active promotion decisions."""
         from quantaalpha.pipeline.loop import save_factors_to_parquet

@@ -154,6 +154,9 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         parquet_compact_config: dict | None = None,
         performance_history_config: dict | None = None,
         factor_value_dir: str | None = None,
+        publish_factor_values_on_pass: bool | None = None,
+        failed_workspace_retention: str | None = None,
+        passed_workspace_retention: str | None = None,
         backtest_backend: str | None = None,
         backtest_noqlib_config: dict | None = None,
     ):
@@ -199,6 +202,30 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             self._parquet_store_path = parquet_store_path
             self._parquet_compact_config = parquet_compact_config
             self._factor_value_dir = factor_value_dir
+            if publish_factor_values_on_pass is None:
+                try:
+                    from quantaalpha.continuous.artifact_policy import runtime_publish_factor_values_on_pass
+
+                    publish_factor_values_on_pass = runtime_publish_factor_values_on_pass()
+                except Exception:
+                    publish_factor_values_on_pass = False
+            self._publish_factor_values_on_pass = bool(publish_factor_values_on_pass)
+            if failed_workspace_retention is None or passed_workspace_retention is None:
+                try:
+                    from quantaalpha.continuous.artifact_policy import (
+                        runtime_failed_workspace_retention,
+                        runtime_passed_workspace_retention,
+                    )
+
+                    if failed_workspace_retention is None:
+                        failed_workspace_retention = runtime_failed_workspace_retention()
+                    if passed_workspace_retention is None:
+                        passed_workspace_retention = runtime_passed_workspace_retention()
+                except Exception:
+                    failed_workspace_retention = failed_workspace_retention or "full"
+                    passed_workspace_retention = passed_workspace_retention or "keep"
+            self._failed_workspace_retention = str(failed_workspace_retention or "full")
+            self._passed_workspace_retention = str(passed_workspace_retention or "keep")
             self._performance_history_config = performance_history_config or {}
             self._performance_history_store = None
             if self._performance_history_config.get("enabled", False):
@@ -760,6 +787,9 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 round_summary=round_summary,
                 quality_gate_config=self.quality_gate_config,
                 factor_value_dir=getattr(self, "_factor_value_dir", None),
+                publish_factor_values_on_pass=getattr(self, "_publish_factor_values_on_pass", False),
+                failed_workspace_retention=getattr(self, "_failed_workspace_retention", "full"),
+                passed_workspace_retention=getattr(self, "_passed_workspace_retention", "keep"),
             )
             logger.info(f"Saved factors to Parquet store: {parquet_store_path} (phase={evolution_phase})")
 

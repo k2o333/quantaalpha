@@ -82,6 +82,34 @@ def test_runtime_parity_artifacts_enabled_defaults_to_true_and_honors_flag():
     assert runtime_parity_artifacts_enabled(settings=SimpleNamespace(artifact_parity_artifacts_enabled=False)) is False
 
 
+def test_runtime_publish_factor_values_on_pass_defaults_to_false_and_honors_flag():
+    from quantaalpha.continuous.artifact_policy import runtime_publish_factor_values_on_pass
+
+    assert runtime_publish_factor_values_on_pass(settings=SimpleNamespace()) is False
+    assert (
+        runtime_publish_factor_values_on_pass(
+            settings=SimpleNamespace(artifact_publish_factor_values_on_pass=True)
+        )
+        is True
+    )
+
+
+def test_runtime_workspace_retention_helpers_default_and_honor_flags():
+    from quantaalpha.continuous.artifact_policy import (
+        runtime_failed_workspace_retention,
+        runtime_passed_workspace_retention,
+    )
+
+    assert runtime_failed_workspace_retention(settings=SimpleNamespace()) == "full"
+    assert runtime_passed_workspace_retention(settings=SimpleNamespace()) == "keep"
+    settings = SimpleNamespace(
+        artifact_failed_workspace_retention="summary_only",
+        artifact_passed_workspace_retention="delete_after_publish",
+    )
+    assert runtime_failed_workspace_retention(settings=settings) == "summary_only"
+    assert runtime_passed_workspace_retention(settings=settings) == "delete_after_publish"
+
+
 def test_real_pipeline_yaml_enables_minimal_artifact_policy():
     from quantaalpha.continuous.scheduler import PipelineConfig
 

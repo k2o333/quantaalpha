@@ -2,6 +2,8 @@ import datetime
 import hashlib
 import json
 import re
+import shutil
+from pathlib import Path
 from typing import Any, Iterable
 
 import pandas as pd
@@ -228,6 +230,49 @@ def _round_summary_value(round_summary, key: str, default=None):
     return getattr(round_summary, key, default)
 
 
+def _write_workspace_audit_summary(
+    *,
+    audit_dir: str | Path,
+    factor_id: str,
+    factor_name: str,
+    factor_expression: str,
+    status: str,
+    reason: str,
+    workspace_path: str | Path | None,
+    details: dict[str, Any] | None = None,
+) -> Path:
+    target_dir = Path(audit_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{factor_id}.{status}.json"
+    payload = {
+        "factor_id": factor_id,
+        "factor_name": factor_name,
+        "factor_expression_hash": hashlib.sha256(str(factor_expression).encode()).hexdigest()[:16],
+        "status": status,
+        "reason": reason,
+        "workspace_path": str(workspace_path) if workspace_path else "",
+        "details": details or {},
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    target.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return target
+
+
+def _delete_workspace_path(workspace_path: str | Path | None) -> bool:
+    if not workspace_path:
+        return False
+    path = Path(workspace_path)
+    if not path.exists():
+        return True
+    if not path.is_dir():
+        return False
+    shutil.rmtree(path, ignore_errors=False)
+    return not path.exists()
+
+
 def append_combined_backtest_performance_history(
     *,
     experiment,
@@ -355,6 +400,9 @@ def save_factors_to_parquet(
     round_summary=None,
     quality_gate_config: dict | None = None,
     factor_value_dir: str | None = None,
+    publish_factor_values_on_pass: bool = True,
+    failed_workspace_retention: str = "full",
+    passed_workspace_retention: str = "keep",
 ):
     """Save factors from experiment to the Parquet factor library."""
     from quantaalpha.factors.factor_store_facade import FactorStoreFacade
@@ -377,20 +425,52 @@ def save_factors_to_parquet(
 
     skipped = 0
     lifecycle_counts = {"evaluated": 0, "active_promoted": 0, "candidate_only": 0, "rejected": 0}
+    value_publication_enabled = bool(factor_value_dir) and bool(publish_factor_values_on_pass)
     value_publication = {
-        "enabled": bool(factor_value_dir),
+        "enabled": value_publication_enabled,
         "published": 0,
         "skipped": 0,
         "failed": 0,
     }
+    workspace_cleanup_enabled = failed_workspace_retention == "summary_only" or passed_workspace_retention == "delete_after_publish"
+    workspace_cleanup = {
+        "enabled": workspace_cleanup_enabled,
+        "deleted": 0,
+        "retained": 0,
+        "failed": 0,
+    }
     sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
+    audit_dir = Path(parquet_store_path) / "artifact_audit"
     for idx, task in enumerate(sub_tasks):
         factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
         factor_expr = getattr(task, "factor_expression", "")
         factor_desc = getattr(task, "factor_description", getattr(task, "description", ""))
 
         factor_id = hashlib.md5(f"{factor_name}_{factor_expr}".encode()).hexdigest()[:16]
+        workspace = sub_workspaces[idx] if idx < len(sub_workspaces) else None
+        workspace_path = getattr(workspace, "workspace_path", None) if workspace is not None else None
         if has_factor_tracking and factor_id not in successful_ids:
+            if failed_workspace_retention == "summary_only":
+                try:
+                    _write_workspace_audit_summary(
+                        audit_dir=audit_dir,
+                        factor_id=factor_id,
+                        factor_name=factor_name,
+                        factor_expression=factor_expr,
+                        status="failure",
+                        reason="; ".join((_round_summary_value(round_summary, "failed_reasons", {}) or {}).get(factor_id, []))
+                        or "factor failed before persistence",
+                        workspace_path=workspace_path,
+                    )
+                    if _delete_workspace_path(workspace_path):
+                        workspace_cleanup["deleted"] += 1
+                    else:
+                        workspace_cleanup["failed"] += 1
+                except Exception as exc:
+                    workspace_cleanup["failed"] += 1
+                    logger.warning(f"Failed to clean failed factor workspace for {factor_name} ({factor_id}): {exc}")
+            elif workspace_cleanup_enabled:
+                workspace_cleanup["retained"] += 1
             skipped += 1
             logger.info(f"Skipping failed factor during Parquet save: {factor_name} ({factor_id})")
             continue
@@ -461,33 +541,62 @@ def save_factors_to_parquet(
         }
         store.write_factor(entry)
 
-        if factor_value_dir:
+        current_value_published = False
+        if value_publication_enabled:
             if lifecycle_status != "active":
                 value_publication["skipped"] += 1
-                continue
-            workspace = sub_workspaces[idx] if idx < len(sub_workspaces) else None
-            workspace_path = getattr(workspace, "workspace_path", None) if workspace is not None else None
-            if not workspace_path:
+            elif not workspace_path:
                 value_publication["failed"] += 1
                 logger.warning(f"Cannot publish factor values without workspace path: {factor_name} ({factor_id})")
-                continue
-            try:
-                publish_factor_values_from_workspace(
-                    workspace_path=workspace_path,
-                    factor_name=factor_name,
+            else:
+                try:
+                    publish_factor_values_from_workspace(
+                        workspace_path=workspace_path,
+                        factor_name=factor_name,
+                        factor_id=factor_id,
+                        output_dir=factor_value_dir,
+                        metadata={
+                            "experiment_id": experiment_id,
+                            "round_number": round_number,
+                            "evolution_phase": evolution_phase,
+                            "trajectory_id": trajectory_id,
+                        },
+                    )
+                    value_publication["published"] += 1
+                    current_value_published = True
+                except Exception as exc:
+                    value_publication["failed"] += 1
+                    logger.warning(f"Failed to publish factor values for {factor_name} ({factor_id}): {exc}")
+
+        if workspace_cleanup_enabled:
+            should_delete_passed = (
+                lifecycle_status == "active"
+                and passed_workspace_retention == "delete_after_publish"
+                and current_value_published
+            )
+            should_delete_non_passed = lifecycle_status != "active" and failed_workspace_retention == "summary_only"
+            if should_delete_non_passed:
+                _write_workspace_audit_summary(
+                    audit_dir=audit_dir,
                     factor_id=factor_id,
-                    output_dir=factor_value_dir,
-                    metadata={
-                        "experiment_id": experiment_id,
-                        "round_number": round_number,
-                        "evolution_phase": evolution_phase,
-                        "trajectory_id": trajectory_id,
-                    },
+                    factor_name=factor_name,
+                    factor_expression=factor_expr,
+                    status=lifecycle_status,
+                    reason=str(lifecycle_decision.get("reason") or lifecycle_status),
+                    workspace_path=workspace_path,
+                    details=lifecycle_decision,
                 )
-                value_publication["published"] += 1
-            except Exception as exc:
-                value_publication["failed"] += 1
-                logger.warning(f"Failed to publish factor values for {factor_name} ({factor_id}): {exc}")
+            if should_delete_passed or should_delete_non_passed:
+                try:
+                    if _delete_workspace_path(workspace_path):
+                        workspace_cleanup["deleted"] += 1
+                    else:
+                        workspace_cleanup["failed"] += 1
+                except Exception as exc:
+                    workspace_cleanup["failed"] += 1
+                    logger.warning(f"Failed to delete factor workspace for {factor_name} ({factor_id}): {exc}")
+            else:
+                workspace_cleanup["retained"] += 1
 
     saved = len(sub_tasks) - skipped
     logger.info(f"Saved {saved} factors to Parquet store: {parquet_store_path}")
@@ -495,6 +604,7 @@ def save_factors_to_parquet(
     compact_result["quality_gate_lifecycle"] = lifecycle_counts
     compact_result["best_metrics"] = filtered_backtest_metrics
     compact_result["factor_value_publication"] = value_publication
+    compact_result["workspace_cleanup"] = workspace_cleanup
     return compact_result
 
 

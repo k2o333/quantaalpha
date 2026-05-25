@@ -89,3 +89,33 @@ def runtime_parity_artifacts_enabled(*, settings: Any | None = None) -> bool:
 
         settings = RD_AGENT_SETTINGS
     return bool(getattr(settings, "artifact_parity_artifacts_enabled", True))
+
+
+def runtime_publish_factor_values_on_pass(*, settings: Any | None = None) -> bool:
+    """返回当前运行时是否在因子通过后发布 durable factor values。"""
+
+    if settings is None:
+        from quantaalpha.core.conf import RD_AGENT_SETTINGS
+
+        settings = RD_AGENT_SETTINGS
+    return bool(getattr(settings, "artifact_publish_factor_values_on_pass", False))
+
+
+def runtime_failed_workspace_retention(*, settings: Any | None = None) -> str:
+    """返回失败候选 workspace 的运行时保留策略。"""
+
+    if settings is None:
+        from quantaalpha.core.conf import RD_AGENT_SETTINGS
+
+        settings = RD_AGENT_SETTINGS
+    return str(getattr(settings, "artifact_failed_workspace_retention", "full"))
+
+
+def runtime_passed_workspace_retention(*, settings: Any | None = None) -> str:
+    """返回通过候选 workspace 的运行时保留策略。"""
+
+    if settings is None:
+        from quantaalpha.core.conf import RD_AGENT_SETTINGS
+
+        settings = RD_AGENT_SETTINGS
+    return str(getattr(settings, "artifact_passed_workspace_retention", "keep"))
