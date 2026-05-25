@@ -85,7 +85,7 @@ class MiningSetupMixin:
         self._orchestration_cfg = orchestration_cfg or {}
         self._performance_history_config = performance_history_config or {}
         self._app5_freshness_cfg = app5_freshness_cfg or {}
-        self.factor_value_dir = factor_value_dir or "third_party/quantaalpha/data/factorlib/factor_values"
+        self.factor_value_dir = factor_value_dir or "data/factor_values"
         self._error_feedback_sink = error_feedback_sink
         self._performance_history_store = None
         if self._performance_history_config.get("enabled", False):
@@ -122,6 +122,7 @@ class MiningSetupMixin:
         kwargs = {
             "parquet_store_path": self.parquet_library_dir,
             "parquet_compact_config": self.parquet_compact_config,
+            "factor_value_dir": self.factor_value_dir,
         }
         if self._performance_history_config.get("enabled", False):
             perf_config = dict(self._performance_history_config)

@@ -290,10 +290,13 @@ class FactorFBWorkspace(FBWorkspace):
                         parquet_result,
                         factor_name=str(self.target_task.factor_name),
                     )
-                    (self.workspace_path / "factor_runtime_parity.json").write_text(
-                        json.dumps(parity, ensure_ascii=True, indent=2, sort_keys=True),
-                        encoding="utf-8",
-                    )
+                    from quantaalpha.continuous.artifact_policy import runtime_parity_artifacts_enabled
+
+                    if runtime_parity_artifacts_enabled():
+                        (self.workspace_path / "factor_runtime_parity.json").write_text(
+                            json.dumps(parity, ensure_ascii=True, indent=2, sort_keys=True),
+                            encoding="utf-8",
+                        )
                     execution_feedback += f"\nParquet runtime parity passed: {parity}"
                 except Exception as e:
                     execution_feedback += f"\nParquet runtime parity failed: {e}"[:1000]

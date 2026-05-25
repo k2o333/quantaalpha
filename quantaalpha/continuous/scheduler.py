@@ -15,6 +15,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from quantaalpha.continuous.artifact_policy import ArtifactPolicyConfig
 from quantaalpha.continuous.workspace_retention import WorkspaceRetentionConfig
 from quantaalpha.factor_ops.performance_history import PerformanceHistoryConfig
 
@@ -128,7 +129,7 @@ class FactorConfig:
     backtest_noqlib: dict[str, Any] = field(default_factory=dict)
     library_backend: str = "json"
     parquet_library_dir: str = "third_party/quantaalpha/data/factorlib/parquet_store"
-    factor_value_dir: str = "third_party/quantaalpha/data/factorlib/factor_values"
+    factor_value_dir: str = "data/factor_values"
     parquet_compact: ParquetCompactConfig = field(default_factory=ParquetCompactConfig)
     performance_history: PerformanceHistoryConfig = field(default_factory=PerformanceHistoryConfig)
 
@@ -632,6 +633,7 @@ class PipelineConfig:
     cycle_budget_seconds: int = 3600
     per_factor_timeout_seconds: int = 300
     workspace_retention: WorkspaceRetentionConfig = field(default_factory=WorkspaceRetentionConfig)
+    artifact_policy: ArtifactPolicyConfig = field(default_factory=ArtifactPolicyConfig)
 
     # App4 bridge
     app4_bridge: App4BridgeConfig = field(default_factory=App4BridgeConfig)
@@ -694,6 +696,7 @@ class PipelineConfig:
         cycle_budget = runtime.get("cycle_budget_seconds", 3600)
         per_factor_timeout = runtime.get("per_factor_timeout_seconds", 300)
         workspace_retention = WorkspaceRetentionConfig.from_dict(runtime.get("workspace_retention", {}))
+        artifact_policy = ArtifactPolicyConfig.from_dict(data.get("artifact_policy", {}))
 
         # Parse app4_bridge section
         app4_data = data.get("app4_bridge", {})
@@ -719,7 +722,7 @@ class PipelineConfig:
             backtest_noqlib=dict(factor_data.get("backtest_noqlib", {}) or {}),
             library_backend=factor_data.get("library_backend", "json"),
             parquet_library_dir=factor_data.get("parquet_library_dir", "third_party/quantaalpha/data/factorlib/parquet_store"),
-            factor_value_dir=factor_data.get("factor_value_dir", "third_party/quantaalpha/data/factorlib/factor_values"),
+            factor_value_dir=factor_data.get("factor_value_dir", "data/factor_values"),
             parquet_compact=ParquetCompactConfig.from_dict(compact_data),
             performance_history=PerformanceHistoryConfig.from_dict(factor_data.get("performance_history", {})),
         )
@@ -773,6 +776,7 @@ class PipelineConfig:
             cycle_budget_seconds=cycle_budget,
             per_factor_timeout_seconds=per_factor_timeout,
             workspace_retention=workspace_retention,
+            artifact_policy=artifact_policy,
             app4_bridge=app4_bridge,
             factor=factor,
             validation=validation,
@@ -816,6 +820,7 @@ class PipelineConfig:
                     ],
                 },
             },
+            "artifact_policy": self.artifact_policy.to_dict(),
             "app4_bridge": {
                 "enabled": self.app4_bridge.enabled,
                 "interfaces": self.app4_bridge.interfaces,
@@ -994,6 +999,7 @@ class SchedulerConfig:
     # Factor storage config
     factor: FactorConfig = field(default_factory=FactorConfig)
     workspace_retention: WorkspaceRetentionConfig = field(default_factory=WorkspaceRetentionConfig)
+    artifact_policy: ArtifactPolicyConfig = field(default_factory=ArtifactPolicyConfig)
 
     @classmethod
     def from_pipeline_config(cls, pipeline_config: PipelineConfig) -> "SchedulerConfig":
@@ -1023,6 +1029,7 @@ class SchedulerConfig:
             mining=pipeline_config.mining,
             factor=pipeline_config.factor,
             workspace_retention=pipeline_config.workspace_retention,
+            artifact_policy=pipeline_config.artifact_policy,
         )
 
 

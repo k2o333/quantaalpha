@@ -328,6 +328,119 @@ class TestSaveFactorsToParquetHelper:
         df = pl.read_parquet(str(delta_files[0]))
         assert df["evaluation_status"].to_list() == ["active"]
 
+    def test_save_helper_publishes_active_factor_values_to_long_store(self, tmp_factorlib_dir):
+        """Active factors publish workspace factor values as durable long-format parquet."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series(
+                {
+                    "IC": 0.028,
+                    "Rank IC": 0.041,
+                    "information_ratio": 0.51,
+                    "annualized_return": 0.18,
+                }
+            )
+        )
+        workspace_dir = Path(tmp_factorlib_dir) / "workspace"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(
+            {
+                "trade_date": ["20250102", "20250103"],
+                "instrument": ["SH600000", "SZ000001"],
+                "test_factor": [1.25, -0.5],
+            }
+        ).write_parquet(workspace_dir / "combined_factors_df.parquet")
+        experiment.sub_workspace_list[0].workspace_path = str(workspace_dir)
+
+        store_path = Path(tmp_factorlib_dir) / "active_value_store"
+        factor_value_dir = Path(tmp_factorlib_dir) / "factor_values"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            factor_value_dir=str(factor_value_dir),
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        factor_id = hashlib.md5(
+            f"{experiment.sub_tasks[0].factor_name}_{experiment.sub_tasks[0].factor_expression}".encode()
+        ).hexdigest()[:16]
+        value_file = factor_value_dir / f"{factor_id}.parquet"
+        manifest_file = factor_value_dir / f"{factor_id}.manifest.json"
+        assert value_file.exists()
+        assert manifest_file.exists()
+        assert result["factor_value_publication"] == {
+            "enabled": True,
+            "published": 1,
+            "skipped": 0,
+            "failed": 0,
+        }
+
+        values = pl.read_parquet(value_file)
+        assert values.schema["trade_date"] == pl.Utf8
+        assert values.select(["trade_date", "instrument", "factor_id", "factor_value"]).to_dicts() == [
+            {
+                "trade_date": "20250102",
+                "instrument": "SH600000",
+                "factor_id": factor_id,
+                "factor_value": 1.25,
+            },
+            {
+                "trade_date": "20250103",
+                "instrument": "SZ000001",
+                "factor_id": factor_id,
+                "factor_value": -0.5,
+            },
+        ]
+
+    def test_save_helper_honors_disabled_factor_value_publication_flag(self, tmp_factorlib_dir):
+        """Publication can be disabled even when a factor-value directory is configured."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series({"IC": 0.028, "Rank IC": 0.041, "information_ratio": 0.51})
+        )
+        workspace_dir = Path(tmp_factorlib_dir) / "workspace_no_publish"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(
+            {
+                "trade_date": ["20250102"],
+                "instrument": ["SH600000"],
+                "test_factor": [1.25],
+            }
+        ).write_parquet(workspace_dir / "combined_factors_df.parquet")
+        experiment.sub_workspace_list[0].workspace_path = str(workspace_dir)
+
+        store_path = Path(tmp_factorlib_dir) / "active_no_value_store"
+        factor_value_dir = Path(tmp_factorlib_dir) / "factor_values_disabled"
+        store_path.mkdir(parents=True, exist_ok=True)
+
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            factor_value_dir=str(factor_value_dir),
+            publish_factor_values_on_pass=False,
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        assert not factor_value_dir.exists()
+        assert result["factor_value_publication"] == {
+            "enabled": False,
+            "published": 0,
+            "skipped": 0,
+            "failed": 0,
+        }
+
     def test_save_helper_applies_capacity_promotion_thresholds(self, tmp_factorlib_dir):
         """Configured signal-capacity thresholds participate in active promotion decisions."""
         from quantaalpha.pipeline.loop import save_factors_to_parquet

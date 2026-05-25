@@ -354,9 +354,11 @@ def save_factors_to_parquet(
     compact_config: dict | None = None,
     round_summary=None,
     quality_gate_config: dict | None = None,
+    factor_value_dir: str | None = None,
 ):
     """Save factors from experiment to the Parquet factor library."""
     from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+    from quantaalpha.factors.factor_values import publish_factor_values_from_workspace
 
     if experiment is None:
         logger.warning("experiment is None, skip saving factors")
@@ -375,6 +377,13 @@ def save_factors_to_parquet(
 
     skipped = 0
     lifecycle_counts = {"evaluated": 0, "active_promoted": 0, "candidate_only": 0, "rejected": 0}
+    value_publication = {
+        "enabled": bool(factor_value_dir),
+        "published": 0,
+        "skipped": 0,
+        "failed": 0,
+    }
+    sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
     for idx, task in enumerate(sub_tasks):
         factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
         factor_expr = getattr(task, "factor_expression", "")
@@ -452,11 +461,40 @@ def save_factors_to_parquet(
         }
         store.write_factor(entry)
 
+        if factor_value_dir:
+            if lifecycle_status != "active":
+                value_publication["skipped"] += 1
+                continue
+            workspace = sub_workspaces[idx] if idx < len(sub_workspaces) else None
+            workspace_path = getattr(workspace, "workspace_path", None) if workspace is not None else None
+            if not workspace_path:
+                value_publication["failed"] += 1
+                logger.warning(f"Cannot publish factor values without workspace path: {factor_name} ({factor_id})")
+                continue
+            try:
+                publish_factor_values_from_workspace(
+                    workspace_path=workspace_path,
+                    factor_name=factor_name,
+                    factor_id=factor_id,
+                    output_dir=factor_value_dir,
+                    metadata={
+                        "experiment_id": experiment_id,
+                        "round_number": round_number,
+                        "evolution_phase": evolution_phase,
+                        "trajectory_id": trajectory_id,
+                    },
+                )
+                value_publication["published"] += 1
+            except Exception as exc:
+                value_publication["failed"] += 1
+                logger.warning(f"Failed to publish factor values for {factor_name} ({factor_id}): {exc}")
+
     saved = len(sub_tasks) - skipped
     logger.info(f"Saved {saved} factors to Parquet store: {parquet_store_path}")
     compact_result = maybe_compact_after_save(store, compact_config)
     compact_result["quality_gate_lifecycle"] = lifecycle_counts
     compact_result["best_metrics"] = filtered_backtest_metrics
+    compact_result["factor_value_publication"] = value_publication
     return compact_result
 
 

@@ -153,6 +153,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
         parquet_store_path: str | None = None,
         parquet_compact_config: dict | None = None,
         performance_history_config: dict | None = None,
+        factor_value_dir: str | None = None,
         backtest_backend: str | None = None,
         backtest_noqlib_config: dict | None = None,
     ):
@@ -197,6 +198,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             # Parquet factor-store configuration
             self._parquet_store_path = parquet_store_path
             self._parquet_compact_config = parquet_compact_config
+            self._factor_value_dir = factor_value_dir
             self._performance_history_config = performance_history_config or {}
             self._performance_history_store = None
             if self._performance_history_config.get("enabled", False):
@@ -757,6 +759,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 compact_config=compact_config,
                 round_summary=round_summary,
                 quality_gate_config=self.quality_gate_config,
+                factor_value_dir=getattr(self, "_factor_value_dir", None),
             )
             logger.info(f"Saved factors to Parquet store: {parquet_store_path} (phase={evolution_phase})")
 

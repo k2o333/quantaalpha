@@ -251,6 +251,10 @@ def _load_config_and_paths(config_path: str):
     pipeline_config.app5_data = config_for_pipeline.get("app5_data", {})
     pipeline_config.factor_ops = config_for_pipeline.get("factor_ops", {})
 
+    from quantaalpha.continuous.artifact_policy import apply_artifact_policy_to_runtime
+
+    apply_artifact_policy_to_runtime(pipeline_config.artifact_policy)
+
     # Apply LLM config from pipeline.yaml to global runtime settings
     # before any LLM backend is constructed.
     from quantaalpha.llm.pipeline_config import apply_pipeline_llm_config

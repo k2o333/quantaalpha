@@ -245,21 +245,24 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                         parquet_runtime_combined_factors[[column]],
                         factor_name=str(column),
                     )
-                parity_path = exp.experiment_workspace.workspace_path / "factor_runtime_combined_parity.json"
-                parity_path.write_text(
-                    json.dumps(
-                        {
-                            "rows": int(len(parquet_runtime_combined_factors)),
-                            "columns": [str(col) for col in parquet_runtime_combined_factors.columns],
-                            "compared_columns": parquet_runtime_compared_columns,
-                            "status": "passed",
-                        },
-                        ensure_ascii=True,
-                        indent=2,
-                        sort_keys=True,
-                    ),
-                    encoding="utf-8",
-                )
+                from quantaalpha.continuous.artifact_policy import runtime_parity_artifacts_enabled
+
+                if runtime_parity_artifacts_enabled():
+                    parity_path = exp.experiment_workspace.workspace_path / "factor_runtime_combined_parity.json"
+                    parity_path.write_text(
+                        json.dumps(
+                            {
+                                "rows": int(len(parquet_runtime_combined_factors)),
+                                "columns": [str(col) for col in parquet_runtime_combined_factors.columns],
+                                "compared_columns": parquet_runtime_compared_columns,
+                                "status": "passed",
+                            },
+                            ensure_ascii=True,
+                            indent=2,
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
                 
             if len(combined_factors.columns) >= 2:
                 pd.set_option('display.width', 1000)
@@ -314,10 +317,13 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                     parquet_runtime_combined_factors.to_parquet(parquet_path, engine="pyarrow")
                     parquet_result = self._develop_noqlib(exp, config_name, backend=backend)
                     backtest_parity = assert_backtest_result_parity(result, parquet_result)
-                    (exp.experiment_workspace.workspace_path / "factor_runtime_backtest_parity.json").write_text(
-                        json.dumps(backtest_parity, ensure_ascii=True, indent=2, sort_keys=True),
-                        encoding="utf-8",
-                    )
+                    from quantaalpha.continuous.artifact_policy import runtime_parity_artifacts_enabled
+
+                    if runtime_parity_artifacts_enabled():
+                        (exp.experiment_workspace.workspace_path / "factor_runtime_backtest_parity.json").write_text(
+                            json.dumps(backtest_parity, ensure_ascii=True, indent=2, sort_keys=True),
+                            encoding="utf-8",
+                        )
                     logger.info(f"Parquet runtime backtest parity passed: {backtest_parity}")
                 finally:
                     h5_combined_backup.to_parquet(parquet_path, engine="pyarrow")
