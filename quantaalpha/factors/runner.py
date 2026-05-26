@@ -102,6 +102,38 @@ def _prepare_parquet_runtime_combined_factors(
     return parquet_combined, [str(col) for col in common_columns]
 
 
+def compute_isolated_factor_signal_metrics(features: pd.DataFrame, label: pd.Series) -> dict[str, dict[str, float] | dict[str, int]]:
+    """Compute signal metrics for each factor column with its own values, not the combined model signal."""
+    from quantaalpha.backtest.noqlib.signal_analysis import signal_metrics
+
+    if isinstance(features.columns, pd.MultiIndex):
+        if "feature" in features.columns.get_level_values(0):
+            factor_frame = features["feature"]
+        else:
+            factor_frame = features.copy()
+            factor_frame.columns = [str(col[-1]) for col in factor_frame.columns]
+    else:
+        factor_frame = features.copy()
+
+    isolated: dict[str, dict[str, float] | dict[str, int]] = {}
+    metric_values: dict[str, list[float]] = {}
+    for column in factor_frame.columns:
+        factor_name = str(column)
+        metrics = signal_metrics(factor_frame[column], label)
+        isolated[factor_name] = metrics
+        for metric_name, value in metrics.items():
+            try:
+                metric_values.setdefault(metric_name, []).append(round(float(value), 12))
+            except (TypeError, ValueError):
+                continue
+
+    isolated["metric_unique_counts"] = {
+        metric_name: len(set(values))
+        for metric_name, values in metric_values.items()
+    }
+    return isolated
+
+
 class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
     MIN_VALID_RATIO = 0.6
     MAX_NAN_RATIO = 0.4
@@ -399,6 +431,13 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             workspace_path=workspace_path,
         )
         labels = expression_engine.compute_label(noqlib_cfg.get("dataset", {}).get("label", "Ref($close, -2)/Ref($close, -1) - 1"))
+        isolated_factor_metrics = compute_isolated_factor_signal_metrics(features, labels)
+        setattr(exp, "_isolated_factor_metrics", isolated_factor_metrics)
+        logger.info(
+            "metric_isolation: computed isolated factor metrics "
+            f"factor_count={len([key for key in isolated_factor_metrics if key != 'metric_unique_counts'])} "
+            f"unique_counts={isolated_factor_metrics.get('metric_unique_counts', {})}"
+        )
         # Free expression engine — features/labels are computed
         del expression_engine
         if backend == "vnpy":

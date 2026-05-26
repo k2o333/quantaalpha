@@ -9,6 +9,8 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from quantaalpha.log import logger
+
 
 DEFAULT_QUALITY_OVERLAY_CONFIG: dict[str, Any] = {
     "expression_static": {
@@ -69,6 +71,40 @@ def load_quality_overlay_config(config: dict[str, Any] | None) -> dict[str, Any]
         source = dict(source["quality_overlay"])
     merged = _deep_merge(DEFAULT_QUALITY_OVERLAY_CONFIG, source)
     return merged
+
+
+def log_quality_overlay_event(
+    gate: str,
+    decision: str,
+    *,
+    factor_name: str | None = None,
+    metrics: dict[str, Any] | None = None,
+    reasons: Iterable[str] | None = None,
+) -> None:
+    """Emit a compact, grep-friendly runtime event for overlay gate decisions."""
+    metrics_payload = json_ready_dict(metrics or {})
+    reasons_payload = ",".join(str(reason) for reason in (reasons or [])) or "none"
+    factor_payload = str(factor_name or "<batch>")
+    logger.info(
+        "quality_overlay_event "
+        f"gate={gate} decision={decision} factor={factor_payload} "
+        f"reasons={reasons_payload} metrics={metrics_payload}"
+    )
+
+
+def json_ready_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    """Convert numpy/pandas scalars to plain Python values for stable logs/metadata."""
+    ready: dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(value, (np.integer,)):
+            ready[str(key)] = int(value)
+        elif isinstance(value, (np.floating,)):
+            ready[str(key)] = float(value)
+        elif value is None or isinstance(value, (str, int, float, bool)):
+            ready[str(key)] = value
+        else:
+            ready[str(key)] = str(value)
+    return ready
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -140,6 +176,13 @@ def pre_backtest_screen(factor_df: pd.DataFrame, config: dict[str, Any] | None =
             "metrics": metrics,
             **metrics,
         }
+        log_quality_overlay_event(
+            "pre_backtest",
+            "kept" if not reasons else "dropped",
+            factor_name=str(col),
+            metrics=metrics,
+            reasons=reasons,
+        )
     return results
 
 
@@ -640,6 +683,12 @@ def quality_score_decision(
         attribution = infer_failure_attribution(metrics=metrics, diagnostics=diagnostics)
         status = "rejected"
         failure_type = attribution["primary_failure_reason"]
+    log_quality_overlay_event(
+        "quality_score",
+        status,
+        metrics={"quality_score": score, "rank_ic_test": rank_ic_test, "rank_icir": rank_icir},
+        reasons=[failure_type] if failure_type else [],
+    )
     return {
         "status": status,
         "quality_score": score,

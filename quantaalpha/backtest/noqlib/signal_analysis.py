@@ -7,19 +7,11 @@ import pandas as pd
 import polars as pl
 
 
-def signal_metrics(prediction: pd.Series, label: pd.Series) -> dict[str, float]:
+def signal_metrics(prediction: pd.Series | pd.DataFrame | pl.DataFrame, label: pd.Series | pd.DataFrame | pl.DataFrame) -> dict[str, float]:
     """计算 IC、ICIR、Rank IC、Rank ICIR。"""
-    raw_prediction_rows = int(len(prediction))
-    pred_frame = prediction.rename("pred").reset_index()
-    label_frame = label.rename("label").reset_index()
-    pred_polars = pl.from_pandas(pred_frame).with_columns(
-        pl.col("datetime").cast(pl.Datetime("ns")),
-        pl.col("instrument").cast(pl.Utf8),
-    )
-    label_polars = pl.from_pandas(label_frame).with_columns(
-        pl.col("datetime").cast(pl.Datetime("ns")),
-        pl.col("instrument").cast(pl.Utf8),
-    )
+    pred_polars = _to_signal_frame(prediction, "pred")
+    label_polars = _to_signal_frame(label, "label")
+    raw_prediction_rows = int(pred_polars.height)
     aligned = (
         pred_polars.join(label_polars, on=["datetime", "instrument"], how="inner")
         .drop_nulls(["pred", "label"])
@@ -57,6 +49,49 @@ def signal_metrics(prediction: pd.Series, label: pd.Series) -> dict[str, float]:
         "Rank ICIR": _ir(rank_ic_values),
         **capacity_metrics,
     }
+
+
+def _to_signal_frame(frame: pd.Series | pd.DataFrame | pl.DataFrame, value_column: str) -> pl.DataFrame:
+    """归一化 signal 输入为显式键列 polars frame。"""
+    if isinstance(frame, pl.DataFrame):
+        return _normalize_polars_signal_frame(frame, value_column)
+    if isinstance(frame, pd.Series):
+        return _normalize_polars_signal_frame(pl.from_pandas(frame.rename(value_column).reset_index()), value_column)
+    if isinstance(frame, pd.DataFrame):
+        if value_column in frame.columns:
+            value_series = frame[value_column]
+        elif len(frame.columns) == 1:
+            value_series = frame.iloc[:, 0].rename(value_column)
+        else:
+            raise ValueError(f"signal {value_column} frame must contain a '{value_column}' column or exactly one value column")
+        return _normalize_polars_signal_frame(pl.from_pandas(value_series.reset_index()), value_column)
+    raise TypeError(f"unsupported signal {value_column} input type: {type(frame).__name__}")
+
+
+def _normalize_polars_signal_frame(frame: pl.DataFrame, value_column: str) -> pl.DataFrame:
+    """校验并标准化 signal polars frame 的键列和值列。"""
+    required_keys = {"datetime", "instrument"}
+    missing_keys = sorted(required_keys - set(frame.columns))
+    if missing_keys:
+        raise ValueError(f"signal {value_column} frame missing columns: {missing_keys}")
+    if value_column not in frame.columns:
+        value_candidates = [column for column in frame.columns if column not in required_keys]
+        if len(value_candidates) != 1:
+            raise ValueError(f"signal {value_column} frame must contain '{value_column}' or exactly one non-key value column")
+        frame = frame.rename({value_candidates[0]: value_column})
+    return frame.select(["datetime", "instrument", value_column]).with_columns(
+        _datetime_expr(frame),
+        pl.col("instrument").cast(pl.Utf8),
+        pl.col(value_column).cast(pl.Float64, strict=False),
+    )
+
+
+def _datetime_expr(frame: pl.DataFrame) -> pl.Expr:
+    """按输入类型把 datetime 列归一为 ns 精度时间戳。"""
+    dtype = frame.schema["datetime"]
+    if dtype == pl.Utf8:
+        return pl.col("datetime").str.strptime(pl.Datetime("ns"), strict=False)
+    return pl.col("datetime").cast(pl.Datetime("ns"), strict=False)
 
 
 def _mean(values: list[float]) -> float:

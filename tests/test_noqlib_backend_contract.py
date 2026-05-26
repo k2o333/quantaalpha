@@ -73,6 +73,48 @@ def test_signal_metrics_returns_expected_keys():
     assert metrics["signal_valid_ratio"] == 1.0
 
 
+def test_signal_metrics_accepts_explicit_polars_frames():
+    from quantaalpha.backtest.noqlib.signal_analysis import signal_metrics
+
+    predictions = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"],
+            "instrument": ["A", "B", "A", "B"],
+            "pred": [1.0, 2.0, 2.0, 1.0],
+        }
+    )
+    labels = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"],
+            "instrument": ["A", "B", "A", "B"],
+            "label": [1.0, 2.0, 1.0, 2.0],
+        }
+    )
+
+    metrics = signal_metrics(predictions, labels)
+
+    assert metrics["signal_aligned_rows"] == 4.0
+    assert metrics["signal_active_days"] == 2.0
+    assert metrics["Rank IC"] == 0.0
+
+
+def test_signal_metrics_accepts_single_column_pandas_label_frame():
+    from quantaalpha.backtest.noqlib.signal_analysis import signal_metrics
+
+    index = pd.MultiIndex.from_product(
+        [[pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")], ["A", "B"]],
+        names=["datetime", "instrument"],
+    )
+    pred = pd.Series([1.0, 2.0, 2.0, 1.0], index=index)
+    label = pd.DataFrame({"LABEL0": [1.0, 2.0, 1.0, 2.0]}, index=index)
+
+    metrics = signal_metrics(pred, label)
+
+    assert metrics["signal_aligned_rows"] == 4.0
+    assert metrics["signal_active_days"] == 2.0
+    assert metrics["Rank IC"] == 0.0
+
+
 def test_noqlib_risk_metrics_handles_empty_series():
     from quantaalpha.backtest.noqlib.risk import risk_metrics
 

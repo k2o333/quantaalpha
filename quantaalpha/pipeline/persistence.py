@@ -492,6 +492,8 @@ def save_factors_to_parquet(
     has_factor_tracking = bool(successful_ids or failed_ids)
     backtest_metrics = _extract_backtest_metric_payload(getattr(experiment, "result", None))
     filtered_backtest_metrics = {key: value for key, value in backtest_metrics.items() if value is not None}
+    isolated_factor_metrics = getattr(experiment, "_isolated_factor_metrics", {}) or {}
+    isolated_metric_unique_counts = dict(isolated_factor_metrics.get("metric_unique_counts") or {})
 
     skipped = 0
     lifecycle_counts = {"evaluated": 0, "active_promoted": 0, "candidate_only": 0, "rejected": 0}
@@ -505,6 +507,7 @@ def save_factors_to_parquet(
     metric_isolation = {
         "factor_count": len(sub_tasks),
         "metric_signature": dict(filtered_backtest_metrics),
+        "isolated_metric_unique_counts": isolated_metric_unique_counts,
         "factor_value_fingerprints": {},
         "status": "not_required",
     }
@@ -557,8 +560,14 @@ def save_factors_to_parquet(
             continue
 
         expression_hash = hashlib.sha256(factor_expr.encode()).hexdigest()[:16]
+        factor_backtest_metrics = dict(backtest_metrics)
+        if isinstance(isolated_factor_metrics.get(factor_name), dict):
+            factor_backtest_metrics.update(isolated_factor_metrics[factor_name])
+        filtered_factor_backtest_metrics = {
+            key: value for key, value in factor_backtest_metrics.items() if value is not None
+        }
         lifecycle_status, lifecycle_decision = _quality_gate_status(
-            backtest_metrics,
+            factor_backtest_metrics,
             quality_gate_config,
         )
         try:
@@ -571,14 +580,14 @@ def save_factors_to_parquet(
             overlay_cfg = (quality_gate_config or {}).get("quality_overlay") if isinstance(quality_gate_config, dict) else {}
             static_diagnostics = detect_expression_static_diagnostics(factor_expr, overlay_cfg)
             quality_score_payload = quality_score_decision(
-                backtest_metrics,
+                factor_backtest_metrics,
                 diagnostics=static_diagnostics,
                 config=overlay_cfg,
             )
             if static_diagnostics.get("lookahead_risk") == "critical":
                 lifecycle_status = "quarantine"
             failure_attribution = infer_failure_attribution(
-                metrics=backtest_metrics,
+                metrics=factor_backtest_metrics,
                 diagnostics=static_diagnostics,
             )
         except Exception as exc:
@@ -655,7 +664,7 @@ def save_factors_to_parquet(
             "op": "upsert",
             "tags_json": json.dumps([]),
             "metadata_json": json.dumps(metadata),
-            "backtest_results_json": json.dumps(filtered_backtest_metrics),
+            "backtest_results_json": json.dumps(filtered_factor_backtest_metrics),
         }
         store.write_factor(entry)
 

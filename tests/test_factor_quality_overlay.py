@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 def _factor_frame(values_by_factor: dict[str, list[float | None]]) -> pd.DataFrame:
@@ -263,3 +264,59 @@ def test_factor_mining_merges_quality_overlay_config() -> None:
     assert cfg["promotion"]["min_rank_ic"] == 0.03
     assert cfg["quality_overlay"]["pre_backtest"]["min_unique_values"] == 7
     assert cfg["quality_overlay"]["pre_backtest"]["min_valid_ratio"] == 0.65
+
+
+def test_isolated_factor_metrics_use_each_factor_values() -> None:
+    from quantaalpha.factors.runner import compute_isolated_factor_signal_metrics
+
+    frame = _factor_frame(
+        {
+            "aligned": [1, 2, 1, 2, 1, 2],
+            "opposite": [2, 1, 2, 1, 2, 1],
+        }
+    )
+    label = pd.Series([1, 2, 1, 2, 1, 2], index=frame.index, name="label")
+
+    isolated = compute_isolated_factor_signal_metrics(frame, label)
+
+    assert isolated["aligned"]["Rank IC"] == pytest.approx(1.0)
+    assert isolated["opposite"]["Rank IC"] == pytest.approx(-1.0)
+    assert isolated["metric_unique_counts"]["Rank IC"] == 2
+
+
+def test_quality_overlay_emits_structured_gate_event(monkeypatch) -> None:
+    from quantaalpha.pipeline.quality_overlay import log_quality_overlay_event
+
+    events = []
+    monkeypatch.setattr("quantaalpha.pipeline.quality_overlay.logger.info", events.append)
+
+    log_quality_overlay_event(
+        "pre_backtest",
+        "kept",
+        factor_name="alpha_a",
+        metrics={"valid_ratio": 1.0, "nan_ratio": 0.0},
+        reasons=[],
+    )
+
+    assert events
+    assert "quality_overlay_event" in events[0]
+    assert "gate=pre_backtest" in events[0]
+    assert "decision=kept" in events[0]
+    assert "factor=alpha_a" in events[0]
+
+
+def test_knowledge_graph_load_diagnostics_include_path_and_empty_reason(monkeypatch, tmp_path) -> None:
+    from quantaalpha.coder.costeer import knowledge_management
+
+    events = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(knowledge_management.logger, "info", events.append)
+
+    knowledge_management.CoSTEERKnowledgeBaseV2()
+
+    load_events = [event for event in events if "Knowledge Graph loaded" in event]
+    assert load_events
+    assert f"path={tmp_path / 'graph.pkl'}" in load_events[0]
+    assert "exists=False" in load_events[0]
+    assert "size=0" in load_events[0]
+    assert "empty_reason=graph_file_missing" in load_events[0]

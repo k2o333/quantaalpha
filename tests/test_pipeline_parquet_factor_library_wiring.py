@@ -453,6 +453,46 @@ class TestSaveFactorsToParquetHelper:
         assert len(set(isolation["factor_value_fingerprints"].values())) == 2
         assert isolation["status"] == "isolated"
 
+    def test_save_helper_persists_isolated_metrics_per_factor(self, tmp_factorlib_dir):
+        """Per-factor isolated metrics override combined metrics in persisted factor records."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series({"IC": 0.0, "Rank IC": 0.0, "information_ratio": 0.0})
+        )
+        task_two = MagicMock()
+        task_two.factor_name = "second_factor"
+        task_two.factor_expression = "MEAN($volume, 5)"
+        task_two.factor_description = "Second factor"
+        experiment.sub_tasks.append(task_two)
+        experiment._isolated_factor_metrics = {
+            "test_factor": {"IC": 0.10, "Rank IC": 0.11, "information_ratio": 0.12},
+            "second_factor": {"IC": -0.20, "Rank IC": -0.21, "information_ratio": -0.22},
+            "metric_unique_counts": {"Rank IC": 2, "information_ratio": 2},
+        }
+
+        store_path = Path(tmp_factorlib_dir) / "isolated_metric_store"
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(store_path),
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        rows = pl.read_parquet(str(store_path / "delta" / "*.parquet")).select(
+            ["factor_name", "backtest_results_json"]
+        ).to_dicts()
+        metrics_by_name = {
+            row["factor_name"]: json.loads(row["backtest_results_json"])
+            for row in rows
+        }
+        assert metrics_by_name["test_factor"]["Rank IC"] == 0.11
+        assert metrics_by_name["second_factor"]["Rank IC"] == -0.21
+        assert result["metric_isolation"]["isolated_metric_unique_counts"]["Rank IC"] == 2
+
     def test_save_helper_honors_disabled_factor_value_publication_flag(self, tmp_factorlib_dir):
         """Publication can be disabled even when a factor-value directory is configured."""
         from quantaalpha.pipeline.loop import save_factors_to_parquet

@@ -723,8 +723,21 @@ class CoSTEERKnowledgeBaseV2(EvolvingKnowledgeBase):
         """
         Load knowledge, offer brief information of knowledge and common handle interfaces
         """
-        self.graph: UndirectedGraph = UndirectedGraph(Path.cwd() / "graph.pkl")
-        logger.info(f"Knowledge Graph loaded, size={self.graph.size()}")
+        graph_path = Path(path) if path is not None else Path.cwd() / "graph.pkl"
+        graph_exists = graph_path.exists()
+        self.graph: UndirectedGraph = UndirectedGraph(graph_path)
+        graph_size = self.graph.size()
+        if graph_size:
+            empty_reason = "not_empty"
+        elif not graph_exists:
+            empty_reason = "graph_file_missing"
+        else:
+            empty_reason = "graph_has_no_nodes"
+        logger.info(
+            "Knowledge Graph loaded, "
+            f"path={graph_path}, exists={graph_exists}, size={graph_size}, "
+            f"init_component_count={len(init_component_list or [])}, empty_reason={empty_reason}"
+        )
 
         if init_component_list:
             for component in init_component_list:
