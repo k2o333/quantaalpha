@@ -1,0 +1,21 @@
+high_turnover_reversal:
+  symptom: Rank IC is positive but cost-adjusted return is weak
+  avoid:
+    - raw one-day reversal without smoothing
+  repair:
+    - smooth the signal with TS_MEAN
+    - normalize by volatility
+    - use a longer horizon
+
+high_similarity:
+  symptom: expression or behavior correlation is too close to active factors
+  repair:
+    - switch factor family
+    - combine with orthogonal liquidity or volatility information
+
+weak_oos_ic:
+  symptom: train-period IC is positive but valid/test/recent IC decays
+  repair:
+    - reduce complexity
+    - change window
+    - avoid optimizing only in-sample behavior

@@ -124,6 +124,12 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         """Set no-qlib runtime options passed from continuous config."""
         self._noqlib_config = dict(config or {})
 
+    def set_quality_overlay_config(self, config: dict | None) -> None:
+        """Set quality overlay thresholds used by factor-value gates."""
+        from quantaalpha.pipeline.quality_overlay import load_quality_overlay_config
+
+        self._quality_overlay_config = load_quality_overlay_config(config or {})
+
     def calculate_information_coefficient(
         self, concat_feature: pd.DataFrame, SOTA_feature_column_size: int, new_feature_columns_size: int
     ) -> pd.DataFrame:
@@ -405,6 +411,31 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         prediction = NoQlibModelRunner(noqlib_cfg).fit_predict(dataset)
         label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
         metrics = signal_metrics(prediction, label_for_signal)
+        try:
+            from quantaalpha.pipeline.quality_overlay import compute_oos_rank_ic_metrics, compute_tradability_metrics
+
+            overlay_cfg = getattr(self, "_quality_overlay_config", {}) or {}
+            full_cfg = dict(overlay_cfg.get("full_backtest") or {})
+            oos_cfg = dict(overlay_cfg.get("oos") or {})
+            cost_rate = float(full_cfg.get("cost_rate", 0.001) or 0.0)
+            n_groups = int(full_cfg.get("monotonicity_groups", 5) or 5)
+            metrics.update(
+                compute_tradability_metrics(
+                    prediction,
+                    label_for_signal,
+                    cost_rate=cost_rate,
+                    n_groups=n_groups,
+                )
+            )
+            metrics.update(
+                compute_oos_rank_ic_metrics(
+                    prediction,
+                    label_for_signal,
+                    recent_trading_days=int(oos_cfg.get("recent_trading_days", 250) or 250),
+                )
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to compute quality overlay noqlib metrics: {exc}")
         if backend == "vnpy":
             market = market_provider.load_market_data()
         portfolio_metrics, _daily_report, _positions = NoQlibTopkDropoutBacktester(noqlib_cfg, market).run(prediction)
@@ -524,6 +555,23 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         return pd.concat(valid_columns, axis=1)
 
     def _apply_combined_quality_gate(self, df: pd.DataFrame) -> pd.DataFrame:
+        from quantaalpha.pipeline.quality_overlay import filter_pre_backtest_survivors
+
+        overlay_cfg = getattr(self, "_quality_overlay_config", None)
+        if overlay_cfg is not None:
+            pre_backtest_cfg = dict(overlay_cfg.get("pre_backtest") or {})
+            filtered, diagnostics = filter_pre_backtest_survivors(df, pre_backtest_cfg)
+            self._last_pre_backtest_diagnostics = diagnostics
+            for col, detail in diagnostics.items():
+                if not detail.get("passed"):
+                    logger.warning(
+                        f"Dropping factor {col} from combined dataframe: "
+                        f"pre_backtest_reasons={detail.get('failure_reasons')}, metrics={detail.get('metrics')}."
+                    )
+            if filtered.empty:
+                return filtered
+            return self._prune_correlated_candidates(filtered)
+
         cleaned = df.replace([np.inf, -np.inf], np.nan)
         column_nan_ratio = cleaned.isna().mean()
         keep_columns = column_nan_ratio[column_nan_ratio <= self.MAX_NAN_RATIO].index.tolist()

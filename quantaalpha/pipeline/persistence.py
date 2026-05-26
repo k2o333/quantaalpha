@@ -136,6 +136,30 @@ def _extract_backtest_metric_payload(result: Any) -> dict[str, float | None]:
         "signal_active_days": _extract_metric(result, "signal_active_days"),
         "signal_mean_cross_section_size": _extract_metric(result, "signal_mean_cross_section_size"),
         "signal_valid_ratio": _extract_metric(result, "signal_valid_ratio"),
+        "turnover": _extract_metric(result, "turnover"),
+        "cost_adjusted_return": _extract_first_metric(result, ("cost_adjusted_return", "cost_adjusted.annualized_return")),
+        "cost_adjusted_information_ratio": _extract_first_metric(
+            result,
+            ("cost_adjusted_information_ratio", "cost_adjusted_ir", "cost_adjusted.information_ratio"),
+        ),
+        "cost_adjusted_ir": _extract_first_metric(
+            result,
+            ("cost_adjusted_ir", "cost_adjusted_information_ratio", "cost_adjusted.information_ratio"),
+        ),
+        "group_monotonicity_score": _extract_metric(result, "group_monotonicity_score"),
+        "long_short_spread": _extract_metric(result, "long_short_spread"),
+        "rank_ic_after_cost": _extract_metric(result, "rank_ic_after_cost"),
+        "rank_ic_train": _extract_metric(result, "rank_ic_train"),
+        "rank_ic_valid": _extract_metric(result, "rank_ic_valid"),
+        "rank_ic_test": _extract_metric(result, "rank_ic_test"),
+        "rank_ic_recent": _extract_metric(result, "rank_ic_recent"),
+        "positive_year_ratio": _extract_metric(result, "positive_year_ratio"),
+        "worst_year_rank_ic": _extract_metric(result, "worst_year_rank_ic"),
+        "ic_std_by_year": _extract_metric(result, "ic_std_by_year"),
+        "ic_decay": _extract_metric(result, "ic_decay"),
+        "behavior_similarity_median": _extract_metric(result, "behavior_similarity_median"),
+        "behavior_similarity_p90": _extract_metric(result, "behavior_similarity_p90"),
+        "expression_similarity_max": _extract_metric(result, "expression_similarity_max"),
     }
 
 
@@ -190,6 +214,7 @@ def _quality_gate_status(
         },
         **extracted_values,
     }
+    overlay_cfg = cfg.get("quality_overlay") or {}
     missing_metrics = [
         metric_key
         for decision_key, (metric_key, _threshold) in required_thresholds.items()
@@ -209,6 +234,17 @@ def _quality_gate_status(
         for decision_key, (metric_key, threshold) in required_thresholds.items()
         if float(extracted_values[decision_key]) < threshold
     ]
+    if isinstance(overlay_cfg, dict) and overlay_cfg.get("lifecycle", {}).get("use_quality_score"):
+        from quantaalpha.pipeline.quality_overlay import quality_score_decision
+
+        quality_decision = quality_score_decision(metrics, config=overlay_cfg)
+        decision["quality_score_decision"] = quality_decision
+        decision["quality_score"] = quality_decision.get("quality_score")
+        if quality_decision.get("failure_type_primary"):
+            decision["failure_type_primary"] = quality_decision.get("failure_type_primary")
+        status = str(quality_decision.get("status") or below_status)
+        decision.update({"status": status, "reason": "quality_score_lifecycle"})
+        return status, decision
     if not below_metrics:
         decision.update({"status": active_status, "reason": "passed_promotion_gate"})
         return active_status, decision
@@ -271,6 +307,18 @@ def _delete_workspace_path(workspace_path: str | Path | None) -> bool:
         return False
     shutil.rmtree(path, ignore_errors=False)
     return not path.exists()
+
+
+def _delete_workspace_once(workspace_path: str | Path | None, deleted_paths: set[str]) -> bool:
+    if not workspace_path:
+        return False
+    resolved = str(Path(workspace_path).resolve())
+    if resolved in deleted_paths:
+        return True
+    deleted = _delete_workspace_path(workspace_path)
+    if deleted:
+        deleted_paths.add(resolved)
+    return deleted
 
 
 def _fingerprint_factor_value_file(path: str | Path) -> str:
@@ -468,6 +516,11 @@ def save_factors_to_parquet(
         "failed": 0,
     }
     sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
+    experiment_workspace = getattr(experiment, "experiment_workspace", None)
+    experiment_workspace_path = getattr(experiment_workspace, "workspace_path", None) if experiment_workspace is not None else None
+    if experiment_workspace_path and not (Path(experiment_workspace_path) / "combined_factors_df.parquet").exists():
+        experiment_workspace_path = None
+    cleaned_workspace_paths: set[str] = set()
     audit_dir = Path(parquet_store_path) / "artifact_audit"
     for idx, task in enumerate(sub_tasks):
         factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
@@ -490,7 +543,7 @@ def save_factors_to_parquet(
                         or "factor failed before persistence",
                         workspace_path=workspace_path,
                     )
-                    if _delete_workspace_path(workspace_path):
+                    if _delete_workspace_once(workspace_path, cleaned_workspace_paths):
                         workspace_cleanup["deleted"] += 1
                     else:
                         workspace_cleanup["failed"] += 1
@@ -508,6 +561,31 @@ def save_factors_to_parquet(
             backtest_metrics,
             quality_gate_config,
         )
+        try:
+            from quantaalpha.pipeline.quality_overlay import (
+                detect_expression_static_diagnostics,
+                infer_failure_attribution,
+                quality_score_decision,
+            )
+
+            overlay_cfg = (quality_gate_config or {}).get("quality_overlay") if isinstance(quality_gate_config, dict) else {}
+            static_diagnostics = detect_expression_static_diagnostics(factor_expr, overlay_cfg)
+            quality_score_payload = quality_score_decision(
+                backtest_metrics,
+                diagnostics=static_diagnostics,
+                config=overlay_cfg,
+            )
+            if static_diagnostics.get("lookahead_risk") == "critical":
+                lifecycle_status = "quarantine"
+            failure_attribution = infer_failure_attribution(
+                metrics=backtest_metrics,
+                diagnostics=static_diagnostics,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to build quality overlay metadata for {factor_name}: {exc}")
+            static_diagnostics = {}
+            quality_score_payload = {}
+            failure_attribution = {}
         lifecycle_counts["evaluated"] += 1
         if lifecycle_status == "active":
             lifecycle_counts["active_promoted"] += 1
@@ -531,6 +609,9 @@ def save_factors_to_parquet(
                 f"rank_ic={lifecycle_decision.get('rank_ic')} "
                 f"information_ratio={lifecycle_decision.get('information_ratio')}"
             )
+        elif lifecycle_status == "quarantine":
+            lifecycle_counts["quarantine"] = int(lifecycle_counts.get("quarantine", 0)) + 1
+            logger.info(f"quality_gate: quarantined factor={factor_name} reason=lookahead_risk")
 
         metadata = {
             "experiment_id": experiment_id,
@@ -550,6 +631,15 @@ def save_factors_to_parquet(
             "prompt_template_hash": None,
             "parent_factor_id": None,
             "quality_gate_decision": lifecycle_decision,
+            "quality_score": quality_score_payload.get("quality_score"),
+            "quality_score_decision": quality_score_payload,
+            "lifecycle_status": lifecycle_status,
+            "failure_type_primary": failure_attribution.get("primary_failure_reason")
+            or lifecycle_decision.get("failure_type_primary"),
+            "failure_type_secondary": failure_attribution.get("secondary_failure_reasons", []),
+            "next_action_type": (failure_attribution.get("next_action") or {}).get("action_type"),
+            "lookahead_risk": static_diagnostics.get("lookahead_risk"),
+            "anti_pattern_flags": static_diagnostics.get("anti_pattern_flags", []),
         }
 
         entry = {
@@ -578,8 +668,9 @@ def save_factors_to_parquet(
                 logger.warning(f"Cannot publish factor values without workspace path: {factor_name} ({factor_id})")
             else:
                 try:
+                    value_workspace_path = experiment_workspace_path or workspace_path
                     publication = publish_factor_values_from_workspace(
-                        workspace_path=workspace_path,
+                        workspace_path=value_workspace_path,
                         factor_name=factor_name,
                         factor_id=factor_id,
                         output_dir=factor_value_dir,
@@ -619,7 +710,7 @@ def save_factors_to_parquet(
                 )
             if should_delete_passed or should_delete_non_passed:
                 try:
-                    if _delete_workspace_path(workspace_path):
+                    if _delete_workspace_once(workspace_path, cleaned_workspace_paths):
                         workspace_cleanup["deleted"] += 1
                     else:
                         workspace_cleanup["failed"] += 1
@@ -628,6 +719,27 @@ def save_factors_to_parquet(
                     logger.warning(f"Failed to delete factor workspace for {factor_name} ({factor_id}): {exc}")
             else:
                 workspace_cleanup["retained"] += 1
+
+    if workspace_cleanup_enabled and experiment_workspace_path:
+        should_delete_experiment_workspace = (
+            failed_workspace_retention == "summary_only"
+            and lifecycle_counts["active_promoted"] == 0
+        ) or (
+            passed_workspace_retention == "delete_after_publish"
+            and lifecycle_counts["active_promoted"] > 0
+            and value_publication["published"] >= lifecycle_counts["active_promoted"]
+        )
+        if should_delete_experiment_workspace:
+            try:
+                if _delete_workspace_once(experiment_workspace_path, cleaned_workspace_paths):
+                    workspace_cleanup["deleted"] += 1
+                else:
+                    workspace_cleanup["failed"] += 1
+            except Exception as exc:
+                workspace_cleanup["failed"] += 1
+                logger.warning(f"Failed to delete experiment workspace {experiment_workspace_path}: {exc}")
+        else:
+            workspace_cleanup["retained"] += 1
 
     saved = len(sub_tasks) - skipped
     logger.info(f"Saved {saved} factors to Parquet store: {parquet_store_path}")

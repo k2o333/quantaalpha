@@ -73,6 +73,22 @@ def _resolve_initial_directions(
     return [None], "user"
 
 
+def _resolve_quality_gate_config(run_cfg: dict[str, Any] | None) -> dict[str, Any]:
+    """Merge legacy quality_gate config with quality_overlay defaults."""
+    run_cfg = run_cfg or {}
+    quality_gate_cfg = dict(run_cfg.get("quality_gate") or {})
+    overlay_source = run_cfg.get("quality_overlay")
+    if overlay_source is not None:
+        from quantaalpha.pipeline.quality_overlay import load_quality_overlay_config
+
+        quality_gate_cfg["quality_overlay"] = load_quality_overlay_config(overlay_source)
+    elif "quality_overlay" in quality_gate_cfg:
+        from quantaalpha.pipeline.quality_overlay import load_quality_overlay_config
+
+        quality_gate_cfg["quality_overlay"] = load_quality_overlay_config(quality_gate_cfg.get("quality_overlay"))
+    return quality_gate_cfg
+
+
 def force_timeout():
     def decorator(func):
         @wraps(func)
@@ -238,6 +254,8 @@ def _aggregate_quality_gate_lifecycle(save_results: list[dict[str, Any]]) -> dic
         lifecycle = result.get("quality_gate_lifecycle") or {}
         for key in counts:
             counts[key] += int(lifecycle.get(key, 0) or 0)
+        if lifecycle.get("quarantine"):
+            counts["quarantine"] = int(counts.get("quarantine", 0)) + int(lifecycle.get("quarantine", 0) or 0)
     return counts
 
 
@@ -834,7 +852,7 @@ def main(path=None, step_n=100, direction=None, stop_event=None, config_path=Non
         planning_cfg = (run_cfg.get("planning") or {}) if isinstance(run_cfg, dict) else {}
         exec_cfg = (run_cfg.get("execution") or {}) if isinstance(run_cfg, dict) else {}
         evolution_cfg = (run_cfg.get("evolution") or {}) if isinstance(run_cfg, dict) else {}
-        quality_gate_cfg = (run_cfg.get("quality_gate") or {}) if isinstance(run_cfg, dict) else {}
+        quality_gate_cfg = _resolve_quality_gate_config(run_cfg if isinstance(run_cfg, dict) else {})
         factor_store_kwargs = _resolve_factor_store_kwargs(run_cfg, exec_cfg)
         if factor_store_kwargs:
             exec_cfg["factor_store_kwargs"] = factor_store_kwargs

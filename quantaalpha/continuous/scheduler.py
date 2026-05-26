@@ -575,6 +575,7 @@ class MiningConfig:
     direction_planner: DirectionPlannerConfig = field(default_factory=DirectionPlannerConfig)
     orchestration: OrchestrationConfig = field(default_factory=OrchestrationConfig)
     app5_freshness: dict[str, Any] = field(default_factory=dict)
+    quality_overlay: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "MiningConfig":
@@ -595,6 +596,7 @@ class MiningConfig:
             direction_planner=DirectionPlannerConfig.from_dict(d.get("direction_planner", {})),
             orchestration=OrchestrationConfig.from_dict(d.get("orchestration", {})),
             app5_freshness=dict(d.get("app5_freshness", {})),
+            quality_overlay=dict(d.get("quality_overlay", {})),
         )
 
 
@@ -896,6 +898,7 @@ class PipelineConfig:
                     "persistence": self.mining.quality_gate.persistence,
                     "promotion": self.mining.quality_gate.promotion,
                 },
+                "quality_overlay": dict(self.mining.quality_overlay),
                 "app5_freshness": dict(self.mining.app5_freshness),
                 "escalation": {
                     "enabled": self.mining.escalation.enabled,

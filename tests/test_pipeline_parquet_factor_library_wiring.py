@@ -583,6 +583,44 @@ class TestSaveFactorsToParquetHelper:
             "failed": 0,
         }
 
+    def test_save_helper_deletes_candidate_experiment_workspace_after_audit(self, tmp_factorlib_dir):
+        """Candidate-only batches must not retain experiment-level combined factor scratch."""
+        from quantaalpha.pipeline.loop import save_factors_to_parquet
+        import polars as pl
+
+        experiment = _make_mock_experiment_with_result(
+            pd.Series({"IC": 0.018, "Rank IC": 0.020, "information_ratio": 0.15})
+        )
+        sub_workspace_dir = Path(tmp_factorlib_dir) / "candidate_sub_workspace"
+        sub_workspace_dir.mkdir(parents=True, exist_ok=True)
+        (sub_workspace_dir / "factor.py").write_text("factor = 1\n", encoding="utf-8")
+        experiment.sub_workspace_list[0].workspace_path = str(sub_workspace_dir)
+
+        experiment_workspace_dir = Path(tmp_factorlib_dir) / "candidate_experiment_workspace"
+        experiment_workspace_dir.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(
+            {
+                "trade_date": ["20250102"],
+                "instrument": ["SH600000"],
+                "test_factor": [1.25],
+            }
+        ).write_parquet(experiment_workspace_dir / "combined_factors_df.parquet")
+        experiment.experiment_workspace.workspace_path = str(experiment_workspace_dir)
+
+        result = save_factors_to_parquet(
+            experiment=experiment,
+            parquet_store_path=str(Path(tmp_factorlib_dir) / "candidate_experiment_cleanup_store"),
+            failed_workspace_retention="summary_only",
+            quality_gate_config={
+                "promotion": {"min_rank_ic": 0.03, "min_information_ratio": 0.3},
+                "persistence": {"below_threshold": "candidate", "missing_metrics": "rejected"},
+            },
+        )
+
+        assert not sub_workspace_dir.exists()
+        assert not experiment_workspace_dir.exists()
+        assert result["workspace_cleanup"]["deleted"] == 2
+
     def test_save_helper_applies_capacity_promotion_thresholds(self, tmp_factorlib_dir):
         """Configured signal-capacity thresholds participate in active promotion decisions."""
         from quantaalpha.pipeline.loop import save_factors_to_parquet

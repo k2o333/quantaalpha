@@ -305,6 +305,8 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
                 self.runner.set_backtest_backend(self.backtest_backend)
             if hasattr(self.runner, "set_noqlib_config"):
                 self.runner.set_noqlib_config(self.backtest_noqlib_config)
+            if hasattr(self.runner, "set_quality_overlay_config"):
+                self.runner.set_quality_overlay_config(self.quality_gate_config.get("quality_overlay") or self.quality_gate_config)
             if not hasattr(self.runner, "set_backtest_backend"):
                 setattr(self.runner, "_backtest_backend", self.backtest_backend)
             logger.log_object(self.runner, tag="runner")

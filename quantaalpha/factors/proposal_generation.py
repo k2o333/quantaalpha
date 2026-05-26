@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, List, Tuple
 
+import yaml
 from jinja2 import Environment, StrictUndefined
 
 from quantaalpha.factors.coder.factor import FactorExperiment, FactorTask
@@ -162,6 +163,37 @@ def render_hypothesis_and_feedback(prompt_dict, trace: Trace, history_limit: int
         return Environment(undefined=StrictUndefined).from_string(prompt_dict["hypothesis_and_feedback"]).render(trace=limited_trace)
     else:
         return "No previous hypothesis and feedback available since it's the first round."
+
+
+def _load_factor_quality_knowledge() -> str:
+    """Load lightweight factor-family and failure-pattern context for F3 prompts."""
+    prompt_dir = Path(__file__).parent / "prompts"
+    sections: list[str] = []
+    for filename, title in (
+        ("factor_family_templates.yaml", "Factor family templates"),
+        ("failure_patterns.yaml", "Recent failure patterns to avoid"),
+    ):
+        path = prompt_dir / filename
+        if not path.exists():
+            continue
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            logger.warning(f"Failed to load {filename}: {exc}")
+            continue
+        lines = [title + ":"]
+        for key, value in data.items():
+            if not isinstance(value, dict):
+                continue
+            lines.append(f"- {key}: {value.get('economic_logic') or value.get('symptom') or ''}")
+            risks = value.get("common_risks") or value.get("avoid") or []
+            repairs = value.get("repair") or []
+            if risks:
+                lines.append(f"  risks/avoid: {', '.join(str(item) for item in risks)}")
+            if repairs:
+                lines.append(f"  repair: {', '.join(str(item) for item in repairs)}")
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections)
 
 
 def is_input_length_error(error_msg: str) -> bool:
@@ -472,7 +504,7 @@ class AlphaAgentHypothesisGen(FactorHypothesisGen):
 
         context_dict = {
             "hypothesis_and_feedback": hypothesis_and_feedback,
-            "RAG": None,
+            "RAG": _load_factor_quality_knowledge() or None,
             "hypothesis_output_format": qa_prompt_dict["hypothesis_output_format"],
             "hypothesis_specification": qa_prompt_dict["factor_hypothesis_specification"],
             "function_lib_description": qa_prompt_dict["function_lib_description"],

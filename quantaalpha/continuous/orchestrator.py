@@ -194,6 +194,7 @@ class MiningOrchestrator:
                     "min_information_ratio": self.config.mining.quality_gate.min_information_ratio,
                     "persistence": self.config.mining.quality_gate.persistence,
                     "promotion": self.config.mining.quality_gate.promotion,
+                    "quality_overlay": self.config.mining.quality_overlay,
                 },
                 evolution_cfg={
                     "enabled": self.config.mining.evolution.enabled,

@@ -540,6 +540,13 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         if not expr:
             return False, "missing_expression", "factor payload has no expression", ""
 
+        from quantaalpha.pipeline.quality_overlay import detect_expression_static_diagnostics
+
+        static_diag = detect_expression_static_diagnostics(str(expr))
+        if static_diag.get("severity") in {"critical", "major"}:
+            category = str(static_diag.get("failure_type") or "expression_static_diagnostic")
+            return False, category, str(static_diag.get("message") or category), expr
+
         percentile_feedback = _detect_percentile_argument_issue(str(expr))
         if percentile_feedback:
             return False, "percentile_argument_order", percentile_feedback, expr
@@ -853,6 +860,42 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 description = factor_data.get("description", "")
                 formulation = factor_data.get("formulation", "")
                 variables = factor_data.get("variables", {})
+
+                from quantaalpha.pipeline.quality_overlay import detect_expression_static_diagnostics
+
+                static_diag = detect_expression_static_diagnostics(str(expr))
+                if static_diag.get("severity") in {"critical", "major"}:
+                    static_feedback = (
+                        "Expression Static Risk Check Failed:\n"
+                        f"- Factor name: {factor_name}\n"
+                        f"- Failure type: {static_diag.get('failure_type')}\n"
+                        f"- Detail: {static_diag.get('message')}\n"
+                        f"- Expression preview: {str(expr)[:500]}\n"
+                        "- Action required: regenerate this factor using only backward-looking daily fields and non-trivial expressions.\n"
+                    )
+                    last_failure_reason = f"expression static diagnostic failure for {factor_name}: {static_diag.get('message')}"
+                    if proposed_names:
+                        best_partial_response_dict = self._filter_construct_response_to_names(response_dict, proposed_names)
+                        best_partial_names = list(proposed_names)
+                        best_partial_exprs = list(proposed_exprs)
+                    expression_duplication_prompt = _bound_feedback_accumulation(
+                        expression_duplication_prompt,
+                        static_feedback,
+                    )
+                    user_prompt = (
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                        .render(
+                            targets=self.targets,
+                            target_hypothesis=context["target_hypothesis"],
+                            hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                            function_lib_description=context["function_lib_description"],
+                            target_list=context["target_list"],
+                            RAG=context["RAG"],
+                            expression_duplication=expression_duplication_prompt,
+                        )
+                    )
+                    break
 
                 # Check if expression is parsable
                 parsable, parse_error = self.factor_regulator.parse_diagnostic(expr)

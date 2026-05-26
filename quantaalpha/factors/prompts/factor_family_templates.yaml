@@ -1,0 +1,37 @@
+reversal:
+  economic_logic: short-term overreaction followed by correction
+  typical_expression_patterns:
+    - "-TS_ZSCORE(RET, n)"
+    - "-RANK(RET_n)"
+    - "-RET_n / (TS_STD(RET, m) + eps)"
+  common_risks:
+    - high_turnover
+    - cost_sensitive
+    - small_cap_exposure
+
+momentum:
+  economic_logic: slow information diffusion or trend continuation
+  typical_expression_patterns:
+    - "TS_MEAN(RET, n)"
+    - "RET_n / TS_STD(RET, m)"
+  common_risks:
+    - crowding
+    - reversal_regime_failure
+
+liquidity:
+  economic_logic: trading activity and liquidity pressure can explain short horizon returns
+  typical_expression_patterns:
+    - "RANK(TS_MEAN($volume, n))"
+    - "RANK($volume / TS_MEAN($volume, m))"
+  common_risks:
+    - market_cap_proxy
+    - stale_volume
+
+volatility:
+  economic_logic: risk compensation, volatility clustering, and volatility reversal
+  typical_expression_patterns:
+    - "TS_STD($return, n)"
+    - "RANK(TS_STD($close / REF($close, 1) - 1, n))"
+  common_risks:
+    - regime_sensitive
+    - high_similarity

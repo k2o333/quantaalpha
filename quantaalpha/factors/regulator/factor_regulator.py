@@ -108,6 +108,17 @@ class FactorRegulator(Evaluator):
             parser error string (e.g. "Unclosed parentheses").
         """
         try:
+            from quantaalpha.pipeline.quality_overlay import detect_expression_static_diagnostics
+
+            static_diag = detect_expression_static_diagnostics(expression)
+            if static_diag.get("severity") == "critical":
+                message = f"{static_diag.get('failure_type')}: {static_diag.get('message')}"
+                logger.warning(f"Expression static diagnostic violation: {expression}. Error: {message}")
+                return False, message
+        except Exception as exc:
+            logger.warning(f"Expression static diagnostic check failed for {expression}: {exc}")
+
+        try:
             from quantaalpha.factors.coder.expr_parser import parse_expression
             parse_expression(expression)
         except Exception as exc:

@@ -179,6 +179,24 @@ class SimilarityEngine:
 
         return self._compute_ensemble(results)
 
+    def behavior_similarity(
+        self,
+        new_values,
+        historical_factors: dict[str, dict[str, Any]],
+        *,
+        compare_statuses: tuple[str, ...] = ("active", "candidate"),
+        max_sample_days: int = 250,
+    ) -> dict[str, Any]:
+        """Compute sampled factor-value rank correlation against active/candidate factors."""
+        from quantaalpha.pipeline.quality_overlay import behavior_similarity
+
+        return behavior_similarity(
+            new_values,
+            historical_factors,
+            compare_statuses=compare_statuses,
+            max_sample_days=max_sample_days,
+        )
+
     def check_against_library(
         self,
         new_expression: str,

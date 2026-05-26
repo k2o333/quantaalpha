@@ -165,6 +165,22 @@ class QlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Feedback):
         current_result = exp.result
         tasks_factors = [task.get_task_information_and_implementation_result() for task in exp.sub_tasks]
         _attach_backtest_metric_feedback(tasks_factors, current_result)
+        try:
+            from quantaalpha.pipeline.persistence import _extract_backtest_metric_payload
+            from quantaalpha.pipeline.quality_overlay import (
+                detect_expression_static_diagnostics,
+                infer_failure_attribution,
+            )
+
+            metric_payload = _extract_backtest_metric_payload(current_result)
+            for task_detail in tasks_factors:
+                expression = str(task_detail.get("factor_expression") or "")
+                static_diag = detect_expression_static_diagnostics(expression)
+                attribution = infer_failure_attribution(metrics=metric_payload, diagnostics=static_diag)
+                task_detail["structured_failure_attribution"] = attribution
+                task_detail["next_action"] = attribution.get("next_action", {})
+        except Exception as exc:
+            logger.warning(f"Failed to attach structured failure attribution: {exc}")
         # Safely get SOTA result, handle case where based_experiments might be empty or result is None
         sota_result = None
         if exp.based_experiments and len(exp.based_experiments) > 0:
@@ -258,6 +274,22 @@ class AlphaAgentQlibFactorHypothesisExperiment2Feedback(HypothesisExperiment2Fee
         current_result = exp.result
         tasks_factors = [task.get_task_information_and_implementation_result() for task in exp.sub_tasks]
         _attach_backtest_metric_feedback(tasks_factors, current_result)
+        try:
+            from quantaalpha.pipeline.persistence import _extract_backtest_metric_payload
+            from quantaalpha.pipeline.quality_overlay import (
+                detect_expression_static_diagnostics,
+                infer_failure_attribution,
+            )
+
+            metric_payload = _extract_backtest_metric_payload(current_result)
+            for task_detail in tasks_factors:
+                expression = str(task_detail.get("factor_expression") or "")
+                static_diag = detect_expression_static_diagnostics(expression)
+                attribution = infer_failure_attribution(metrics=metric_payload, diagnostics=static_diag)
+                task_detail["structured_failure_attribution"] = attribution
+                task_detail["next_action"] = attribution.get("next_action", {})
+        except Exception as exc:
+            logger.warning(f"Failed to attach structured failure attribution: {exc}")
         # Safely get SOTA result, handle case where based_experiments might be empty or result is None
         sota_result = None
         if exp.based_experiments and len(exp.based_experiments) > 0:
