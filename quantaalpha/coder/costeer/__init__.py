@@ -70,10 +70,18 @@ class CoSTEER(Developer[Experiment]):
                 CoSTEERKnowledgeBaseV2,
             ):
                 raise ValueError("The former knowledge base is not compatible with the current version")
+            graph_size = knowledge_base.graph.size() if hasattr(knowledge_base, "graph") else 0
+            empty_reason = "not_empty" if graph_size else "graph_has_no_nodes"
+            logger.info(
+                "Knowledge Graph loaded, "
+                f"path={former_knowledge_base_path}, exists=True, size={graph_size}, "
+                f"init_component_count={len(component_init_list or [])}, empty_reason={empty_reason}"
+            )
         else:
             knowledge_base = (
                 CoSTEERKnowledgeBaseV2(
                     init_component_list=component_init_list,
+                    path=former_knowledge_base_path,
                 )
                 if self.evolving_version == 2
                 else CoSTEERKnowledgeBaseV1()

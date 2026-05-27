@@ -1,11 +1,20 @@
 from typing import Optional
+from pathlib import Path
 
 from quantaalpha.coder.costeer.config import CoSTEERSettings
 from quantaalpha.core.conf import ExtendedSettingsConfigDict
 
+_DEFAULT_KNOWLEDGE_GRAPH_PATH = str(Path(__file__).resolve().parents[3] / "graph.pkl")
+
 
 class FactorCoSTEERSettings(CoSTEERSettings):
     model_config = ExtendedSettingsConfigDict(env_prefix="FACTOR_CoSTEER_")
+
+    knowledge_base_path: Optional[str] = _DEFAULT_KNOWLEDGE_GRAPH_PATH
+    """Path to the persisted factor-coder knowledge graph."""
+
+    new_knowledge_base_path: Optional[str] = _DEFAULT_KNOWLEDGE_GRAPH_PATH
+    """Path where the updated factor-coder knowledge graph is saved."""
 
     data_folder: str = "git_ignore_folder/factor_implementation_source_data"
     """Path to the folder containing financial data (default is fundamental data in Qlib)"""

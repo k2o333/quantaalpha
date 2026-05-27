@@ -166,6 +166,7 @@ def _extract_backtest_metric_payload(result: Any) -> dict[str, float | None]:
 def _quality_gate_status(
     metrics: dict[str, float | None],
     quality_gate_config: dict | None,
+    factor_name: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Assign explicit factor lifecycle status from configured promotion gates."""
     if not quality_gate_config:
@@ -237,7 +238,7 @@ def _quality_gate_status(
     if isinstance(overlay_cfg, dict) and overlay_cfg.get("lifecycle", {}).get("use_quality_score"):
         from quantaalpha.pipeline.quality_overlay import quality_score_decision
 
-        quality_decision = quality_score_decision(metrics, config=overlay_cfg)
+        quality_decision = quality_score_decision(metrics, config=overlay_cfg, factor_name=factor_name)
         decision["quality_score_decision"] = quality_decision
         decision["quality_score"] = quality_decision.get("quality_score")
         if quality_decision.get("failure_type_primary"):
@@ -341,6 +342,22 @@ def _metric_isolation_status(fingerprints: dict[str, str], factor_count: int) ->
     if len(set(fingerprints.values())) < len(fingerprints):
         return "collision_possible"
     return "isolated"
+
+
+def _isolated_metrics_for_task(
+    isolated_factor_metrics: dict[str, Any],
+    task: Any,
+    factor_name: str,
+) -> dict[str, Any] | None:
+    """Return per-factor isolated metrics from experiment or task-level payloads."""
+    metrics = isolated_factor_metrics.get(factor_name) if isinstance(isolated_factor_metrics, dict) else None
+    if isinstance(metrics, dict):
+        return metrics
+    for attr_name in ("isolated_backtest_metrics", "_isolated_backtest_metrics"):
+        task_metrics = getattr(task, attr_name, None)
+        if isinstance(task_metrics, dict):
+            return task_metrics
+    return None
 
 
 def append_combined_backtest_performance_history(
@@ -561,14 +578,16 @@ def save_factors_to_parquet(
 
         expression_hash = hashlib.sha256(factor_expr.encode()).hexdigest()[:16]
         factor_backtest_metrics = dict(backtest_metrics)
-        if isinstance(isolated_factor_metrics.get(factor_name), dict):
-            factor_backtest_metrics.update(isolated_factor_metrics[factor_name])
+        task_isolated_metrics = _isolated_metrics_for_task(isolated_factor_metrics, task, factor_name)
+        if isinstance(task_isolated_metrics, dict):
+            factor_backtest_metrics.update(task_isolated_metrics)
         filtered_factor_backtest_metrics = {
             key: value for key, value in factor_backtest_metrics.items() if value is not None
         }
         lifecycle_status, lifecycle_decision = _quality_gate_status(
             factor_backtest_metrics,
             quality_gate_config,
+            factor_name=factor_name,
         )
         try:
             from quantaalpha.pipeline.quality_overlay import (
@@ -583,6 +602,7 @@ def save_factors_to_parquet(
                 factor_backtest_metrics,
                 diagnostics=static_diagnostics,
                 config=overlay_cfg,
+                factor_name=factor_name,
             )
             if static_diagnostics.get("lookahead_risk") == "critical":
                 lifecycle_status = "quarantine"

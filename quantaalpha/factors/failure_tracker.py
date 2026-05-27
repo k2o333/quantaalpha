@@ -22,6 +22,67 @@ class FailureReason(Enum):
     UNKNOWN = "unknown"
 
 
+class QualityFailureReason(str, Enum):
+    """Fine-grained quality reasons that complement coarse retry reasons."""
+
+    LOOKAHEAD_DETECTED = "LOOKAHEAD_DETECTED"
+    ANTI_PATTERN_DETECTED = "ANTI_PATTERN_DETECTED"
+    LOW_COVERAGE = "LOW_COVERAGE"
+    TOO_MANY_NAN = "TOO_MANY_NAN"
+    CONSTANT_SIGNAL = "CONSTANT_SIGNAL"
+    EXTREME_VALUE_SIGNAL = "EXTREME_VALUE_SIGNAL"
+    HIGH_SIMILARITY = "HIGH_SIMILARITY"
+    HIGH_TURNOVER = "HIGH_TURNOVER"
+    WEAK_OOS_IC = "WEAK_OOS_IC"
+    POOR_MONOTONICITY = "POOR_MONOTONICITY"
+    BACKTEST_EMPTY_RESULT = "BACKTEST_EMPTY_RESULT"
+    BACKTEST_EXCEPTION = "BACKTEST_EXCEPTION"
+    UNKNOWN = "UNKNOWN"
+
+
+def quality_failure_reasons_from_diagnostics(
+    *,
+    metrics: Dict | None = None,
+    diagnostics: Dict | None = None,
+) -> List[str]:
+    """Map quality-overlay diagnostics to stable fine-grained failure reasons."""
+    metrics = metrics or {}
+    diagnostics = diagnostics or {}
+    raw_reasons = set(str(reason) for reason in diagnostics.get("failure_reasons", []) or [])
+    mapped: List[QualityFailureReason] = []
+
+    def add(reason: QualityFailureReason) -> None:
+        if reason not in mapped:
+            mapped.append(reason)
+
+    if diagnostics.get("lookahead_risk") == "critical" or "lookahead_risk" in raw_reasons:
+        add(QualityFailureReason.LOOKAHEAD_DETECTED)
+    if diagnostics.get("failure_type") == "expression_anti_pattern" or "expression_anti_pattern" in raw_reasons:
+        add(QualityFailureReason.ANTI_PATTERN_DETECTED)
+    if raw_reasons.intersection({"low_coverage", "low_cross_section_coverage", "low_active_days"}):
+        add(QualityFailureReason.LOW_COVERAGE)
+    if "too_many_nan" in raw_reasons:
+        add(QualityFailureReason.TOO_MANY_NAN)
+    if "constant_signal" in raw_reasons:
+        add(QualityFailureReason.CONSTANT_SIGNAL)
+    if "extreme_values" in raw_reasons:
+        add(QualityFailureReason.EXTREME_VALUE_SIGNAL)
+    if "high_similarity" in raw_reasons:
+        add(QualityFailureReason.HIGH_SIMILARITY)
+
+    turnover = metrics.get("turnover")
+    if turnover is not None and float(turnover) > 0.8:
+        add(QualityFailureReason.HIGH_TURNOVER)
+    rank_ic_test = metrics.get("rank_ic_test", metrics.get("Rank IC"))
+    if rank_ic_test is not None and float(rank_ic_test) <= 0:
+        add(QualityFailureReason.WEAK_OOS_IC)
+    monotonicity = metrics.get("group_monotonicity_score")
+    if monotonicity is not None and float(monotonicity) < 0.35:
+        add(QualityFailureReason.POOR_MONOTONICITY)
+
+    return [reason.value for reason in mapped]
+
+
 @dataclass
 class FactorStatus:
     """Status tracking for an individual factor across debug rounds."""
@@ -38,6 +99,8 @@ class FactorStatus:
     # Failure tracking
     failure_reasons: Set[FailureReason] = field(default_factory=set)
     failure_details: Dict[str, str] = field(default_factory=dict)
+    quality_failure_reasons: List[str] = field(default_factory=list)
+    quality_failure_details: Dict[str, str] = field(default_factory=dict)
 
     # Results
     backtest_result: Optional[Dict] = None
@@ -58,6 +121,18 @@ class FactorStatus:
         if detail:
             self.failure_details[reason.value] = detail
 
+    def add_quality_failure(
+        self,
+        reason: QualityFailureReason | str,
+        detail: str = "",
+    ) -> None:
+        """Add a fine-grained quality failure reason."""
+        reason_value = reason.value if isinstance(reason, QualityFailureReason) else str(reason)
+        if reason_value not in self.quality_failure_reasons:
+            self.quality_failure_reasons.append(reason_value)
+        if detail:
+            self.quality_failure_details[reason_value] = detail
+
     def to_dict(self) -> Dict:
         """Serialize status to dictionary."""
         return {
@@ -68,8 +143,10 @@ class FactorStatus:
             "passed_quality_gate": self.passed_quality_gate,
             "passed_backtest": self.passed_backtest,
             "is_successful": self.is_successful,
-            "failure_reasons": [r.value for r in self.failure_reasons],
+            "failure_reasons": sorted(r.value for r in self.failure_reasons),
             "failure_details": self.failure_details,
+            "quality_failure_reasons": list(self.quality_failure_reasons),
+            "quality_failure_details": self.quality_failure_details,
             "backtest_result": self.backtest_result,
         }
 
@@ -197,7 +274,12 @@ class FactorFailureTracker:
         """Mark factor as passing quality gate."""
         self.update_factor_status(factor_id, passed_quality_gate=True)
 
-    def mark_quality_gate_failure(self, factor_id: str, detail: str = ""):
+    def mark_quality_gate_failure(
+        self,
+        factor_id: str,
+        detail: str = "",
+        quality_failure_reasons: List[QualityFailureReason | str] | None = None,
+    ):
         """Mark factor as failing quality gate."""
         self.update_factor_status(
             factor_id,
@@ -205,6 +287,10 @@ class FactorFailureTracker:
             failure_reason=FailureReason.QUALITY_GATE_FAILED,
             failure_detail=detail,
         )
+        status = self.factor_statuses.get(factor_id)
+        if status is not None:
+            for reason in quality_failure_reasons or []:
+                status.add_quality_failure(reason, detail)
 
     def mark_backtest_success(self, factor_id: str, result: Dict):
         """Mark factor as successfully backtested."""

@@ -182,6 +182,7 @@ class RunSummary:
     factor_quality_lifecycle: dict[str, int] = field(default_factory=dict)
     best_factor_metrics: dict[str, Any] = field(default_factory=dict)
     historical_parent_injection_counts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    governance_events: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -229,6 +230,7 @@ class RunSummary:
                 "best_metrics": self.best_factor_metrics,
                 "historical_parent_injection_counts": self.historical_parent_injection_counts,
             },
+            "governance_events": self.governance_events,
         }
         return result
 
@@ -291,6 +293,7 @@ class RunSummary:
             factor_quality_lifecycle=factor_quality.get("lifecycle", {}),
             best_factor_metrics=factor_quality.get("best_metrics", {}),
             historical_parent_injection_counts=factor_quality.get("historical_parent_injection_counts", {}),
+            governance_events=data.get("governance_events", []),
         )
 
 

@@ -160,6 +160,8 @@ class MiningOrchestrator:
                 performance_history_config=asdict(self.config.factor.performance_history),
                 backtest_noqlib_config=self.config.factor.backtest_noqlib,
                 error_feedback_sink=self._error_feedback_sink,
+                resource_governor_config=asdict(self.config.mining.resource_governor),
+                continuous_lock_dir=self.config.continuous_lock_dir,
             )
         return self._revalidation_scheduler
 
@@ -304,6 +306,8 @@ class MiningOrchestrator:
                 },
                 app5_freshness_cfg=self.config.mining.app5_freshness,
                 error_feedback_sink=self._error_feedback_sink,
+                resource_governor_config=asdict(self.config.mining.resource_governor),
+                continuous_lock_dir=self.config.continuous_lock_dir,
             )
         return self._mining_scheduler
 

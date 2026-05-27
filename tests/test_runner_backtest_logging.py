@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import polars as pl
 import types
 
 if "quantaalpha.factors.experiment" not in sys.modules:
@@ -14,6 +15,65 @@ if "quantaalpha.factors.experiment" not in sys.modules:
     sys.modules["quantaalpha.factors.experiment"] = experiment_stub
 
 from quantaalpha.factors.runner import QlibFactorRunner
+
+
+def test_noqlib_static_feature_loader_reads_parquet_with_polars(tmp_path: Path) -> None:
+    runner = object.__new__(QlibFactorRunner)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    frame_path = workspace / "combined_factors_df.parquet"
+    pl.DataFrame(
+        {
+            "datetime": ["2024-01-01", "2024-01-02"],
+            "instrument": ["000001.SZ", "000001.SZ"],
+            "factor": [0.1, 0.2],
+        }
+    ).write_parquet(frame_path)
+
+    config = {
+        "data_handler_config": {
+            "data_loader": {
+                "class": "StaticDataLoader",
+                "kwargs": {"config": "combined_factors_df.parquet"},
+            }
+        }
+    }
+
+    with patch("pandas.read_parquet", side_effect=AssertionError("must use polars")):
+        features = runner._load_noqlib_template_features(config=config, expression_engine=None, workspace_path=workspace)
+
+    assert features.index.names == ["datetime", "instrument"]
+    assert features["factor"].tolist() == [0.1, 0.2]
+
+
+def test_noqlib_static_feature_loader_restores_feature_names_from_multiindex_parquet(tmp_path: Path) -> None:
+    runner = object.__new__(QlibFactorRunner)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    index = pd.MultiIndex.from_tuples(
+        [("2024-01-01", "000001.SZ"), ("2024-01-02", "000001.SZ")],
+        names=["datetime", "instrument"],
+    )
+    pd.DataFrame(
+        [[0.1, 0.3], [0.2, 0.4]],
+        index=index,
+        columns=pd.MultiIndex.from_product([["feature"], ["alpha_one", "alpha_two"]]),
+    ).to_parquet(workspace / "combined_factors_df.parquet", engine="pyarrow")
+
+    config = {
+        "data_handler_config": {
+            "data_loader": {
+                "class": "StaticDataLoader",
+                "kwargs": {"config": "combined_factors_df.parquet"},
+            }
+        }
+    }
+
+    with patch("pandas.read_parquet", side_effect=AssertionError("must use polars")):
+        features = runner._load_noqlib_template_features(config=config, expression_engine=None, workspace_path=workspace)
+
+    assert features.index.names == ["datetime", "instrument"]
+    assert list(features.columns) == ["alpha_one", "alpha_two"]
 
 
 def test_develop_logs_backtest_boundaries(tmp_path: Path) -> None:

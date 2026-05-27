@@ -631,6 +631,7 @@ def quality_score_decision(
     metrics: dict[str, Any],
     diagnostics: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
+    factor_name: str | None = None,
 ) -> dict[str, Any]:
     """Compute interpretable QualityScore and lifecycle suggestion."""
     diagnostics = diagnostics or {}
@@ -686,6 +687,7 @@ def quality_score_decision(
     log_quality_overlay_event(
         "quality_score",
         status,
+        factor_name=factor_name,
         metrics={"quality_score": score, "rank_ic_test": rank_ic_test, "rank_icir": rank_icir},
         reasons=[failure_type] if failure_type else [],
     )

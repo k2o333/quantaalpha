@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 
 
@@ -282,6 +283,67 @@ def test_isolated_factor_metrics_use_each_factor_values() -> None:
     assert isolated["aligned"]["Rank IC"] == pytest.approx(1.0)
     assert isolated["opposite"]["Rank IC"] == pytest.approx(-1.0)
     assert isolated["metric_unique_counts"]["Rank IC"] == 2
+
+
+def test_isolated_factor_metrics_accept_explicit_polars_frames() -> None:
+    from quantaalpha.factors.runner import compute_isolated_factor_signal_metrics
+
+    features = pl.DataFrame(
+        {
+            "datetime": ["2025-01-02", "2025-01-02", "2025-01-03", "2025-01-03", "2025-01-04", "2025-01-04"],
+            "instrument": ["A", "B", "A", "B", "A", "B"],
+            "aligned": [1, 2, 1, 2, 1, 2],
+            "opposite": [2, 1, 2, 1, 2, 1],
+        }
+    )
+    labels = pl.DataFrame(
+        {
+            "datetime": ["2025-01-02", "2025-01-02", "2025-01-03", "2025-01-03", "2025-01-04", "2025-01-04"],
+            "instrument": ["A", "B", "A", "B", "A", "B"],
+            "label": [1, 2, 1, 2, 1, 2],
+        }
+    )
+
+    isolated = compute_isolated_factor_signal_metrics(features, labels)
+
+    assert isolated["aligned"]["Rank IC"] == pytest.approx(1.0)
+    assert isolated["opposite"]["Rank IC"] == pytest.approx(-1.0)
+    assert isolated["metric_unique_counts"]["Rank IC"] == 2
+
+
+def test_isolated_factor_portfolio_metrics_use_each_factor_signal() -> None:
+    from quantaalpha.factors.runner import compute_isolated_factor_portfolio_metrics
+
+    index = pd.MultiIndex.from_product(
+        [pd.to_datetime(["2024-01-01", "2024-01-02"]), ["000001.SZ", "000002.SZ"]],
+        names=["datetime", "instrument"],
+    )
+    features = pd.DataFrame(
+        {
+            "strong": [1.0, 2.0, 3.0, 4.0],
+            "weak": [4.0, 3.0, 2.0, 1.0],
+        },
+        index=index,
+    )
+
+    class FakeBacktester:
+        def __init__(self, config, market):
+            pass
+
+        def run(self, prediction):
+            if prediction.name == "strong":
+                return {"information_ratio": 1.2, "annualized_return": 0.20}, pd.DataFrame(), pd.DataFrame()
+            return {"information_ratio": -0.4, "annualized_return": -0.05}, pd.DataFrame(), pd.DataFrame()
+
+    isolated = compute_isolated_factor_portfolio_metrics(
+        features,
+        market=pd.DataFrame(),
+        config={},
+        backtester_cls=FakeBacktester,
+    )
+
+    assert isolated["strong"]["information_ratio"] == pytest.approx(1.2)
+    assert isolated["weak"]["information_ratio"] == pytest.approx(-0.4)
 
 
 def test_quality_overlay_emits_structured_gate_event(monkeypatch) -> None:

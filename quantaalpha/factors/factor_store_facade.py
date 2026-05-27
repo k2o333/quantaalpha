@@ -11,6 +11,7 @@
 """
 
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,14 @@ DEFAULT_BACKTEST_RESULT_KEYS = {
 class FactorStoreFacade:
     """统一因子存储入口，向业务层提供稳定 API."""
 
-    def __init__(self, store_path: str | Path):
+    def __init__(
+        self,
+        store_path: str | Path,
+        *,
+        lock_dir: str | Path | None = None,
+        lock_factory=None,
+        write_lock_enabled: bool = True,
+    ):
         """初始化 FactorStoreFacade.
 
         Args:
@@ -54,6 +62,31 @@ class FactorStoreFacade:
         """
         self.store_path = Path(store_path)
         self._parquet = ParquetFactorLibrary(str(self.store_path))
+        self._write_lock_enabled = write_lock_enabled
+        self._lock_dir = Path(lock_dir) if lock_dir is not None else self.store_path / ".locks"
+        if lock_factory is None:
+            from quantaalpha.continuous.resource_governor import FileLock
+
+            lock_factory = FileLock
+        self._lock_factory = lock_factory
+
+    @contextmanager
+    def _factor_store_write_lock(self):
+        if not self._write_lock_enabled:
+            yield
+            return
+        lock = self._lock_factory(
+            self._lock_dir / "factor_store_write.lock",
+            timeout_seconds=30,
+            owner="factor_store",
+            run_id="direct_write",
+        )
+        if not lock.acquire():
+            raise RuntimeError("factor_store_write_lock held")
+        try:
+            yield
+        finally:
+            lock.release()
 
     @staticmethod
     def _compute_expression_hash(factor_expression: str) -> str:
@@ -79,7 +112,8 @@ class FactorStoreFacade:
         Args:
             entry: 因子 entry dict，包含 required schema 的所有字段
         """
-        self._parquet.write_factor_delta(entry)
+        with self._factor_store_write_lock():
+            self._parquet.write_factor_delta(entry)
 
     def write_status_update(
         self,
@@ -173,7 +207,8 @@ class FactorStoreFacade:
         before_count = self.delta_file_count()
         if before_count == 0:
             return
-        self._parquet.compact(archive_retention=archive_retention)
+        with self._factor_store_write_lock():
+            self._parquet.compact(archive_retention=archive_retention)
 
     @staticmethod
     def _next_sequence() -> int:

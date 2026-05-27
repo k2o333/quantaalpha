@@ -1,4 +1,5 @@
 import gc
+import ast
 import pickle
 import sys
 from pathlib import Path
@@ -7,6 +8,7 @@ import json
 import os
 import numpy as np
 import pandas as pd
+import polars as pl
 import yaml
 from pandarallel import pandarallel
 
@@ -102,9 +104,28 @@ def _prepare_parquet_runtime_combined_factors(
     return parquet_combined, [str(col) for col in common_columns]
 
 
-def compute_isolated_factor_signal_metrics(features: pd.DataFrame, label: pd.Series) -> dict[str, dict[str, float] | dict[str, int]]:
+def compute_isolated_factor_signal_metrics(features: pd.DataFrame | pl.DataFrame, label: pd.Series | pd.DataFrame | pl.DataFrame) -> dict[str, dict[str, float] | dict[str, int]]:
     """Compute signal metrics for each factor column with its own values, not the combined model signal."""
     from quantaalpha.backtest.noqlib.signal_analysis import signal_metrics
+
+    if isinstance(features, pl.DataFrame):
+        factor_columns = [column for column in features.columns if column not in {"datetime", "instrument"}]
+        isolated: dict[str, dict[str, float] | dict[str, int]] = {}
+        metric_values: dict[str, list[float]] = {}
+        for column in factor_columns:
+            factor_frame = features.select(["datetime", "instrument", column]).rename({column: "pred"})
+            metrics = signal_metrics(factor_frame, label)
+            isolated[column] = metrics
+            for metric_name, value in metrics.items():
+                try:
+                    metric_values.setdefault(metric_name, []).append(round(float(value), 12))
+                except (TypeError, ValueError):
+                    continue
+        isolated["metric_unique_counts"] = {
+            metric_name: len(set(values))
+            for metric_name, values in metric_values.items()
+        }
+        return isolated
 
     if isinstance(features.columns, pd.MultiIndex):
         if "feature" in features.columns.get_level_values(0):
@@ -132,6 +153,63 @@ def compute_isolated_factor_signal_metrics(features: pd.DataFrame, label: pd.Ser
         for metric_name, values in metric_values.items()
     }
     return isolated
+
+
+def compute_isolated_factor_portfolio_metrics(
+    features: pd.DataFrame | pl.DataFrame,
+    market: pd.DataFrame,
+    config: dict,
+    backtester_cls,
+) -> dict[str, dict[str, float]]:
+    """Compute portfolio metrics for each factor column using that factor as the prediction signal."""
+    factor_frame = _factor_feature_frame(features)
+    isolated: dict[str, dict[str, float]] = {}
+    for column in factor_frame.columns:
+        prediction = factor_frame[column].rename(str(column)).dropna()
+        metrics, _report, _positions = backtester_cls(config, market).run(prediction)
+        isolated[str(column)] = dict(metrics or {})
+    return isolated
+
+
+def _factor_feature_frame(features: pd.DataFrame | pl.DataFrame) -> pd.DataFrame:
+    if isinstance(features, pl.DataFrame):
+        value_columns = [column for column in features.columns if column not in {"datetime", "instrument"}]
+        return features.select(["datetime", "instrument", *value_columns]).to_pandas().set_index(["datetime", "instrument"])
+    if isinstance(features.columns, pd.MultiIndex):
+        if "feature" in features.columns.get_level_values(0):
+            return features["feature"]
+        frame = features.copy()
+        frame.columns = [str(col[-1]) for col in frame.columns]
+        return frame
+    return features.copy()
+
+
+def _normalize_static_feature_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Restore feature names after polars reads pandas MultiIndex parquet columns as strings."""
+    if isinstance(frame.columns, pd.MultiIndex):
+        if "feature" in frame.columns.get_level_values(0):
+            return frame["feature"]
+        frame = frame.copy()
+        frame.columns = [str(col[-1]) for col in frame.columns]
+        return frame
+
+    restored_columns: list[str] = []
+    changed = False
+    for column in frame.columns:
+        if isinstance(column, str) and column.startswith("(") and column.endswith(")"):
+            try:
+                parsed = ast.literal_eval(column)
+            except (SyntaxError, ValueError):
+                parsed = None
+            if isinstance(parsed, tuple) and len(parsed) >= 2 and parsed[0] == "feature":
+                restored_columns.append(str(parsed[-1]))
+                changed = True
+                continue
+        restored_columns.append(str(column))
+    if changed:
+        frame = frame.copy()
+        frame.columns = restored_columns
+    return frame
 
 
 class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
@@ -432,20 +510,14 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         )
         labels = expression_engine.compute_label(noqlib_cfg.get("dataset", {}).get("label", "Ref($close, -2)/Ref($close, -1) - 1"))
         isolated_factor_metrics = compute_isolated_factor_signal_metrics(features, labels)
-        setattr(exp, "_isolated_factor_metrics", isolated_factor_metrics)
-        logger.info(
-            "metric_isolation: computed isolated factor metrics "
-            f"factor_count={len([key for key in isolated_factor_metrics if key != 'metric_unique_counts'])} "
-            f"unique_counts={isolated_factor_metrics.get('metric_unique_counts', {})}"
-        )
         # Free expression engine — features/labels are computed
         del expression_engine
         if backend == "vnpy":
             del market_frame
         gc.collect()
         dataset = NoQlibDatasetBuilder(noqlib_cfg).build(features, labels)
-        # Free raw feature/label frames — dataset owns the data now
-        del features, labels
+        # Labels are no longer needed; features are kept for per-factor portfolio metrics.
+        del labels
         gc.collect()
         prediction = NoQlibModelRunner(noqlib_cfg).fit_predict(dataset)
         label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
@@ -477,9 +549,31 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             logger.warning(f"Failed to compute quality overlay noqlib metrics: {exc}")
         if backend == "vnpy":
             market = market_provider.load_market_data()
+        isolated_portfolio_metrics = compute_isolated_factor_portfolio_metrics(
+            features,
+            market=market,
+            config=noqlib_cfg,
+            backtester_cls=NoQlibTopkDropoutBacktester,
+        )
+        for factor_name, portfolio_metrics in isolated_portfolio_metrics.items():
+            if isinstance(isolated_factor_metrics.get(factor_name), dict):
+                isolated_factor_metrics[factor_name].update(portfolio_metrics)
+            else:
+                isolated_factor_metrics[factor_name] = portfolio_metrics
+        setattr(exp, "_isolated_factor_metrics", isolated_factor_metrics)
+        for task in getattr(exp, "sub_tasks", []) or []:
+            factor_name = str(getattr(task, "factor_name", getattr(task, "name", "")) or "")
+            factor_metrics = isolated_factor_metrics.get(factor_name)
+            if isinstance(factor_metrics, dict):
+                setattr(task, "isolated_backtest_metrics", factor_metrics)
+        logger.info(
+            "metric_isolation: computed isolated factor metrics "
+            f"factor_count={len([key for key in isolated_factor_metrics if key != 'metric_unique_counts'])} "
+            f"unique_counts={isolated_factor_metrics.get('metric_unique_counts', {})}"
+        )
         portfolio_metrics, _daily_report, _positions = NoQlibTopkDropoutBacktester(noqlib_cfg, market).run(prediction)
         # Free large intermediates after backtest
-        del prediction, dataset, market
+        del prediction, dataset, features, market
         gc.collect()
         metrics.update(portfolio_metrics)
         result = pd.DataFrame({"value": metrics})
@@ -555,12 +649,10 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                     frames.append(expression_engine.compute(factor_defs))
             elif class_name.endswith("StaticDataLoader"):
                 static_path = workspace_path / str(kwargs.get("config", "combined_factors_df.parquet"))
-                frame = pd.read_parquet(static_path)
-                if isinstance(frame.columns, pd.MultiIndex):
-                    if "feature" in frame.columns.get_level_values(0):
-                        frame = frame["feature"]
-                    else:
-                        frame.columns = [str(col[-1]) for col in frame.columns]
+                frame = pl.read_parquet(static_path).to_pandas()
+                if {"datetime", "instrument"} <= set(frame.columns):
+                    frame = frame.set_index(["datetime", "instrument"]).sort_index()
+                frame = _normalize_static_feature_columns(frame)
                 frames.append(frame)
         if not frames:
             raise ValueError("noqlib factor-template features are empty")
@@ -745,11 +837,6 @@ def _market_only_standard_frame_config(config: dict) -> dict:
         "include_markets",
         "exclude_markets",
         "materialized_cache_root",
-        "admission_profile_path",
-        "admission_profile",
-        "admission_profile_hash",
-        "admitted_fields",
-        "optional_fields",
     }
     return {key: value for key, value in config.items() if key in keep}
 

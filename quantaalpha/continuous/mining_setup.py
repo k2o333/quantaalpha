@@ -40,6 +40,8 @@ class MiningSetupMixin:
         app5_freshness_cfg: Optional[dict] = None,
         factor_value_dir: Optional[str] = None,
         error_feedback_sink=None,
+        resource_governor_config: Optional[dict] = None,
+        continuous_lock_dir: Optional[str] = None,
     ):
         import os
 
@@ -87,6 +89,11 @@ class MiningSetupMixin:
         self._app5_freshness_cfg = app5_freshness_cfg or {}
         self.factor_value_dir = factor_value_dir or "data/factor_values"
         self._error_feedback_sink = error_feedback_sink
+        self._resource_governor_config = resource_governor_config or {}
+        self._continuous_lock_dir = continuous_lock_dir or "log/continuous/locks"
+        from quantaalpha.continuous.resource_governor import FileLock
+
+        self._resource_lock_factory = FileLock
         self._performance_history_store = None
         if self._performance_history_config.get("enabled", False):
             try:
@@ -114,6 +121,46 @@ class MiningSetupMixin:
                 logger.warning(f"Failed to initialize SimilarityEngine: {e}, falling back to legacy redundancy check")
 
         self._escalation_state = None
+
+    def _try_acquire_global_compute_lock(self, scheduler: str, run_id: str):
+        from pathlib import Path
+
+        from quantaalpha.continuous.resource_governor import GovernorConfig
+
+        config = GovernorConfig.from_dict(getattr(self, "_resource_governor_config", {}))
+        if not config.enabled:
+            return None, None
+        lock_path = Path(getattr(self, "_continuous_lock_dir", "log/continuous/locks")) / "global_compute_lock.lock"
+        lock_factory = getattr(self, "_resource_lock_factory", None)
+        if lock_factory is None:
+            from quantaalpha.continuous.resource_governor import FileLock
+
+            lock_factory = FileLock
+        lock = lock_factory(
+            lock_path,
+            timeout_seconds=0,
+            owner=scheduler,
+            run_id=run_id,
+        )
+        if lock.acquire():
+            return lock, {
+                "event": "resource_decision",
+                "allowed": True,
+                "action": "acquire",
+                "reason": "resource_envelope_available",
+                "scheduler": scheduler,
+                "run_id": run_id,
+                "lock_name": "global_compute_lock",
+            }
+        return None, {
+            "event": "resource_decision",
+            "allowed": False,
+            "action": "defer",
+            "reason": "global_compute_lock_held",
+            "scheduler": scheduler,
+            "run_id": run_id,
+            "lock_name": "global_compute_lock",
+        }
 
     def _build_alpha_agent_loop_storage_kwargs(self) -> dict:
         """Build factor-store kwargs for AlphaAgentLoop."""
@@ -263,9 +310,21 @@ class MiningSetupMixin:
     def run_mining(self, budget_seconds: Optional[int] = None) -> MiningResult:
         """Run one mining cycle."""
         from datetime import datetime as dt
+        import uuid
 
         start_time = dt.now()
         result = MiningResult(timestamp=start_time)
+        lock, governance_event = self._try_acquire_global_compute_lock(
+            scheduler="mining",
+            run_id=str(uuid.uuid4())[:8],
+        )
+        if governance_event:
+            result.governance_events.append(governance_event)
+        if governance_event and not governance_event["allowed"]:
+            result.errors.append("global compute lock held")
+            result.duration_seconds = (dt.now() - start_time).total_seconds()
+            self._update_next_run()
+            return result
 
         try:
             if self._pipeline_mode:
@@ -312,6 +371,9 @@ class MiningSetupMixin:
         except Exception as e:
             logger.error(f"Error in mining cycle: {e}")
             result.errors.append(str(e))
+        finally:
+            if lock is not None:
+                lock.release()
 
         result.duration_seconds = (dt.now() - start_time).total_seconds()
         self._update_next_run()

@@ -15,6 +15,59 @@ from .implementation_shared import *
 from .implementation_shared import _translate_factor_expression
 
 
+def _record_last_validated(record: dict) -> Optional[datetime]:
+    value = None
+    metadata = record.get("metadata")
+    if isinstance(metadata, dict):
+        value = metadata.get("last_validated")
+    if value is None and record.get("metadata_json"):
+        try:
+            metadata = json.loads(record.get("metadata_json") or "{}")
+            value = metadata.get("last_validated")
+        except Exception:
+            value = None
+    value = value or record.get("last_validated")
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def select_revalidation_candidates_by_lifecycle(
+    records: list[dict],
+    *,
+    days_threshold: int,
+    now: Optional[datetime] = None,
+) -> list[dict]:
+    """Select automatic revalidation candidates by lifecycle state."""
+    now = now or datetime.now()
+    allowed_statuses = {"active", "candidate", "degraded"}
+    reasons = {
+        "active": "active_periodic",
+        "candidate": "candidate_confirmation",
+        "degraded": "degraded_observation",
+    }
+    selected: list[dict] = []
+    for record in records:
+        status = str(record.get("evaluation_status") or record.get("evaluation", {}).get("status") or "").lower()
+        if status not in allowed_statuses:
+            continue
+        last_validated = _record_last_validated(record)
+        if last_validated is not None and (now - last_validated).days < days_threshold:
+            continue
+        candidate = {
+            "factor_id": record.get("factor_id", ""),
+            "factor_name": record.get("factor_name", ""),
+            "factor_expression": record.get("factor_expression", ""),
+            "evaluation": {"status": status},
+            "lifecycle_revalidation_reason": reasons[status],
+        }
+        selected.append(candidate)
+    return selected
+
+
 def _vnpy_expression_compatibility_warning(expression: str, columns: set[str]) -> str:
     """Return a warning if an expression references unavailable vnpy symbols."""
     try:
@@ -130,6 +183,8 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         performance_history_config: Optional[dict] = None,
         backtest_noqlib_config: Optional[dict] = None,
         error_feedback_sink=None,
+        resource_governor_config: Optional[dict] = None,
+        continuous_lock_dir: Optional[str] = None,
     ):
         import os
 
@@ -156,6 +211,11 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         self._performance_history_config = performance_history_config or {}
         self._backtest_noqlib_config = dict(backtest_noqlib_config or {})
         self._error_feedback_sink = error_feedback_sink
+        self._resource_governor_config = resource_governor_config or {}
+        self._continuous_lock_dir = continuous_lock_dir or "log/continuous/locks"
+        from quantaalpha.continuous.resource_governor import FileLock
+
+        self._resource_lock_factory = FileLock
         self._performance_history_store = None
         if self._performance_history_config.get("enabled", False):
             try:
@@ -170,6 +230,46 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                 )
             except Exception as e:
                 logger.warning(f"Failed to initialize PerformanceHistoryStore: {e}")
+
+    def _try_acquire_global_compute_lock(self, scheduler: str, run_id: str):
+        from pathlib import Path
+
+        from quantaalpha.continuous.resource_governor import GovernorConfig
+
+        config = GovernorConfig.from_dict(getattr(self, "_resource_governor_config", {}))
+        if not config.enabled:
+            return None, None
+        lock_path = Path(getattr(self, "_continuous_lock_dir", "log/continuous/locks")) / "global_compute_lock.lock"
+        lock_factory = getattr(self, "_resource_lock_factory", None)
+        if lock_factory is None:
+            from quantaalpha.continuous.resource_governor import FileLock
+
+            lock_factory = FileLock
+        lock = lock_factory(
+            lock_path,
+            timeout_seconds=0,
+            owner=scheduler,
+            run_id=run_id,
+        )
+        if lock.acquire():
+            return lock, {
+                "event": "resource_decision",
+                "allowed": True,
+                "action": "acquire",
+                "reason": "resource_envelope_available",
+                "scheduler": scheduler,
+                "run_id": run_id,
+                "lock_name": "global_compute_lock",
+            }
+        return None, {
+            "event": "resource_decision",
+            "allowed": False,
+            "action": "defer",
+            "reason": "global_compute_lock_held",
+            "scheduler": scheduler,
+            "run_id": run_id,
+            "lock_name": "global_compute_lock",
+        }
 
     def start(self) -> None:
         """Start the scheduler with background timer loop."""
@@ -211,9 +311,21 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                       If None, queries library for candidates needing revalidation.
         """
         from datetime import datetime as dt
+        import uuid
 
         start_time = dt.now()
         result = RevalidationResult(timestamp=start_time)
+        lock, governance_event = self._try_acquire_global_compute_lock(
+            scheduler="revalidation",
+            run_id=str(uuid.uuid4())[:8],
+        )
+        if governance_event:
+            result.governance_events.append(governance_event)
+        if governance_event and not governance_event["allowed"]:
+            result.errors.append("global compute lock held")
+            result.duration_seconds = (dt.now() - start_time).total_seconds()
+            self._update_next_run()
+            return result
 
         try:
             facade = None
@@ -225,18 +337,15 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                     # Parquet backend: read through FactorStoreFacade
                     from quantaalpha.factors.factor_store_facade import FactorStoreFacade
 
-                    facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                    facade = FactorStoreFacade(
+                        store_path=self.parquet_library_dir,
+                        lock_dir=self._continuous_lock_dir,
+                    )
                     all_records = facade.read_effective_factor_records()
-                    # Simple candidate selection: take all active factors
-                    candidates = [
-                        {
-                            "factor_id": r.get("factor_id", ""),
-                            "factor_name": r.get("factor_name", ""),
-                            "factor_expression": r.get("factor_expression", ""),
-                            "evaluation": {"status": r.get("evaluation_status", "unknown")},
-                        }
-                        for r in all_records
-                    ]
+                    candidates = select_revalidation_candidates_by_lifecycle(
+                        all_records,
+                        days_threshold=self.days_threshold,
+                    )
                 else:
                     # JSON fallback
                     from quantaalpha.factors.library import FactorLibraryManager
@@ -278,7 +387,10 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
                         if facade is None:
                             from quantaalpha.factors.factor_store_facade import FactorStoreFacade
 
-                            facade = FactorStoreFacade(store_path=self.parquet_library_dir)
+                            facade = FactorStoreFacade(
+                                store_path=self.parquet_library_dir,
+                                lock_dir=self._continuous_lock_dir,
+                            )
                         updated_entry = facade.write_status_update(factor_entry, validation_result)
                     else:
                         updated_entry = library.apply_validation_result(factor_entry, validation_result)
@@ -292,6 +404,9 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         except Exception as e:
             logger.error(f"Error in revalidation cycle: {e}")
             result.errors.append(str(e))
+        finally:
+            if lock is not None:
+                lock.release()
 
         result.duration_seconds = (dt.now() - start_time).total_seconds()
         self._update_next_run()

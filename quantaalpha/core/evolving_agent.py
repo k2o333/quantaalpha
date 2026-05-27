@@ -125,6 +125,9 @@ class RAGEvoAgent(EvoAgent):
                 logger.info("All tasks passed debugging; exiting early.")
                 break
 
+        if self.knowledge_self_gen and self.rag is not None:
+            self.rag.generate_knowledge(self.evolving_trace)
+
         # If feedback enabled and filter requested, filter by last feedback
         if self.with_feedback and filter_final_evo:
             evo = self.filter_evolvable_subjects_by_feedback(evo, self.evolving_trace[-1].feedback)

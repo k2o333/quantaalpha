@@ -55,6 +55,7 @@ def resolve_workspace_paths(config_dict: dict) -> dict:
             "log_root": "/abs/path/log",
             "mining_log_root": "/abs/path/log/continuous/mining",
             "runs_dir": "/abs/path/log/continuous/runs",
+            "continuous_lock_dir": "/abs/path/log/continuous/locks",
             "pool_save_path": "/abs/path/log/continuous/trajectory_pool.json",
             "factor_library_path": "/abs/path/data/factorlib/all_factors_library.json",
             "monitoring_output_path": "/abs/path/log/monitoring",
@@ -82,6 +83,9 @@ def resolve_workspace_paths(config_dict: dict) -> dict:
 
     runs_dir_raw = workspace.get("runs_dir", "continuous/runs")
     runs_dir = str(resolve_path(runs_dir_raw, log_root))
+
+    continuous_lock_dir_raw = workspace.get("continuous_lock_dir", "continuous/locks")
+    continuous_lock_dir = str(resolve_path(continuous_lock_dir_raw, log_root))
 
     pool_raw = state.get("pool_save_path", "continuous/trajectory_pool.json")
     pool_save_path = str(resolve_path(pool_raw, log_root))
@@ -112,6 +116,7 @@ def resolve_workspace_paths(config_dict: dict) -> dict:
     named_paths = {
         "mining_log_root": mining_log_root,
         "runs_dir": runs_dir,
+        "continuous_lock_dir": continuous_lock_dir,
         "pool_save_path": pool_save_path,
     }
     for name_a, path_a in named_paths.items():
@@ -127,6 +132,7 @@ def resolve_workspace_paths(config_dict: dict) -> dict:
         "log_root": log_root,
         "mining_log_root": mining_log_root,
         "runs_dir": runs_dir,
+        "continuous_lock_dir": continuous_lock_dir,
         "pool_save_path": pool_save_path,
         "factor_library_path": factor_library_path,
         "parquet_library_dir": parquet_library_dir,
