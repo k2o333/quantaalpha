@@ -56,6 +56,18 @@ from quantaalpha.pipeline.persistence import (
     save_factors_to_parquet,
 )
 
+
+def _create_factor_coder(PROP_SETTING: BaseFacSetting, scen: Scenario, factor_coder_runtime: str | None) -> Developer:
+    """Create the Step 3 coder for the configured factor runtime."""
+
+    runtime = str(factor_coder_runtime or "").strip().lower()
+    if runtime == "polars_parquet":
+        from quantaalpha.factors.coder.direct_polars_coder import DirectPolarsCoder
+
+        return DirectPolarsCoder(scen)
+    return import_class(PROP_SETTING.coder)(scen)
+
+
 # Decorator: check stop_event before invoking the function
 
 
@@ -297,7 +309,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             self.factor_constructor: Hypothesis2Experiment = import_class(PROP_SETTING.hypothesis2experiment)(**factor_constructor_kwargs)
             logger.log_object(self.factor_constructor, tag="experiment generation")
 
-            self.coder: Developer = import_class(PROP_SETTING.coder)(scen)
+            self.coder: Developer = _create_factor_coder(PROP_SETTING, scen, factor_coder_runtime)
             logger.log_object(self.coder, tag="coder")
 
             self.runner: Developer = import_class(PROP_SETTING.runner)(scen)
