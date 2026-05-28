@@ -137,6 +137,7 @@ class BackendRetryMixin:
         chat_completion: bool = False,
         embedding: bool = False,
         retry_kwargs: dict[str, Any] | None = None,
+        switch_model_on_failure: bool = False,
         **kwargs: Any,
     ) -> Any:
         """Execute an operation with retry logic and model switching.
@@ -146,13 +147,18 @@ class BackendRetryMixin:
         """
         retry_call_id = uuid.uuid4().hex[:8]
         threshold = _coerce_int_setting(getattr(LLM_SETTINGS, "model_switch_threshold", 3), 3, minimum=1)
+        if switch_model_on_failure:
+            threshold = 1
         current_provider_name: str | None = None
         attempt_count = 0
+        provider_pool_available = getattr(self, "_provider_pool", None) is not None
         max_attempts_per_provider = _coerce_int_setting(
             getattr(LLM_SETTINGS, "max_attempts_per_provider", None),
             None,
             minimum=1,
         )
+        if switch_model_on_failure and provider_pool_available:
+            max_attempts_per_provider = 1
         attempts_by_provider: dict[str, int] = {}
         exhausted_provider_names: set[str] = set()
         exhausted_models: set[str] = set()
@@ -164,7 +170,7 @@ class BackendRetryMixin:
             return RuntimeError(f"Failed to create {retry_label}: all retry providers exhausted retry_call_id={retry_call_id} before {max_retry} total retries. max_attempts_per_provider={max_attempts_per_provider}, provider_attempts={attempts_by_provider}")
 
         def _mark_provider_exhausted(provider_key: str, model: str | None) -> None:
-            if not max_attempts_per_provider:
+            if not provider_pool_available or not max_attempts_per_provider:
                 return
             if attempts_by_provider.get(provider_key, 0) < max_attempts_per_provider:
                 return
@@ -179,7 +185,7 @@ class BackendRetryMixin:
                     task_type=mutable_retry_kwargs.get("task_type"),
                     tag=mutable_retry_kwargs.get("tag"),
                 )
-                if max_attempts_per_provider and provider_key in exhausted_provider_names:
+                if provider_pool_available and max_attempts_per_provider and provider_key in exhausted_provider_names:
                     new_provider_name = self._switch_to_next_provider_for_retry(
                         current_provider_name=current_provider_name,
                         current_model=provider_model,
@@ -215,7 +221,7 @@ class BackendRetryMixin:
                 except StructuredSchemaError as e:
                     logger.warning(f"[retry] Structured schema failure: retry_call_id={retry_call_id} provider={provider_key} model={provider_model} top_level_type={e.top_level_type}; retrying {i + 1}th time...")
                 except Exception as e:  # noqa: BLE001
-                    if _is_tool_call_capability_failure(e):
+                    if _is_tool_call_capability_failure(e) and (not switch_model_on_failure or not provider_pool_available):
                         logger.warning(f"[retry] Tool-call capability failure is not retried in this call: retry_call_id={retry_call_id} provider={provider_key} model={provider_model}")
                         raise
                     logger.warning(e)
@@ -224,7 +230,7 @@ class BackendRetryMixin:
                 _mark_provider_exhausted(provider_key, provider_model)
 
                 # Check if we should switch providers
-                provider_exhausted = max_attempts_per_provider and provider_key in exhausted_provider_names
+                provider_exhausted = provider_pool_available and max_attempts_per_provider and provider_key in exhausted_provider_names
                 if (attempt_count >= threshold or provider_exhausted) and i < max_retry - 1:
                     current_model = self.get_model_for_task(
                         task_type=mutable_retry_kwargs.get("task_type"),

@@ -32,6 +32,8 @@ def _make_backend():
     backend.chat_seed = None
     backend.retry_wait_seconds = 0
     backend._provider_pool = None
+    backend._request_timeout_seconds = None
+    backend._max_retry_override = None
     backend.get_model_for_task = APIBackend.get_model_for_task.__get__(backend, APIBackend)
     backend._get_retry_provider_key = APIBackend._get_retry_provider_key.__get__(backend, APIBackend)
     backend._switch_to_next_provider_for_retry = APIBackend._switch_to_next_provider_for_retry.__get__(backend, APIBackend)
@@ -131,3 +133,140 @@ def test_call_structured_keeps_tool_requests_non_streaming_by_default():
 
     assert result == {"result": "ok"}
     assert backend.chat_stream is True
+
+
+def test_invalid_tool_arguments_switches_model_before_retrying():
+    """Malformed tool-call arguments consume the current model and switch to another one."""
+    from quantaalpha.llm.client import call_structured
+    from quantaalpha.llm.provider_pool import ProviderPool
+
+    pool = ProviderPool(routing="round_robin")
+    pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.test/v1", model="model-a")
+    pool.add_provider("provider-b", api_keys=["key-b"], base_url="https://b.test/v1", model="model-b")
+
+    backend = _make_backend()
+    backend._provider_pool = pool
+    backend._create_openai_client = MagicMock(return_value=backend.chat_client)
+    attempted_models = []
+
+    def _capture(**kwargs):
+        attempted_models.append(backend.get_model_for_task())
+        if len(attempted_models) == 1:
+            return {
+                "content": "",
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_bad",
+                        "type": "function",
+                        "function": {"name": "emit_json", "arguments": "NOT_JSON{{"},
+                    }
+                ],
+            }
+        return {
+            "content": None,
+            "finish_reason": "tool_calls",
+            "tool_calls": [
+                {
+                    "id": "call_ok",
+                    "type": "function",
+                    "function": {"name": "emit_json", "arguments": '{"result":"ok"}'},
+                }
+            ],
+        }
+
+    backend._create_chat_completion_or_embedding_once = MagicMock(side_effect=_capture)
+
+    with _patch_structured_settings(max_retry=3):
+        result = call_structured(
+            backend,
+            [{"role": "user", "content": "return JSON"}],
+            tools=[{"type": "function", "function": {"name": "emit_json"}}],
+            tool_choice="required",
+            allow_text_fallback=False,
+        )
+
+    assert result == {"result": "ok"}
+    assert attempted_models == ["model-a", "model-b"]
+
+
+def test_missing_tool_call_with_valid_content_json_does_not_switch_model():
+    """A valid text-JSON payload in the same response satisfies the structured call."""
+    from quantaalpha.llm.client import call_structured
+    from quantaalpha.llm.provider_pool import ProviderPool
+
+    pool = ProviderPool(routing="round_robin")
+    pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.test/v1", model="model-a")
+    pool.add_provider("provider-b", api_keys=["key-b"], base_url="https://b.test/v1", model="model-b")
+
+    backend = _make_backend()
+    backend._provider_pool = pool
+    backend._create_openai_client = MagicMock(return_value=backend.chat_client)
+    attempted_models = []
+
+    def _capture(**kwargs):
+        attempted_models.append(backend.get_model_for_task())
+        return {
+            "content": '{"result":"content-json"}',
+            "finish_reason": "stop",
+            "tool_calls": None,
+        }
+
+    backend._create_chat_completion_or_embedding_once = MagicMock(side_effect=_capture)
+
+    with _patch_structured_settings(max_retry=3):
+        result = call_structured(
+            backend,
+            [{"role": "user", "content": "return JSON"}],
+            tools=[{"type": "function", "function": {"name": "emit_json"}}],
+            tool_choice="required",
+            allow_text_fallback=True,
+        )
+
+    assert result == {"result": "content-json"}
+    assert attempted_models == ["model-a"]
+
+
+def test_tool_call_capability_failure_switches_model():
+    """Tool-call capability failures must switch model instead of terminating the request."""
+    from quantaalpha.llm.client import call_structured
+    from quantaalpha.llm.provider_pool import ProviderPool
+
+    pool = ProviderPool(routing="round_robin")
+    pool.add_provider("provider-a", api_keys=["key-a"], base_url="https://a.test/v1", model="model-a")
+    pool.add_provider("provider-b", api_keys=["key-b"], base_url="https://b.test/v1", model="model-b")
+
+    backend = _make_backend()
+    backend._provider_pool = pool
+    backend._create_openai_client = MagicMock(return_value=backend.chat_client)
+    attempted_models = []
+
+    def _capture(**kwargs):
+        attempted_models.append(backend.get_model_for_task())
+        if len(attempted_models) == 1:
+            raise RuntimeError("tools parameter is not supported by this model")
+        return {
+            "content": None,
+            "finish_reason": "tool_calls",
+            "tool_calls": [
+                {
+                    "id": "call_ok",
+                    "type": "function",
+                    "function": {"name": "emit_json", "arguments": '{"result":"ok"}'},
+                }
+            ],
+        }
+
+    backend._create_chat_completion_or_embedding_once = MagicMock(side_effect=_capture)
+
+    with _patch_structured_settings(max_retry=3):
+        result = call_structured(
+            backend,
+            [{"role": "user", "content": "return JSON"}],
+            tools=[{"type": "function", "function": {"name": "emit_json"}}],
+            tool_choice="required",
+            allow_text_fallback=True,
+        )
+
+    assert result == {"result": "ok"}
+    assert attempted_models == ["model-a", "model-b"]

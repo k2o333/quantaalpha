@@ -540,6 +540,7 @@ def call_structured(
             max_retry=max_retry,
             retry_label="call_structured",
             chat_completion=True,
+            switch_model_on_failure=True,
         )
     finally:
         if original_chat_stream is not None:
