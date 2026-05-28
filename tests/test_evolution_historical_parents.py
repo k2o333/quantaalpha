@@ -5,6 +5,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -72,6 +74,67 @@ def _runtime_trajectory(trajectory_id: str, expression: str, rank_ic: float) -> 
         },
         extra_info={"evaluation": {"status": "active"}, "source": "trajectory_pool"},
     )
+
+
+def test_adaptive_mutation_waits_for_minimum_rounds() -> None:
+    controller = EvolutionController(
+        EvolutionConfig(
+            mutation_mode_schedule="adaptive",
+            adaptive_min_rounds=3,
+            mutation_mode_weights={"exploit": 0.75, "explore": 0.25},
+        )
+    )
+    controller._current_round = 2
+
+    assert controller._effective_mutation_mode_weights() == {"exploit": 0.75, "explore": 0.25}
+
+
+def test_adaptive_mutation_boosts_explore_after_stagnation() -> None:
+    controller = EvolutionController(
+        EvolutionConfig(
+            mutation_mode_schedule="adaptive",
+            adaptive_min_rounds=3,
+            adaptive_stagnation_rounds=3,
+            adaptive_explore_boost=0.15,
+            mutation_mode_weights={"exploit": 0.75, "explore": 0.25},
+        )
+    )
+    for round_idx in range(3):
+        controller.pool.add(
+            StrategyTrajectory(
+                trajectory_id=f"rejected_{round_idx}",
+                direction_id=round_idx,
+                round_idx=round_idx,
+                phase=RoundPhase.ORIGINAL,
+                factors=[{"expression": f"RANK($close)+{round_idx}"}],
+                extra_info={"evaluation": {"status": "rejected"}},
+            )
+        )
+    controller._current_round = 3
+
+    weights = controller._effective_mutation_mode_weights()
+
+    assert weights["explore"] > 0.25
+
+
+def test_same_round_diversity_penalizes_weaker_candidate() -> None:
+    controller = EvolutionController(
+        EvolutionConfig(
+            diversity_enforcement_enabled=True,
+            diversity_similarity_threshold=0.90,
+            diversity_penalty=0.10,
+        )
+    )
+    strong = _runtime_trajectory("strong", "TS_MEAN($close, 10)", 0.05)
+    weak = _runtime_trajectory("weak", "TS_MEAN($close, 20)", 0.01)
+    strong.extra_info["quality_score"] = 0.80
+    weak.extra_info["quality_score"] = 0.40
+
+    controller.apply_same_round_diversity_penalty([strong, weak])
+
+    assert "diversity_diagnostics" not in strong.extra_info
+    assert weak.extra_info["quality_score"] == pytest.approx(0.30)
+    assert weak.extra_info["diversity_diagnostics"][0]["matched_trajectory_id"] == "strong"
 
 
 def test_crossover_injects_configured_parquet_active_parents(tmp_path):

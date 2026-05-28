@@ -23,11 +23,76 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_expression_for_similarity(expression: str) -> str:
+    """Normalize an expression for lightweight similarity comparison."""
+    if not expression:
+        return ""
+    return re.sub(r"\s+", "", str(expression).strip().lower())
+
+
+def extract_expression_skeleton(expression: str) -> str:
+    """Return expression skeleton with numeric parameters replaced by placeholders."""
+    normalized = normalize_expression_for_similarity(expression)
+    return re.sub(r"\d+(?:\.\d+)?", "N", normalized)
+
+
+def compute_token_jaccard_similarity(text1: str, text2: str) -> float:
+    """Compute token Jaccard similarity for expressions or short text."""
+    if not text1 or not text2:
+        return 0.0
+
+    def tokenize(text: str) -> set[str]:
+        normalized = normalize_expression_for_similarity(text)
+        return set(re.findall(r"\$[a-z_][a-z0-9_]*|[a-z_][a-z0-9_]*|\d+(?:\.\d+)?", normalized))
+
+    words1 = tokenize(text1)
+    words2 = tokenize(text2)
+    if not words1 or not words2:
+        return 0.0
+    union = words1 | words2
+    return len(words1 & words2) / len(union) if union else 0.0
+
+
+def compute_expression_similarity(
+    expr_a: str,
+    expr_b: str,
+    *,
+    skeleton_bonus: bool = True,
+    skeleton_floor: float = 0.90,
+) -> tuple[float, dict[str, Any]]:
+    """Compute shared expression similarity used by library and SimilarityEngine.
+
+    The skeleton boost is applied in this single helper to avoid separate
+    library and SimilarityEngine paths double-counting parameter-only variants.
+    """
+    norm_a = normalize_expression_for_similarity(expr_a)
+    norm_b = normalize_expression_for_similarity(expr_b)
+    if not norm_a or not norm_b:
+        return 0.0, {"method": "token_jaccard_with_skeleton", "skeleton_match": False}
+    if norm_a == norm_b:
+        return 1.0, {"method": "exact_normalized_expression", "skeleton_match": True}
+
+    jaccard = compute_token_jaccard_similarity(norm_a, norm_b)
+    skel_a = extract_expression_skeleton(norm_a)
+    skel_b = extract_expression_skeleton(norm_b)
+    skeleton_match = bool(skeleton_bonus and skel_a == skel_b)
+    score = max(jaccard, float(skeleton_floor)) if skeleton_match else jaccard
+    return score, {
+        "method": "token_jaccard_with_skeleton",
+        "token_jaccard": jaccard,
+        "skeleton_match": skeleton_match,
+        "skeleton_a": skel_a,
+        "skeleton_b": skel_b,
+        "skeleton_floor": float(skeleton_floor),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -475,22 +540,19 @@ class SimilarityEngine:
     def _compute_jaccard_score(self, expr_a: str, expr_b: str) -> SimilarityResult:
         """计算 Jaccard 维度相似度.
 
-        使用 `fewshot.compute_jaccard_similarity()`.
+        使用共享 token Jaccard + skeleton helper, 避免与 library.py 双路重复实现。
         """
-        mod = self._import_fewshot()
-        if mod is None:
-            return SimilarityResult(
-                dimension="jaccard",
-                score=0.0,
-                error="fewshot module not available",
-            )
-
         try:
-            score = mod.compute_jaccard_similarity(expr_a, expr_b)
+            score, detail = compute_expression_similarity(
+                expr_a,
+                expr_b,
+                skeleton_bonus=bool(self._jaccard_cfg.get("skeleton_bonus", True)),
+                skeleton_floor=float(self._jaccard_cfg.get("skeleton_floor", 0.90)),
+            )
             return SimilarityResult(
                 dimension="jaccard",
                 score=score,
-                raw_detail={"method": "jaccard_token_overlap"},
+                raw_detail=detail,
             )
         except Exception as e:
             logger.warning(f"Jaccard score computation failed: {e}")
@@ -716,7 +778,12 @@ class SimilarityEngine:
                 continue
 
             try:
-                score = compute_jaccard_similarity(new_expr, expr_b)
+                score, _detail = compute_expression_similarity(
+                    new_expr,
+                    expr_b,
+                    skeleton_bonus=bool(self._jaccard_cfg.get("skeleton_bonus", True)),
+                    skeleton_floor=float(self._jaccard_cfg.get("skeleton_floor", 0.90)),
+                )
             except Exception as e:
                 logger.debug(f"Jaccard failed for {factor_id}: {e}")
                 score = 0.0

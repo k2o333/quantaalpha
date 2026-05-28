@@ -246,12 +246,9 @@ def build_structured_rejection_feedback(
 
 
 def _lookahead_function_warning(expression: str) -> str | None:
-    for function_name in ("DELAY", "Ref", "REF"):
-        pattern = rf"\b{function_name}\s*\([^,]+,\s*(-\d+)\s*\)"
-        match = re.search(pattern, expression)
-        if match:
-            return f"{function_name} does not allow negative periods in factor expressions: {match.group(1)}"
-    return None
+    from quantaalpha.pipeline.quality_overlay import lookahead_function_warning
+
+    return lookahead_function_warning(expression)
 
 
 def _normalize_daily_panel_interfaces(interfaces: Sequence[str] | None) -> tuple[str, ...]:

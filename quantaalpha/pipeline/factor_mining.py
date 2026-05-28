@@ -563,6 +563,8 @@ def run_evolution_loop(
     historical_parent_sources = evolution_cfg.get("historical_parent_sources") or {}
     mutation_mode_weights = evolution_cfg.get("mutation_mode_weights") or {"exploit": 0.75, "explore": 0.25}
     mutation_mode_schedule = str(evolution_cfg.get("mutation_mode_schedule", "fixed") or "fixed")
+    adaptive_cfg = evolution_cfg.get("adaptive_mutation") or {}
+    diversity_cfg = evolution_cfg.get("diversity_enforcement") or {}
     # 优先使用显式参数,fallback 到 logger 状态(向后兼容)
     if log_root is None:
         log_root = str(logger.storage.path)
@@ -636,6 +638,15 @@ def run_evolution_loop(
         historical_parent_sources=dict(historical_parent_sources),
         mutation_mode_weights=dict(mutation_mode_weights),
         mutation_mode_schedule=mutation_mode_schedule,
+        adaptive_min_rounds=int(adaptive_cfg.get("min_rounds", 3) or 3),
+        adaptive_stagnation_rounds=int(adaptive_cfg.get("stagnation_rounds", 3) or 3),
+        adaptive_min_active_rate=float(adaptive_cfg.get("min_active_rate", 0.01) or 0.0),
+        adaptive_explore_boost=float(adaptive_cfg.get("explore_boost", 0.15) or 0.0),
+        adaptive_min_explore_weight=float(adaptive_cfg.get("min_explore_weight", 0.10) or 0.0),
+        adaptive_max_explore_weight=float(adaptive_cfg.get("max_explore_weight", 0.60) or 1.0),
+        diversity_enforcement_enabled=bool(diversity_cfg.get("enabled", False)),
+        diversity_similarity_threshold=float(diversity_cfg.get("similarity_threshold", 0.90) or 0.90),
+        diversity_penalty=float(diversity_cfg.get("penalty", 0.10) or 0.10),
     )
 
     controller = EvolutionController(config)
@@ -691,7 +702,7 @@ def run_evolution_loop(
                 factor_store_kwargs=factor_store_kwargs,
             )
 
-            completed_tasks = []
+            completed_pairs = []
             for result in results:
                 if result["success"]:
                     task = result["task"]
@@ -702,12 +713,16 @@ def run_evolution_loop(
                         experiment=traj_data.get("experiment"),
                         feedback=traj_data.get("feedback"),
                     )
-                    controller.report_task_complete(task, trajectory)
-                    completed_tasks.append(task)
+                    completed_pairs.append((task, trajectory))
                     save_result = traj_data.get("save_result")
                     if isinstance(save_result, dict):
                         save_results.append(save_result)
                     logger.info(f"Trajectory done: {trajectory.trajectory_id}, RankIC={trajectory.get_primary_metric()}")
+            controller.apply_same_round_diversity_penalty([trajectory for _task, trajectory in completed_pairs])
+            completed_tasks = []
+            for task, trajectory in completed_pairs:
+                controller.report_task_complete(task, trajectory)
+                completed_tasks.append(task)
             result_by_task_idx = {result["task_idx"]: result for result in results}
             for task_idx, task in enumerate(tasks):
                 result = result_by_task_idx.get(task_idx)

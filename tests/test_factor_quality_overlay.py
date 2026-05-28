@@ -35,6 +35,22 @@ def test_expression_static_diagnostics_blocks_lookahead_and_flags_antipatterns()
     assert "lookahead_risk" in str(error)
 
 
+def test_lookahead_diagnostics_are_shared_with_data_admission() -> None:
+    from quantaalpha.backtest.data_admission import _lookahead_function_warning
+    from quantaalpha.pipeline.quality_overlay import detect_expression_static_diagnostics
+
+    expression = "DELAY($close, -2)"
+    diag = detect_expression_static_diagnostics(expression)
+
+    assert "negative_delay" in diag["lookahead_flags"]
+    assert "negative_delay" in _lookahead_function_warning(expression)
+
+    financial = detect_expression_static_diagnostics("$ann_date")
+    assert financial["severity"] == "none"
+    assert financial["lookahead_risk"] == "warning"
+    assert financial["financial_lookahead_risk_flags"]
+
+
 def test_pre_backtest_screen_records_reasons_and_runner_filters_survivors() -> None:
     from quantaalpha.factors.runner import QlibFactorRunner
     from quantaalpha.pipeline.quality_overlay import pre_backtest_screen
@@ -150,6 +166,24 @@ def test_quality_score_and_failure_attribution_drive_lifecycle() -> None:
     assert rejected["primary_failure_reason"] == "weak_oos_ic"
     assert "high_turnover" in rejected["secondary_failure_reasons"]
     assert rejected["next_action"]["action_type"] in {"discard", "simplify", "change_window"}
+    assert rejected["next_action"]["repair_template"]["example_original"]
+
+
+def test_repair_loop_requires_quality_or_lifecycle_improvement() -> None:
+    from quantaalpha.pipeline.quality_overlay import verify_repair_loop
+
+    changed_bad = verify_repair_loop(
+        {"primary_failure_reason": "high_similarity", "quality_score": 0.30},
+        {"primary_failure_reason": "weak_oos_ic", "quality_score": 0.20, "status": "rejected"},
+    )
+    assert changed_bad["failure_resolved"] is True
+    assert changed_bad["repair_success"] is False
+
+    improved = verify_repair_loop(
+        {"primary_failure_reason": "high_similarity", "quality_score": 0.30},
+        {"primary_failure_reason": "", "quality_score": 0.50, "status": "candidate"},
+    )
+    assert improved["repair_success"] is True
 
 
 def test_persistence_extracts_overlay_metrics_and_metadata_json() -> None:

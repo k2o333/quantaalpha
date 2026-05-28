@@ -566,6 +566,9 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         success, eval_dict = self.factor_regulator.evaluate(expr)
         if not success:
             return False, "evaluation_failure", "factor regulator evaluate() returned failure", expr
+        if eval_dict.get("expr") and eval_dict["expr"] != expr:
+            expr = str(eval_dict["expr"])
+            factor_data["expression"] = expr
 
         if not self.factor_regulator.is_expression_acceptable(eval_dict):
             symbol_length = eval_dict.get("symbol_length", 0)
@@ -972,6 +975,14 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         best_partial_names = list(proposed_names)
                         best_partial_exprs = list(proposed_exprs)
                     break
+                if eval_dict.get("expr") and eval_dict["expr"] != expr:
+                    expr = str(eval_dict["expr"])
+                    factor_data["expression"] = expr
+                    factors_dict[factor_name] = factor_data
+                    if isinstance(response_dict.get("factors"), dict):
+                        response_dict["factors"][factor_name] = factor_data
+                    else:
+                        response_dict[factor_name] = factor_data
 
                 # Consistency check (if enabled)
                 if self.consistency_enabled and self.quality_gate is not None:

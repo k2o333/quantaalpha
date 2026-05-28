@@ -132,7 +132,145 @@ class FactorRegulator(Evaluator):
             logger.warning(f"DSL signature violation in expression: {expression}. Error: {sig_error}")
             return False, sig_error
 
+        output_diag = self.expression_output_diagnostic(expression)
+        if output_diag.get("reject"):
+            message = str(output_diag.get("message") or "expression output type is not rankable")
+            logger.warning(f"Expression output type violation: {expression}. Error: {message}")
+            return False, message
+
         return True, None
+
+    def expression_output_diagnostic(self, expression: str) -> dict[str, Any]:
+        """Infer coarse expression output type for rank-alpha admission."""
+        try:
+            from quantaalpha.factors.coder.factor_ast import (
+                BinaryOpNode,
+                ConditionalNode,
+                FunctionNode,
+                NumberNode,
+                VarNode,
+                parse_expression,
+            )
+
+            tree = parse_expression(expression)
+        except Exception as exc:
+            return {
+                "output_type": "unknown",
+                "reject": False,
+                "message": f"output type unavailable: {exc}",
+            }
+
+        def func_name(node: FunctionNode) -> str:
+            name = node.name.name if isinstance(node.name, VarNode) else str(node.name)
+            return name.upper()
+
+        def constant_value(node) -> float | None:
+            return float(node.value) if isinstance(node, NumberNode) else None
+
+        if isinstance(tree, BinaryOpNode) and str(tree.op) in {">", "<", ">=", "<=", "==", "!=", "&&", "&", "||", "|"}:
+            return {
+                "output_type": "boolean_output",
+                "reject": True,
+                "message": "Expression output is boolean/comparison; rank-based alpha requires a continuous signal.",
+            }
+        if isinstance(tree, FunctionNode) and func_name(tree) in {"GREATER", "LESS", "IF"}:
+            values = [constant_value(arg) for arg in tree.args[1:]] if func_name(tree) == "IF" else []
+            if values and all(value in {0.0, 1.0} for value in values if value is not None):
+                output_type = "constant_discrete"
+            else:
+                output_type = "boolean_output"
+            return {
+                "output_type": output_type,
+                "reject": True,
+                "message": f"Expression output is {output_type}; rank-based alpha requires a continuous signal.",
+            }
+        if isinstance(tree, ConditionalNode):
+            true_value = constant_value(tree.true_expr)
+            false_value = constant_value(tree.false_expr)
+            if true_value is not None and false_value is not None:
+                return {
+                    "output_type": "constant_discrete",
+                    "reject": True,
+                    "message": "Conditional expression returns only constant discrete values; rank-based alpha requires a continuous signal.",
+                }
+
+        return {"output_type": "continuous", "reject": False, "message": ""}
+
+    def simplify_expression(self, expression: str) -> dict[str, Any]:
+        """Simplify conservative no-op expression patterns before complexity checks."""
+        try:
+            from quantaalpha.factors.coder.factor_ast import (
+                BinaryOpNode,
+                FunctionNode,
+                NumberNode,
+                UnaryOpNode,
+                VarNode,
+                parse_expression,
+            )
+
+            tree = parse_expression(expression)
+        except Exception as exc:
+            return {
+                "original_expression": expression,
+                "simplified_expression": expression,
+                "changed": False,
+                "rules_applied": [],
+                "error": str(exc),
+            }
+
+        rules: list[str] = []
+
+        def is_number(node, value: float) -> bool:
+            return isinstance(node, NumberNode) and abs(float(node.value) - value) < 1e-12
+
+        def name_of(node: FunctionNode) -> str:
+            name = node.name.name if isinstance(node.name, VarNode) else str(node.name)
+            return name.upper()
+
+        def simplify(node):
+            if isinstance(node, BinaryOpNode):
+                left = simplify(node.left)
+                right = simplify(node.right)
+                if node.op == "+" and is_number(right, 0.0):
+                    rules.append("remove_plus_zero")
+                    return left
+                if node.op == "+" and is_number(left, 0.0):
+                    rules.append("remove_leading_zero_plus")
+                    return right
+                if node.op == "-" and is_number(right, 0.0):
+                    rules.append("remove_minus_zero")
+                    return left
+                if node.op == "*" and is_number(right, 1.0):
+                    rules.append("remove_times_one")
+                    return left
+                if node.op == "*" and is_number(left, 1.0):
+                    rules.append("remove_leading_one_times")
+                    return right
+                if node.op == "/" and is_number(right, 1.0):
+                    rules.append("remove_divide_one")
+                    return left
+                return BinaryOpNode(node.op, left, right)
+            if isinstance(node, FunctionNode):
+                args = [simplify(arg) for arg in node.args]
+                simplified = FunctionNode(node.name, args)
+                if len(args) == 1 and isinstance(args[0], FunctionNode) and name_of(simplified) in {"ABS", "RANK"}:
+                    if name_of(args[0]) == name_of(simplified):
+                        rules.append(f"collapse_nested_{name_of(simplified).lower()}")
+                        return args[0]
+                return simplified
+            if isinstance(node, UnaryOpNode):
+                return UnaryOpNode(node.op, simplify(node.operand))
+            return node
+
+        simplified_tree = simplify(tree)
+        simplified_expression = str(simplified_tree)
+        return {
+            "original_expression": expression,
+            "simplified_expression": simplified_expression,
+            "changed": bool(simplified_expression != expression and rules),
+            "rules_applied": sorted(set(rules)),
+            "error": "",
+        }
 
     def _validate_dsl_function_signatures(self, expression: str) -> str | None:
         """Validate known fixed-arity DSL function signatures using AST.
@@ -307,19 +445,22 @@ class FactorRegulator(Evaluator):
                 calculate_symbol_length, count_base_features
             )
             
+            simplification = self.simplify_expression(expression)
+            evaluated_expression = str(simplification.get("simplified_expression") or expression)
+
             # Check for duplication
             duplicated_subtree_size, duplicated_subtree, matched_alpha = match_alphazoo(
-                expression, self.alphazoo
+                evaluated_expression, self.alphazoo
             )
 
-            num_free_args = count_free_args(expression)
-            num_unique_vars = count_unique_vars(expression)
-            num_all_nodes = count_all_nodes(expression)
-            symbol_length = calculate_symbol_length(expression)
-            num_base_features = count_base_features(expression)
+            num_free_args = count_free_args(evaluated_expression)
+            num_unique_vars = count_unique_vars(evaluated_expression)
+            num_all_nodes = count_all_nodes(evaluated_expression)
+            symbol_length = calculate_symbol_length(evaluated_expression)
+            num_base_features = count_base_features(evaluated_expression)
 
             logger.info(f"""
-                        Evaluated expr: {expression}
+                        Evaluated expr: {evaluated_expression}
                         Duplicated Size: {duplicated_subtree_size}
                         Duplicated Subtree: {duplicated_subtree}
                         # Free Args: {num_free_args}
@@ -329,7 +470,9 @@ class FactorRegulator(Evaluator):
                         """)
 
             eval_dict = {
-                "expr": expression,
+                "expr": evaluated_expression,
+                "original_expr": expression,
+                "simplification": simplification,
                 "duplicated_subtree_size": duplicated_subtree_size,
                 "duplicated_subtree": duplicated_subtree,
                 "matched_alpha": matched_alpha,

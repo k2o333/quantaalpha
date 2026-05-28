@@ -74,27 +74,9 @@ def compute_jaccard_similarity(text1: str, text2: str) -> float:
     Used as fallback when vector similarity is unavailable.
     Normalizes texts by removing special characters and lowercasing.
     """
-    if not text1 or not text2:
-        return 0.0
-    
-    def normalize(text: str) -> set[str]:
-        """Normalize text: lowercase, remove special chars, split into words."""
-        import re
-        # Remove special characters but keep alphanumeric
-        normalized = re.sub(r'[^a-zA-Z0-9\s]', ' ', text.lower())
-        # Split on whitespace and filter empty
-        return set(w for w in normalized.split() if w)
-    
-    words1 = normalize(text1)
-    words2 = normalize(text2)
-    
-    if not words1 or not words2:
-        return 0.0
-    
-    intersection = len(words1 & words2)
-    union = len(words1 | words2)
-    
-    return intersection / union if union > 0 else 0.0
+    from quantaalpha.factors.similarity_engine import compute_token_jaccard_similarity
+
+    return compute_token_jaccard_similarity(text1, text2)
 
 
 def query_active_factors_RAG(

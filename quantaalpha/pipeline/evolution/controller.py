@@ -75,6 +75,15 @@ class EvolutionConfig:
     historical_parent_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
     mutation_mode_weights: dict[str, float] = field(default_factory=lambda: {"exploit": 0.75, "explore": 0.25})
     mutation_mode_schedule: str = "fixed"
+    adaptive_min_rounds: int = 3
+    adaptive_stagnation_rounds: int = 3
+    adaptive_min_active_rate: float = 0.01
+    adaptive_explore_boost: float = 0.15
+    adaptive_min_explore_weight: float = 0.10
+    adaptive_max_explore_weight: float = 0.60
+    diversity_enforcement_enabled: bool = False
+    diversity_similarity_threshold: float = 0.90
+    diversity_penalty: float = 0.10
 
 
 class EvolutionController:
@@ -471,9 +480,23 @@ class EvolutionController:
             self._mutation_idx += 1
             return task
 
+        self._mutation_targets = []
+        self._mutation_idx = 0
+        self._current_round += 1
+        if self._current_round >= self.config.max_rounds:
+            logger.info(f"Evolution complete: reached max rounds ({self.config.max_rounds}) after mutation round")
+            return None
+        if self.config.crossover_enabled:
+            self._prepare_crossover_groups()
+            self._current_phase = RoundPhase.CROSSOVER
+            logger.info(f"All mutation rounds complete, transitioning to crossover (round {self._current_round})")
+            return self._get_crossover_task()
+        logger.info(f"All mutation rounds complete, continuing with mutation (round {self._current_round})")
+        return self.get_next_task()
+
     def _select_mutation_mode(self, mutation_index: int) -> str:
-        """Select fixed exploit/explore mutation mode from configured weights."""
-        weights = self.config.mutation_mode_weights or {"exploit": 0.75, "explore": 0.25}
+        """Select exploit/explore mutation mode from fixed or adaptive weights."""
+        weights = self._effective_mutation_mode_weights()
         exploit_weight = max(float(weights.get("exploit", 0.75) or 0.0), 0.0)
         explore_weight = max(float(weights.get("explore", 0.25) or 0.0), 0.0)
         if explore_weight <= 0:
@@ -484,6 +507,54 @@ class EvolutionController:
         cycle = max(1, round(total / min(exploit_weight, explore_weight)))
         explore_slots = max(1, round(cycle * explore_weight / total))
         return "explore" if mutation_index % cycle >= cycle - explore_slots else "exploit"
+
+    def _effective_mutation_mode_weights(self) -> dict[str, float]:
+        """Return fixed or conservative adaptive mutation weights."""
+        base = self.config.mutation_mode_weights or {"exploit": 0.75, "explore": 0.25}
+        if str(self.config.mutation_mode_schedule or "fixed").lower() != "adaptive":
+            return dict(base)
+        if self._current_round < max(3, int(self.config.adaptive_min_rounds or 3)):
+            return dict(base)
+
+        recent = self._recent_round_status_counts(max(3, int(self.config.adaptive_stagnation_rounds or 3)))
+        total = sum(item["total"] for item in recent)
+        active = sum(item["active"] for item in recent)
+        no_active_rounds = all(item["active"] == 0 for item in recent) if recent else False
+        active_rate = float(active / total) if total else 0.0
+        stagnant = no_active_rounds or active_rate < float(self.config.adaptive_min_active_rate or 0.0)
+        if not stagnant:
+            return dict(base)
+
+        base_explore = float(base.get("explore", 0.25) or 0.0)
+        boost = float(self.config.adaptive_explore_boost or 0.0)
+        min_explore = float(self.config.adaptive_min_explore_weight or 0.10)
+        max_explore = float(self.config.adaptive_max_explore_weight or 0.60)
+        explore = min(max_explore, max(min_explore, base_explore + boost))
+        exploit = max(0.0, 1.0 - explore)
+        logger.info(
+            "Adaptive mutation schedule: stagnant search detected "
+            f"(round={self._current_round}, active_rate={active_rate:.4f}); "
+            f"weights exploit={exploit:.3f}, explore={explore:.3f}"
+        )
+        return {"exploit": exploit, "explore": explore}
+
+    def _recent_round_status_counts(self, lookback: int) -> list[dict[str, int]]:
+        """Count active/candidate/rejected-like trajectories in recent rounds."""
+        start_round = max(0, self._current_round - max(1, lookback))
+        rows: list[dict[str, int]] = []
+        for round_idx in range(start_round, self._current_round):
+            trajectories = [t for t in self.pool.get_all() if t.round_idx == round_idx]
+            counts = {"round": round_idx, "active": 0, "candidate": 0, "rejected": 0, "total": len(trajectories)}
+            for trajectory in trajectories:
+                status = str(trajectory.extra_info.get("evaluation", {}).get("status") or "")
+                if status == "active":
+                    counts["active"] += 1
+                elif status == "candidate":
+                    counts["candidate"] += 1
+                else:
+                    counts["rejected"] += 1
+            rows.append(counts)
+        return rows
         
         # All mutation tasks complete, transition to next phase
         self._mutation_targets = []  # Reset for next mutation round
@@ -1059,6 +1130,73 @@ class EvolutionController:
         
         elif phase == RoundPhase.CROSSOVER:
             logger.info(f"Crossover round complete (group {direction_id})")
+
+    def apply_same_round_diversity_penalty(self, trajectories: list[StrategyTrajectory]) -> None:
+        """Apply configurable penalty to weaker same-round near-duplicate trajectories."""
+        if not self.config.diversity_enforcement_enabled or len(trajectories) < 2:
+            return
+        try:
+            from quantaalpha.factors.similarity_engine import compute_expression_similarity
+        except Exception as exc:
+            logger.warning(f"Diversity enforcement skipped: {exc}")
+            return
+
+        threshold = float(self.config.diversity_similarity_threshold or 0.90)
+        penalty = float(self.config.diversity_penalty or 0.10)
+        for left_idx, left in enumerate(trajectories):
+            for right in trajectories[left_idx + 1:]:
+                if left.round_idx != right.round_idx:
+                    continue
+                left_expr = self._trajectory_primary_expression(left)
+                right_expr = self._trajectory_primary_expression(right)
+                if not left_expr or not right_expr:
+                    continue
+                score, detail = compute_expression_similarity(left_expr, right_expr, skeleton_bonus=True)
+                if score < threshold:
+                    continue
+                weaker = self._weaker_trajectory(left, right)
+                diagnostics = weaker.extra_info.setdefault("diversity_diagnostics", [])
+                diagnostics.append({
+                    "round_idx": weaker.round_idx,
+                    "similarity_score": score,
+                    "matched_trajectory_id": right.trajectory_id if weaker is left else left.trajectory_id,
+                    "matched_expression": right_expr if weaker is left else left_expr,
+                    "detail": detail,
+                    "penalty": penalty,
+                })
+                previous_score = self._trajectory_quality_score(weaker)
+                new_score = max(0.0, previous_score - penalty)
+                weaker.extra_info["diversity_penalty"] = float(weaker.extra_info.get("diversity_penalty") or 0.0) + penalty
+                weaker.extra_info["quality_score_before_diversity"] = previous_score
+                weaker.extra_info["quality_score"] = new_score
+                logger.info(
+                    "Diversity penalty applied: "
+                    f"trajectory={weaker.trajectory_id}, score={score:.4f}, "
+                    f"quality_score {previous_score:.4f}->{new_score:.4f}"
+                )
+
+    @staticmethod
+    def _trajectory_primary_expression(trajectory: StrategyTrajectory) -> str:
+        for factor in trajectory.factors:
+            expression = str(factor.get("expression") or factor.get("factor_expression") or "")
+            if expression:
+                return expression
+        return ""
+
+    @staticmethod
+    def _trajectory_quality_score(trajectory: StrategyTrajectory) -> float:
+        if trajectory.extra_info.get("quality_score") is not None:
+            return float(trajectory.extra_info.get("quality_score") or 0.0)
+        evaluation = trajectory.extra_info.get("evaluation", {})
+        if evaluation.get("quality_score") is not None:
+            return float(evaluation.get("quality_score") or 0.0)
+        rank_ic = trajectory.get_primary_metric()
+        return float(rank_ic or 0.0)
+
+    def _weaker_trajectory(self, left: StrategyTrajectory, right: StrategyTrajectory) -> StrategyTrajectory:
+        left_key = (self._trajectory_quality_score(left), left.get_primary_metric() or 0.0, left.trajectory_id)
+        right_key = (self._trajectory_quality_score(right), right.get_primary_metric() or 0.0, right.trajectory_id)
+        return left if left_key <= right_key else right
     
     def create_trajectory_from_loop_result(
         self,

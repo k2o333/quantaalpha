@@ -100,6 +100,26 @@ evolution:
   # Mark run as failed when failed task count reaches this threshold; null keeps degraded summary only
   failed_task_threshold: 2
 
+  # H18 adaptive mutation schedule scaffolding. Disabled by default; when enabled,
+  # explore weight increases only after at least 3 rounds of stagnation evidence.
+  mutation_mode_schedule: fixed
+  mutation_mode_weights:
+    exploit: 0.75
+    explore: 0.25
+  adaptive_mutation:
+    min_rounds: 3
+    stagnation_rounds: 3
+    min_active_rate: 0.01
+    explore_boost: 0.15
+    min_explore_weight: 0.10
+    max_explore_weight: 0.60
+
+  # H20 same-round diversity enforcement. Disabled by default.
+  diversity_enforcement:
+    enabled: false
+    similarity_threshold: 0.90
+    penalty: 0.10
+
 
 # ============================================================
 # QUALITY GATE CONFIGURATION
@@ -150,6 +170,23 @@ quality_overlay:
     sample_days_per_month: 5
     max_behavior_rank_corr_median: 0.80
     max_behavior_rank_corr_p90: 0.90
+    second_wave:
+      dynamic_threshold:
+        enabled: false
+        formula: "max(min_threshold, base_threshold - alpha * log1p(zoo_size))"
+        base_threshold: 0.85
+        min_threshold: 0.70
+        alpha: 0.02
+      ast_canonicalization:
+        enabled: false
+      time_decay_behavior:
+        enabled: false
+      consensus_mode:
+        enabled: false
+      dynamic_oos:
+        enabled: false
+      interpretability_score:
+        enabled: false
   lifecycle:
     use_quality_score: false
     active:

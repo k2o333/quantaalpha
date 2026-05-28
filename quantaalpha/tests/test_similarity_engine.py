@@ -22,6 +22,7 @@ from quantaalpha.factors.similarity_engine import (
     EnsembleResult,
     SimilarityEngine,
     SimilarityResult,
+    compute_expression_similarity,
 )
 
 
@@ -218,6 +219,36 @@ def tmp_library_file(
 
 class TestASTDimension:
     """AST 维度相似度测试."""
+
+
+def test_shared_expression_similarity_applies_single_skeleton_bonus() -> None:
+    score, detail = compute_expression_similarity("TS_MEAN($close, 10)", "TS_MEAN($close, 20)")
+
+    assert score >= 0.90
+    assert detail["skeleton_match"] is True
+
+
+def test_similarity_engine_jaccard_reports_skeleton_detail() -> None:
+    engine = SimilarityEngine(
+        {
+            "enabled": True,
+            "ensemble_mode": "weighted",
+            "rejection_threshold": 0.85,
+            "metrics": {
+                "jaccard": {
+                    "enabled": True,
+                    "weight": 1.0,
+                    "skeleton_bonus": True,
+                    "skeleton_floor": 0.90,
+                }
+            },
+        }
+    )
+
+    result = engine.compute_pairwise("TS_MEAN($close, 10)", "TS_MEAN($close, 20)")
+
+    assert result.final_score >= 0.90
+    assert result.dimension_results[0].raw_detail["skeleton_match"] is True
 
     def test_ast_identical_expressions(self, engine: SimilarityEngine) -> None:
         """完全相同的表达式, AST 分数应接近 1.0."""
@@ -490,8 +521,8 @@ class TestVetoEnsemble:
             (
                 "TS_MAX($close, 10)",
                 "TS_MAX($close, 20)",
-                False,
-                "similar params may not trigger veto",
+                True,
+                "same skeleton parameter variants trigger veto",
             ),
         ],
     )

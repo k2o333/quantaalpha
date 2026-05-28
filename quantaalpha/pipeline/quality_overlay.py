@@ -52,6 +52,12 @@ LOOKAHEAD_PATTERNS: tuple[tuple[str, str], ...] = (
     ("lead_function", r"\bLEAD\s*\("),
 )
 
+FINANCIAL_LOOKAHEAD_RISK_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("report_date_field", r"\b\$?(report_date|report_period|end_date)\b"),
+    ("disclosure_date_field", r"\b\$?(ann_date|f_ann_date|disclosure_date)\b"),
+    ("eps_ttm_field", r"\b\$?(eps_ttm|epsttm|eps_ttm_yoy)\b"),
+)
+
 
 ANTI_PATTERNS: tuple[tuple[str, str], ...] = (
     ("identity_close_ratio", r"\$close\s*/\s*\$close"),
@@ -62,6 +68,36 @@ ANTI_PATTERNS: tuple[tuple[str, str], ...] = (
     ("std_window_one", r"\bSTD\s*\([^)]*,\s*1\s*\)"),
     ("ts_std_window_one", r"\bTS_STD\s*\([^)]*,\s*1\s*\)"),
 )
+
+
+def detect_lookahead_patterns(expression: str) -> dict[str, Any]:
+    """Detect hard lookahead patterns and advisory financial timing risks."""
+    text = str(expression or "")
+    hard_flags = [
+        flag
+        for flag, pattern in LOOKAHEAD_PATTERNS
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    financial_risk_flags = [
+        flag
+        for flag, pattern in FINANCIAL_LOOKAHEAD_RISK_PATTERNS
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    return {
+        "lookahead_flags": hard_flags,
+        "financial_lookahead_risk_flags": financial_risk_flags,
+        "lookahead_risk": "critical" if hard_flags else ("warning" if financial_risk_flags else "none"),
+        "hard_violation": bool(hard_flags),
+    }
+
+
+def lookahead_function_warning(expression: str) -> str | None:
+    """Return a shared admission warning for hard forward-looking expression patterns."""
+    details = detect_lookahead_patterns(expression)
+    flags = details.get("lookahead_flags") or []
+    if not flags:
+        return None
+    return f"forward-looking factor expression patterns are not allowed: {', '.join(flags)}"
 
 
 def load_quality_overlay_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -121,11 +157,9 @@ def detect_expression_static_diagnostics(expression: str, config: dict[str, Any]
     """Detect lookahead and low-value expression patterns before factor calculation."""
     cfg = load_quality_overlay_config(config).get("expression_static", {})
     text = str(expression or "")
-    lookahead_flags = [
-        flag
-        for flag, pattern in LOOKAHEAD_PATTERNS
-        if re.search(pattern, text, flags=re.IGNORECASE)
-    ]
+    lookahead_diag = detect_lookahead_patterns(text)
+    lookahead_flags = list(lookahead_diag.get("lookahead_flags") or [])
+    financial_lookahead_risk_flags = list(lookahead_diag.get("financial_lookahead_risk_flags") or [])
     anti_pattern_flags = [
         flag
         for flag, pattern in ANTI_PATTERNS
@@ -145,8 +179,9 @@ def detect_expression_static_diagnostics(expression: str, config: dict[str, Any]
         lookahead_risk = "none"
     return {
         "severity": severity,
-        "lookahead_risk": lookahead_risk,
+        "lookahead_risk": lookahead_risk if lookahead_flags else lookahead_diag.get("lookahead_risk", "none"),
         "lookahead_flags": lookahead_flags,
+        "financial_lookahead_risk_flags": financial_lookahead_risk_flags,
         "anti_pattern_flags": anti_pattern_flags,
         "failure_type": failure_type,
         "message": _expression_diagnostic_message(lookahead_flags, anti_pattern_flags),
@@ -609,6 +644,7 @@ def infer_failure_attribution(
     next_action = {
         "action_type": _next_action_for_failure(primary),
         "specific_instruction": _instruction_for_failure(primary),
+        "repair_template": repair_template_for_failure(primary),
         "do_not_repeat": [f"Do not repeat factors with primary failure `{primary}` without addressing it."],
     }
     return {
@@ -624,6 +660,81 @@ def infer_failure_attribution(
             "lookahead_risk": "critical" if primary == "lookahead_risk" else "none",
         },
         "next_action": next_action,
+    }
+
+
+FAILURE_TO_REPAIR_TEMPLATE: dict[str, dict[str, str]] = {
+    "high_turnover": {
+        "template": "RANK($signal) -> RANK(TS_MEAN($signal, N))",
+        "example_original": "RANK($close / DELAY($close, 5))",
+        "example_repair": "RANK(TS_MEAN($close / DELAY($close, 5), 10))",
+    },
+    "high_similarity": {
+        "template": "Replace one base feature family or operator family, not only a numeric window.",
+        "example_original": "TS_MEAN($close, 10)",
+        "example_repair": "TS_MEAN($amount / $volume, 10)",
+    },
+    "too_complex": {
+        "template": "Remove redundant wrappers and reduce one nested operator level.",
+        "example_original": "ABS(ABS(RANK(RANK($close))))",
+        "example_repair": "ABS(RANK($close))",
+    },
+    "weak_oos_ic": {
+        "template": "Change horizon or economic direction; do not only rescale.",
+        "example_original": "RANK($close / DELAY($close, 5))",
+        "example_repair": "RANK(DELAY($close, 20) / $close)",
+    },
+    "lookahead_risk": {
+        "template": "Remove forward-looking operators or replace with backward-looking delay.",
+        "example_original": "REF($close, -1)",
+        "example_repair": "DELAY($close, 1)",
+    },
+    "constant_signal": {
+        "template": "Replace binary/discrete output with a continuous cross-sectional signal.",
+        "example_original": "IF($close > DELAY($close, 1), 1, 0)",
+        "example_repair": "RANK($close / DELAY($close, 1))",
+    },
+}
+
+
+def repair_template_for_failure(primary: str) -> dict[str, str]:
+    """Return a concrete repair template for a failure reason."""
+    key = str(primary or "").lower()
+    return dict(FAILURE_TO_REPAIR_TEMPLATE.get(key, {
+        "template": "Change the signal construction to address the primary failure.",
+        "example_original": "RANK($close)",
+        "example_repair": "RANK(TS_MEAN($close, 5))",
+    }))
+
+
+def verify_repair_loop(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare two repair attempts and decide whether the repair actually improved."""
+    prev_reason = str(previous.get("primary_failure_reason") or previous.get("failure_type_primary") or "")
+    next_reason = str(current.get("primary_failure_reason") or current.get("failure_type_primary") or "")
+    prev_score = _metric_value(previous, "quality_score", default=None)
+    next_score = _metric_value(current, "quality_score", default=None)
+    next_lifecycle = str(current.get("status") or current.get("lifecycle_status") or "")
+    failure_resolved = bool(prev_reason and prev_reason != next_reason)
+    quality_improved = (
+        prev_score is not None
+        and next_score is not None
+        and float(next_score) > float(prev_score)
+    )
+    lifecycle_improved = next_lifecycle in {"active", "candidate"}
+    repair_success = bool(failure_resolved and (quality_improved or lifecycle_improved))
+    return {
+        "previous_primary_failure_reason": prev_reason,
+        "next_primary_failure_reason": next_reason,
+        "failure_resolved": failure_resolved,
+        "previous_quality_score": prev_score,
+        "next_quality_score": next_score,
+        "quality_improved": quality_improved,
+        "next_lifecycle": next_lifecycle,
+        "lifecycle_improved": lifecycle_improved,
+        "repair_success": repair_success,
     }
 
 

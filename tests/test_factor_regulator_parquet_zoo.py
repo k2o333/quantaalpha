@@ -180,3 +180,30 @@ class TestFactorRegulatorDslSignatures:
 
         assert ok is True
         assert message is None
+
+    def test_rejects_boolean_output_expression(self):
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        ok, message = regulator.parse_diagnostic("$close > DELAY($close, 1)")
+
+        assert ok is False
+        assert "boolean" in str(message)
+
+    def test_simplifies_conservative_noop_expression_before_evaluation(self):
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator(symbol_length_threshold=30)
+        diag = regulator.simplify_expression("ABS(ABS(RANK(RANK($close)))) + 0")
+
+        assert diag["changed"] is True
+        assert "collapse_nested_abs" in diag["rules_applied"]
+        assert "collapse_nested_rank" in diag["rules_applied"]
+
+        ok, eval_dict = regulator.evaluate("ABS(ABS(RANK(RANK($close)))) + 0")
+
+        assert ok is True
+        assert eval_dict["original_expr"] == "ABS(ABS(RANK(RANK($close)))) + 0"
+        assert eval_dict["expr"] != eval_dict["original_expr"]
+        rolling = regulator.simplify_expression("TS_MEAN(TS_MEAN($close, 5), 10)")
+        assert rolling["changed"] is False

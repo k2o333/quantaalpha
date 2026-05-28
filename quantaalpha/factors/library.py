@@ -1047,15 +1047,14 @@ class FactorLibraryManager:
 
         Removes whitespace, unifies case, replaces numeric parameters with placeholders.
         """
-        import re
-
         if not expr:
             return ""
 
         normalized = expr.strip().lower()
         # Remove extra whitespace
-        normalized = re.sub(r"\s+", "", normalized)
-        return normalized
+        from quantaalpha.factors.similarity_engine import normalize_expression_for_similarity
+
+        return normalize_expression_for_similarity(normalized)
 
     def _expression_similarity(self, expr_a: str, expr_b: str) -> float:
         """
@@ -1069,41 +1068,7 @@ class FactorLibraryManager:
         Returns:
             Similarity value 0.0 ~ 1.0
         """
-        import re
+        from quantaalpha.factors.similarity_engine import compute_expression_similarity
 
-        if not expr_a or not expr_b:
-            return 0.0
-
-        if expr_a == expr_b:
-            return 1.0
-
-        # Tokenize: split by operators and parentheses
-        def tokenize(expr: str) -> set:
-            return set(re.findall(r"[a-z_]+|\$[a-z_]+|\d+", expr))
-
-        tokens_a = tokenize(expr_a)
-        tokens_b = tokenize(expr_b)
-
-        if not tokens_a and not tokens_b:
-            return 1.0
-        if not tokens_a or not tokens_b:
-            return 0.0
-
-        # Jaccard coefficient
-        intersection = len(tokens_a & tokens_b)
-        union = len(tokens_a | tokens_b)
-        jaccard = intersection / union if union > 0 else 0.0
-
-        # For short expressions, supplement with structured comparison
-        # Remove numeric parameters and compare skeleton
-        def skeleton(expr: str) -> str:
-            return re.sub(r"\d+", "N", expr)
-
-        skel_a = skeleton(expr_a)
-        skel_b = skeleton(expr_b)
-
-        if skel_a == skel_b:
-            # Only parameters differ — highly similar
-            return max(jaccard, 0.90)
-
-        return jaccard
+        score, _detail = compute_expression_similarity(expr_a, expr_b, skeleton_bonus=True)
+        return score
