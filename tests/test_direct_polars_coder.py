@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
@@ -93,6 +95,11 @@ def test_direct_polars_coder_marks_bad_expression_as_none(tmp_path, monkeypatch)
     result = DirectPolarsCoder(SimpleNamespace()).develop(exp)
 
     assert result.sub_workspace_list == [None]
+    evidence_path = result.polars_expression_admission_evidence_path
+    payload = json.loads(Path(evidence_path).read_text())
+    assert payload["schema_version"] == 1
+    assert payload["rejected_count"] == 1
+    assert payload["entries"][0]["admission"]["reason_code"] == "unsupported_function"
 
 
 def test_direct_polars_coder_workspaces_are_consumed_by_runner(tmp_path, monkeypatch) -> None:

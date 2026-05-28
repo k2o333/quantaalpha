@@ -58,6 +58,16 @@ def load_standard_frame_runtime_data(data_root: str | Path) -> pl.DataFrame:
     return _normalize_standard_frame(pl.scan_parquet(str(parquet_path)).collect())
 
 
+def read_standard_frame_runtime_columns(data_root: str | Path) -> list[str]:
+    """Read standard-frame parquet columns without materializing rows."""
+
+    root = Path(data_root)
+    parquet_path = root / STANDARD_FRAME_PARQUET
+    if not parquet_path.exists():
+        raise FileNotFoundError(f"factor runtime standard-frame parquet is missing: {parquet_path}")
+    return list(pl.scan_parquet(str(parquet_path)).collect_schema().names())
+
+
 def compute_factor_output_parquet(
     *,
     data_root: str | Path,
