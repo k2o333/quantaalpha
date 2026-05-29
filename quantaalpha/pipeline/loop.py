@@ -55,6 +55,7 @@ from quantaalpha.pipeline.persistence import (
     maybe_compact_after_save,
     save_factors_to_parquet,
 )
+from quantaalpha.pipeline.runtime_contract import validate_factor_coder_runtime_contract
 
 
 def _create_factor_coder(PROP_SETTING: BaseFacSetting, scen: Scenario, factor_coder_runtime: str | None) -> Developer:
@@ -190,7 +191,10 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             # Quality gate config
             self.quality_gate_config = quality_gate_config or {}
             _configure_standard_frame_capabilities(self.backtest_noqlib_config, self.quality_gate_config)
-            factor_coder_runtime = str(self.backtest_noqlib_config.get("factor_coder_runtime") or "").strip()
+            factor_coder_runtime = validate_factor_coder_runtime_contract(
+                backtest_backend=self.backtest_backend,
+                backtest_noqlib_config=self.backtest_noqlib_config,
+            )
             if factor_coder_runtime:
                 os.environ["QUANTAALPHA_FACTOR_CODER_RUNTIME"] = factor_coder_runtime
 
@@ -310,6 +314,12 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             logger.log_object(self.factor_constructor, tag="experiment generation")
 
             self.coder: Developer = _create_factor_coder(PROP_SETTING, scen, factor_coder_runtime)
+            logger.info(
+                "runtime_guard resolved "
+                f"backtest_backend={self.backtest_backend} "
+                f"factor_coder_runtime={factor_coder_runtime or 'legacy'} "
+                f"coder={self.coder.__class__.__name__}"
+            )
             logger.log_object(self.coder, tag="coder")
 
             self.runner: Developer = import_class(PROP_SETTING.runner)(scen)

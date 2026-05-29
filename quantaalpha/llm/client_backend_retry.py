@@ -165,6 +165,7 @@ class BackendRetryMixin:
         previous_retry_model = getattr(self, "_current_retry_model", None)
         previous_retry_provider_name = getattr(self, "_current_retry_provider_name", None)
         mutable_retry_kwargs = retry_kwargs if retry_kwargs is not None else kwargs
+        last_error_message = ""
 
         def _provider_exhaustion_error() -> RuntimeError:
             return RuntimeError(f"Failed to create {retry_label}: all retry providers exhausted retry_call_id={retry_call_id} before {max_retry} total retries. max_attempts_per_provider={max_attempts_per_provider}, provider_attempts={attempts_by_provider}")
@@ -206,6 +207,7 @@ class BackendRetryMixin:
                     attempts_by_provider[provider_key] = attempts_by_provider.get(provider_key, 0) + 1
                     return operation()
                 except openai.BadRequestError as e:  # noqa: PERF203
+                    last_error_message = str(e)
                     error_str = str(e)
                     logger.warning(e)
                     # Unrecoverable: invalid model name — fail fast, no retry
@@ -219,8 +221,10 @@ class BackendRetryMixin:
                     elif embedding and "maximum context length" in error_str:
                         mutable_retry_kwargs["input_content_list"] = [content[: len(content) // 2] for content in mutable_retry_kwargs.get("input_content_list", [])]
                 except StructuredSchemaError as e:
+                    last_error_message = str(e)
                     logger.warning(f"[retry] Structured schema failure: retry_call_id={retry_call_id} provider={provider_key} model={provider_model} top_level_type={e.top_level_type}; retrying {i + 1}th time...")
                 except Exception as e:  # noqa: BLE001
+                    last_error_message = str(e)
                     if _is_tool_call_capability_failure(e) and (not switch_model_on_failure or not provider_pool_available):
                         logger.warning(f"[retry] Tool-call capability failure is not retried in this call: retry_call_id={retry_call_id} provider={provider_key} model={provider_model}")
                         raise
@@ -254,6 +258,8 @@ class BackendRetryMixin:
                     time.sleep(getattr(self, "retry_wait_seconds", 15))
 
             error_message = f"Failed to create {retry_label} after {max_retry} retries. retry_call_id={retry_call_id}"
+            if last_error_message:
+                error_message = f"{error_message}. last_error={last_error_message}"
             raise RuntimeError(error_message)
         finally:
             if previous_retry_model is None:
@@ -276,9 +282,18 @@ class BackendRetryMixin:
         **kwargs: Any,
     ) -> Any:
         assert not (chat_completion and embedding), "chat_completion and embedding cannot be True at the same time"
+        if embedding and not getattr(LLM_SETTINGS, "embedding_remote_enabled", True):
+            input_content_list = kwargs.get("input_content_list", []) or []
+            self.embedding_degraded = True
+            self.embedding_degraded_reason = "remote embedding disabled"
+            logger.warning("[embedding] Remote embedding disabled; returning no-context embeddings")
+            return [None for _ in input_content_list]
         max_retry_setting = getattr(self, "_max_retry_override", None)
         if max_retry_setting is None:
-            max_retry_setting = getattr(LLM_SETTINGS, "max_retry", None)
+            if embedding:
+                max_retry_setting = getattr(LLM_SETTINGS, "embedding_max_attempts", None)
+            else:
+                max_retry_setting = getattr(LLM_SETTINGS, "max_retry", None)
         max_retry = _coerce_int_setting(max_retry_setting, max_retry, minimum=1)
 
         def operation() -> Any:
@@ -288,12 +303,21 @@ class BackendRetryMixin:
                 **kwargs,
             )
 
-        return self._run_with_retry_and_model_switch(
-            operation,
-            max_retry=max_retry,
-            retry_label="chat completion" if chat_completion else "embedding",
-            chat_completion=chat_completion,
-            embedding=embedding,
-            retry_kwargs=kwargs,
-            **kwargs,
-        )
+        try:
+            return self._run_with_retry_and_model_switch(
+                operation,
+                max_retry=max_retry,
+                retry_label="chat completion" if chat_completion else "embedding",
+                chat_completion=chat_completion,
+                embedding=embedding,
+                retry_kwargs=kwargs,
+                **kwargs,
+            )
+        except Exception as exc:
+            if not embedding or getattr(LLM_SETTINGS, "embedding_fatal_on_failure", False):
+                raise
+            input_content_list = kwargs.get("input_content_list", []) or []
+            self.embedding_degraded = True
+            self.embedding_degraded_reason = str(exc)
+            logger.warning(f"[embedding] Remote embedding failed non-fatally; degraded to no-context: {exc}")
+            return [None for _ in input_content_list]

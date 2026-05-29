@@ -86,6 +86,19 @@ def apply_pipeline_llm_config(llm_cfg: Any) -> None:
         if _has_value(value):
             setattr(LLM_SETTINGS, settings_name, value)
 
+    embedding = getattr(llm_cfg, "embedding", None)
+    if embedding is not None:
+        if _has_value(getattr(embedding, "model", None)):
+            LLM_SETTINGS.embedding_model = embedding.model
+        if _has_value(getattr(embedding, "base_url", None)):
+            LLM_SETTINGS.embedding_base_url = embedding.base_url
+        LLM_SETTINGS.use_embedding_cache = bool(getattr(embedding, "use_cache", LLM_SETTINGS.use_embedding_cache))
+        LLM_SETTINGS.dump_embedding_cache = bool(getattr(embedding, "dump_cache", LLM_SETTINGS.dump_embedding_cache))
+        LLM_SETTINGS.embedding_remote_enabled = bool(getattr(embedding, "remote_enabled", True))
+        LLM_SETTINGS.embedding_fatal_on_failure = bool(getattr(embedding, "fatal_on_failure", False))
+        LLM_SETTINGS.embedding_max_attempts = max(1, int(getattr(embedding, "max_attempts", 1) or 1))
+        LLM_SETTINGS.embedding_fallback = list(getattr(embedding, "fallback", []) or [])
+
     retry = getattr(llm_cfg, "retry", None)
     if retry is not None:
         retry_map = {

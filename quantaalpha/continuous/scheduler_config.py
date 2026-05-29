@@ -8,9 +8,11 @@ from datetime import datetime
 from typing import Any
 
 from quantaalpha.continuous.artifact_policy import ArtifactPolicyConfig
+from quantaalpha.continuous.llm_embedding_config import LLMEmbeddingConfig
 from quantaalpha.continuous.resource_governor import GovernorConfig
 from quantaalpha.continuous.workspace_retention import WorkspaceRetentionConfig
 from quantaalpha.factor_ops.performance_history import PerformanceHistoryConfig
+
 
 @dataclass
 class LLMRetryConfig:
@@ -44,24 +46,33 @@ class LLMRuntimeConfig:
     openai_request_timeout_seconds: int = 60
     openai_sdk_max_retries: int = 0
     factor_mining_timeout: int = 999999
+    embedding: LLMEmbeddingConfig = field(default_factory=LLMEmbeddingConfig)
     retry: LLMRetryConfig = field(default_factory=LLMRetryConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "LLMRuntimeConfig":
         if not d:
             return cls()
+        legacy_embedding_model = d.get("embedding_model", "")
+        legacy_embedding_base_url = d.get("embedding_base_url", "")
+        embedding = LLMEmbeddingConfig.from_dict(
+            d.get("embedding", {}),
+            legacy_model=legacy_embedding_model,
+            legacy_base_url=legacy_embedding_base_url,
+        )
         return cls(
             configured=True,
             openai_base_url=d.get("openai_base_url", ""),
             chat_model=d.get("chat_model", "gpt-4-turbo"),
             reasoning_model=d.get("reasoning_model", ""),
-            embedding_model=d.get("embedding_model", ""),
-            embedding_base_url=d.get("embedding_base_url", ""),
+            embedding_model=legacy_embedding_model or embedding.model,
+            embedding_base_url=legacy_embedding_base_url or embedding.base_url,
             chat_max_tokens=d.get("chat_max_tokens", 3000),
             chat_temperature=d.get("chat_temperature", 0.5),
             openai_request_timeout_seconds=d.get("openai_request_timeout_seconds", 60),
             openai_sdk_max_retries=d.get("openai_sdk_max_retries", 0),
             factor_mining_timeout=d.get("factor_mining_timeout", 999999),
+            embedding=embedding,
             retry=LLMRetryConfig.from_dict(d.get("retry", {})),
         )
 
@@ -939,6 +950,7 @@ class PipelineConfig:
                 "reasoning_model": self.llm.reasoning_model,
                 "embedding_model": self.llm.embedding_model,
                 "embedding_base_url": self.llm.embedding_base_url,
+                "embedding": self.llm.embedding.to_dict(),
                 "chat_max_tokens": self.llm.chat_max_tokens,
                 "chat_temperature": self.llm.chat_temperature,
                 "openai_request_timeout_seconds": self.llm.openai_request_timeout_seconds,

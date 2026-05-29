@@ -618,6 +618,12 @@ def infer_failure_attribution(
     diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build deterministic failure attribution when LLM feedback is unavailable."""
+    from quantaalpha.factors.failure_tracker import quality_failure_reasons_from_diagnostics
+    from quantaalpha.pipeline.quality_reason_metadata import (
+        legacy_reason_to_quality_reason,
+        quality_reason_metadata,
+    )
+
     diagnostics = diagnostics or {}
     reasons = list(diagnostics.get("failure_reasons") or [])
     rank_ic_test = _metric_value(metrics, "rank_ic_test", "Rank IC")
@@ -647,10 +653,23 @@ def infer_failure_attribution(
         "repair_template": repair_template_for_failure(primary),
         "do_not_repeat": [f"Do not repeat factors with primary failure `{primary}` without addressing it."],
     }
+    quality_failure_reasons = quality_failure_reasons_from_diagnostics(
+        metrics=metrics,
+        diagnostics=diagnostics,
+    )
+    if not quality_failure_reasons:
+        quality_failure_reasons = [legacy_reason_to_quality_reason(primary)]
+    primary_quality_reason = quality_failure_reasons[0] if quality_failure_reasons else "UNKNOWN"
+    reason_meta = quality_reason_metadata(primary_quality_reason)
     return {
         "decision": "quarantine" if primary == "lookahead_risk" else "rejected",
         "primary_failure_reason": primary,
         "secondary_failure_reasons": secondary,
+        "quality_failure_reasons": quality_failure_reasons,
+        "primary_quality_failure_reason": primary_quality_reason,
+        "reason_code": primary_quality_reason,
+        "reason_group": reason_meta["group"],
+        "reason_severity": reason_meta["severity"],
         "diagnostics": {
             "predictive_power": "weak" if primary in {"weak_ic", "weak_oos_ic"} else "acceptable",
             "stability": "unstable" if primary in {"weak_oos_ic", "ic_decay"} else "acceptable",

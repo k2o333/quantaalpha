@@ -40,6 +40,7 @@ from quantaalpha.continuous.scheduler_config import (
     ExecutionConfig,
     ExecutionPeriod,
     FactorConfig,
+    LLMEmbeddingConfig,
     LLMRetryConfig,
     LLMRuntimeConfig,
     MiningConfig,

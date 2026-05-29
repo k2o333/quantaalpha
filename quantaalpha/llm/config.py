@@ -50,6 +50,10 @@ class LLMSettings(ExtendedBaseSettings):
     embedding_batch_wait_seconds: float = 2.0
     embedding_api_key: str = ""
     embedding_base_url: str = ""
+    embedding_remote_enabled: bool = True
+    embedding_fatal_on_failure: bool = False
+    embedding_max_attempts: int = 1
+    embedding_fallback: list[str] = []
 
     # Azure (optional)
     use_azure: bool = False

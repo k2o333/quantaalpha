@@ -122,6 +122,10 @@ class MiningSetupMixin:
 
         self._escalation_state = None
 
+    def set_circuit_breaker(self, circuit_breaker) -> None:
+        """Attach a pre-mining circuit breaker state object."""
+        self._circuit_breaker = circuit_breaker
+
     def _try_acquire_global_compute_lock(self, scheduler: str, run_id: str):
         from pathlib import Path
 
@@ -314,6 +318,22 @@ class MiningSetupMixin:
 
         start_time = dt.now()
         result = MiningResult(timestamp=start_time)
+        circuit_breaker = getattr(self, "_circuit_breaker", None)
+        if circuit_breaker is not None:
+            should_skip, reason = circuit_breaker.should_skip_mining(start_time)
+            if should_skip:
+                result.governance_events.append(
+                    {
+                        "event": "circuit_breaker_decision",
+                        "allowed": False,
+                        "action": "skip_mining",
+                        "reason": reason,
+                        "scheduler": "mining",
+                    }
+                )
+                result.duration_seconds = (dt.now() - start_time).total_seconds()
+                self._update_next_run()
+                return result
         lock, governance_event = self._try_acquire_global_compute_lock(
             scheduler="mining",
             run_id=str(uuid.uuid4())[:8],

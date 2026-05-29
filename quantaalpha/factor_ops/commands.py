@@ -15,6 +15,34 @@ from quantaalpha.factor_ops.workflows.status import StatusWorkflowRunner
 class FactorOpsCommands:
     """factor_ops CLI 命令组。"""
 
+    def validate_training_evidence(self, evidence_path: str):
+        """验证 training production evidence parquet 是否可供 factor_ops 消费。"""
+        import polars as pl
+
+        frame = pl.read_parquet(evidence_path)
+        required = {"factor_id", "factor_name", "evidence_source"}
+        missing = sorted(required - set(frame.columns))
+        if missing:
+            return {
+                "status": "error",
+                "reason": "missing columns: " + ", ".join(missing),
+                "rows": frame.height,
+            }
+        sources = sorted(str(value) for value in frame.get_column("evidence_source").unique().to_list())
+        if sources != ["production"]:
+            return {
+                "status": "error",
+                "reason": "expected evidence_source=production",
+                "evidence_sources": sources,
+                "rows": frame.height,
+            }
+        return {
+            "status": "ok",
+            "evidence_source": "production",
+            "rows": frame.height,
+            "factor_ids": frame.get_column("factor_id").drop_nulls().unique().to_list(),
+        }
+
     def status(self, library_path: str):
         """返回因子池运营状态。"""
         return StatusWorkflowRunner().run(library_path=library_path)
