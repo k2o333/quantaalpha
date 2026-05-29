@@ -117,6 +117,7 @@ def _configure_standard_frame_capabilities(
         data_capabilities = capabilities_from_mining_admission_profile(profile)
         if data_capabilities and "data_capabilities" not in quality_gate_config:
             quality_gate_config["data_capabilities"] = data_capabilities
+            quality_gate_config.setdefault("data_capability_source", "admission")
         _prepare_standard_frame(backtest_noqlib_config)
         return
 
@@ -130,6 +131,7 @@ def _configure_standard_frame_capabilities(
         )
         if data_capabilities and "data_capabilities" not in quality_gate_config:
             quality_gate_config["data_capabilities"] = data_capabilities
+            quality_gate_config.setdefault("data_capability_source", "admission")
         _prepare_standard_frame(backtest_noqlib_config)
 
 
@@ -281,6 +283,10 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
             scen_kwargs = {}
             if self.quality_gate_config.get("data_capabilities"):
                 scen_kwargs["data_capabilities"] = self.quality_gate_config["data_capabilities"]
+            if self.quality_gate_config.get("data_capability_source"):
+                scen_kwargs["data_capability_source"] = self.quality_gate_config["data_capability_source"]
+            if self.quality_gate_config.get("data_capability_report_path"):
+                scen_kwargs["data_capability_report_path"] = self.quality_gate_config["data_capability_report_path"]
             scen: Scenario = import_class(PROP_SETTING.scen)(use_local=use_local, **scen_kwargs)
             logger.log_object(scen, tag="scenario")
 

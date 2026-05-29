@@ -35,6 +35,10 @@ DATA_CAPABILITIES: dict[str, dict[str, Any]] = {
 }
 
 
+class DataCapabilityReportError(RuntimeError):
+    """Raised when strict report loading cannot produce capabilities."""
+
+
 DEFAULT_CAPABILITY_SPEC: dict[str, Any] = {
     "fields": [],
     "freq": "daily",
@@ -170,6 +174,7 @@ def normalize_capability_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
 def load_from_report(
     report_path: str | Path | None = None,
     saturation_threshold: float = 0.5,
+    fallback_to_defaults: bool = True,
 ) -> dict[str, dict[str, Any]]:
     """
     Load data capabilities from a JSON report file.
@@ -195,16 +200,22 @@ def load_from_report(
     resolved_path = _resolve_report_path(report_path)
 
     if resolved_path is None:
+        if not fallback_to_defaults:
+            raise DataCapabilityReportError("data capability report not found")
         # Fallback to DATA_CAPABILITIES
         return dict(DATA_CAPABILITIES)
 
     raw_report = _load_raw_report(resolved_path)
     if raw_report is None:
+        if not fallback_to_defaults:
+            raise DataCapabilityReportError(f"data capability report is invalid: {resolved_path}")
         # Fallback to DATA_CAPABILITIES
         return dict(DATA_CAPABILITIES)
 
     interfaces = raw_report.get("interfaces", {})
     if not interfaces:
+        if not fallback_to_defaults:
+            raise DataCapabilityReportError(f"data capability report has no interfaces: {resolved_path}")
         return dict(DATA_CAPABILITIES)
 
     capabilities: dict[str, dict[str, Any]] = {}
@@ -212,10 +223,9 @@ def load_from_report(
     storage_root = raw_report.get("_meta", {}).get("storage_root", "")
 
     for name, info in interfaces.items():
-        # Require semantic block after flat-compat removal.
         semantic = info.get("semantic")
         if not semantic:
-            continue
+            semantic = info
         field_aliases = semantic.get("field_aliases")
 
         # Skip if no field_aliases (not useful for factor mining)
@@ -223,7 +233,7 @@ def load_from_report(
             continue
 
         # V1: tolerate _saturation: null (do not filter by saturation)
-        best_sat = _get_best_saturation(info.get("_saturation"))
+        best_sat = _get_best_saturation(info.get("_saturation", info.get("periods")))
         if best_sat is not None and best_sat < saturation_threshold:
             continue
 
@@ -276,9 +286,31 @@ def load_from_report(
 
     # If no capabilities loaded, fallback to DATA_CAPABILITIES
     if not capabilities:
+        if not fallback_to_defaults:
+            raise DataCapabilityReportError(f"data capability report has no usable capabilities: {resolved_path}")
         return dict(DATA_CAPABILITIES)
 
     return capabilities
+
+
+def resolve_prompt_capabilities(
+    *,
+    source: str = "defaults",
+    data_capabilities: Mapping[str, Mapping[str, Any]] | None = None,
+    report_path: str | Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve prompt capabilities from an explicit source."""
+
+    normalized_source = str(source or "defaults")
+    if normalized_source == "defaults":
+        return get_data_capabilities(data_capabilities)
+    if normalized_source in {"explicit", "admission"}:
+        if not data_capabilities:
+            raise ValueError(f"{normalized_source} prompt capability source requires data_capabilities")
+        return get_data_capabilities(data_capabilities)
+    if normalized_source == "report":
+        return get_data_capabilities(load_from_report(report_path, fallback_to_defaults=False))
+    raise ValueError(f"Unknown prompt capability source: {source}")
 
 
 def get_data_capabilities(

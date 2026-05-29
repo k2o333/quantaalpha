@@ -47,6 +47,7 @@ profiles:
 
     standard_frame = backtest_config["standard_frame"]
     assert standard_frame["admitted_fields"][0]["base"]["feature_name"] == "$daily_basic_pe"
+    assert quality_gate_config["data_capability_source"] == "admission"
     assert quality_gate_config["data_capabilities"]["daily_panel_features"]["fields"] == ["$daily_basic_pe"]
     assert calls == [backtest_config]
 

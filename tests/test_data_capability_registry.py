@@ -6,6 +6,8 @@ import types
 from pathlib import Path
 import os
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG_ROOT = ROOT / "quantaalpha"
@@ -47,16 +49,27 @@ def _ensure_experiment_stubs() -> None:
         qlib_utils_mod.get_data_folder_intro = lambda use_local=True: f"base_source_data(use_local={use_local})"
         sys.modules["quantaalpha.factors.qlib_utils"] = qlib_utils_mod
 
-    if "quantaalpha.log" not in sys.modules:
+    log_mod = sys.modules.get("quantaalpha.log")
+    if log_mod is None:
         log_mod = types.ModuleType("quantaalpha.log")
-        log_mod.warning_calls = []
-
-        class _Logger:
-            def warning(self, *args, **kwargs) -> None:
-                log_mod.warning_calls.append((args, kwargs))
-
-        log_mod.logger = _Logger()
         sys.modules["quantaalpha.log"] = log_mod
+    log_mod.warning_calls = []
+
+    class LogColors:
+        pass
+
+    class _Logger:
+        def warning(self, *args, **kwargs) -> None:
+            log_mod.warning_calls.append((args, kwargs))
+
+        def info(self, *args, **kwargs) -> None:
+            pass
+
+        def error(self, *args, **kwargs) -> None:
+            pass
+
+    log_mod.LogColors = getattr(log_mod, "LogColors", LogColors)
+    log_mod.logger = _Logger()
 
     if "rdagent" not in sys.modules:
         sys.modules["rdagent"] = types.ModuleType("rdagent")
@@ -431,6 +444,68 @@ def test_load_from_report_fallback_to_data_capabilities_on_missing_report():
     assert isinstance(result, dict)
     assert "price_volume" in result
     assert "financial" in result
+
+
+def test_load_from_report_strict_mode_rejects_missing_report():
+    """Strict report mode must not silently fall back to DATA_CAPABILITIES."""
+    data_capability = _load_module(
+        "quantaalpha.factors.data_capability",
+        PKG_ROOT / "factors" / "data_capability.py",
+    )
+
+    with pytest.raises(data_capability.DataCapabilityReportError):
+        data_capability.load_from_report(
+            Path("/nonexistent/path/report.json"),
+            fallback_to_defaults=False,
+        )
+
+
+def test_load_from_report_reads_app5_schema_v3(tmp_path):
+    """The consumer must load the App5 schema v3 semantic block."""
+    data_capability = _load_module(
+        "quantaalpha.factors.data_capability",
+        PKG_ROOT / "factors" / "data_capability.py",
+    )
+
+    report = {
+        "_meta": {"schema_version": 3, "storage_root": str(tmp_path / "data")},
+        "interfaces": {
+            "daily": {
+                "semantic": {
+                    "field_aliases": ["$open", "$close"],
+                    "freq": "daily",
+                    "lag_days": 0,
+                    "join_mode": "same_day",
+                    "mode": "reverse_date_range",
+                    "layer": "main_daily",
+                    "is_auxiliary": False,
+                    "factor_hints": ["momentum"],
+                },
+                "_saturation": None,
+            },
+            "income_vip": {
+                "semantic": {
+                    "field_aliases": ["$basic_eps"],
+                    "freq": "quarterly",
+                    "lag_days": 45,
+                    "join_mode": "forward_fill",
+                    "mode": "period_range",
+                    "layer": "financial_pit",
+                    "is_auxiliary": False,
+                    "factor_hints": ["fundamental"],
+                },
+                "_saturation": None,
+            },
+        },
+    }
+    report_path = tmp_path / ".data_capability_report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    result = data_capability.load_from_report(report_path, fallback_to_defaults=False)
+
+    assert result["daily"]["fields"] == ["$open", "$close"]
+    assert result["income_vip"]["storage_kind"] == "financial_pit_parquet"
+    assert result["income_vip"]["storage_path"].endswith("/.financial_pit/income_vip.parquet")
 
 
 def test_load_from_report_respects_saturation_threshold(tmp_path):

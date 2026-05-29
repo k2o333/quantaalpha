@@ -192,3 +192,17 @@ def test_construct_prompt_field_hint_includes_base_and_admitted_fields() -> None
     assert "$return" in hint
     assert "$daily_basic_turnover_rate" in hint
     assert "$moneyflow_buy_sm_amount" in hint
+
+
+def test_expanded_visibility_requires_configured_capability_source() -> None:
+    from quantaalpha.factors.data_capability import resolve_prompt_capabilities
+
+    try:
+        resolve_prompt_capabilities(source="admission")
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected admission source without explicit capabilities to fail")
+
+    assert "admission" in message
+    assert "data_capabilities" in message

@@ -23,7 +23,7 @@ from quantaalpha.factors.workspace import QlibFBWorkspace
 from rdagent.scenarios.qlib.experiment.factor_experiment import (
     QlibFactorExperiment as _OrigQlibFactorExperiment,
 )
-from quantaalpha.factors.data_capability import render_data_capabilities, render_financial_pit_panel_preview
+from quantaalpha.factors.data_capability import load_from_report, render_data_capabilities, render_financial_pit_panel_preview
 from quantaalpha.log import logger
 
 
@@ -137,7 +137,13 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
 
         registry_enabled = kwargs.pop("data_capability_registry_enabled", None)
         capabilities = kwargs.pop("data_capabilities", None)
+        capability_source = kwargs.pop("data_capability_source", None)
+        report_path = kwargs.pop("data_capability_report_path", None)
         config_path = kwargs.pop("experiment_config_path", EXPERIMENT_CONFIG_PATH)
+        if capability_source == "report":
+            capabilities = load_from_report(report_path, fallback_to_defaults=False)
+        elif capability_source == "admission" and not capabilities:
+            raise ValueError("admission data capability source requires data_capabilities")
         self.data_capabilities = capabilities
 
         Scenario.__init__(self)
@@ -163,6 +169,7 @@ class QlibAlphaAgentScenario(QlibFactorScenario):
 
             logger.warning(
                 f"Failed to inject data capability registry, falling back to basic source data: {exc}",
+                exc_info=True,
             )
             source_data = deepcopy(local_get_data_folder_intro(use_local=use_local))
         self._source_data = source_data
