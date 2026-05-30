@@ -753,7 +753,7 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
 
 def _apply_expanded_data_profile(pipeline_config) -> None:
     from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist
-    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+    from quantaalpha.backtest.mining_admission import filter_mining_admission_profile, load_mining_admission_profile
     from quantaalpha.continuous.scheduler import ModelConfig
 
     pipeline_config.validation.max_revalidation_per_run = 0
@@ -776,6 +776,7 @@ def _apply_expanded_data_profile(pipeline_config) -> None:
     if admission_profile_path:
         profile_name = str(standard_frame.get("admission_profile") or "expanded_app5_v1")
         profile = load_mining_admission_profile(admission_profile_path, profile_name)
+        profile = filter_mining_admission_profile(profile, standard_frame.get("admission_filter"))
         standard_frame["admission_profile"] = profile.name
         standard_frame["admission_profile_hash"] = profile.version_hash()
         standard_frame["admitted_fields"] = [field.identity() for field in profile.fields]

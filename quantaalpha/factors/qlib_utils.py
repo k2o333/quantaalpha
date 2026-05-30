@@ -74,13 +74,14 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
     optional_fields = standard_frame_cfg.get("optional_fields") or ()
     admitted_fields = standard_frame_cfg.get("admitted_fields") or ()
     if not admitted_fields and standard_frame_cfg.get("admission_profile_path"):
-        from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+        from quantaalpha.backtest.mining_admission import filter_mining_admission_profile, load_mining_admission_profile
 
         profile_path = Path(str(standard_frame_cfg["admission_profile_path"]))
         if not profile_path.is_absolute():
             profile_path = project_root / profile_path
         profile_name = str(standard_frame_cfg.get("admission_profile") or "expanded_app5_v1")
         profile = load_mining_admission_profile(profile_path, profile_name)
+        profile = filter_mining_admission_profile(profile, standard_frame_cfg.get("admission_filter"))
         admitted_fields = [field.identity() for field in profile.fields]
         standard_frame_cfg["admitted_fields"] = admitted_fields
         standard_frame_cfg["admission_profile"] = profile.name

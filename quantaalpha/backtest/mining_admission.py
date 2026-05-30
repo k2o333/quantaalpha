@@ -143,6 +143,7 @@ class MiningAdmissionField:
     scale: float | None = None
     source_methodology: str | None = None
     duplicate_of: str | None = None
+    lineage_interfaces: tuple[str, ...] = ()
 
     @property
     def feature_name(self) -> str:
@@ -261,6 +262,7 @@ class MiningAdmissionField:
             "scale": self.scale,
             "source_methodology": self.source_methodology,
             "duplicate_of": self.duplicate_of,
+            "lineage_interfaces": list(self.lineage_interfaces),
         }
 
 
@@ -332,6 +334,50 @@ def load_mining_admission_profile(
         base_standard_frame=dict(raw_profile.get("base_standard_frame", {}) or {}),
         fields=fields,
         blocked_interfaces=blocked_interfaces,
+    )
+
+
+def filter_mining_admission_profile(
+    profile: MiningAdmissionProfile,
+    filter_config: Mapping[str, object] | None,
+) -> MiningAdmissionProfile:
+    """Apply per-run include/exclude filters to a governed admission profile."""
+
+    if not filter_config:
+        return profile
+    if not isinstance(filter_config, Mapping):
+        raise ValueError("standard_frame.admission_filter must be a mapping")
+
+    include_source_interfaces = _string_set(filter_config.get("include_source_interfaces"))
+    exclude_source_interfaces = _string_set(filter_config.get("exclude_source_interfaces"))
+    include_feature_names = _string_set(filter_config.get("include_feature_names"))
+    exclude_feature_names = _string_set(filter_config.get("exclude_feature_names"))
+    include_source_kinds = _string_set(filter_config.get("include_source_kinds"))
+    exclude_source_kinds = _string_set(filter_config.get("exclude_source_kinds"))
+
+    fields: list[MiningAdmissionField] = []
+    for field in profile.fields:
+        field_interfaces = {field.source_interface, *field.lineage_interfaces}
+        if include_source_interfaces and not (field_interfaces & include_source_interfaces):
+            continue
+        if include_feature_names and field.feature_name not in include_feature_names:
+            continue
+        if include_source_kinds and field.source_kind not in include_source_kinds:
+            continue
+        if exclude_source_interfaces and field_interfaces & exclude_source_interfaces:
+            continue
+        if exclude_feature_names and field.feature_name in exclude_feature_names:
+            continue
+        if exclude_source_kinds and field.source_kind in exclude_source_kinds:
+            continue
+        fields.append(field)
+
+    return MiningAdmissionProfile(
+        name=str(filter_config.get("name") or f"{profile.name}:filtered"),
+        version=profile.version,
+        base_standard_frame=profile.base_standard_frame,
+        fields=tuple(fields),
+        blocked_interfaces=profile.blocked_interfaces,
     )
 
 
@@ -517,6 +563,7 @@ def _field_from_mapping(payload: object, *, registry_path: str | Path | None) ->
         scale=float(payload["scale"]) if "scale" in payload else None,
         source_methodology=str(payload["source_methodology"]) if "source_methodology" in payload else None,
         duplicate_of=str(payload["duplicate_of"]) if "duplicate_of" in payload else None,
+        lineage_interfaces=tuple(str(item) for item in (payload.get("lineage_interfaces") or ())),
     )
 
 
@@ -547,6 +594,7 @@ def _admitted_field_from_identity(payload: object) -> MiningAdmissionField:
         scale=float(payload["scale"]) if payload.get("scale") is not None else None,
         source_methodology=payload.get("source_methodology"),
         duplicate_of=payload.get("duplicate_of"),
+        lineage_interfaces=tuple(str(item) for item in (payload.get("lineage_interfaces") or ())),
     )
 
 
@@ -559,7 +607,19 @@ def _field_metadata(field: MiningAdmissionField) -> dict[str, object]:
     }
     if field.duplicate_of:
         metadata["duplicate_of"] = field.duplicate_of
+    if field.lineage_interfaces:
+        metadata["lineage_interfaces"] = list(field.lineage_interfaces)
     return metadata
+
+
+def _string_set(value: object) -> set[str]:
+    if value in (None, ""):
+        return set()
+    if isinstance(value, str):
+        return {value}
+    if not isinstance(value, Sequence) or isinstance(value, (bytes, bytearray)):
+        raise ValueError("admission filter values must be strings or sequences of strings")
+    return {str(item) for item in value}
 
 
 def _validate_expression_semantic_metadata(payload: Mapping[str, object]) -> None:

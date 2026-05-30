@@ -97,6 +97,64 @@ profiles:
     assert quality_gate_config["data_capabilities"]["daily_panel_features"]["fields"] == ["$daily_basic_pe"]
 
 
+def test_standard_frame_capability_wiring_applies_per_run_interface_filter(tmp_path, monkeypatch) -> None:
+    from quantaalpha.pipeline import loop
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    profile_path.write_text(
+        """
+version: 1
+profiles:
+  mini:
+    fields:
+      - feature_name: "$daily_basic_pe"
+        semantic_type: valuation_ratio
+        unit: ratio
+        scale: 1
+        source_methodology: tushare_daily_basic
+        source_kind: daily_panel
+        source_interface: daily_basic
+        source_field: pe
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: same_trade_date_no_lookahead
+        missing_policy: nan
+        allowed_usage: [expression, backtest_standard_frame]
+      - feature_name: "$cyq_chips_chip_entropy"
+        semantic_type: distribution_entropy
+        unit: nats
+        scale: 1
+        source_methodology: app5_cyq_chips_scalar_v1
+        source_kind: daily_panel
+        source_interface: cyq_chips_scalar
+        lineage_interfaces: [cyq_chips]
+        source_field: chip_entropy
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: same_trade_date_no_lookahead
+        missing_policy: nan
+        allowed_usage: [expression, backtest_standard_frame]
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(loop, "prepare_data_folder_from_standard_frame", lambda _config: None, raising=False)
+    quality_gate_config: dict = {}
+    backtest_config = {
+        "standard_frame": {
+            "daily_interface": "daily",
+            "admission_profile_path": str(profile_path),
+            "admission_profile": "mini",
+            "admission_filter": {"exclude_source_interfaces": ["cyq_chips"]},
+        }
+    }
+
+    loop._configure_standard_frame_capabilities(backtest_config, quality_gate_config)
+
+    standard_frame = backtest_config["standard_frame"]
+    assert [item["base"]["feature_name"] for item in standard_frame["admitted_fields"]] == ["$daily_basic_pe"]
+    assert quality_gate_config["data_capabilities"]["daily_panel_features"]["fields"] == ["$daily_basic_pe"]
+
+
 def test_standard_frame_capability_wiring_keeps_optional_fields_and_reuses_admitted_fields(monkeypatch) -> None:
     from quantaalpha.backtest.contracts import OptionalStandardFrameField
     from quantaalpha.backtest.mining_admission import MiningAdmissionField

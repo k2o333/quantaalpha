@@ -653,7 +653,11 @@ def test_production_expanded_profile_admits_only_first_cyq_perf_cost_tranche() -
 
 
 def test_production_expanded_profile_admits_cyq_chips_scalar_not_raw_distribution() -> None:
-    from quantaalpha.backtest.mining_admission import load_mining_admission_profile, validate_admission_profile
+    from quantaalpha.backtest.mining_admission import (
+        filter_mining_admission_profile,
+        load_mining_admission_profile,
+        validate_admission_profile,
+    )
 
     profile = load_mining_admission_profile(
         Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
@@ -677,6 +681,7 @@ def test_production_expanded_profile_admits_cyq_chips_scalar_not_raw_distributio
         "$cyq_chips_width_5_95",
     }
     assert all(field.source_interface == "cyq_chips_scalar" for field in cyq_chip_fields.values())
+    assert all(field.lineage_interfaces == ("cyq_chips",) for field in cyq_chip_fields.values())
     assert all(field.source_kind == "daily_panel" for field in cyq_chip_fields.values())
     assert "cyq_chips" not in {field.source_interface for field in profile.fields}
     assert "cyq_chips" not in report["coverage"]["blocked_interfaces"]
@@ -684,6 +689,13 @@ def test_production_expanded_profile_admits_cyq_chips_scalar_not_raw_distributio
     for name in cyq_chip_fields:
         assert report["routes"][name]["materializer"] == "_join_daily_panel_batch"
         assert report["routes"][name]["prompt_visible"] is True
+
+    filtered = filter_mining_admission_profile(
+        profile,
+        {"exclude_source_interfaces": ["cyq_chips"]},
+    )
+    assert not any(field.feature_name.startswith("$cyq_chips_") for field in filtered.fields)
+    assert not any("cyq_chips" in field.lineage_interfaces for field in filtered.fields)
 
 
 def test_real_hfq_expanded_profile_smoke_materializes_small_frame() -> None:

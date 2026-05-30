@@ -99,6 +99,7 @@ def _configure_standard_frame_capabilities(
     if admission_profile_path:
         from quantaalpha.backtest.mining_admission import (
             capabilities_from_mining_admission_profile,
+            filter_mining_admission_profile,
             load_mining_admission_profile,
             profile_from_standard_frame_config,
         )
@@ -109,6 +110,7 @@ def _configure_standard_frame_capabilities(
             profile_name = str(standard_frame_cfg.get("admission_profile") or "expanded_app5_v1")
             resolved_path = _resolve_profile_path(str(admission_profile_path), backtest_noqlib_config)
             profile = load_mining_admission_profile(resolved_path, profile_name)
+            profile = filter_mining_admission_profile(profile, standard_frame_cfg.get("admission_filter"))
             standard_frame_cfg["admission_profile_path"] = str(resolved_path)
             standard_frame_cfg["admission_profile"] = profile.name
             standard_frame_cfg["admission_profile_hash"] = profile.version_hash()
