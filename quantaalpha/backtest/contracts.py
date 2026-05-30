@@ -57,7 +57,7 @@ EXPLICIT_APP5_INTERFACE_CLASSIFICATION: dict[str, tuple[str, str]] = {
     "moneyflow_cnt_ths": ("daily_panel", "Daily THS concept money-flow context."),
     "cyq_chips": ("daily_panel", "Daily chip-distribution panel joined by trade date and instrument."),
     "cyq_perf": ("daily_panel", "Daily chip-performance panel joined by trade date and instrument."),
-    "stock_hsgt": ("daily_panel", "Daily northbound/southbound holding panel."),
+    "stock_hsgt": ("tradability", "Daily northbound/southbound tradability membership source."),
     "index_weight": ("benchmark", "Index constituent weight source for benchmark/universe construction."),
     "index_daily": ("benchmark", "Index OHLCV/return source for benchmark-relative evaluation context."),
     "trade_cal": ("tradability", "Exchange calendar source for tradable days."),

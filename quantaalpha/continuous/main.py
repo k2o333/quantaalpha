@@ -716,6 +716,10 @@ def _apply_uat_profile(pipeline_config, profile: str) -> None:
     pipeline_config.cycle_budget_seconds = min(int(pipeline_config.cycle_budget_seconds), 900)
     pipeline_config.validation.max_revalidation_per_run = min(int(pipeline_config.validation.max_revalidation_per_run), 1)
     pipeline_config.validation.max_mining_per_run = min(int(pipeline_config.validation.max_mining_per_run), 1)
+    app4_bridge = getattr(pipeline_config, "app4_bridge", None)
+    if app4_bridge is not None and getattr(app4_bridge, "enabled", False):
+        app4_bridge.enabled = False
+        logger.info("Continuous UAT profile set app4_bridge.enabled=False for cache-only execution.")
 
     mining_config = getattr(pipeline_config, "mining", None)
     if mining_config is not None:

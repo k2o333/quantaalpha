@@ -322,6 +322,162 @@ profiles:
     assert report["routes"]["$daily_basic_turnover_rate"]["materializer"] == "_join_daily_panel_batch"
     assert report["routes"]["$daily_basic_turnover_rate"]["semantic_type"] == "ratio"
     assert report["routes"]["$share_float_asof"]["prompt_visible"] is False
+    assert report["coverage"]["accepted_field_count"] == 2
+    assert report["coverage"]["prompt_visible_field_count"] == 1
+    assert report["coverage"]["usage_counts"]["context"] == 1
+    assert report["coverage"]["source_kind_counts"] == {"daily_panel": 1, "dimension_asof": 1}
+    assert "daily_basic" in report["coverage"]["admitted_interfaces"]
+    assert "stock_basic" in report["coverage"]["unadmitted_interfaces"]
+
+
+def test_non_expression_runtime_source_kinds_validate_and_report_routes(tmp_path: Path) -> None:
+    from quantaalpha.backtest.mining_admission import validate_admission_profile
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    _write_profile(
+        profile_path,
+        """
+version: 1
+profiles:
+  test:
+    fields:
+      - feature_name: "$is_suspended_external"
+        source_kind: tradability_mask
+        source_interface: suspend_d
+        source_field: suspend_type
+        date_column: trade_date
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: tradability_state_no_lookahead
+        missing_policy: zero
+        allowed_usage: [tradability, context, backtest_standard_frame]
+      - feature_name: "$benchmark_hs300_return"
+        source_kind: benchmark_daily_context
+        source_interface: index_daily
+        source_field: pct_chg
+        date_column: trade_date
+        index_code: 000300.SH
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: benchmark_same_trade_date_no_lookahead
+        missing_policy: nan
+        allowed_usage: [benchmark, context, backtest_standard_frame]
+      - feature_name: "$mkt_moneyflow_net_amount"
+        source_kind: market_context_daily
+        source_interface: moneyflow_mkt_dc
+        source_field: net_amount
+        date_column: trade_date
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: same_trade_date_broadcast_no_lookahead
+        missing_policy: nan
+        allowed_usage: [context, backtest_standard_frame]
+""",
+    )
+
+    report = validate_admission_profile(profile_path, "test")
+
+    assert report["coverage"]["source_kind_counts"] == {
+        "benchmark_daily_context": 1,
+        "market_context_daily": 1,
+        "tradability_mask": 1,
+    }
+    assert report["coverage"]["usage_counts"]["benchmark"] == 1
+    assert report["coverage"]["usage_counts"]["tradability"] == 1
+    assert report["coverage"]["prompt_visible_field_count"] == 0
+    assert report["routes"]["$is_suspended_external"]["materializer"] == "_join_tradability_mask_batch"
+    assert report["routes"]["$benchmark_hs300_return"]["materializer"] == "_join_benchmark_daily_context_batch"
+    assert report["routes"]["$mkt_moneyflow_net_amount"]["materializer"] == "_join_market_context_daily_batch"
+
+
+def test_non_expression_source_kinds_reject_expression_usage(tmp_path: Path) -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    _write_profile(
+        profile_path,
+        """
+version: 1
+profiles:
+  test:
+    fields:
+      - feature_name: "$is_suspended_external"
+        semantic_type: tradability_flag
+        unit: bool
+        scale: 1
+        source_methodology: tushare_suspend_d
+        source_kind: tradability_mask
+        source_interface: suspend_d
+        source_field: suspend_type
+        date_column: trade_date
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: tradability_state_no_lookahead
+        missing_policy: zero
+        allowed_usage: [expression, backtest_standard_frame]
+""",
+    )
+
+    with pytest.raises(ValueError, match="tradability_mask.*not expression-safe"):
+        load_mining_admission_profile(profile_path, "test")
+
+
+def test_validate_admission_profile_accounts_for_blocked_interfaces(tmp_path: Path) -> None:
+    from quantaalpha.backtest.mining_admission import validate_admission_profile
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    _write_profile(
+        profile_path,
+        """
+version: 1
+profiles:
+  test:
+    blocked_interfaces:
+      stock_basic: "dimension context is handled in a separate profile"
+    fields:
+      - feature_name: "$daily_basic_turnover_rate"
+        semantic_type: ratio
+        unit: percent
+        scale: 1
+        source_methodology: tushare_daily_basic
+        source_kind: daily_panel
+        source_interface: daily_basic
+        source_field: turnover_rate
+        dtype: float64
+        join_key: [datetime, instrument]
+        time_policy: same_trade_date_no_lookahead
+        missing_policy: nan
+        allowed_usage: [expression, backtest_standard_frame]
+""",
+    )
+
+    report = validate_admission_profile(profile_path, "test")
+
+    assert report["coverage"]["blocked_interfaces"] == {
+        "stock_basic": "dimension context is handled in a separate profile"
+    }
+    assert "stock_basic" in report["coverage"]["unadmitted_interfaces"]
+    assert "stock_basic" not in report["coverage"]["unaccounted_interfaces"]
+
+
+def test_blocked_interfaces_must_be_classified(tmp_path: Path) -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile
+
+    profile_path = tmp_path / "factor_mining_data_admission.yaml"
+    _write_profile(
+        profile_path,
+        """
+version: 1
+profiles:
+  test:
+    blocked_interfaces:
+      not_an_interface: "bad"
+    fields: []
+""",
+    )
+
+    with pytest.raises(ValueError, match="blocked interface is not classified.*not_an_interface"):
+        load_mining_admission_profile(profile_path, "test")
 
 
 def test_production_expanded_profile_exposes_audited_expression_interfaces() -> None:
@@ -335,13 +491,40 @@ def test_production_expanded_profile_exposes_audited_expression_interfaces() -> 
     expression_fields = [field for field in profile.fields if "expression" in field.allowed_usage]
     expression_interfaces = {field.source_interface for field in expression_fields}
 
-    assert len(expression_interfaces) == 24
+    assert len(expression_interfaces) == 26
     assert "stock_basic" not in expression_interfaces
     assert "trade_cal" not in expression_interfaces
     assert "index_weight" not in expression_interfaces
+    assert "index_daily" not in expression_interfaces
+    assert "suspend_d" not in expression_interfaces
+    assert "stock_st" not in expression_interfaces
+    assert "moneyflow_mkt_dc" not in expression_interfaces
     assert "daily" not in expression_interfaces
     assert "pledge_stat" not in expression_interfaces
     assert "disclosure_date" not in expression_interfaces
+
+
+def test_production_expanded_profile_unblocks_company_and_hsgt_as_non_expression_context() -> None:
+    from quantaalpha.backtest.mining_admission import validate_admission_profile
+
+    report = validate_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+
+    blocked = report["coverage"]["blocked_interfaces"]
+    routes = report["routes"]
+
+    assert "stock_company" not in blocked
+    assert "stock_hsgt" not in blocked
+    assert "stock_company" in report["coverage"]["admitted_interfaces"]
+    assert "stock_hsgt" in report["coverage"]["admitted_interfaces"]
+    assert len(blocked) == 8
+    assert routes["$stock_company_reg_capital_asof"]["prompt_visible"] is False
+    assert routes["$stock_company_employees_asof"]["prompt_visible"] is False
+    assert routes["$is_hsgt_external"]["prompt_visible"] is False
+    assert routes["$stock_company_reg_capital_asof"]["materializer"] == "_join_dimension_asof_batch"
+    assert routes["$is_hsgt_external"]["materializer"] == "_join_tradability_mask_batch"
 
 
 def test_production_expanded_profile_has_expression_field_semantics() -> None:
@@ -365,6 +548,19 @@ def test_production_expanded_profile_has_expression_field_semantics() -> None:
     assert "$pledge_detail_vol_180d" in expression_names
     assert "$stk_holdertrade_amount_180d" not in fields_by_name
     assert "$stk_holdertrade_vol_180d" in expression_names
+    assert "$daily_basic_pe_ttm" in expression_names
+    assert "$moneyflow_net_mf_amount" in expression_names
+    assert "$fina_indicator_debt_to_assets_asof" in expression_names
+    assert "$namechange_count_365d" in expression_names
+    assert "$stk_managers_count_365d" in expression_names
+    assert fields_by_name["$is_suspended_external"].allowed_usage == ("tradability", "context", "backtest_standard_frame")
+    assert fields_by_name["$is_st_external"].allowed_usage == ("tradability", "context", "backtest_standard_frame")
+    assert fields_by_name["$benchmark_hs300_return"].allowed_usage == ("benchmark", "context", "backtest_standard_frame")
+    assert fields_by_name["$mkt_moneyflow_net_amount"].allowed_usage == ("context", "backtest_standard_frame")
+    assert fields_by_name["$stock_basic_market_asof"].allowed_usage == ("context", "backtest_standard_frame")
+    assert fields_by_name["$stock_company_reg_capital_asof"].allowed_usage == ("context", "backtest_standard_frame")
+    assert fields_by_name["$stock_company_employees_asof"].allowed_usage == ("context", "backtest_standard_frame")
+    assert fields_by_name["$is_hsgt_external"].allowed_usage == ("tradability", "context", "backtest_standard_frame")
 
     for field in expression_fields:
         assert field.semantic_type

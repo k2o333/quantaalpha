@@ -25,6 +25,7 @@ from quantaalpha.llm.structured_normalizer import normalize_and_parse
 from quantaalpha.log import LogColors, logger
 
 if TYPE_CHECKING:
+    from quantaalpha.llm.client_backend import APIBackend
     from quantaalpha.llm.provider_pool import ProviderPool
 
 # ruff: noqa: D101, D102, D103, D107, D205, D415
@@ -76,6 +77,8 @@ _TOOL_CALL_CAPABILITY_FAILURE_PATTERNS = (
     "does not support function calling",
     "does not support tools",
     "does not support tool_choice",
+    "tool_choice parameter does not support",
+    "being set to required or object in thinking mode",
     "tools parameter is not supported",
     "tool_choice is not supported",
     "tools is not supported",
@@ -84,6 +87,10 @@ _TOOL_CALL_CAPABILITY_FAILURE_PATTERNS = (
     "unsupported parameter",
     "invalid_parameter_error: tools",
     "invalid_parameter_error: tool_choice",
+)
+
+_FORCED_TOOL_CHOICE_INCOMPATIBLE_MODEL_PATTERNS = (
+    "deepseek-v4-flash",
 )
 
 
@@ -97,6 +104,14 @@ def _is_tool_call_capability_failure(error: BaseException) -> bool:
     """
     error_text = str(error).lower()
     return any(pattern in error_text for pattern in _TOOL_CALL_CAPABILITY_FAILURE_PATTERNS)
+
+
+def _should_strip_forced_tool_choice(model: str, *, reasoning_flag: bool) -> bool:
+    """Return True for reasoning/thinking routes that reject forced tool_choice."""
+    if reasoning_flag:
+        return True
+    model_text = str(model or "").lower()
+    return any(pattern in model_text for pattern in _FORCED_TOOL_CHOICE_INCOMPATIBLE_MODEL_PATTERNS)
 
 
 def _record_tool_call_capability_failure(model: str) -> None:
@@ -463,6 +478,9 @@ def call_structured(
     elif tools is not None:
         # When tools are actually used, disable json_mode to avoid double enforcement
         effective_json_mode = False
+        if effective_tool_choice is not None and _should_strip_forced_tool_choice(model_name, reasoning_flag=reasoning_flag):
+            logger.info(f"[call_structured] TOOL_CHOICE_POLICY: stripping forced tool_choice for reasoning/thinking model={model_name}.")
+            effective_tool_choice = None
 
         # --- Stage 1: Check if model is already degraded ---
         degradation_state = _get_model_degradation_state(model_name)
@@ -535,7 +553,10 @@ def call_structured(
         return _ensure_structured_object_payload(parsed)
 
     try:
-        return api._run_with_retry_and_model_switch(
+        retry_runner = getattr(api, "_run_with_retry_and_model_switch", None)
+        if retry_runner is None:
+            return _call_structured_once()
+        return retry_runner(
             _call_structured_once,
             max_retry=max_retry,
             retry_label="call_structured",

@@ -501,6 +501,12 @@ class App5StandardFrameBuilder:
                     joined = self._join_canonical_financial_asof_batch(joined, request, group)
                 elif group[0].source_kind == "pit_panel_asof":
                     joined = self._join_pit_panel_asof_batch(joined, request, group)
+                elif group[0].source_kind == "tradability_mask":
+                    joined = self._join_tradability_mask_batch(joined, request, group)
+                elif group[0].source_kind == "benchmark_daily_context":
+                    joined = self._join_benchmark_daily_context_batch(joined, request, group)
+                elif group[0].source_kind == "market_context_daily":
+                    joined = self._join_market_context_daily_batch(joined, request, group)
                 else:
                     raise ValueError(f"unsupported feature-view source_kind: {group[0].source_kind}")
             except Exception as exc:
@@ -744,6 +750,126 @@ class App5StandardFrameBuilder:
         gc.collect()
         return self._project_joined_feature_columns(joined.drop("__visible_date"), fields).sort(["datetime", "instrument"])
 
+    def _join_tradability_mask_batch(
+        self,
+        frame: pl.DataFrame,
+        request: StandardFrameRequest,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        first = fields[0]
+        date_column = str(first.payload["date_column"])
+        source_fields = list(dict.fromkeys(field.source_field for field in fields))
+        if first.source_interface == "trade_cal":
+            source = self.adapter.read(
+                first.source_interface,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                columns=[date_column, *source_fields],
+                unique=True,
+            )
+            if source.is_empty():
+                return self._with_empty_feature_columns(frame, fields)
+            source = source.with_columns(_date_expr(date_column).alias("datetime"))
+            feature_frame = source.select(
+                [
+                    "datetime",
+                    *[
+                        pl.col(field.source_field).cast(_dtype(field.dtype), strict=False).alias(field.feature_name)
+                        for field in fields
+                    ],
+                ]
+            ).unique(subset=["datetime"], keep="first", maintain_order=True)
+            joined = frame.join(feature_frame, on="datetime", how="left")
+        else:
+            source = self.adapter.read(
+                first.source_interface,
+                start_date=None,
+                end_date=None,
+                columns=["ts_code", date_column, *source_fields],
+                filters=_asof_lte_filters(frame, date_column),
+                unique=True,
+            )
+            if source.is_empty():
+                return self._with_empty_feature_columns(frame, fields)
+            source = source.with_columns(
+                _date_expr(date_column).alias("datetime"),
+                pl.col("ts_code").cast(pl.Utf8).alias("instrument"),
+            )
+            feature_frame = source.select(
+                [
+                    "datetime",
+                    "instrument",
+                    *[pl.lit(1.0).cast(_dtype(field.dtype)).alias(field.feature_name) for field in fields],
+                ]
+            ).unique(subset=["datetime", "instrument"], keep="first", maintain_order=True)
+            joined = frame.join(feature_frame, on=["datetime", "instrument"], how="left")
+        return self._fill_joined_missing_columns(joined, fields)
+
+    def _join_benchmark_daily_context_batch(
+        self,
+        frame: pl.DataFrame,
+        request: StandardFrameRequest,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        first = fields[0]
+        date_column = str(first.payload["date_column"])
+        index_code = str(first.payload["index_code"])
+        source_fields = list(dict.fromkeys(field.source_field for field in fields))
+        source = self.adapter.read(
+            first.source_interface,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            columns=["ts_code", date_column, *source_fields],
+            unique=True,
+        )
+        if source.is_empty():
+            return self._with_empty_feature_columns(frame, fields)
+        source = source.filter(pl.col("ts_code").cast(pl.Utf8) == index_code).with_columns(
+            _date_expr(date_column).alias("datetime")
+        )
+        feature_frame = source.select(
+            [
+                "datetime",
+                *[
+                    pl.col(field.source_field).cast(_dtype(field.dtype), strict=False).alias(field.feature_name)
+                    for field in fields
+                ],
+            ]
+        ).unique(subset=["datetime"], keep="first", maintain_order=True)
+        joined = frame.join(feature_frame, on="datetime", how="left")
+        return self._fill_joined_missing_columns(joined, fields)
+
+    def _join_market_context_daily_batch(
+        self,
+        frame: pl.DataFrame,
+        request: StandardFrameRequest,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        first = fields[0]
+        date_column = str(first.payload["date_column"])
+        source_fields = list(dict.fromkeys(field.source_field for field in fields))
+        source = self.adapter.read(
+            first.source_interface,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            columns=[date_column, *source_fields],
+            unique=True,
+        )
+        if source.is_empty():
+            return self._with_empty_feature_columns(frame, fields)
+        source = source.with_columns(_date_expr(date_column).alias("datetime"))
+        feature_frame = source.select(
+            [
+                "datetime",
+                *[
+                    pl.col(field.source_field).cast(_dtype(field.dtype), strict=False).alias(field.feature_name)
+                    for field in fields
+                ],
+            ]
+        ).unique(subset=["datetime"], keep="first", maintain_order=True)
+        joined = frame.join(feature_frame, on="datetime", how="left")
+        return self._fill_joined_missing_columns(joined, fields)
+
     def _project_joined_feature_columns(
         self,
         frame: pl.DataFrame,
@@ -764,6 +890,31 @@ class App5StandardFrameBuilder:
         projected = frame.with_columns(expressions) if expressions else frame
         removable = [column for column in drop_columns if column in projected.columns and column not in {field.feature_name for field in fields}]
         return projected.drop(removable) if removable else projected
+
+    def _with_empty_feature_columns(
+        self,
+        frame: pl.DataFrame,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        expressions = []
+        for field_item in fields:
+            fill_value = 0.0 if field_item.missing_policy == "zero" else None
+            expressions.append(pl.lit(fill_value).cast(_dtype(field_item.dtype)).alias(field_item.feature_name))
+        return frame.with_columns(expressions)
+
+    def _fill_joined_missing_columns(
+        self,
+        frame: pl.DataFrame,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        expressions = []
+        for field_item in fields:
+            if field_item.feature_name not in frame.columns:
+                fill_value = 0.0 if field_item.missing_policy == "zero" else None
+                expressions.append(pl.lit(fill_value).cast(_dtype(field_item.dtype)).alias(field_item.feature_name))
+            elif field_item.missing_policy == "zero":
+                expressions.append(pl.col(field_item.feature_name).fill_null(0.0).cast(_dtype(field_item.dtype)).alias(field_item.feature_name))
+        return frame.with_columns(expressions) if expressions else frame
 
 
 def request_from_mapping(payload: Mapping[str, Any]) -> StandardFrameRequest:

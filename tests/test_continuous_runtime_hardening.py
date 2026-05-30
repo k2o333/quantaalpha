@@ -93,6 +93,51 @@ def test_llm_runtime_config_preserves_flat_embedding_fields() -> None:
     assert cfg.llm.embedding.base_url == "http://legacy.example/v1"
 
 
+def test_tool_choice_thinking_mode_error_is_tool_call_capability_failure() -> None:
+    from quantaalpha.llm.client_shared import _is_tool_call_capability_failure
+
+    error = Exception(
+        "InternalError.Algo.InvalidParameter: The tool_choice parameter does not support "
+        "being set to required or object in thinking mode"
+    )
+
+    assert _is_tool_call_capability_failure(error) is True
+
+
+def test_call_structured_strips_forced_tool_choice_for_deepseek_v4_flash(monkeypatch) -> None:
+    from quantaalpha.llm.client_shared import call_structured
+    from quantaalpha.llm.config import LLM_SETTINGS
+
+    captured: dict[str, object] = {}
+
+    class FakeBackend:
+        chat_model = "deepseek-v4-flash"
+        reasoning_model = ""
+        chat_stream = False
+        _max_retry_override = 1
+
+    backend = FakeBackend()
+
+    def fake_raw_call(**kwargs):
+        captured.update(kwargs)
+        return '{"ok": true}'
+
+    backend.__dict__["_try_create_chat_completion_or_embedding"] = fake_raw_call
+    monkeypatch.setattr(LLM_SETTINGS, "use_tool_calling", True, raising=False)
+    monkeypatch.setattr(LLM_SETTINGS, "structured_streaming_mode", False, raising=False)
+
+    result = call_structured(
+        backend,
+        [{"role": "user", "content": "return json"}],
+        tools=[{"type": "function", "function": {"name": "emit", "parameters": {"type": "object"}}}],
+        tool_choice="required",
+    )
+
+    assert result == {"ok": True}
+    assert captured["tools"]
+    assert captured["tool_choice"] is None
+
+
 def test_noqlib_standard_frame_rejects_legacy_coder_runtime() -> None:
     from quantaalpha.pipeline.loop import validate_factor_coder_runtime_contract
 

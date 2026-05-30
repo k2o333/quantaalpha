@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -74,6 +75,36 @@ SOURCE_KIND_REGISTRY: dict[str, SourceKindSpec] = {
         prompt_group="dimension_asof_features",
         allowed_primary_classes=("dimension",),
         layer="dimension_asof",
+        freq="daily",
+        expression_allowed=False,
+    ),
+    "tradability_mask": SourceKindSpec(
+        materializer="_join_tradability_mask_batch",
+        required_payload_keys=("source_interface", "source_field", "date_column"),
+        allowed_time_policies=("tradability_state_no_lookahead",),
+        prompt_group="tradability_constraints",
+        allowed_primary_classes=("tradability",),
+        layer="tradability",
+        freq="daily",
+        expression_allowed=False,
+    ),
+    "benchmark_daily_context": SourceKindSpec(
+        materializer="_join_benchmark_daily_context_batch",
+        required_payload_keys=("source_interface", "source_field", "date_column", "index_code"),
+        allowed_time_policies=("benchmark_same_trade_date_no_lookahead",),
+        prompt_group="benchmark_context",
+        allowed_primary_classes=("benchmark",),
+        layer="benchmark",
+        freq="daily",
+        expression_allowed=False,
+    ),
+    "market_context_daily": SourceKindSpec(
+        materializer="_join_market_context_daily_batch",
+        required_payload_keys=("source_interface", "source_field", "date_column"),
+        allowed_time_policies=("same_trade_date_broadcast_no_lookahead",),
+        prompt_group="market_context",
+        allowed_primary_classes=("daily_panel",),
+        layer="market_context",
         freq="daily",
         expression_allowed=False,
     ),
@@ -154,6 +185,31 @@ class MiningAdmissionField:
                 self.payload.get("effective_date_column"),
                 self.time_policy,
             )
+        if self.source_kind == "tradability_mask":
+            return (
+                self.source_kind,
+                self.source_interface,
+                self.payload.get("date_column"),
+                self.source_field,
+                self.time_policy,
+            )
+        if self.source_kind == "benchmark_daily_context":
+            return (
+                self.source_kind,
+                self.source_interface,
+                self.payload.get("index_code"),
+                self.payload.get("date_column"),
+                self.source_field,
+                self.time_policy,
+            )
+        if self.source_kind == "market_context_daily":
+            return (
+                self.source_kind,
+                self.source_interface,
+                self.payload.get("date_column"),
+                self.source_field,
+                self.time_policy,
+            )
         return (self.source_kind, self.source_interface, self.time_policy)
 
     def identity(self) -> dict[str, object]:
@@ -177,6 +233,7 @@ class MiningAdmissionProfile:
     version: int
     base_standard_frame: Mapping[str, object]
     fields: tuple[MiningAdmissionField, ...]
+    blocked_interfaces: Mapping[str, str] | None = None
     declared_hash: str | None = None
 
     def expression_feature_names(self) -> tuple[str, ...]:
@@ -199,6 +256,7 @@ class MiningAdmissionProfile:
                 "version": self.version,
                 "base_standard_frame": dict(self.base_standard_frame),
                 "fields": [field.identity() for field in self.fields],
+                "blocked_interfaces": dict(self.blocked_interfaces or {}),
             },
             ensure_ascii=True,
             sort_keys=True,
@@ -230,11 +288,13 @@ def load_mining_admission_profile(
         raise ValueError("mining admission profile fields must be a sequence")
     fields = tuple(_field_from_mapping(item, registry_path=registry_path) for item in raw_fields)
     _validate_duplicate_feature_names(fields)
+    blocked_interfaces = _blocked_interfaces_from_mapping(raw_profile.get("blocked_interfaces", {}) or {})
     return MiningAdmissionProfile(
         name=profile_name,
         version=version,
         base_standard_frame=dict(raw_profile.get("base_standard_frame", {}) or {}),
         fields=fields,
+        blocked_interfaces=blocked_interfaces,
     )
 
 
@@ -308,7 +368,49 @@ def validate_admission_profile(path: str | Path, profile_name: str) -> dict[str,
         "accepted_fields": [field.feature_name for field in profile.fields],
         "prompt_groups": prompt_groups,
         "routes": routes,
+        "coverage": _coverage_report(profile),
     }
+
+
+def _coverage_report(profile: MiningAdmissionProfile) -> dict[str, object]:
+    usage_counts: Counter[str] = Counter()
+    for field in profile.fields:
+        usage_counts.update(field.allowed_usage)
+    source_kind_counts = Counter(field.source_kind for field in profile.fields)
+    admitted_interfaces = sorted({field.source_interface for field in profile.fields if field.source_interface})
+    classified_interfaces = sorted(EXPLICIT_APP5_INTERFACE_CLASSIFICATION)
+    unadmitted_interfaces = sorted(set(classified_interfaces) - set(admitted_interfaces))
+    blocked_interfaces = dict(sorted((profile.blocked_interfaces or {}).items()))
+    unaccounted_interfaces = sorted(set(classified_interfaces) - set(admitted_interfaces) - set(blocked_interfaces))
+    prompt_visible = [field.feature_name for field in profile.fields if "expression" in field.allowed_usage]
+    return {
+        "accepted_field_count": len(profile.fields),
+        "prompt_visible_field_count": len(prompt_visible),
+        "context_field_count": sum(1 for field in profile.fields if "context" in field.allowed_usage),
+        "classified_interface_count": len(classified_interfaces),
+        "admitted_interface_count": len(admitted_interfaces),
+        "admitted_interfaces": admitted_interfaces,
+        "unadmitted_interfaces": unadmitted_interfaces,
+        "blocked_interfaces": blocked_interfaces,
+        "unaccounted_interfaces": unaccounted_interfaces,
+        "usage_counts": dict(sorted(usage_counts.items())),
+        "source_kind_counts": dict(sorted(source_kind_counts.items())),
+    }
+
+
+def _blocked_interfaces_from_mapping(payload: object) -> dict[str, str]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("blocked_interfaces must be a mapping")
+    blocked: dict[str, str] = {}
+    for interface, reason in payload.items():
+        name = str(interface)
+        if name not in EXPLICIT_APP5_INTERFACE_CLASSIFICATION:
+            raise ValueError(f"blocked interface is not classified for mining admission: {name}")
+        text = str(reason).strip()
+        if not text:
+            raise ValueError(f"blocked interface requires a non-empty reason: {name}")
+        blocked[name] = text
+    return dict(sorted(blocked.items()))
 
 
 def _field_from_mapping(payload: object, *, registry_path: str | Path | None) -> MiningAdmissionField:

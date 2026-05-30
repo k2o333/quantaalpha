@@ -437,6 +437,18 @@ class TestContinuousOrchestrator:
         orchestrator._orchestrator.run_revalidation_cycle.assert_called_once()
         assert result["data_update"]["updated"] is False
 
+    def test_uat_profile_disables_app4_bridge_updates_for_cache_only_runs(self):
+        """Verify UAT profiles do not call the external app4 update bridge."""
+        from quantaalpha.continuous.main import _apply_uat_profile
+        from quantaalpha.continuous.scheduler import PipelineConfig
+
+        config = PipelineConfig(enable_data_monitor=False, enable_revalidation=False, enable_mining=False)
+        config.app4_bridge.enabled = True
+
+        _apply_uat_profile(config, "expanded-data")
+
+        assert config.app4_bridge.enabled is False
+
     def test_run_once_cycle_calls_revalidation_when_enabled(self, tmp_path):
         """Verify run_once_cycle triggers revalidation when enabled."""
         from quantaalpha.continuous.main import ContinuousOrchestrator
