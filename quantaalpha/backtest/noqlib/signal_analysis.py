@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
+import math
+import statistics
 import polars as pl
 
 
-def signal_metrics(prediction: pd.Series | pd.DataFrame | pl.DataFrame, label: pd.Series | pd.DataFrame | pl.DataFrame) -> dict[str, float]:
+def signal_metrics(prediction: pl.DataFrame, label: pl.DataFrame) -> dict[str, float]:
     """计算 IC、ICIR、Rank IC、Rank ICIR。"""
     pred_polars = _to_signal_frame(prediction, "pred")
     label_polars = _to_signal_frame(label, "label")
@@ -40,8 +40,8 @@ def signal_metrics(prediction: pd.Series | pd.DataFrame | pl.DataFrame, label: p
     capacity_metrics["signal_active_days"] = float(daily.height)
     if not daily.is_empty():
         capacity_metrics["signal_mean_cross_section_size"] = float(daily.get_column("rows").mean() or 0.0)
-    ic_values = [float(value) for value in daily.get_column("ic").drop_nulls().to_list() if np.isfinite(value)]
-    rank_ic_values = [float(value) for value in daily.get_column("rank_ic").drop_nulls().to_list() if np.isfinite(value)]
+    ic_values = [float(value) for value in daily.get_column("ic").drop_nulls().to_list() if math.isfinite(value)]
+    rank_ic_values = [float(value) for value in daily.get_column("rank_ic").drop_nulls().to_list() if math.isfinite(value)]
     return {
         "IC": _mean(ic_values),
         "ICIR": _ir(ic_values),
@@ -51,20 +51,10 @@ def signal_metrics(prediction: pd.Series | pd.DataFrame | pl.DataFrame, label: p
     }
 
 
-def _to_signal_frame(frame: pd.Series | pd.DataFrame | pl.DataFrame, value_column: str) -> pl.DataFrame:
+def _to_signal_frame(frame: pl.DataFrame, value_column: str) -> pl.DataFrame:
     """归一化 signal 输入为显式键列 polars frame。"""
     if isinstance(frame, pl.DataFrame):
         return _normalize_polars_signal_frame(frame, value_column)
-    if isinstance(frame, pd.Series):
-        return _normalize_polars_signal_frame(pl.from_pandas(frame.rename(value_column).reset_index()), value_column)
-    if isinstance(frame, pd.DataFrame):
-        if value_column in frame.columns:
-            value_series = frame[value_column]
-        elif len(frame.columns) == 1:
-            value_series = frame.iloc[:, 0].rename(value_column)
-        else:
-            raise ValueError(f"signal {value_column} frame must contain a '{value_column}' column or exactly one value column")
-        return _normalize_polars_signal_frame(pl.from_pandas(value_series.reset_index()), value_column)
     raise TypeError(f"unsupported signal {value_column} input type: {type(frame).__name__}")
 
 
@@ -95,11 +85,11 @@ def _datetime_expr(frame: pl.DataFrame) -> pl.Expr:
 
 
 def _mean(values: list[float]) -> float:
-    return float(np.mean(values)) if values else 0.0
+    return float(statistics.fmean(values)) if values else 0.0
 
 
 def _ir(values: list[float]) -> float:
     if len(values) < 2:
         return 0.0
-    std = float(np.std(values, ddof=1))
-    return float(np.mean(values) / std) if std > 1e-12 else 0.0
+    std = float(statistics.stdev(values))
+    return float(statistics.fmean(values) / std) if std > 1e-12 else 0.0

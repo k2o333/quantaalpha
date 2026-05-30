@@ -48,12 +48,20 @@ def test_noqlib_facade_construction_does_not_import_qlib(tmp_path, monkeypatch):
 def test_signal_metrics_returns_expected_keys():
     from quantaalpha.backtest.noqlib.signal_analysis import signal_metrics
 
-    index = pd.MultiIndex.from_product(
-        [[pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")], ["A", "B", "C"]],
-        names=["datetime", "instrument"],
+    pred = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01"] * 3 + ["2020-01-02"] * 3,
+            "instrument": ["A", "B", "C", "A", "B", "C"],
+            "pred": [1, 2, 3, 3, 2, 1],
+        }
     )
-    pred = pd.Series([1, 2, 3, 3, 2, 1], index=index)
-    label = pd.Series([1, 2, 3, 1, 2, 3], index=index)
+    label = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01"] * 3 + ["2020-01-02"] * 3,
+            "instrument": ["A", "B", "C", "A", "B", "C"],
+            "label": [1, 2, 3, 1, 2, 3],
+        }
+    )
     metrics = signal_metrics(pred, label)
     assert {
         "IC",
@@ -98,15 +106,23 @@ def test_signal_metrics_accepts_explicit_polars_frames():
     assert metrics["Rank IC"] == 0.0
 
 
-def test_signal_metrics_accepts_single_column_pandas_label_frame():
+def test_signal_metrics_accepts_single_non_key_polars_label_column():
     from quantaalpha.backtest.noqlib.signal_analysis import signal_metrics
 
-    index = pd.MultiIndex.from_product(
-        [[pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")], ["A", "B"]],
-        names=["datetime", "instrument"],
+    pred = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"],
+            "instrument": ["A", "B", "A", "B"],
+            "pred": [1.0, 2.0, 2.0, 1.0],
+        }
     )
-    pred = pd.Series([1.0, 2.0, 2.0, 1.0], index=index)
-    label = pd.DataFrame({"LABEL0": [1.0, 2.0, 1.0, 2.0]}, index=index)
+    label = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"],
+            "instrument": ["A", "B", "A", "B"],
+            "LABEL0": [1.0, 2.0, 1.0, 2.0],
+        }
+    )
 
     metrics = signal_metrics(pred, label)
 
@@ -118,7 +134,7 @@ def test_signal_metrics_accepts_single_column_pandas_label_frame():
 def test_noqlib_risk_metrics_handles_empty_series():
     from quantaalpha.backtest.noqlib.risk import risk_metrics
 
-    metrics = risk_metrics(pd.Series(dtype=float))
+    metrics = risk_metrics(pl.Series("excess_return", [], dtype=pl.Float64))
     assert metrics == {
         "annualized_return": 0.0,
         "information_ratio": 0.0,
@@ -130,7 +146,7 @@ def test_noqlib_risk_metrics_handles_empty_series():
 def test_noqlib_risk_metrics_rejects_nan_and_inf_returns():
     from quantaalpha.backtest.noqlib.risk import risk_metrics
 
-    returns = pd.Series([0.01, float("nan"), float("inf"), -float("inf"), -0.005])
+    returns = pl.Series("excess_return", [0.01, float("nan"), float("inf"), -float("inf"), -0.005])
     with pytest.raises(ValueError, match="non-finite excess_return"):
         risk_metrics(returns)
 
@@ -156,9 +172,7 @@ def test_noqlib_risk_metrics_matches_qlib_risk_analysis():
     assert metrics["annualized_return"] == pytest.approx(float(oracle["annualized_return"]))
     assert metrics["information_ratio"] == pytest.approx(float(oracle["information_ratio"]))
     assert metrics["max_drawdown"] == pytest.approx(float(oracle["max_drawdown"]))
-    assert metrics["calmar_ratio"] == pytest.approx(
-        float(oracle["annualized_return"]) / abs(float(oracle["max_drawdown"]))
-    )
+    assert metrics["calmar_ratio"] == pytest.approx(float(oracle["annualized_return"]) / abs(float(oracle["max_drawdown"])))
 
 
 def test_noqlib_market_data_provider_treats_pct_chg_as_percent() -> None:
@@ -260,6 +274,81 @@ def test_noqlib_backend_runs_tiny_csv_without_qlib(tmp_path, monkeypatch):
     assert (tmp_path / "out" / "metrics.json").exists()
 
 
+def test_noqlib_backend_main_path_does_not_call_pandas_market_loader(tmp_path, monkeypatch):
+    from quantaalpha.backtest.facade import BacktestFacade
+    from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
+
+    rows = []
+    dates = pd.date_range("2020-01-01", periods=80, freq="D")
+    for day_index, dt in enumerate(dates):
+        for stock_index, instrument in enumerate(["A", "B", "C", "D", "E"]):
+            close = 10 + day_index * 0.1 + stock_index * 0.2
+            rows.append(
+                {
+                    "trade_date": dt.strftime("%Y%m%d"),
+                    "ts_code": instrument,
+                    "open": close * 0.99,
+                    "high": close * 1.01,
+                    "low": close * 0.98,
+                    "close": close,
+                    "vol": 1000 + stock_index,
+                    "amount": close * (1000 + stock_index),
+                    "pct_chg": 0.1 + stock_index * 0.01,
+                }
+            )
+    market_path = tmp_path / "market.csv"
+    pd.DataFrame(rows).to_csv(market_path, index=False)
+    factors_path = tmp_path / "factors.json"
+    factors_path.write_text(
+        json.dumps({"factors": {"f1": {"factor_name": "CloseFactor", "factor_expression": "$close"}}}),
+        encoding="utf-8",
+    )
+    cfg_path = tmp_path / "cfg.yaml"
+    cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "backtest_runtime": {"backend": "noqlib", "noqlib": {"market_data_path": str(market_path)}},
+                "factor_source": {"type": "custom", "custom": {"json_files": [str(factors_path)]}},
+                "data": {"start_time": "2020-01-01", "end_time": "2020-03-20", "market": "all"},
+                "dataset": {
+                    "label": "Ref($close, -2) / Ref($close, -1) - 1",
+                    "segments": {
+                        "train": ["2020-01-01", "2020-02-10"],
+                        "valid": ["2020-02-11", "2020-02-20"],
+                        "test": ["2020-02-21", "2020-03-20"],
+                    },
+                },
+                "model": {"type": "lgb", "params": {"learning_rate": 0.05, "num_leaves": 7, "num_boost_round": 5, "verbose": -1}},
+                "backtest": {
+                    "strategy": {"kwargs": {"topk": 3, "n_drop": 1}},
+                    "backtest": {
+                        "start_time": "2020-02-21",
+                        "end_time": "2020-03-15",
+                        "benchmark": "mean",
+                        "exchange_kwargs": {"open_cost": 0.0, "close_cost": 0.0},
+                    },
+                },
+                "experiment": {
+                    "name": "tmp",
+                    "recorder": "tmp",
+                    "output_dir": str(tmp_path / "out"),
+                    "output_metrics_file": "metrics.json",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_load_market_data(self):
+        raise AssertionError("noqlib backend must use Polars load_market_frame(), not pandas load_market_data()")
+
+    monkeypatch.setattr(NoQlibMarketDataProvider, "load_market_data", fail_load_market_data, raising=False)
+
+    result = BacktestFacade(str(cfg_path), backend="noqlib").run()
+
+    assert {"IC", "Rank IC", "annualized_return", "information_ratio"} <= set(result)
+
+
 def test_noqlib_backend_runs_alpha158_20_synthetic_csv(tmp_path):
     from quantaalpha.backtest.facade import BacktestFacade
 
@@ -346,14 +435,12 @@ def test_alpha158_20_native_expression_engine_uses_shared_kernel(tmp_path):
                     "$return": 0.001 * (stock_index + 1),
                 }
             )
-    market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
+    market = pl.DataFrame(rows)
     factors, _ = FactorLoader({"factor_source": {"type": "alpha158_20"}}).load_factors()
 
-    features = NoQlibExpressionEngine(market).compute(
-        [{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()]
-    )
-    assert set(features.columns) == set(factors)
-    assert len(features) == len(market)
+    features = NoQlibExpressionEngine(market).compute([{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()])
+    assert set(features.columns) == {"datetime", "instrument", *set(factors)}
+    assert features.height == market.height
 
 
 def test_noqlib_expression_engine_rejects_unsupported_without_fallback():
@@ -377,9 +464,7 @@ def test_noqlib_expression_engine_rejects_unsupported_without_fallback():
     )
 
     with pytest.raises(ValueError, match="unsupported noqlib expression.*SECTOR_RETURN"):
-        NoQlibExpressionEngine(market).compute(
-            [{"factor_id": "bad", "factor_name": "bad", "factor_expression": "SECTOR_RETURN($close)"}]
-        )
+        NoQlibExpressionEngine(market).compute([{"factor_id": "bad", "factor_name": "bad", "factor_expression": "SECTOR_RETURN($close)"}])
 
 
 def test_noqlib_market_normalize_coalesces_app5_and_benchmark_columns():
@@ -454,9 +539,7 @@ def test_alpha158_20_matches_real_qlib_oracle_when_data_available(tmp_path):
     market = pd.read_parquet(tmp_path / "oracle_market.parquet").set_index(["datetime", "instrument"]).sort_index()
     oracle = pd.read_parquet(tmp_path / "oracle_features.parquet").set_index(["datetime", "instrument"]).sort_index()
     factors, _ = FactorLoader({"factor_source": {"type": "alpha158_20"}}).load_factors()
-    calculated = NoQlibExpressionEngine(market).compute(
-        [{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()]
-    )
+    calculated = NoQlibExpressionEngine(market).compute([{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()])
     calculated = calculated.sort_index().loc[oracle.index, oracle.columns]
     for column in oracle.columns:
         np.testing.assert_allclose(
@@ -492,9 +575,7 @@ def test_alpha158_matches_real_qlib_oracle_when_data_available(tmp_path):
     market = pd.read_parquet(tmp_path / "oracle_market.parquet").set_index(["datetime", "instrument"]).sort_index()
     oracle = pd.read_parquet(tmp_path / "oracle_features.parquet").set_index(["datetime", "instrument"]).sort_index()
     factors, _ = FactorLoader({"factor_source": {"type": "alpha158"}}).load_factors()
-    calculated = NoQlibExpressionEngine(market).compute(
-        [{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()]
-    )
+    calculated = NoQlibExpressionEngine(market).compute([{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()])
     calculated = calculated.sort_index().loc[oracle.index, oracle.columns]
     for column in oracle.columns:
         np.testing.assert_allclose(
@@ -530,9 +611,7 @@ def test_alpha360_matches_real_qlib_oracle_when_data_available(tmp_path):
     market = pd.read_parquet(tmp_path / "oracle_market.parquet").set_index(["datetime", "instrument"]).sort_index()
     oracle = pd.read_parquet(tmp_path / "oracle_features.parquet").set_index(["datetime", "instrument"]).sort_index()
     factors, _ = FactorLoader({"factor_source": {"type": "alpha360"}}).load_factors()
-    calculated = NoQlibExpressionEngine(market).compute(
-        [{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()]
-    )
+    calculated = NoQlibExpressionEngine(market).compute([{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()])
     calculated = calculated.sort_index().loc[oracle.index, oracle.columns]
     for column in oracle.columns:
         np.testing.assert_allclose(
@@ -549,9 +628,9 @@ def test_noqlib_data_provider_accepts_qlib_style_market_parquet(tmp_path):
     from quantaalpha.backtest.noqlib.data_provider import NoQlibMarketDataProvider
 
     market_path = tmp_path / "market.parquet"
-    pd.DataFrame(
+    pl.DataFrame(
         {
-            "datetime": [pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")],
+            "datetime": ["2020-01-01", "2020-01-02"],
             "instrument": ["A", "A"],
             "$open": [10.0, 11.0],
             "$high": [10.5, 11.5],
@@ -560,12 +639,11 @@ def test_noqlib_data_provider_accepts_qlib_style_market_parquet(tmp_path):
             "$volume": [1000.0, 1001.0],
             "$vwap": [10.1, 11.1],
         }
-    ).to_parquet(market_path, index=False)
+    ).write_parquet(market_path)
     provider = NoQlibMarketDataProvider({"backtest_runtime": {"noqlib": {"market_data_path": str(market_path)}}})
-    market = provider.load_market_data()
-    assert list(market.columns) == ["$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"]
-    assert market.index.names == ["datetime", "instrument"]
-    assert market.loc[(pd.Timestamp("2020-01-02"), "A"), "$return"] == pytest.approx(11.2 / 10.2 - 1.0)
+    market = provider.load_market_frame()
+    assert list(market.columns) == ["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"]
+    assert market.filter(pl.col("datetime") == pl.date(2020, 1, 2)).get_column("$return")[0] == pytest.approx(11.2 / 10.2 - 1.0)
 
 
 def test_noqlib_provider_reads_qlib_bin_adjusted_market_with_polars(tmp_path):
@@ -743,12 +821,10 @@ def test_noqlib_topk_dropout_matches_qlib_selection_sequence():
 def test_noqlib_portfolio_requires_configured_benchmark_data():
     from quantaalpha.backtest.noqlib.portfolio import NoQlibTopkDropoutBacktester
 
-    index = pd.MultiIndex.from_product(
-        [[pd.Timestamp("2020-01-01"), pd.Timestamp("2020-01-02")], ["A", "B"]],
-        names=["datetime", "instrument"],
-    )
-    market = pd.DataFrame(
+    market = pl.DataFrame(
         {
+            "datetime": ["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"],
+            "instrument": ["A", "B", "A", "B"],
             "$open": [10.0, 20.0, 11.0, 21.0],
             "$high": [10.0, 20.0, 11.0, 21.0],
             "$low": [10.0, 20.0, 11.0, 21.0],
@@ -756,10 +832,15 @@ def test_noqlib_portfolio_requires_configured_benchmark_data():
             "$volume": [100.0, 100.0, 100.0, 100.0],
             "$vwap": [10.0, 20.0, 11.0, 21.0],
             "$return": [0.0, 0.0, 0.1, 0.05],
-        },
-        index=index,
+        }
     )
-    prediction = pd.Series([1.0, 2.0, 1.0, 2.0], index=index)
+    prediction = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"],
+            "instrument": ["A", "B", "A", "B"],
+            "score": [1.0, 2.0, 1.0, 2.0],
+        }
+    )
     config = {
         "backtest": {
             "strategy": {"kwargs": {"topk": 1, "n_drop": 1}},
@@ -875,24 +956,22 @@ def test_noqlib_portfolio_return_matches_real_qlib_fixed_prediction_when_data_av
 def test_noqlib_missing_open_buy_diagnostic_records_instrument_date_and_reason():
     from quantaalpha.backtest.noqlib.portfolio import NoQlibTopkDropoutBacktester
 
-    index = pd.MultiIndex.from_tuples(
-        [
-            (pd.Timestamp("2020-01-01"), "A"),
-            (pd.Timestamp("2020-01-01"), "B"),
-            (pd.Timestamp("2020-01-02"), "A"),
-            (pd.Timestamp("2020-01-02"), "B"),
-        ],
-        names=["datetime", "instrument"],
-    )
-    market = pd.DataFrame(
+    market = pl.DataFrame(
         {
+            "datetime": ["2020-01-01", "2020-01-01", "2020-01-02", "2020-01-02"],
+            "instrument": ["A", "B", "A", "B"],
             "$open": [10.0, 10.0, float("nan"), 11.0],
             "$close": [10.0, 10.0, 10.0, 11.0],
             "$return": [0.0, 0.0, 0.0, 0.1],
-        },
-        index=index,
+        }
     )
-    prediction = pd.Series([2.0, 1.0], index=pd.MultiIndex.from_tuples([(pd.Timestamp("2020-01-01"), "A"), (pd.Timestamp("2020-01-01"), "B")], names=["datetime", "instrument"]))
+    prediction = pl.DataFrame(
+        {
+            "datetime": ["2020-01-01", "2020-01-01"],
+            "instrument": ["A", "B"],
+            "score": [2.0, 1.0],
+        }
+    )
     config = {
         "backtest": {
             "strategy": {"kwargs": {"topk": 1, "n_drop": 1}},
@@ -908,7 +987,7 @@ def test_noqlib_missing_open_buy_diagnostic_records_instrument_date_and_reason()
     metrics, _report, positions = NoQlibTopkDropoutBacktester(config, market).run(prediction)
 
     assert metrics["missing_open_buy_skip_count"] == 1.0
-    assert positions.empty
+    assert positions.is_empty()
     assert metrics["missing_price_examples"][0] == {
         "date": "2020-01-02",
         "instrument": "A",
@@ -927,17 +1006,22 @@ def test_noqlib_missing_price_diagnostics_are_bounded():
         rows.append((day, "A", float("nan"), 10.0, 0.0))
         previous_day = day - pd.Timedelta(days=1)
         prediction_rows.append((previous_day, "A", 1.0))
-    market_index = pd.MultiIndex.from_tuples([(row[0], row[1]) for row in rows], names=["datetime", "instrument"])
-    market = pd.DataFrame(
+    market = pl.DataFrame(
         {
+            "datetime": [row[0].date() for row in rows],
+            "instrument": [row[1] for row in rows],
             "$open": [row[2] for row in rows],
             "$close": [row[3] for row in rows],
             "$return": [row[4] for row in rows],
-        },
-        index=market_index,
+        }
     )
-    pred_index = pd.MultiIndex.from_tuples([(row[0], row[1]) for row in prediction_rows], names=["datetime", "instrument"])
-    prediction = pd.Series([row[2] for row in prediction_rows], index=pred_index)
+    prediction = pl.DataFrame(
+        {
+            "datetime": [row[0].date() for row in prediction_rows],
+            "instrument": [row[1] for row in prediction_rows],
+            "score": [row[2] for row in prediction_rows],
+        }
+    )
     config = {
         "backtest": {
             "strategy": {"kwargs": {"topk": 1, "n_drop": 1}},

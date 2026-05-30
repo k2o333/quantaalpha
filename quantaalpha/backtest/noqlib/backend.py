@@ -46,14 +46,11 @@ class NoQlibBacktestBackend:
             output_name = Path(factor_json[0]).stem
         exp_name = experiment_name or output_name or self.config.get("experiment", {}).get("name", "noqlib_backtest")
         qlib_factors, custom_factors = FactorLoader(self.config).load_factors()
-        factor_defs = [
-            {"factor_id": name, "factor_name": name, "factor_expression": expr}
-            for name, expr in qlib_factors.items()
-        ]
+        factor_defs = [{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in qlib_factors.items()]
         factor_defs.extend(custom_factors)
         if not factor_defs:
             raise ValueError("no factors available for noqlib backtest")
-        market = NoQlibMarketDataProvider(self.config).load_market_data()
+        market = NoQlibMarketDataProvider(self.config).load_market_frame()
         feature_market = _filter_feature_market(market, self.config)
         expression_engine = NoQlibExpressionEngine(feature_market)
         features = expression_engine.compute(factor_defs)
@@ -136,5 +133,8 @@ def _filter_feature_market(market, config: dict[str, Any]):
     if not instruments:
         return market
     keep = {str(item) for item in instruments}
-    mask = market.index.get_level_values("instrument").astype(str).isin(keep)
-    return market.loc[mask]
+    import polars as pl
+
+    if not isinstance(market, pl.DataFrame):
+        raise TypeError(f"noqlib market must be a polars DataFrame, got {type(market).__name__}")
+    return market.filter(pl.col("instrument").cast(pl.Utf8).is_in(keep))

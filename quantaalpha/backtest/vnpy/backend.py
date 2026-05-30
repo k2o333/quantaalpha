@@ -59,7 +59,7 @@ class VnpyBacktestBackend:
         expression_engine = VnpyExpressionEngine(market_frame, translation_mode=translation_mode)
         features = expression_engine.compute(factor_defs)
         labels = expression_engine.compute_label(self.config.get("dataset", {}).get("label", "Ref($close, -2) / Ref($close, -1) - 1"))
-        del expression_engine, market_frame
+        del expression_engine
         gc.collect()
         dataset = VnpyDatasetBuilder(self.config).build(features, labels)
         del features, labels
@@ -68,9 +68,8 @@ class VnpyBacktestBackend:
         label_for_signal = dataset.raw_labels if dataset.raw_labels is not None else dataset.combined[dataset.label_column]
         signal_metric_values = signal_metrics(prediction, label_for_signal)
         metrics = dict(signal_metric_values)
-        market = market_provider.load_market_data()
-        portfolio_metrics, daily_report, positions = NoQlibTopkDropoutBacktester(self.config, market).run(prediction)
-        del prediction, dataset, market
+        portfolio_metrics, daily_report, positions = NoQlibTopkDropoutBacktester(self.config, market_frame).run(prediction)
+        del prediction, dataset, market_frame
         gc.collect()
         metrics.update(portfolio_metrics)
         metrics["backend"] = "vnpy"

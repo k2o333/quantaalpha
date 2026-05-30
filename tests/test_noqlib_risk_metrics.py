@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pandas as pd
+import polars as pl
 import pytest
 
 
@@ -8,22 +8,24 @@ def test_risk_metrics_rejects_nan_excess_returns() -> None:
     from quantaalpha.backtest.noqlib.risk import risk_metrics
 
     with pytest.raises(ValueError, match="non-finite excess_return"):
-        risk_metrics(pd.Series([0.01, float("nan")]))
+        risk_metrics(pl.Series("excess_return", [0.01, float("nan")]))
 
 
 def test_risk_metrics_rejects_infinite_excess_returns() -> None:
     from quantaalpha.backtest.noqlib.risk import risk_metrics
 
     with pytest.raises(ValueError, match="non-finite excess_return"):
-        risk_metrics(pd.Series([0.01, float("inf")]))
+        risk_metrics(pl.Series("excess_return", [0.01, float("inf")]))
 
 
 def test_risk_metrics_by_year_splits_calendar_years() -> None:
     from quantaalpha.backtest.noqlib.risk import risk_metrics_by_year
 
-    returns = pd.Series(
-        [0.01, 0.02, -0.01],
-        index=pd.to_datetime(["2021-12-30", "2021-12-31", "2022-01-04"]),
+    returns = pl.DataFrame(
+        {
+            "date": ["2021-12-30", "2021-12-31", "2022-01-04"],
+            "excess_return": [0.01, 0.02, -0.01],
+        }
     )
 
     metrics = risk_metrics_by_year(returns)

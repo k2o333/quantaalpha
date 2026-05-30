@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
+import numbers
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import pandas as pd
+import polars as pl
 
 from quantaalpha.backtest.artifacts import (
     write_cumulative_excess_parquet,
@@ -25,8 +26,8 @@ def save_results(
     num_factors: int,
     elapsed: float,
     output_name: str | None,
-    daily_report: pd.DataFrame | None = None,
-    positions: pd.DataFrame | None = None,
+    daily_report: pl.DataFrame | None = None,
+    positions: pl.DataFrame | None = None,
     backend: str = "noqlib",
 ) -> Path:
     """保存与 qlib BacktestRunner 兼容的 metrics JSON。"""
@@ -50,11 +51,11 @@ def save_results(
         "backend": backend,
     }
     output_path.write_text(json.dumps(_json_safe(result_data), ensure_ascii=False, indent=2), encoding="utf-8")
-    if daily_report is not None and not daily_report.empty:
+    if daily_report is not None and not daily_report.is_empty():
         prefix = output_name if output_name else exp_name
         write_daily_report_parquet(daily_report, output_dir, prefix)
         write_cumulative_excess_parquet(daily_report, output_dir, prefix)
-    if positions is not None and not positions.empty:
+    if positions is not None and not positions.is_empty():
         prefix = output_name if output_name else exp_name
         write_positions_parquet(positions, output_dir, prefix)
     return output_path
@@ -70,8 +71,10 @@ def _json_safe(value):
         return {k: _json_safe(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_json_safe(v) for v in value]
-    if isinstance(value, (np.floating, np.integer)):
+    if isinstance(value, numbers.Integral) and not isinstance(value, bool):
+        return int(value)
+    if isinstance(value, numbers.Real) and not isinstance(value, bool):
+        return float(value) if math.isfinite(float(value)) else 0.0
+    if hasattr(value, "item"):
         return value.item()
-    if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
-        return 0.0
     return value

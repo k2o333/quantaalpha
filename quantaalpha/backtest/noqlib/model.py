@@ -4,23 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
-import pandas as pd
+import polars as pl
 
 from .dataset import NoQlibDataset
 
 
 class NoQlibModelRunner:
-    """用原生 lightgbm 训练并输出 qlib 风格 prediction series。"""
+    """用原生 lightgbm 训练并输出显式键列 prediction frame。"""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
 
-    def fit_predict(self, dataset: NoQlibDataset) -> pd.Series:
+    def fit_predict(self, dataset: NoQlibDataset) -> pl.DataFrame:
         """训练模型并预测所有可用样本。"""
         import lightgbm as lgb
 
-        train = dataset.segment("train").dropna(subset=[dataset.label_column])
-        valid = dataset.segment("valid").dropna(subset=[dataset.label_column]) if "valid" in dataset.segments else None
+        train = dataset.segment("train").drop_nulls([dataset.label_column])
+        valid = dataset.segment("valid").drop_nulls([dataset.label_column]) if "valid" in dataset.segments else None
         model_cfg = self.config.get("model", {})
         raw_params = dict(model_cfg.get("params", {}))
         loss = raw_params.pop("loss", "mse")
@@ -30,15 +30,18 @@ class NoQlibModelRunner:
         params.update(raw_params)
         num_boost_round = int(params.pop("num_boost_round", 100))
         early_stopping_round = params.pop("early_stopping_rounds", params.pop("early_stopping_round", 50))
-        train_set = lgb.Dataset(train[dataset.feature_columns].values, label=train[dataset.label_column].values)
+        train_set = lgb.Dataset(
+            train.select(dataset.feature_columns).to_numpy(),
+            label=train.get_column(dataset.label_column).to_numpy(),
+        )
         valid_sets = [train_set]
         valid_names = ["train"]
         callbacks = [lgb.early_stopping(int(early_stopping_round)), lgb.log_evaluation(period=20)]
-        if valid is not None and not valid.empty:
+        if valid is not None and not valid.is_empty():
             valid_sets.append(
                 lgb.Dataset(
-                    valid[dataset.feature_columns].values,
-                    label=valid[dataset.label_column].values,
+                    valid.select(dataset.feature_columns).to_numpy(),
+                    label=valid.get_column(dataset.label_column).to_numpy(),
                     reference=train_set,
                 )
             )
@@ -52,5 +55,5 @@ class NoQlibModelRunner:
             callbacks=callbacks,
         )
         predict_frame = dataset.segment("test")
-        values = model.predict(predict_frame[dataset.feature_columns].values)
-        return pd.Series(values, index=predict_frame.index, name="score")
+        values = model.predict(predict_frame.select(dataset.feature_columns).to_numpy())
+        return predict_frame.select(["datetime", "instrument"]).with_columns(pl.Series(name="score", values=values))

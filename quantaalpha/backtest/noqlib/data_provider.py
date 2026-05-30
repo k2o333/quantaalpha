@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
+import math
 from pathlib import Path
 import re
+import struct
 import sys
 from typing import Any
 
-import numpy as np
-import pandas as pd
 import polars as pl
 
 from quantaalpha.backtest.contracts import validate_standard_frame_columns
@@ -22,13 +23,6 @@ class NoQlibMarketDataProvider:
         runtime = config.get("backtest_runtime", {})
         self.noqlib_config = runtime.get("noqlib", {})
         self._explicit_market_path = bool(self.noqlib_config.get("market_data_path"))
-
-    def load_market_data(self) -> pd.DataFrame:
-        """返回 qlib 风格 `(datetime, instrument)` MultiIndex DataFrame。"""
-        frame = self.load_market_frame()
-        result = frame.to_pandas()
-        del frame  # Free Polars copy before Pandas index operations
-        return result.set_index(["datetime", "instrument"]).sort_index()
 
     def load_market_frame(self) -> pl.DataFrame:
         """返回标准 market frame，内部读取与标准化保持 polars 路径。"""
@@ -204,9 +198,9 @@ class NoQlibMarketDataProvider:
         features_root = provider / "features"
         if not calendar_path.exists() or not features_root.exists():
             raise FileNotFoundError(f"noqlib qlib_provider_uri is not a qlib bin directory: {provider}")
-        calendar = [pd.Timestamp(line.strip()) for line in calendar_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        start_ts = pd.Timestamp(start_time) if start_time else None
-        end_ts = pd.Timestamp(end_time) if end_time else None
+        calendar = [_parse_date(line.strip()) for line in calendar_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        start_ts = _parse_date(start_time) if start_time else None
+        end_ts = _parse_date(end_time) if end_time else None
         rows: list[dict[str, Any]] = []
         for instrument in instruments:
             inst_dir = features_root / _qlib_bin_instrument_dir(instrument)
@@ -222,11 +216,11 @@ class NoQlibMarketDataProvider:
                 if end_ts is not None and dt > end_ts:
                     continue
                 close = series_by_field["close"].get(idx)
-                if close is None or not np.isfinite(close):
+                if close is None or not math.isfinite(close):
                     continue
                 rows.append(
                     {
-                        "datetime": dt.date(),
+                        "datetime": dt,
                         "instrument": instrument,
                         "open": series_by_field["open"].get(idx, close),
                         "high": series_by_field["high"].get(idx, close),
@@ -250,10 +244,10 @@ class NoQlibMarketDataProvider:
         features_root = provider / "features"
         if not calendar_path.exists() or not features_root.exists():
             raise FileNotFoundError(f"noqlib qlib_provider_uri is not a qlib bin directory: {provider}")
-        calendar = [pd.Timestamp(line.strip()) for line in calendar_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        calendar = [_parse_date(line.strip()) for line in calendar_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         rows: list[dict[str, Any]] = []
-        start_ts = pd.Timestamp(start_time) if start_time else None
-        end_ts = pd.Timestamp(end_time) if end_time else None
+        start_ts = _parse_date(start_time) if start_time else None
+        end_ts = _parse_date(end_time) if end_time else None
         for instrument in benchmark_instruments:
             qlib_code = _qlib_bin_instrument_dir(instrument)
             inst_dir = features_root / qlib_code
@@ -271,11 +265,11 @@ class NoQlibMarketDataProvider:
                 if end_ts is not None and dt > end_ts:
                     continue
                 close = series_by_field["close"].get(idx)
-                if close is None or not np.isfinite(close):
+                if close is None or not math.isfinite(close):
                     continue
                 rows.append(
                     {
-                        "datetime": dt.date(),
+                        "datetime": dt,
                         "instrument": instrument,
                         "open": series_by_field["open"].get(idx, close),
                         "high": series_by_field["high"].get(idx, close),
@@ -361,7 +355,7 @@ def _app5_read_end_time(end_time: str | None, config: dict[str, Any], noqlib_con
     calendar_days = int(calendar_days)
     if calendar_days <= 0:
         return end_time
-    return (pd.Timestamp(end_time) + pd.Timedelta(days=calendar_days)).strftime("%Y-%m-%d")
+    return (_parse_date(end_time) + timedelta(days=calendar_days)).strftime("%Y-%m-%d")
 
 
 def _max_future_ref(expression: str) -> int:
@@ -383,10 +377,13 @@ def _qlib_bin_instrument_dir(instrument: str) -> str:
     return text.lower()
 
 
-def _read_qlib_bin_series(path: Path, calendar: list[pd.Timestamp]) -> dict[int, float]:
+def _read_qlib_bin_series(path: Path, calendar: list[date]) -> dict[int, float]:
     if not path.exists():
         return {}
-    values = np.fromfile(path, dtype="<f4")
+    raw = path.read_bytes()
+    if len(raw) < 4:
+        return {}
+    values = [item[0] for item in struct.iter_unpack("<f", raw[: len(raw) - (len(raw) % 4)])]
     if len(values) == 0:
         return {}
     start_index = int(values[0])
@@ -397,3 +394,15 @@ def _read_qlib_bin_series(path: Path, calendar: list[pd.Timestamp]) -> dict[int,
             break
         result[idx] = float(value)
     return result
+
+
+def _parse_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value)
+    digits = re.sub(r"\D", "", text)
+    if len(digits) >= 8:
+        return datetime.strptime(digits[:8], "%Y%m%d").date()
+    return date.fromisoformat(text[:10])

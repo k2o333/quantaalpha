@@ -501,7 +501,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             market_frame = market_provider.load_market_frame()
             expression_engine = VnpyExpressionEngine(market_frame)
         else:
-            market = market_provider.load_market_data()
+            market = market_provider.load_market_frame()
             expression_engine = NoQlibExpressionEngine(market)
         features = self._load_noqlib_template_features(
             config=qlib_cfg,
@@ -548,7 +548,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         except Exception as exc:
             logger.warning(f"Failed to compute quality overlay noqlib metrics: {exc}")
         if backend == "vnpy":
-            market = market_provider.load_market_data()
+            market = market_provider.load_market_frame()
         isolated_portfolio_metrics = compute_isolated_factor_portfolio_metrics(
             features,
             market=market,

@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import polars as pl
 import pytest
 
@@ -24,24 +23,19 @@ def _base_config(*, risk_degree: float = 1.0) -> dict:
     }
 
 
-def _market(rows: list[dict]) -> pd.DataFrame:
-    frame = pd.DataFrame(rows)
-    frame["datetime"] = pd.to_datetime(frame["datetime"])
-    return frame.set_index(["datetime", "instrument"]).sort_index()
+def _market(rows: list[dict]) -> pl.DataFrame:
+    return pl.DataFrame(rows).with_columns(pl.col("datetime").str.strptime(pl.Date, "%Y-%m-%d", strict=False))
 
 
-def _prediction(prefer_b_on_day2: bool = False) -> pd.Series:
-    index = pd.MultiIndex.from_tuples(
-        [
-            (pd.Timestamp("2021-01-01"), "A"),
-            (pd.Timestamp("2021-01-01"), "B"),
-            (pd.Timestamp("2021-01-02"), "A"),
-            (pd.Timestamp("2021-01-02"), "B"),
-        ],
-        names=["datetime", "instrument"],
-    )
+def _prediction(prefer_b_on_day2: bool = False) -> pl.DataFrame:
     values = [10.0, 1.0, 1.0, 10.0] if prefer_b_on_day2 else [10.0, 1.0, 10.0, 1.0]
-    return pd.Series(values, index=index)
+    return pl.DataFrame(
+        {
+            "datetime": ["2021-01-01", "2021-01-01", "2021-01-02", "2021-01-02"],
+            "instrument": ["A", "B", "A", "B"],
+            "score": values,
+        }
+    )
 
 
 def test_missing_close_does_not_produce_silent_zero_drawdown() -> None:
@@ -59,7 +53,7 @@ def test_missing_close_does_not_produce_silent_zero_drawdown() -> None:
 
     metrics, report, _positions = NoQlibTopkDropoutBacktester(_base_config(), market).run(_prediction())
 
-    assert np.isfinite(report[["return", "cash", "equity"]].to_numpy(dtype=float)).all()
+    assert np.isfinite(report.select(["return", "cash", "equity"]).to_numpy()).all()
     assert metrics["missing_close_valuation_count"] == 1
     assert metrics["missing_price_example_count"] == 1
     assert metrics["max_drawdown"] <= 0.0
@@ -81,9 +75,9 @@ def test_missing_sell_open_skips_trade_and_records_diagnostic() -> None:
 
     metrics, report, positions = NoQlibTopkDropoutBacktester(_base_config(risk_degree=0.5), market).run(_prediction(prefer_b_on_day2=True))
 
-    assert np.isfinite(report[["return", "cash", "equity"]].to_numpy(dtype=float)).all()
+    assert np.isfinite(report.select(["return", "cash", "equity"]).to_numpy()).all()
     assert metrics["missing_open_sell_skip_count"] == 1
-    assert positions.loc[positions["date"].eq(pd.Timestamp("2021-01-03")), "instrument"].to_list() == ["A"]
+    assert positions.filter(pl.col("date") == pl.date(2021, 1, 3)).get_column("instrument").to_list() == ["A"]
 
 
 def test_save_results_preserves_missing_price_counters(tmp_path: Path) -> None:
@@ -120,20 +114,20 @@ def test_save_results_preserves_missing_price_counters(tmp_path: Path) -> None:
 def test_save_results_writes_parquet_artifacts_with_explicit_date_columns(tmp_path: Path) -> None:
     from quantaalpha.backtest.noqlib.result_writer import save_results
 
-    daily_report = pd.DataFrame(
+    daily_report = pl.DataFrame(
         {
+            "date": ["2021-01-01", "2021-01-02"],
             "return": [0.01, -0.02],
             "bench": [0.001, 0.002],
             "cost": [0.0001, 0.0002],
             "turnover": [0.5, 0.4],
             "cash": [100.0, 98.0],
             "equity": [101.0, 99.0],
-        },
-        index=pd.Index(pd.to_datetime(["2021-01-01", "2021-01-02"]), name="datetime"),
+        }
     )
-    positions = pd.DataFrame(
+    positions = pl.DataFrame(
         {
-            "date": pd.to_datetime(["2021-01-01", "2021-01-02"]),
+            "date": ["2021-01-01", "2021-01-02"],
             "instrument": ["A", "B"],
             "weight": [0.6, 0.4],
         }

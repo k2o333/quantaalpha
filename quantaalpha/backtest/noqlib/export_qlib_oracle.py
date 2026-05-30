@@ -12,8 +12,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 
 def export_oracle(
     *,
@@ -79,7 +77,7 @@ def export_oracle(
     return manifest
 
 
-def _write_frame(frame: pd.DataFrame, path: Path) -> None:
+def _write_frame(frame: Any, path: Path) -> None:
     out = frame.reset_index()
     out.to_parquet(path, index=False)
 

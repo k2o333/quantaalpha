@@ -112,6 +112,13 @@ class SharedPolarsExpressionKernel:
 
     def compute_expression(self, expression: str, name: str) -> pd.DataFrame:
         """Evaluate one expression."""
+        frame = self.compute_expression_frame(expression, name)
+        pdf = frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
+        pdf.columns = [name]
+        return pdf
+
+    def compute_expression_frame(self, expression: str, name: str) -> pl.DataFrame:
+        """Evaluate one expression and return an explicit-key Polars frame."""
         canonical = canonicalize_expression(expression)
         self.audit.append(KernelAudit(canonical.source, canonical.canonical, canonical.warnings))
         prepared_expression = _prepare_expression_syntax(canonical.canonical)
@@ -120,9 +127,7 @@ class SharedPolarsExpressionKernel:
         result = self._eval_node(tree.body, field_map)
         if not isinstance(result, KernelValue):
             result = KernelValue(self.market.select("datetime", "instrument", pl.lit(float(result)).alias("data")))
-        pdf = result.frame.to_pandas().set_index(["datetime", "instrument"]).sort_index()
-        pdf.columns = [name]
-        return pdf
+        return result.frame.rename({"data": name}).sort(["datetime", "instrument"])
 
     def _eval_node(self, node: ast.AST, field_map: dict[str, str]) -> KernelValue | float | KernelSequence:
         if isinstance(node, ast.BinOp):
@@ -341,9 +346,7 @@ class SharedPolarsExpressionKernel:
         if name == "WMA" and len(args) == 2:
             return _wma(_expect_value(args[0]), int(_expect_number(args[1])))
         if name == "MACD" and len(args) == 3:
-            return _ewm_mean(_expect_value(args[0]), int(_expect_number(args[1]))) - _ewm_mean(
-                _expect_value(args[0]), int(_expect_number(args[2]))
-            )
+            return _ewm_mean(_expect_value(args[0]), int(_expect_number(args[1]))) - _ewm_mean(_expect_value(args[0]), int(_expect_number(args[2])))
         if name == "RSI" and len(args) == 2:
             return _rsi(_expect_value(args[0]), int(_expect_number(args[1])))
         if name == "BB_MIDDLE" and len(args) == 2:
@@ -439,7 +442,7 @@ def _convert_ternary_groups(expression: str) -> str:
         if replacement is None:
             return expr
         start, end, converted = replacement
-        expr = f"{expr[:start]}{converted}{expr[end + 1:]}"
+        expr = f"{expr[:start]}{converted}{expr[end + 1 :]}"
 
 
 def _parenthesis_pairs(expression: str) -> list[tuple[int, int]]:
@@ -591,9 +594,7 @@ def _expect_sequence(value: KernelValue | float | KernelSequence, window: int) -
 
 
 def _delay(value: KernelValue, period: int) -> KernelValue:
-    return KernelValue(
-        value.frame.select("datetime", "instrument", pl.col("data").shift(period).over("instrument").alias("data"))
-    )
+    return KernelValue(value.frame.select("datetime", "instrument", pl.col("data").shift(period).over("instrument").alias("data")))
 
 
 def _rolling(operation: str, value: KernelValue, window: int) -> KernelValue:
@@ -704,9 +705,7 @@ def _cs_kurt(value: KernelValue) -> KernelValue:
 
 def _rolling_quantile(value: KernelValue, window: int, quantile: float, *, min_samples: int | None = None) -> KernelValue:
     min_samples = window if min_samples is None else min_samples
-    data_expr = pl.col("data").fill_nan(None).rolling_quantile(
-        quantile, interpolation="linear", window_size=window, min_samples=min_samples
-    )
+    data_expr = pl.col("data").fill_nan(None).rolling_quantile(quantile, interpolation="linear", window_size=window, min_samples=min_samples)
     return KernelValue(value.frame.select("datetime", "instrument", data_expr.over("instrument").alias("data")))
 
 
@@ -721,25 +720,13 @@ def _full_instrument_quantile(value: KernelValue, quantile: float) -> KernelValu
 
 
 def _rolling_count(value: KernelValue, window: int) -> KernelValue:
-    data_expr = (
-        pl.col("data")
-        .fill_nan(0.0)
-        .fill_null(0.0)
-        .ne(0.0)
-        .cast(pl.Float64)
-        .rolling_sum(window, min_samples=window)
-    )
+    data_expr = pl.col("data").fill_nan(0.0).fill_null(0.0).ne(0.0).cast(pl.Float64).rolling_sum(window, min_samples=window)
     return KernelValue(value.frame.select("datetime", "instrument", data_expr.over("instrument").alias("data")))
 
 
 def _rolling_sumif(value: KernelValue, window: int, condition: KernelValue) -> KernelValue:
     frame = value.frame.join(condition.frame, on=["datetime", "instrument"], suffix="_condition")
-    data_expr = (
-        pl.when(pl.col("data_condition").fill_null(0.0) != 0.0)
-        .then(pl.col("data").fill_nan(None))
-        .otherwise(0.0)
-        .rolling_sum(window, min_samples=window)
-    )
+    data_expr = pl.when(pl.col("data_condition").fill_null(0.0) != 0.0).then(pl.col("data").fill_nan(None)).otherwise(0.0).rolling_sum(window, min_samples=window)
     return KernelValue(frame.select("datetime", "instrument", data_expr.over("instrument").alias("data")))
 
 
@@ -798,11 +785,7 @@ def _ts_rank(value: KernelValue, window: int, *, min_samples: int | None = None)
 
 
 def _cs_rank(value: KernelValue, *, compat_mode: str = "strict") -> KernelValue:
-    rank_data = (
-        pl.when(pl.col("data").abs() > 1_000_000.0).then(pl.col("data").round(8)).otherwise(pl.col("data"))
-        if compat_mode == "h5_coder"
-        else pl.col("data")
-    )
+    rank_data = pl.when(pl.col("data").abs() > 1_000_000.0).then(pl.col("data").round(8)).otherwise(pl.col("data")) if compat_mode == "h5_coder" else pl.col("data")
     return KernelValue(
         value.frame.select(
             "datetime",
@@ -832,11 +815,7 @@ def _ts_zscore(value: KernelValue, window: int) -> KernelValue:
     std_kv = _rolling("std", value, window)
     frame = value.frame.join(mean_kv.frame, on=["datetime", "instrument"], suffix="_mean")
     frame = frame.join(std_kv.frame, on=["datetime", "instrument"], suffix="_std")
-    expr = pl.when(
-        (pl.col("data_std") == 0) | pl.col("data_std").is_null() | pl.col("data_std").is_nan()
-    ).then(0.0).otherwise(
-        (pl.col("data") - pl.col("data_mean")) / pl.col("data_std")
-    )
+    expr = pl.when((pl.col("data_std") == 0) | pl.col("data_std").is_null() | pl.col("data_std").is_nan()).then(0.0).otherwise((pl.col("data") - pl.col("data_mean")) / pl.col("data_std"))
     return KernelValue(frame.select("datetime", "instrument", expr.alias("data")))
 
 
@@ -853,9 +832,7 @@ def _cs_fill_null(value: KernelValue, fill_mode: str = "mean") -> KernelValue:
 
 
 def _cs_median(value: KernelValue) -> KernelValue:
-    return KernelValue(
-        value.frame.select("datetime", "instrument", pl.col("data").median().over("datetime").alias("data"))
-    )
+    return KernelValue(value.frame.select("datetime", "instrument", pl.col("data").median().over("datetime").alias("data")))
 
 
 def _rolling_corr(left: KernelValue | float | KernelSequence, right: KernelValue | float | KernelSequence, window: int) -> KernelValue:
@@ -900,12 +877,7 @@ def _rolling_corr_sequence(value: KernelValue, window: int) -> KernelValue:
         value.frame.select(
             "datetime",
             "instrument",
-            pl.col("data")
-            .fill_nan(None)
-            .rolling_map(calc, window_size=window, min_samples=window)
-            .over("instrument")
-            .cast(pl.Float32)
-            .alias("data"),
+            pl.col("data").fill_nan(None).rolling_map(calc, window_size=window, min_samples=window).over("instrument").cast(pl.Float32).alias("data"),
         )
     )
 
@@ -1039,11 +1011,7 @@ def _ewm_mean(value: KernelValue, window: int) -> KernelValue:
         value.frame.select(
             "datetime",
             "instrument",
-            pl.col("data")
-            .ewm_mean(span=window, min_samples=1)
-            .over("instrument")
-            .cast(pl.Float32)
-            .alias("data"),
+            pl.col("data").ewm_mean(span=window, min_samples=1).over("instrument").cast(pl.Float32).alias("data"),
         )
     )
 
@@ -1053,10 +1021,6 @@ def _ewm_alpha(value: KernelValue, alpha: float) -> KernelValue:
         value.frame.select(
             "datetime",
             "instrument",
-            pl.col("data")
-            .ewm_mean(alpha=alpha, min_samples=1)
-            .over("instrument")
-            .cast(pl.Float32)
-            .alias("data"),
+            pl.col("data").ewm_mean(alpha=alpha, min_samples=1).over("instrument").cast(pl.Float32).alias("data"),
         )
     )
