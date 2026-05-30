@@ -44,6 +44,31 @@ def test_validate_factor_expression_uses_only_admitted_expression_fields() -> No
         validate_factor_expression_against_allowlist("Ref($daily_basic_turnover_rate, -2)", allowlist)
 
 
+def test_cyq_perf_cost_expressions_validate_against_default_allowlist() -> None:
+    from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist, validate_factor_expression_against_allowlist
+
+    allowlist = build_default_daily_panel_allowlist()
+
+    validate_factor_expression_against_allowlist("($cyq_perf_cost_95pct - $cyq_perf_cost_5pct) / $close", allowlist)
+    validate_factor_expression_against_allowlist("$close / $cyq_perf_cost_50pct - 1", allowlist)
+    validate_factor_expression_against_allowlist("MAX($cyq_perf_cost_95pct - $close, 0) / $close", allowlist)
+    validate_factor_expression_against_allowlist("MAX($close - $cyq_perf_cost_5pct, 0) / $close", allowlist)
+    validate_factor_expression_against_allowlist(
+        "($cyq_perf_cost_95pct - $cyq_perf_cost_50pct) - ($cyq_perf_cost_50pct - $cyq_perf_cost_5pct)",
+        allowlist,
+    )
+
+
+def test_cyq_chips_scalar_expressions_validate_against_default_allowlist() -> None:
+    from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist, validate_factor_expression_against_allowlist
+
+    allowlist = build_default_daily_panel_allowlist()
+
+    validate_factor_expression_against_allowlist("RANK($cyq_chips_chip_entropy) + $cyq_chips_top5_concentration", allowlist)
+    validate_factor_expression_against_allowlist("($close - $cyq_chips_peak_price) / $close", allowlist)
+    validate_factor_expression_against_allowlist("$cyq_chips_width_5_95 / $close", allowlist)
+
+
 def test_structured_rejection_feedback_is_prompt_safe() -> None:
     from quantaalpha.backtest.data_admission import build_structured_rejection_feedback
 

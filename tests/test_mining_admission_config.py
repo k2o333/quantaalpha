@@ -491,7 +491,9 @@ def test_production_expanded_profile_exposes_audited_expression_interfaces() -> 
     expression_fields = [field for field in profile.fields if "expression" in field.allowed_usage]
     expression_interfaces = {field.source_interface for field in expression_fields}
 
-    assert len(expression_interfaces) == 26
+    assert len(expression_interfaces) == 27
+    assert "cyq_chips" not in expression_interfaces
+    assert "cyq_chips_scalar" in expression_interfaces
     assert "stock_basic" not in expression_interfaces
     assert "trade_cal" not in expression_interfaces
     assert "index_weight" not in expression_interfaces
@@ -519,12 +521,52 @@ def test_production_expanded_profile_unblocks_company_and_hsgt_as_non_expression
     assert "stock_hsgt" not in blocked
     assert "stock_company" in report["coverage"]["admitted_interfaces"]
     assert "stock_hsgt" in report["coverage"]["admitted_interfaces"]
-    assert len(blocked) == 8
+    assert blocked == {}
     assert routes["$stock_company_reg_capital_asof"]["prompt_visible"] is False
     assert routes["$stock_company_employees_asof"]["prompt_visible"] is False
     assert routes["$is_hsgt_external"]["prompt_visible"] is False
     assert routes["$stock_company_reg_capital_asof"]["materializer"] == "_join_dimension_asof_batch"
     assert routes["$is_hsgt_external"]["materializer"] == "_join_tradability_mask_batch"
+
+
+def test_production_expanded_profile_unblocks_remaining_interfaces_as_context_only() -> None:
+    from quantaalpha.backtest.mining_admission import validate_admission_profile
+
+    report = validate_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+    routes = report["routes"]
+
+    assert report["coverage"]["blocked_interfaces"] == {}
+    for interface in (
+        "broker_recommend",
+        "fina_mainbz_vip",
+        "index_weight",
+        "moneyflow_cnt_ths",
+        "moneyflow_ind_dc",
+        "moneyflow_ind_ths",
+        "trade_cal",
+    ):
+        assert interface in report["coverage"]["admitted_interfaces"]
+    assert routes["$trade_cal_is_open"]["materializer"] == "_join_tradability_mask_batch"
+    assert routes["$benchmark_hs300_weight_sum"]["materializer"] == "_join_benchmark_weight_context_batch"
+    assert routes["$moneyflow_ind_dc_net_amount_sum"]["materializer"] == "_join_daily_panel_aggregate_context_batch"
+    assert routes["$moneyflow_ind_ths_net_amount_sum"]["materializer"] == "_join_daily_panel_aggregate_context_batch"
+    assert routes["$moneyflow_cnt_ths_net_amount_sum"]["materializer"] == "_join_daily_panel_aggregate_context_batch"
+    assert routes["$broker_recommend_count_asof"]["materializer"] == "_join_pit_panel_asof_batch"
+    assert routes["$fina_mainbz_sales_sum_asof"]["materializer"] == "_join_pit_panel_asof_batch"
+    for name in (
+        "$trade_cal_is_open",
+        "$benchmark_hs300_weight_sum",
+        "$moneyflow_ind_dc_net_amount_sum",
+        "$moneyflow_ind_ths_net_amount_sum",
+        "$moneyflow_cnt_ths_net_amount_sum",
+        "$broker_recommend_count_asof",
+        "$fina_mainbz_sales_sum_asof",
+        "$fina_mainbz_profit_sum_asof",
+    ):
+        assert routes[name]["prompt_visible"] is False
 
 
 def test_production_expanded_profile_has_expression_field_semantics() -> None:
@@ -550,6 +592,9 @@ def test_production_expanded_profile_has_expression_field_semantics() -> None:
     assert "$stk_holdertrade_vol_180d" in expression_names
     assert "$daily_basic_pe_ttm" in expression_names
     assert "$moneyflow_net_mf_amount" in expression_names
+    assert "$cyq_perf_cost_5pct" in expression_names
+    assert "$cyq_perf_cost_50pct" in expression_names
+    assert "$cyq_perf_cost_95pct" in expression_names
     assert "$fina_indicator_debt_to_assets_asof" in expression_names
     assert "$namechange_count_365d" in expression_names
     assert "$stk_managers_count_365d" in expression_names
@@ -567,6 +612,78 @@ def test_production_expanded_profile_has_expression_field_semantics() -> None:
         assert field.unit
         assert field.scale is not None
         assert field.source_methodology
+
+
+def test_production_expanded_profile_admits_only_first_cyq_perf_cost_tranche() -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile, validate_admission_profile
+
+    profile = load_mining_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+    report = validate_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+    fields_by_name = {field.feature_name: field for field in profile.fields}
+    cyq_perf_names = {
+        field.feature_name
+        for field in profile.fields
+        if field.source_interface == "cyq_perf" and "expression" in field.allowed_usage
+    }
+
+    assert {
+        "$cyq_perf_winner_rate",
+        "$cyq_perf_cost_5pct",
+        "$cyq_perf_cost_50pct",
+        "$cyq_perf_cost_95pct",
+    } <= cyq_perf_names
+    assert "$cyq_perf_cost_15pct" not in cyq_perf_names
+    assert "$cyq_perf_cost_85pct" not in cyq_perf_names
+    assert "$cyq_perf_weight_avg" not in cyq_perf_names
+    for name in ("$cyq_perf_cost_5pct", "$cyq_perf_cost_50pct", "$cyq_perf_cost_95pct"):
+        field = fields_by_name[name]
+        assert field.admitted_by == "REQ-2026-0015"
+        assert field.source_kind == "daily_panel"
+        assert field.source_interface == "cyq_perf"
+        assert field.semantic_type == "chip_cost_percentile"
+        assert report["routes"][name]["materializer"] == "_join_daily_panel_batch"
+        assert report["routes"][name]["prompt_visible"] is True
+    assert "cyq_chips" not in report["coverage"]["blocked_interfaces"]
+
+
+def test_production_expanded_profile_admits_cyq_chips_scalar_not_raw_distribution() -> None:
+    from quantaalpha.backtest.mining_admission import load_mining_admission_profile, validate_admission_profile
+
+    profile = load_mining_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+    report = validate_admission_profile(
+        Path("/home/quan/testdata/aspipe_v4/config/factor_mining_data_admission.yaml"),
+        "expanded_app5_v1",
+    )
+    cyq_chip_fields = {
+        field.feature_name: field
+        for field in profile.fields
+        if field.feature_name.startswith("$cyq_chips_")
+    }
+
+    assert set(cyq_chip_fields) == {
+        "$cyq_chips_chip_entropy",
+        "$cyq_chips_peak_price",
+        "$cyq_chips_peak_percent",
+        "$cyq_chips_top5_concentration",
+        "$cyq_chips_width_5_95",
+    }
+    assert all(field.source_interface == "cyq_chips_scalar" for field in cyq_chip_fields.values())
+    assert all(field.source_kind == "daily_panel" for field in cyq_chip_fields.values())
+    assert "cyq_chips" not in {field.source_interface for field in profile.fields}
+    assert "cyq_chips" not in report["coverage"]["blocked_interfaces"]
+    assert "cyq_chips_scalar" in report["coverage"]["admitted_interfaces"]
+    for name in cyq_chip_fields:
+        assert report["routes"][name]["materializer"] == "_join_daily_panel_batch"
+        assert report["routes"][name]["prompt_visible"] is True
 
 
 def test_real_hfq_expanded_profile_smoke_materializes_small_frame() -> None:

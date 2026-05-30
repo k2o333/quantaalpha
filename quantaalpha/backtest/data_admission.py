@@ -14,6 +14,7 @@ import polars as pl
 from quantaalpha.backtest.contracts import (
     EXPLICIT_APP5_INTERFACE_CLASSIFICATION,
     OptionalStandardFrameField,
+    STANDARD_FRAME_FACTOR_FIELDS,
     validate_optional_standard_frame_field,
 )
 
@@ -35,6 +36,7 @@ SUPPORTED_EXPRESSION_FUNCTIONS = {
     "GREATER",
     "LESS",
     "LOG",
+    "MAX",
     "RANK",
     "SIGN",
     "SQRT",
@@ -179,6 +181,86 @@ def build_default_daily_panel_allowlist() -> DailyPanelAllowlist:
                 "missing_policy": "nan",
                 "allowed_usage": ("expression", "backtest_standard_frame"),
             },
+            {
+                "source_interface": "cyq_perf",
+                "source_field": "cost_5pct",
+                "feature_name": "$cyq_perf_cost_5pct",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_perf",
+                "source_field": "cost_50pct",
+                "feature_name": "$cyq_perf_cost_50pct",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_perf",
+                "source_field": "cost_95pct",
+                "feature_name": "$cyq_perf_cost_95pct",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_chips_scalar",
+                "source_field": "chip_entropy",
+                "feature_name": "$cyq_chips_chip_entropy",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_chips_scalar",
+                "source_field": "peak_price",
+                "feature_name": "$cyq_chips_peak_price",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_chips_scalar",
+                "source_field": "peak_percent",
+                "feature_name": "$cyq_chips_peak_percent",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_chips_scalar",
+                "source_field": "top5_concentration",
+                "feature_name": "$cyq_chips_top5_concentration",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
+            {
+                "source_interface": "cyq_chips_scalar",
+                "source_field": "width_5_95",
+                "feature_name": "$cyq_chips_width_5_95",
+                "dtype": "float64",
+                "join_key": ("datetime", "instrument"),
+                "time_policy": "same_trade_date_no_lookahead",
+                "missing_policy": "nan",
+                "allowed_usage": ("expression", "backtest_standard_frame"),
+            },
         ]
     )
 
@@ -187,6 +269,7 @@ def validate_requested_expression_fields(requested_fields: Iterable[str], allowl
     """Fail before prompt/backtest work when a requested expression field is not admitted."""
 
     expression_names = {field.feature_name for field in allowlist.expression_fields()}
+    expression_names.update(STANDARD_FRAME_FACTOR_FIELDS)
     all_fields = allowlist.by_feature_name()
     for requested in requested_fields:
         if requested in expression_names:

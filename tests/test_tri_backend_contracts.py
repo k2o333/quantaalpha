@@ -693,6 +693,106 @@ def test_app5_standard_frame_materializes_generic_pit_panel_asof_batch(tmp_path:
     assert pit_read["filters"] == [("ann_date", "<=", "20240430")]
 
 
+def test_app5_standard_frame_materializes_aggregate_context_batches(tmp_path: Path) -> None:
+    from quantaalpha.backtest.contracts import OptionalStandardFrameField
+    from quantaalpha.backtest.mining_admission import MiningAdmissionField
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20240102"],
+            "open": [10.0],
+            "high": [10.5],
+            "low": [9.5],
+            "close": [10.2],
+            "vol": [1000.0],
+            "amount": [1020.0],
+            "pct_chg": [1.0],
+        }
+    )
+    trade_cal = pl.DataFrame({"cal_date": ["20240102"], "is_open": [1]})
+    moneyflow_ind = pl.DataFrame({"trade_date": ["20240102", "20240102"], "net_amount": [10.0, 15.0]})
+    index_weight = pl.DataFrame(
+        {
+            "index_code": ["000300.SH", "000300.SH", "000905.SH"],
+            "trade_date": ["20240102", "20240102", "20240102"],
+            "weight": [40.0, 60.0, 55.0],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            if interface_name == "daily":
+                return daily_frame
+            if interface_name == "trade_cal":
+                return trade_cal
+            if interface_name == "moneyflow_ind_dc":
+                return moneyflow_ind
+            if interface_name == "index_weight":
+                return index_weight
+            raise AssertionError(interface_name)
+
+    def field(feature_name: str, source_interface: str, source_field: str, source_kind: str, payload: dict[str, object], time_policy: str) -> MiningAdmissionField:
+        return MiningAdmissionField(
+            base=OptionalStandardFrameField(
+                source_interface=source_interface,
+                source_field=source_field,
+                feature_name=feature_name,
+                dtype="float64",
+                join_key=("datetime", "instrument"),
+                time_policy=time_policy,
+                missing_policy="nan",
+                allowed_usage=("context", "backtest_standard_frame"),
+            ),
+            source_kind=source_kind,
+            payload=payload,
+        )
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(
+            daily_interface="daily",
+            admitted_fields=(
+                field(
+                    "$trade_cal_is_open",
+                    "trade_cal",
+                    "is_open",
+                    "tradability_mask",
+                    {"source_interface": "trade_cal", "source_field": "is_open", "date_column": "cal_date"},
+                    "tradability_state_no_lookahead",
+                ),
+                field(
+                    "$moneyflow_ind_dc_net_amount_sum",
+                    "moneyflow_ind_dc",
+                    "net_amount",
+                    "daily_panel_aggregate_context",
+                    {"source_interface": "moneyflow_ind_dc", "source_field": "net_amount", "date_column": "trade_date", "aggregation": "sum"},
+                    "same_trade_date_aggregate_no_lookahead",
+                ),
+                field(
+                    "$benchmark_hs300_weight_sum",
+                    "index_weight",
+                    "weight",
+                    "benchmark_weight_context",
+                    {
+                        "source_interface": "index_weight",
+                        "source_field": "weight",
+                        "date_column": "trade_date",
+                        "index_code": "000300.SH",
+                        "aggregation": "sum",
+                    },
+                    "benchmark_weight_same_trade_date_no_lookahead",
+                ),
+            ),
+        )
+    )
+
+    assert result.frame["$trade_cal_is_open"].to_list() == [1.0]
+    assert result.frame["$moneyflow_ind_dc_net_amount_sum"].to_list() == [25.0]
+    assert result.frame["$benchmark_hs300_weight_sum"].to_list() == [100.0]
+
+
 def test_app5_standard_frame_qfq_adjustment_uses_explicit_adjusted_prices(tmp_path: Path) -> None:
     from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
 

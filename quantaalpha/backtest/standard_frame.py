@@ -507,6 +507,10 @@ class App5StandardFrameBuilder:
                     joined = self._join_benchmark_daily_context_batch(joined, request, group)
                 elif group[0].source_kind == "market_context_daily":
                     joined = self._join_market_context_daily_batch(joined, request, group)
+                elif group[0].source_kind == "daily_panel_aggregate_context":
+                    joined = self._join_daily_panel_aggregate_context_batch(joined, request, group)
+                elif group[0].source_kind == "benchmark_weight_context":
+                    joined = self._join_benchmark_weight_context_batch(joined, request, group)
                 else:
                     raise ValueError(f"unsupported feature-view source_kind: {group[0].source_kind}")
             except Exception as exc:
@@ -870,6 +874,63 @@ class App5StandardFrameBuilder:
         joined = frame.join(feature_frame, on="datetime", how="left")
         return self._fill_joined_missing_columns(joined, fields)
 
+    def _join_daily_panel_aggregate_context_batch(
+        self,
+        frame: pl.DataFrame,
+        request: StandardFrameRequest,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        first = fields[0]
+        date_column = str(first.payload["date_column"])
+        aggregation = str(first.payload["aggregation"])
+        source_fields = list(dict.fromkeys(field.source_field for field in fields))
+        source = self.adapter.read(
+            first.source_interface,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            columns=[date_column, *source_fields],
+            unique=False,
+        )
+        if source.is_empty():
+            return self._with_empty_feature_columns(frame, fields)
+        source = source.with_columns(_date_expr(date_column).alias("datetime")).filter(pl.col("datetime").is_not_null())
+        feature_frame = source.group_by("datetime").agg(
+            [_aggregate_expr(field, aggregation).alias(field.feature_name) for field in fields]
+        )
+        joined = frame.join(feature_frame, on="datetime", how="left")
+        return self._fill_joined_missing_columns(joined, fields)
+
+    def _join_benchmark_weight_context_batch(
+        self,
+        frame: pl.DataFrame,
+        request: StandardFrameRequest,
+        fields: Sequence[MiningAdmissionField],
+    ) -> pl.DataFrame:
+        first = fields[0]
+        date_column = str(first.payload["date_column"])
+        index_code = str(first.payload["index_code"])
+        aggregation = str(first.payload["aggregation"])
+        source_fields = list(dict.fromkeys(field.source_field for field in fields))
+        source = self.adapter.read(
+            first.source_interface,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            columns=["index_code", date_column, *source_fields],
+            unique=False,
+        )
+        if source.is_empty():
+            return self._with_empty_feature_columns(frame, fields)
+        source = source.filter(pl.col("index_code").cast(pl.Utf8) == index_code).with_columns(
+            _date_expr(date_column).alias("datetime")
+        )
+        if source.is_empty():
+            return self._with_empty_feature_columns(frame, fields)
+        feature_frame = source.group_by("datetime").agg(
+            [_aggregate_expr(field, aggregation).alias(field.feature_name) for field in fields]
+        )
+        joined = frame.join(feature_frame, on="datetime", how="left")
+        return self._fill_joined_missing_columns(joined, fields)
+
     def _project_joined_feature_columns(
         self,
         frame: pl.DataFrame,
@@ -1110,6 +1171,17 @@ def _event_source_column(feature_name: str, window_days: int, *, amount_column: 
     if amount_column:
         return f"{_event_prefix(feature_name, window_days)}_amount_{window_days}d"
     return name
+
+
+def _aggregate_expr(field_item: MiningAdmissionField, aggregation: str) -> pl.Expr:
+    value = pl.col(field_item.source_field).cast(_dtype(field_item.dtype), strict=False)
+    if aggregation == "sum":
+        return value.sum()
+    if aggregation == "mean":
+        return value.mean()
+    if aggregation == "count":
+        return pl.len().cast(_dtype(field_item.dtype))
+    raise ValueError(f"unsupported aggregate context aggregation for {field_item.feature_name}: {aggregation}")
 
 
 def _dtype(dtype: str) -> pl.DataType:

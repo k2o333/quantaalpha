@@ -213,4 +213,117 @@ def test_build_default_daily_panel_allowlist_admits_conservative_multi_interface
     assert "$daily_basic_turnover_rate" in names
     assert "$moneyflow_buy_sm_amount" in names
     assert "$cyq_perf_winner_rate" in names
+    assert "$cyq_perf_cost_5pct" in names
+    assert "$cyq_perf_cost_50pct" in names
+    assert "$cyq_perf_cost_95pct" in names
+    assert "$cyq_chips_chip_entropy" in names
+    assert "$cyq_chips_peak_price" in names
+    assert "$cyq_chips_peak_percent" in names
+    assert "$cyq_chips_top5_concentration" in names
+    assert "$cyq_chips_width_5_95" in names
     assert not any(name.startswith("$stock_hsgt") for name in names)
+
+
+def test_cyq_perf_cost_tranche_reaches_standard_frame_and_prompt_capability() -> None:
+    from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist, render_prompt_capabilities_from_allowlist
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20240102"],
+            "open": [10.0],
+            "high": [10.5],
+            "low": [9.5],
+            "close": [10.2],
+            "vol": [1000.0],
+            "amount": [1020.0],
+            "pct_chg": [1.0],
+        }
+    )
+    cyq_perf_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20240102"],
+            "cost_5pct": [8.8],
+            "cost_50pct": [9.7],
+            "cost_95pct": [11.4],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name: str, **kwargs: object) -> pl.DataFrame:
+            del kwargs
+            if interface_name == "daily":
+                return daily_frame
+            if interface_name == "cyq_perf":
+                return cyq_perf_frame
+            if interface_name == "trade_cal":
+                raise KeyError(interface_name)
+            raise AssertionError(interface_name)
+
+    allowlist = build_default_daily_panel_allowlist()
+    cyq_cost_fields = tuple(
+        field
+        for field in allowlist.expression_fields()
+        if field.feature_name in {"$cyq_perf_cost_5pct", "$cyq_perf_cost_50pct", "$cyq_perf_cost_95pct"}
+    )
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root="data").build(
+        StandardFrameRequest(optional_fields=cyq_cost_fields)
+    )
+    capabilities = render_prompt_capabilities_from_allowlist(allowlist, source_manifest_version="test-v1")
+
+    assert result.frame.select("$cyq_perf_cost_5pct", "$cyq_perf_cost_50pct", "$cyq_perf_cost_95pct").row(0) == (8.8, 9.7, 11.4)
+    assert "$cyq_perf_cost_5pct" in capabilities["expression_fields"]
+    assert "$cyq_perf_cost_50pct" in capabilities["expression_fields"]
+    assert "$cyq_perf_cost_95pct" in capabilities["expression_fields"]
+
+
+def test_cyq_chips_scalar_fields_reach_standard_frame_and_prompt_capability() -> None:
+    from quantaalpha.backtest.data_admission import build_default_daily_panel_allowlist, render_prompt_capabilities_from_allowlist
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    daily_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20240102"],
+            "open": [10.0],
+            "high": [10.5],
+            "low": [9.5],
+            "close": [10.2],
+            "vol": [1000.0],
+            "amount": [1020.0],
+            "pct_chg": [1.0],
+        }
+    )
+    scalar_frame = pl.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20240102"],
+            "chip_entropy": [1.2],
+            "peak_price": [9.8],
+            "peak_percent": [12.0],
+            "top5_concentration": [0.4],
+            "width_5_95": [3.1],
+        }
+    )
+
+    class FakeAdapter:
+        def read(self, interface_name: str, **kwargs: object) -> pl.DataFrame:
+            del kwargs
+            if interface_name == "daily":
+                return daily_frame
+            if interface_name == "cyq_chips_scalar":
+                return scalar_frame
+            if interface_name == "trade_cal":
+                raise KeyError(interface_name)
+            raise AssertionError(interface_name)
+
+    allowlist = build_default_daily_panel_allowlist()
+    chip_fields = tuple(field for field in allowlist.expression_fields() if field.source_interface == "cyq_chips_scalar")
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root="data").build(StandardFrameRequest(optional_fields=chip_fields))
+    capabilities = render_prompt_capabilities_from_allowlist(allowlist, source_manifest_version="test-v1")
+
+    assert result.frame.select("$cyq_chips_peak_price", "$cyq_chips_top5_concentration").row(0) == (9.8, 0.4)
+    assert "$cyq_chips_chip_entropy" in capabilities["expression_fields"]
+    assert "$cyq_chips_width_5_95" in capabilities["expression_fields"]

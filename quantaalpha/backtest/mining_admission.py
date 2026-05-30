@@ -108,6 +108,26 @@ SOURCE_KIND_REGISTRY: dict[str, SourceKindSpec] = {
         freq="daily",
         expression_allowed=False,
     ),
+    "daily_panel_aggregate_context": SourceKindSpec(
+        materializer="_join_daily_panel_aggregate_context_batch",
+        required_payload_keys=("source_interface", "source_field", "date_column", "aggregation"),
+        allowed_time_policies=("same_trade_date_aggregate_no_lookahead",),
+        prompt_group="market_context",
+        allowed_primary_classes=("daily_panel",),
+        layer="market_context",
+        freq="daily",
+        expression_allowed=False,
+    ),
+    "benchmark_weight_context": SourceKindSpec(
+        materializer="_join_benchmark_weight_context_batch",
+        required_payload_keys=("source_interface", "source_field", "date_column", "index_code", "aggregation"),
+        allowed_time_policies=("benchmark_weight_same_trade_date_no_lookahead",),
+        prompt_group="benchmark_context",
+        allowed_primary_classes=("benchmark",),
+        layer="benchmark",
+        freq="daily",
+        expression_allowed=False,
+    ),
 }
 
 
@@ -208,6 +228,23 @@ class MiningAdmissionField:
                 self.source_interface,
                 self.payload.get("date_column"),
                 self.source_field,
+                self.time_policy,
+            )
+        if self.source_kind == "daily_panel_aggregate_context":
+            return (
+                self.source_kind,
+                self.source_interface,
+                self.payload.get("date_column"),
+                self.payload.get("aggregation"),
+                self.time_policy,
+            )
+        if self.source_kind == "benchmark_weight_context":
+            return (
+                self.source_kind,
+                self.source_interface,
+                self.payload.get("index_code"),
+                self.payload.get("date_column"),
+                self.payload.get("aggregation"),
                 self.time_policy,
             )
         return (self.source_kind, self.source_interface, self.time_policy)
