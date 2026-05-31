@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
-import pandas as pd
 import polars as pl
 
 
@@ -74,16 +73,15 @@ def compute_factor_output_parquet(
     expression: str,
     factor_name: str,
     output_path: str | Path,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Compute one factor from standard-frame parquet and write parquet output."""
 
     from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
 
     frame = load_standard_frame_runtime_data(data_root)
-    result = SharedPolarsExpressionKernel(frame, compat_mode="h5_coder").compute_expression(expression, factor_name)
-    result = _normalize_factor_result(result, factor_name=factor_name)
-    output = result.reset_index()
-    output.to_parquet(output_path, index=False)
+    result = SharedPolarsExpressionKernel(frame, compat_mode="h5_coder").compute_expression_frame(expression, factor_name)
+    result = _normalize_factor_result_polars(result, factor_name=factor_name)
+    result.write_parquet(output_path)
     return result
 
 
@@ -96,6 +94,8 @@ def compute_h5_oracle_output(
 ) -> pd.DataFrame:
     """Compute one factor through the current pandas/H5 oracle path."""
 
+    import pandas as pd
+
     from quantaalpha.factors.coder import function_lib
     from quantaalpha.factors.coder.expr_parser import bind_expression_columns, parse_expression, parse_symbol
 
@@ -106,11 +106,7 @@ def compute_h5_oracle_output(
     df = pd.read_hdf(h5_input, key="data")
     parsed = parse_expression(parse_symbol(expression, df.columns))
     bound = bind_expression_columns(parsed, df.columns)
-    eval_globals = {
-        name: value
-        for name, value in vars(function_lib).items()
-        if not name.startswith("__")
-    }
+    eval_globals = {name: value for name, value in vars(function_lib).items() if not name.startswith("__")}
     eval_globals.update({"np": np, "pd": pd, "df": df})
     df[factor_name] = eval(bound, eval_globals, {})
     result = df[factor_name].astype(np.float64)
@@ -121,24 +117,26 @@ def compute_h5_oracle_output(
 def read_h5_oracle_result(path: str | Path, *, factor_name: str) -> pd.DataFrame:
     """Read a current H5 factor result into the normalized factor result contract."""
 
+    import pandas as pd
+
     result = pd.read_hdf(path, key="data")
     return _normalize_factor_result(result, factor_name=factor_name)
 
 
-def read_parquet_factor_result(path: str | Path, *, factor_name: str) -> pd.DataFrame:
+def read_parquet_factor_result(path: str | Path, *, factor_name: str) -> pl.DataFrame:
     """Read a parquet factor result into the normalized factor result contract."""
 
-    frame = pd.read_parquet(path)
+    frame = pl.read_parquet(path)
     if {"datetime", "instrument", factor_name}.issubset(frame.columns):
-        return _normalize_factor_result(frame.set_index(["datetime", "instrument"])[[factor_name]], factor_name=factor_name)
+        return _normalize_factor_result_polars(frame.select(["datetime", "instrument", factor_name]), factor_name=factor_name)
     if {"datetime", "instrument", "value"}.issubset(frame.columns):
-        return _normalize_factor_result(frame.set_index(["datetime", "instrument"])[["value"]], factor_name=factor_name)
+        return _normalize_factor_result_polars(frame.select(["datetime", "instrument", "value"]), factor_name=factor_name)
     raise ValueError(f"unsupported parquet factor result schema: {list(frame.columns)}")
 
 
 def assert_factor_frame_parity(
-    h5_result: pd.DataFrame | pd.Series,
-    parquet_result: pd.DataFrame | pd.Series,
+    h5_result: pd.DataFrame | pd.Series | pl.DataFrame,
+    parquet_result: pd.DataFrame | pd.Series | pl.DataFrame,
     *,
     factor_name: str,
     rtol: float = 1e-7,
@@ -146,15 +144,41 @@ def assert_factor_frame_parity(
 ) -> dict[str, Any]:
     """Assert H5 oracle and parquet runtime outputs match on keys and values."""
 
+    if isinstance(h5_result, pl.DataFrame) or isinstance(parquet_result, pl.DataFrame):
+        left = _normalize_factor_result_polars(h5_result, factor_name=factor_name)
+        right = _normalize_factor_result_polars(parquet_result, factor_name=factor_name)
+        joined = left.join(
+            right.rename({factor_name: "__right"}),
+            on=["datetime", "instrument"],
+            how="inner",
+        )
+        if joined.is_empty():
+            raise AssertionError("factor parity key mismatch: no common datetime/instrument rows")
+        if joined.height != left.height or joined.height != right.height:
+            raise AssertionError(f"factor parity index mismatch: left_rows={left.height} right_rows={right.height} common_rows={joined.height}")
+        null_mismatch = joined.filter(pl.col(factor_name).is_null() != pl.col("__right").is_null())
+        if not null_mismatch.is_empty():
+            raise AssertionError("factor parity NaN mask mismatch")
+        comparable = joined.drop_nulls([factor_name, "__right"]).with_columns((pl.col(factor_name) - pl.col("__right")).abs().alias("__diff"))
+        max_abs_diff = float(comparable.get_column("__diff").max() or 0.0) if not comparable.is_empty() else 0.0
+        if max_abs_diff > float(atol):
+            mismatches = comparable.filter((pl.col("__diff") > float(atol) + float(rtol) * pl.col("__right").abs()))
+            if not mismatches.is_empty():
+                raise AssertionError(f"factor parity value mismatch: max_abs_diff={max_abs_diff}")
+        return {
+            "rows": left.height,
+            "nan_count": int(left.select(pl.col(factor_name).is_null().sum()).item() or 0),
+            "max_abs_diff": max_abs_diff,
+            "rtol": rtol,
+            "atol": atol,
+        }
+
     left = _normalize_factor_result(h5_result, factor_name=factor_name)
     right = _normalize_factor_result(parquet_result, factor_name=factor_name)
     if not left.index.equals(right.index):
         missing_left = right.index.difference(left.index)
         missing_right = left.index.difference(right.index)
-        raise AssertionError(
-            "factor parity index mismatch: "
-            f"missing_from_h5={len(missing_left)} missing_from_parquet={len(missing_right)}"
-        )
+        raise AssertionError(f"factor parity index mismatch: missing_from_h5={len(missing_left)} missing_from_parquet={len(missing_right)}")
     left_values = left[factor_name].to_numpy(dtype=float)
     right_values = right[factor_name].to_numpy(dtype=float)
     left_nan = np.isnan(left_values)
@@ -176,6 +200,8 @@ def assert_factor_frame_parity(
 
 
 def _normalize_standard_frame(frame: pl.DataFrame | pd.DataFrame) -> pl.DataFrame:
+    import pandas as pd
+
     if isinstance(frame, pd.DataFrame):
         if isinstance(frame.index, pd.MultiIndex) and {"datetime", "instrument"}.issubset(set(frame.index.names)):
             frame = frame.reset_index()
@@ -189,6 +215,8 @@ def _normalize_standard_frame(frame: pl.DataFrame | pd.DataFrame) -> pl.DataFram
 
 
 def _write_h5_oracle_input(frame: pl.DataFrame, path: Path) -> None:
+    import pandas as pd
+
     pdf = frame.to_pandas()
     pdf["datetime"] = pd.to_datetime(pdf["datetime"])
     pdf = pdf.set_index(["datetime", "instrument"]).sort_index()
@@ -196,6 +224,8 @@ def _write_h5_oracle_input(frame: pl.DataFrame, path: Path) -> None:
 
 
 def _normalize_factor_result(result: pd.DataFrame | pd.Series, *, factor_name: str) -> pd.DataFrame:
+    import pandas as pd
+
     if isinstance(result, pd.Series):
         result = result.to_frame(name=factor_name)
     else:
@@ -215,3 +245,28 @@ def _normalize_factor_result(result: pd.DataFrame | pd.Series, *, factor_name: s
     result.index = normalized_index
     result = result[[factor_name]].astype(float).sort_index()
     return result
+
+
+def _normalize_factor_result_polars(result: pd.DataFrame | pd.Series | pl.DataFrame, *, factor_name: str) -> pl.DataFrame:
+    if isinstance(result, pl.DataFrame):
+        frame = result
+    else:
+        frame = _normalize_factor_result(result, factor_name=factor_name).reset_index()
+        frame = pl.from_pandas(frame)
+    if {"datetime", "instrument"} - set(frame.columns):
+        raise ValueError("factor result requires datetime and instrument columns")
+    if factor_name not in frame.columns:
+        value_columns = [column for column in frame.columns if column not in {"datetime", "instrument"}]
+        if len(value_columns) != 1:
+            raise ValueError(f"factor result requires {factor_name} or exactly one value column")
+        frame = frame.rename({value_columns[0]: factor_name})
+    datetime_expr = pl.col("datetime").str.strptime(pl.Datetime("ns"), strict=False) if frame.schema["datetime"] == pl.Utf8 else pl.col("datetime").cast(pl.Datetime("ns"), strict=False)
+    return (
+        frame.select(["datetime", "instrument", factor_name])
+        .with_columns(
+            datetime_expr.alias("datetime"),
+            pl.col("instrument").cast(pl.Utf8),
+            pl.col(factor_name).cast(pl.Float64, strict=False),
+        )
+        .sort(["datetime", "instrument"])
+    )

@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import polars as pl
-import types
-
-if "quantaalpha.factors.experiment" not in sys.modules:
-    experiment_stub = types.ModuleType("quantaalpha.factors.experiment")
-    experiment_stub.QlibFactorExperiment = object
-    sys.modules["quantaalpha.factors.experiment"] = experiment_stub
 
 from quantaalpha.factors.runner import QlibFactorRunner
 
@@ -42,23 +35,23 @@ def test_noqlib_static_feature_loader_reads_parquet_with_polars(tmp_path: Path) 
     with patch("pandas.read_parquet", side_effect=AssertionError("must use polars")):
         features = runner._load_noqlib_template_features(config=config, expression_engine=None, workspace_path=workspace)
 
-    assert features.index.names == ["datetime", "instrument"]
-    assert features["factor"].tolist() == [0.1, 0.2]
+    assert isinstance(features, pl.DataFrame)
+    assert features.columns == ["datetime", "instrument", "factor"]
+    assert features.get_column("factor").to_list() == [0.1, 0.2]
 
 
-def test_noqlib_static_feature_loader_restores_feature_names_from_multiindex_parquet(tmp_path: Path) -> None:
+def test_noqlib_static_feature_loader_restores_feature_names_from_feature_prefix_parquet(tmp_path: Path) -> None:
     runner = object.__new__(QlibFactorRunner)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    index = pd.MultiIndex.from_tuples(
-        [("2024-01-01", "000001.SZ"), ("2024-01-02", "000001.SZ")],
-        names=["datetime", "instrument"],
-    )
-    pd.DataFrame(
-        [[0.1, 0.3], [0.2, 0.4]],
-        index=index,
-        columns=pd.MultiIndex.from_product([["feature"], ["alpha_one", "alpha_two"]]),
-    ).to_parquet(workspace / "combined_factors_df.parquet", engine="pyarrow")
+    pl.DataFrame(
+        {
+            "datetime": ["2024-01-01", "2024-01-02"],
+            "instrument": ["000001.SZ", "000001.SZ"],
+            "feature_alpha_one": [0.1, 0.2],
+            "feature_alpha_two": [0.3, 0.4],
+        }
+    ).write_parquet(workspace / "combined_factors_df.parquet")
 
     config = {
         "data_handler_config": {
@@ -72,8 +65,8 @@ def test_noqlib_static_feature_loader_restores_feature_names_from_multiindex_par
     with patch("pandas.read_parquet", side_effect=AssertionError("must use polars")):
         features = runner._load_noqlib_template_features(config=config, expression_engine=None, workspace_path=workspace)
 
-    assert features.index.names == ["datetime", "instrument"]
-    assert list(features.columns) == ["alpha_one", "alpha_two"]
+    assert isinstance(features, pl.DataFrame)
+    assert features.columns == ["datetime", "instrument", "alpha_one", "alpha_two"]
 
 
 def test_develop_logs_backtest_boundaries(tmp_path: Path) -> None:
@@ -108,17 +101,20 @@ def test_develop_runs_correlation_dedup_when_sota_factors_exist(tmp_path: Path) 
     runner = object.__new__(QlibFactorRunner)
     (tmp_path / "ws").mkdir()
 
-    sota_df = __import__("pandas").DataFrame(
-        {"old_factor": [1.0, 2.0]},
-        index=__import__("pandas").MultiIndex.from_tuples(
-            [("2024-01-01", "A"), ("2024-01-02", "A")],
-            names=["datetime", "instrument"],
-        ),
-    )
-    new_df = __import__("pandas").DataFrame(
-        {"new_factor": [2.0, 3.0]},
-        index=sota_df.index,
-    )
+    sota_df = pl.DataFrame(
+        {
+            "datetime": ["2024-01-01", "2024-01-02"],
+            "instrument": ["A", "A"],
+            "old_factor": [1.0, 2.0],
+        }
+    ).with_columns(pl.col("datetime").str.strptime(pl.Datetime("ns")))
+    new_df = pl.DataFrame(
+        {
+            "datetime": ["2024-01-01", "2024-01-02"],
+            "instrument": ["A", "A"],
+            "new_factor": [2.0, 3.0],
+        }
+    ).with_columns(pl.col("datetime").str.strptime(pl.Datetime("ns")))
 
     workspace = SimpleNamespace(
         workspace_path=tmp_path / "ws",
@@ -274,14 +270,18 @@ port_analysis_config:
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    index = pd.MultiIndex.from_product(
-        [[pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")], ["000001.SZ"]],
-        names=["datetime", "instrument"],
-    )
-    pd.DataFrame({"factor": [0.1, 0.2]}, index=index).to_parquet(workspace / "combined_factors_df.parquet")
-
-    market_pdf = pd.DataFrame(
+    pl.DataFrame(
         {
+            "datetime": ["2024-01-01", "2024-01-02"],
+            "instrument": ["000001.SZ", "000001.SZ"],
+            "feature_factor": [0.1, 0.2],
+        }
+    ).write_parquet(workspace / "combined_factors_df.parquet")
+
+    market_frame = pl.DataFrame(
+        {
+            "datetime": ["2024-01-01", "2024-01-02"],
+            "instrument": ["000001.SZ", "000001.SZ"],
             "$open": [10.0, 10.1],
             "$high": [10.2, 10.3],
             "$low": [9.9, 10.0],
@@ -289,15 +289,10 @@ port_analysis_config:
             "$volume": [100.0, 120.0],
             "$vwap": [10.05, 10.15],
             "$return": [0.0, 0.01],
-        },
-        index=index,
+        }
+    ).with_columns(
+        pl.col("datetime").str.strptime(pl.Datetime("ns")),
     )
-    class FakeMarketFrame:
-        def to_pandas(self):
-            events.append("market_to_pandas")
-            return market_pdf.reset_index()
-
-    market_frame = FakeMarketFrame()
 
     class FakeProvider:
         def __init__(self, config):
@@ -307,9 +302,9 @@ port_analysis_config:
             events.append("load_market_frame")
             return market_frame
 
-        def load_market_data(self):
-            events.append("pandas_market")
-            return market_pdf
+            def load_market_data(self):
+                events.append("pandas_market")
+                raise AssertionError("noqlib/vnpy path must not request pandas market data")
 
     class FakeExpressionEngine:
         def __init__(self, frame):
@@ -317,7 +312,13 @@ port_analysis_config:
 
         def compute_label(self, expression):
             events.append("label")
-            return pd.DataFrame({"LABEL0": [0.01, 0.02]}, index=index)
+            return pl.DataFrame(
+                {
+                    "datetime": ["2024-01-01", "2024-01-02"],
+                    "instrument": ["000001.SZ", "000001.SZ"],
+                    "LABEL0": [0.01, 0.02],
+                }
+            ).with_columns(pl.col("datetime").str.strptime(pl.Datetime("ns")))
 
     class FakeDatasetBuilder:
         def __init__(self, config):
@@ -325,9 +326,10 @@ port_analysis_config:
 
         def build(self, features, labels):
             events.append("dataset")
-            assert "market_to_pandas" not in events
-            combined = features.join(labels)
-            return SimpleNamespace(raw_labels=labels["LABEL0"], combined=combined, label_column="LABEL0")
+            assert isinstance(features, pl.DataFrame)
+            assert isinstance(labels, pl.DataFrame)
+            combined = features.join(labels, on=["datetime", "instrument"])
+            return SimpleNamespace(raw_labels=labels, combined=combined, label_column="LABEL0")
 
     class FakeModelRunner:
         def __init__(self, config):
@@ -335,17 +337,24 @@ port_analysis_config:
 
         def fit_predict(self, dataset):
             events.append("model")
-            assert "market_to_pandas" not in events
-            return pd.Series([0.1, 0.2], index=index, name="score")
+            return pl.DataFrame(
+                {
+                    "datetime": ["2024-01-01", "2024-01-02"],
+                    "instrument": ["000001.SZ", "000001.SZ"],
+                    "score": [0.1, 0.2],
+                }
+            ).with_columns(pl.col("datetime").str.strptime(pl.Datetime("ns")))
 
     class FakeBacktester:
         def __init__(self, config, market):
             events.append("portfolio_init")
-            assert "pandas_market" in events
+            assert isinstance(market, pl.DataFrame)
+            assert "pandas_market" not in events
 
         def run(self, prediction):
             events.append("portfolio")
-            return {"annualized_return": 0.1}, pd.DataFrame(), pd.DataFrame()
+            assert isinstance(prediction, pl.DataFrame)
+            return {"annualized_return": 0.1}, pl.DataFrame(), pl.DataFrame()
 
     runner = object.__new__(QlibFactorRunner)
     runner._noqlib_config = {}
@@ -365,6 +374,5 @@ port_analysis_config:
     ):
         result = QlibFactorRunner._develop_noqlib(runner, exp, "config.yaml", backend="vnpy")
 
-    assert float(result.loc["annualized_return", "value"]) == 0.1
-    assert "market_to_pandas" not in events
-    assert events.index("pandas_market") > events.index("model")
+    assert result.filter(pl.col("metric") == "annualized_return").select("value").item() == 0.1
+    assert "pandas_market" not in events

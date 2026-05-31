@@ -73,8 +73,21 @@ class VnpyExpressionEngine:
         self.kernel = SharedPolarsExpressionKernel(self.instrument_frame)
         self.audit: list[TranslationAudit] = []
 
-    def compute(self, factor_defs: list[dict[str, Any]]) -> pd.DataFrame:
-        """计算多个因子，输出 no-qlib/qlib 对齐的 DataFrame。"""
+    def compute(self, factor_defs: list[dict[str, Any]]) -> pd.DataFrame | pl.DataFrame:
+        """计算多个因子，输出显式键列 DataFrame。"""
+        if self.translation_mode == "shared_polars":
+            frames: list[pl.DataFrame] = []
+            for factor in factor_defs:
+                name = str(factor.get("factor_name") or factor.get("factor_id"))
+                expression = str(factor.get("factor_expression") or "")
+                frames.append(self.compute_expression(expression, factor_name=name))
+            if not frames:
+                raise ValueError("vnpy factor_defs is empty")
+            result = frames[0]
+            for frame in frames[1:]:
+                result = result.join(frame, on=["datetime", "instrument"], how="inner")
+            return result.sort(["datetime", "instrument"])
+
         columns: list[pd.Series] = []
         for factor in factor_defs:
             name = str(factor.get("factor_name") or factor.get("factor_id"))
@@ -85,16 +98,16 @@ class VnpyExpressionEngine:
             raise ValueError("vnpy factor_defs is empty")
         return pd.concat(columns, axis=1).sort_index()
 
-    def compute_label(self, expression: str) -> pd.DataFrame:
+    def compute_label(self, expression: str) -> pd.DataFrame | pl.DataFrame:
         """计算 label，返回 `LABEL0` 列。"""
         return self.compute_expression(expression, factor_name="LABEL0")
 
-    def compute_expression(self, expression: str, factor_name: str) -> pd.DataFrame:
+    def compute_expression(self, expression: str, factor_name: str) -> pd.DataFrame | pl.DataFrame:
         """计算单个 canonical 表达式。"""
         canonical = canonicalize_expression(expression)
         if self.translation_mode == "shared_polars":
             try:
-                result = self.kernel.compute_expression(canonical.canonical, factor_name)
+                result = self.kernel.compute_expression_frame(canonical.canonical, factor_name)
             except UnsupportedExpressionError as exc:
                 audit = TranslationAudit(
                     factor_name=factor_name,
@@ -133,12 +146,7 @@ class VnpyExpressionEngine:
 
         result = calculate_by_expression(self.vnpy_frame, vnpy_expression)
         restored = self.provider.restore_instrument(result)
-        pdf = (
-            restored.select(["datetime", "instrument", "data"])
-            .to_pandas()
-            .set_index(["datetime", "instrument"])
-            .sort_index()
-        )
+        pdf = restored.select(["datetime", "instrument", "data"]).to_pandas().set_index(["datetime", "instrument"]).sort_index()
         pdf.columns = [factor_name]
         return pdf
 

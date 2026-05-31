@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,10 +43,10 @@ def test_vnpy_expression_engine_golden_cases() -> None:
         {"factor_id": "ret1", "factor_name": "ret1", "factor_expression": "$close / DELAY($close, 1) - 1"},
     ]
     result = engine.compute(factors)
-    idx = (pd.Timestamp("2020-01-02"), "A")
-    assert result.loc[idx, "mean2"] == pytest.approx(1.5)
-    assert result.loc[idx, "rank2"] == pytest.approx(1.0)
-    assert result.loc[idx, "ret1"] == pytest.approx(1.0)
+    row = result.filter((pl.col("datetime") == pd.Timestamp("2020-01-02")) & (pl.col("instrument") == "A")).row(0, named=True)
+    assert row["mean2"] == pytest.approx(1.5)
+    assert row["rank2"] == pytest.approx(1.0)
+    assert row["ret1"] == pytest.approx(1.0)
     assert engine.audit[0].canonical_expression == "TS_MEAN($close, 2)"
     assert engine.audit[0].vnpy_expression == ""
 
@@ -53,16 +54,13 @@ def test_vnpy_expression_engine_golden_cases() -> None:
 def test_vnpy_expression_engine_accepts_qlib_style_aliases() -> None:
     from quantaalpha.backtest.vnpy.expression_engine import VnpyExpressionEngine
 
-    result = VnpyExpressionEngine(_market()).compute(
-        [{"factor_id": "mean2", "factor_name": "mean2", "factor_expression": "Mean($close, 2)"}]
-    )
-    assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "mean2"] == pytest.approx(1.5)
+    result = VnpyExpressionEngine(_market()).compute([{"factor_id": "mean2", "factor_name": "mean2", "factor_expression": "Mean($close, 2)"}])
+    value = result.filter((pl.col("datetime") == pd.Timestamp("2020-01-02")) & (pl.col("instrument") == "A")).select("mean2").item()
+    assert value == pytest.approx(1.5)
 
 
 def test_vnpy_expression_engine_rejects_unsupported_calls() -> None:
     from quantaalpha.backtest.vnpy.expression_engine import VnpyExpressionEngine, VnpyExpressionError
 
     with pytest.raises(VnpyExpressionError, match="unsupported"):
-        VnpyExpressionEngine(_market()).compute(
-            [{"factor_id": "bad", "factor_name": "bad", "factor_expression": "UNSUPPORTED($close, 2)"}]
-        )
+        VnpyExpressionEngine(_market()).compute([{"factor_id": "bad", "factor_name": "bad", "factor_expression": "UNSUPPORTED($close, 2)"}])

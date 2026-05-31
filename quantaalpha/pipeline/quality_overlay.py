@@ -73,16 +73,8 @@ ANTI_PATTERNS: tuple[tuple[str, str], ...] = (
 def detect_lookahead_patterns(expression: str) -> dict[str, Any]:
     """Detect hard lookahead patterns and advisory financial timing risks."""
     text = str(expression or "")
-    hard_flags = [
-        flag
-        for flag, pattern in LOOKAHEAD_PATTERNS
-        if re.search(pattern, text, flags=re.IGNORECASE)
-    ]
-    financial_risk_flags = [
-        flag
-        for flag, pattern in FINANCIAL_LOOKAHEAD_RISK_PATTERNS
-        if re.search(pattern, text, flags=re.IGNORECASE)
-    ]
+    hard_flags = [flag for flag, pattern in LOOKAHEAD_PATTERNS if re.search(pattern, text, flags=re.IGNORECASE)]
+    financial_risk_flags = [flag for flag, pattern in FINANCIAL_LOOKAHEAD_RISK_PATTERNS if re.search(pattern, text, flags=re.IGNORECASE)]
     return {
         "lookahead_flags": hard_flags,
         "financial_lookahead_risk_flags": financial_risk_flags,
@@ -121,11 +113,7 @@ def log_quality_overlay_event(
     metrics_payload = json_ready_dict(metrics or {})
     reasons_payload = ",".join(str(reason) for reason in (reasons or [])) or "none"
     factor_payload = str(factor_name or "<batch>")
-    logger.info(
-        "quality_overlay_event "
-        f"gate={gate} decision={decision} factor={factor_payload} "
-        f"reasons={reasons_payload} metrics={metrics_payload}"
-    )
+    logger.info(f"quality_overlay_event gate={gate} decision={decision} factor={factor_payload} reasons={reasons_payload} metrics={metrics_payload}")
 
 
 def json_ready_dict(payload: dict[str, Any]) -> dict[str, Any]:
@@ -160,11 +148,7 @@ def detect_expression_static_diagnostics(expression: str, config: dict[str, Any]
     lookahead_diag = detect_lookahead_patterns(text)
     lookahead_flags = list(lookahead_diag.get("lookahead_flags") or [])
     financial_lookahead_risk_flags = list(lookahead_diag.get("financial_lookahead_risk_flags") or [])
-    anti_pattern_flags = [
-        flag
-        for flag, pattern in ANTI_PATTERNS
-        if re.search(pattern, text, flags=re.IGNORECASE)
-    ]
+    anti_pattern_flags = [flag for flag, pattern in ANTI_PATTERNS if re.search(pattern, text, flags=re.IGNORECASE)]
     if lookahead_flags:
         severity = str(cfg.get("lookahead_severity") or "critical")
         failure_type = "lookahead_risk"
@@ -719,11 +703,16 @@ FAILURE_TO_REPAIR_TEMPLATE: dict[str, dict[str, str]] = {
 def repair_template_for_failure(primary: str) -> dict[str, str]:
     """Return a concrete repair template for a failure reason."""
     key = str(primary or "").lower()
-    return dict(FAILURE_TO_REPAIR_TEMPLATE.get(key, {
-        "template": "Change the signal construction to address the primary failure.",
-        "example_original": "RANK($close)",
-        "example_repair": "RANK(TS_MEAN($close, 5))",
-    }))
+    return dict(
+        FAILURE_TO_REPAIR_TEMPLATE.get(
+            key,
+            {
+                "template": "Change the signal construction to address the primary failure.",
+                "example_original": "RANK($close)",
+                "example_repair": "RANK(TS_MEAN($close, 5))",
+            },
+        )
+    )
 
 
 def verify_repair_loop(
@@ -737,11 +726,7 @@ def verify_repair_loop(
     next_score = _metric_value(current, "quality_score", default=None)
     next_lifecycle = str(current.get("status") or current.get("lifecycle_status") or "")
     failure_resolved = bool(prev_reason and prev_reason != next_reason)
-    quality_improved = (
-        prev_score is not None
-        and next_score is not None
-        and float(next_score) > float(prev_score)
-    )
+    quality_improved = prev_score is not None and next_score is not None and float(next_score) > float(prev_score)
     lifecycle_improved = next_lifecycle in {"active", "candidate"}
     repair_success = bool(failure_resolved and (quality_improved or lifecycle_improved))
     return {
@@ -800,14 +785,10 @@ def quality_score_decision(
     if lookahead_risk == "critical":
         status = "quarantine"
         failure_type = "lookahead_risk"
-    elif score >= float(cfg.get("active", {}).get("min_quality_score", 0.70)) and rank_ic_test > float(
-        cfg.get("active", {}).get("min_rank_ic_test", 0.02)
-    ):
+    elif score >= float(cfg.get("active", {}).get("min_quality_score", 0.70)) and rank_ic_test > float(cfg.get("active", {}).get("min_rank_ic_test", 0.02)):
         status = "active"
         failure_type = None
-    elif score >= float(cfg.get("candidate", {}).get("min_quality_score", 0.45)) and rank_ic_test > float(
-        cfg.get("candidate", {}).get("min_rank_ic_test", 0.0)
-    ):
+    elif score >= float(cfg.get("candidate", {}).get("min_quality_score", 0.45)) and rank_ic_test > float(cfg.get("candidate", {}).get("min_rank_ic_test", 0.0)):
         status = "candidate"
         failure_type = None
     else:

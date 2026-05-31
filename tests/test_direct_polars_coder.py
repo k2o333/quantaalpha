@@ -115,8 +115,9 @@ def test_direct_polars_coder_workspaces_are_consumed_by_runner(tmp_path, monkeyp
 
     combined = QlibFactorRunner(SimpleNamespace()).process_factor_data(exp)
 
-    assert list(combined.columns) == ["spread"]
-    assert combined.loc[(pd.Timestamp("2020-01-02"), "000002.SZ"), "spread"] == pytest.approx(2.0)
+    assert list(combined.columns) == ["datetime", "instrument", "spread"]
+    value = combined.filter((pl.col("datetime") == pd.Timestamp("2020-01-02")) & (pl.col("instrument") == "000002.SZ")).select("spread").item()
+    assert value == pytest.approx(2.0)
 
 
 def test_direct_polars_coder_selection_bypasses_configured_coder_for_polars(monkeypatch) -> None:

@@ -69,8 +69,9 @@ def test_compute_factor_output_parquet_from_standard_frame(tmp_path) -> None:
     )
 
     assert (tmp_path / "result.parquet").exists()
-    assert result.index.names == ["datetime", "instrument"]
-    assert result.loc[(pd.Timestamp("2020-01-02"), "000001.SZ"), "ret1"] == pytest.approx(0.2)
+    assert isinstance(result, pl.DataFrame)
+    value = result.filter((pl.col("datetime") == pd.Timestamp("2020-01-02")) & (pl.col("instrument") == "000001.SZ")).select("ret1").item()
+    assert value == pytest.approx(0.2)
 
 
 def test_factor_frame_parity_accepts_float_kernel_noise() -> None:
