@@ -681,13 +681,16 @@ def _rolling_mad(value: KernelValue, window: int) -> KernelValue:
 
 
 def _cs_aggregate(value: KernelValue, operation: str) -> KernelValue:
-    expr = pl.col("data")
+    expr = pl.col("data").fill_nan(None)
     if operation == "mean":
         data_expr = expr.mean().over("datetime")
     elif operation == "std":
         data_expr = expr.std(ddof=1).over("datetime")
     elif operation == "skew":
-        data_expr = ((expr - expr.mean().over("datetime")).pow(3).mean().over("datetime")) / expr.std(ddof=1).over("datetime").pow(3)
+        _std = expr.std(ddof=1).over("datetime")
+        data_expr = pl.when((_std == 0) | _std.is_null()).then(0.0).otherwise(
+            ((expr - expr.mean().over("datetime")).pow(3).mean().over("datetime")) / _std.pow(3)
+        )
     else:
         raise UnsupportedExpressionError(f"unsupported cross-sectional aggregate: {operation}")
     return KernelValue(value.frame.select("datetime", "instrument", data_expr.alias("data")))
@@ -698,7 +701,7 @@ def _cs_kurt(value: KernelValue) -> KernelValue:
         value.frame.select(
             "datetime",
             "instrument",
-            pl.col("data").kurtosis(fisher=True, bias=False).over("datetime").cast(pl.Float32).alias("data"),
+            pl.col("data").fill_nan(None).kurtosis(fisher=True, bias=False).over("datetime").cast(pl.Float32).alias("data"),
         )
     )
 
@@ -785,27 +788,36 @@ def _ts_rank(value: KernelValue, window: int, *, min_samples: int | None = None)
 
 
 def _cs_rank(value: KernelValue, *, compat_mode: str = "strict") -> KernelValue:
-    rank_data = pl.when(pl.col("data").abs() > 1_000_000.0).then(pl.col("data").round(8)).otherwise(pl.col("data")) if compat_mode == "h5_coder" else pl.col("data")
+    cleaned = pl.col("data").fill_nan(None)
+    rank_data = pl.when(cleaned.abs() > 1_000_000.0).then(cleaned.round(8)).otherwise(cleaned) if compat_mode == "h5_coder" else cleaned
     return KernelValue(
         value.frame.select(
             "datetime",
             "instrument",
             rank_data.rank(method="average").over("datetime").alias("_rank"),
-            pl.col("data").count().over("datetime").alias("_count"),
+            cleaned.count().over("datetime").alias("_count"),
         ).select("datetime", "instrument", (pl.col("_rank") / pl.col("_count")).alias("data"))
     )
 
 
 def _cs_zscore(value: KernelValue) -> KernelValue:
     frame = value.frame.with_columns(
-        pl.col("data").mean().over("datetime").alias("_mean"),
-        pl.col("data").std(ddof=1).over("datetime").alias("_std"),
+        pl.col("data").fill_nan(None).alias("_clean"),
+    )
+    frame = frame.with_columns(
+        pl.col("_clean").mean().over("datetime").alias("_mean"),
+        pl.col("_clean").std(ddof=1).over("datetime").alias("_std"),
     )
     return KernelValue(
         frame.select(
             "datetime",
             "instrument",
-            pl.when((pl.col("_std") == 0) | pl.col("_std").is_null() | pl.col("_std").is_nan()).then(0.0).otherwise((pl.col("data") - pl.col("_mean")) / pl.col("_std")).alias("data"),
+            pl.when(pl.col("_clean").is_null())
+            .then(None)
+            .when((pl.col("_std") == 0) | pl.col("_std").is_null())
+            .then(0.0)
+            .otherwise((pl.col("_clean") - pl.col("_mean")) / pl.col("_std"))
+            .alias("data"),
         )
     )
 
@@ -815,15 +827,16 @@ def _ts_zscore(value: KernelValue, window: int) -> KernelValue:
     std_kv = _rolling("std", value, window)
     frame = value.frame.join(mean_kv.frame, on=["datetime", "instrument"], suffix="_mean")
     frame = frame.join(std_kv.frame, on=["datetime", "instrument"], suffix="_std")
-    expr = pl.when((pl.col("data_std") == 0) | pl.col("data_std").is_null() | pl.col("data_std").is_nan()).then(0.0).otherwise((pl.col("data") - pl.col("data_mean")) / pl.col("data_std"))
+    cleaned = pl.col("data").fill_nan(None)
+    expr = pl.when(cleaned.is_null()).then(None).when((pl.col("data_std") == 0) | pl.col("data_std").is_null() | pl.col("data_std").is_nan()).then(0.0).otherwise((cleaned - pl.col("data_mean")) / pl.col("data_std"))
     return KernelValue(frame.select("datetime", "instrument", expr.alias("data")))
 
 
 def _cs_fill_null(value: KernelValue, fill_mode: str = "mean") -> KernelValue:
     if fill_mode == "mean":
-        cs_val = pl.col("data").mean().over("datetime")
+        cs_val = pl.col("data").fill_nan(None).mean().over("datetime")
     elif fill_mode == "median":
-        cs_val = pl.col("data").median().over("datetime")
+        cs_val = pl.col("data").fill_nan(None).median().over("datetime")
     else:
         raise UnsupportedExpressionError(f"unsupported fill mode: {fill_mode}")
     cs_val_safe = cs_val.fill_nan(None).fill_null(0.0)
@@ -832,7 +845,7 @@ def _cs_fill_null(value: KernelValue, fill_mode: str = "mean") -> KernelValue:
 
 
 def _cs_median(value: KernelValue) -> KernelValue:
-    return KernelValue(value.frame.select("datetime", "instrument", pl.col("data").median().over("datetime").alias("data")))
+    return KernelValue(value.frame.select("datetime", "instrument", pl.col("data").fill_nan(None).median().over("datetime").alias("data")))
 
 
 def _rolling_corr(left: KernelValue | float | KernelSequence, right: KernelValue | float | KernelSequence, window: int) -> KernelValue:

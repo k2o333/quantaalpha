@@ -308,3 +308,81 @@ def test_polars_kernel_fill_null_and_zero_variance_zscore() -> None:
     
     # 4. TS_ZSCORE protection test: insufficient/zero rolling std returns 0.0 instead of NaN
     assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "f_ts_zscore"] == pytest.approx(0.0)
+
+
+def test_polars_kernel_nan_propagation_in_cross_sectional_functions() -> None:
+    """NaN values must not poison mean/std/median/kurtosis of the entire cross-section.
+
+    Polars aggregations skip null but propagate NaN, so cross-sectional
+    functions must convert NaN → null before aggregating.
+    """
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    rows = []
+    # Day 1: A=NaN (like pe_ttm for loss-making company), B=10, C=20, D=30
+    # Day 2: All valid: A=5, B=15, C=25, D=35
+    for dt, vals in [
+        (pd.Timestamp("2020-01-01"), [float("nan"), 10.0, 20.0, 30.0]),
+        (pd.Timestamp("2020-01-02"), [5.0, 15.0, 25.0, 35.0]),
+    ]:
+        for instrument, val in zip(["A", "B", "C", "D"], vals):
+            rows.append({"datetime": dt, "instrument": instrument, "$pe": val})
+
+    market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
+    kernel = SharedPolarsExpressionKernel(market)
+    result = kernel.compute([
+        {"factor_id": "zscore", "factor_name": "zscore", "factor_expression": "ZSCORE($pe)"},
+        {"factor_id": "cs_mean", "factor_name": "cs_mean", "factor_expression": "MEAN($pe)"},
+        {"factor_id": "cs_std", "factor_name": "cs_std", "factor_expression": "STD($pe)"},
+        {"factor_id": "cs_median", "factor_name": "cs_median", "factor_expression": "MEDIAN($pe)"},
+    ])
+
+    d1 = pd.Timestamp("2020-01-01")
+    d2 = pd.Timestamp("2020-01-02")
+
+    # --- Day 1: A is NaN → should be null/NaN in output, B/C/D should have valid values ---
+    # ZSCORE: A should be null (NaN input → null output, not 0.0)
+    assert pd.isna(result.loc[(d1, "A"), "zscore"]), "NaN input must produce null, not 0.0"
+    # B/C/D should get valid ZSCORE computed from {10, 20, 30} only
+    # mean=20, std=10 → B=-1.0, C=0.0, D=1.0
+    assert result.loc[(d1, "B"), "zscore"] == pytest.approx(-1.0, abs=0.01)
+    assert result.loc[(d1, "C"), "zscore"] == pytest.approx(0.0, abs=0.01)
+    assert result.loc[(d1, "D"), "zscore"] == pytest.approx(1.0, abs=0.01)
+
+    # CS_MEAN: should be mean of {10, 20, 30} = 20.0 (not NaN)
+    assert result.loc[(d1, "B"), "cs_mean"] == pytest.approx(20.0, abs=0.01)
+
+    # CS_STD: should be std of {10, 20, 30} = 10.0 (not NaN)
+    assert result.loc[(d1, "B"), "cs_std"] == pytest.approx(10.0, abs=0.01)
+
+    # CS_MEDIAN: should be median of {10, 20, 30} = 20.0 (not NaN)
+    assert result.loc[(d1, "B"), "cs_median"] == pytest.approx(20.0, abs=0.01)
+
+    # --- Day 2: All valid → everything should work normally ---
+    # ZSCORE: mean=20, std≈12.91
+    assert not pd.isna(result.loc[(d2, "A"), "zscore"])
+    assert not pd.isna(result.loc[(d2, "D"), "zscore"])
+
+
+def test_polars_kernel_cs_rank_excludes_nan() -> None:
+    """RANK() must skip NaN inputs (return null), not rank them as the largest value."""
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    rows = []
+    # A=NaN, B=10, C=30, D=20
+    for instrument, val in zip(["A", "B", "C", "D"], [float("nan"), 10.0, 30.0, 20.0]):
+        rows.append({"datetime": pd.Timestamp("2020-01-01"), "instrument": instrument, "$pe": val})
+    market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
+
+    kernel = SharedPolarsExpressionKernel(market)
+    result = kernel.compute([
+        {"factor_id": "rank", "factor_name": "rank", "factor_expression": "RANK($pe)"},
+    ])
+
+    d1 = pd.Timestamp("2020-01-01")
+    # A (NaN) should be null, not ranked as highest
+    assert pd.isna(result.loc[(d1, "A"), "rank"]), "NaN input must produce null in RANK, not be ranked as max"
+    # B=10 is lowest, D=20 middle, C=30 highest among valid values
+    # rank/count: B=1/3, D=2/3, C=3/3
+    assert result.loc[(d1, "B"), "rank"] < result.loc[(d1, "D"), "rank"]
+    assert result.loc[(d1, "D"), "rank"] < result.loc[(d1, "C"), "rank"]

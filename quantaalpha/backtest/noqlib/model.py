@@ -9,6 +9,10 @@ import polars as pl
 from .dataset import NoQlibDataset
 
 
+class TrainingDataError(ValueError):
+    """训练数据不足或特征矩阵无效。"""
+
+
 class NoQlibModelRunner:
     """用原生 lightgbm 训练并输出显式键列 prediction frame。"""
 
@@ -17,10 +21,12 @@ class NoQlibModelRunner:
 
     def fit_predict(self, dataset: NoQlibDataset) -> pl.DataFrame:
         """训练模型并预测所有可用样本。"""
-        import lightgbm as lgb
-
         train = dataset.segment("train").drop_nulls([dataset.label_column])
         valid = dataset.segment("valid").drop_nulls([dataset.label_column]) if "valid" in dataset.segments else None
+        _validate_training_frame(dataset, train)
+
+        import lightgbm as lgb
+
         model_cfg = self.config.get("model", {})
         raw_params = dict(model_cfg.get("params", {}))
         loss = raw_params.pop("loss", "mse")
@@ -57,3 +63,20 @@ class NoQlibModelRunner:
         predict_frame = dataset.segment("test")
         values = model.predict(predict_frame.select(dataset.feature_columns).to_numpy())
         return predict_frame.select(["datetime", "instrument"]).with_columns(pl.Series(name="score", values=values))
+
+
+def _validate_training_frame(dataset: NoQlibDataset, train: pl.DataFrame) -> None:
+    if train.is_empty():
+        raw_train = dataset.segment("train")
+        raise TrainingDataError(
+            "Training segment has 0 rows after dropping null labels. "
+            f"raw train: {raw_train.height} rows, "
+            f"train range: {dataset.segments.get('train')}, "
+            f"combined total: {dataset.combined.height} rows, "
+            f"features: {len(dataset.feature_columns)}"
+        )
+    if not dataset.feature_columns:
+        raise TrainingDataError("No feature columns available for training.")
+    missing_features = sorted(set(dataset.feature_columns) - set(train.columns))
+    if missing_features:
+        raise TrainingDataError(f"Feature columns missing from train segment: {missing_features}")
