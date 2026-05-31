@@ -79,7 +79,8 @@ def test_direct_polars_coder_computes_from_expression_and_uses_unique_factor_py(
     assert "factor_expression = '$close - $open + 1'" in second.code_dict["factor.py"]
     message, frame = first.execute("All")
     assert "Expected parquet output file found." in message
-    assert frame.loc[(pd.Timestamp("2020-01-01"), "000001.SZ"), "spread_a"] == pytest.approx(2.0)
+    value = frame.filter((pl.col("datetime") == pd.Timestamp("2020-01-01")) & (pl.col("instrument") == "000001.SZ")).select("spread_a").item()
+    assert value == pytest.approx(2.0)
 
 
 def test_direct_polars_coder_marks_bad_expression_as_none(tmp_path, monkeypatch) -> None:

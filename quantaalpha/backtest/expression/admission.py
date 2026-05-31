@@ -224,6 +224,7 @@ def _classify_syntax_and_calls(
                 "message": f"unsupported arity for {name}: {arity}; supported={signatures[name].arities}",
                 "function_name": name,
                 "arity": arity,
+                "suggested_alternatives": ("TS_ZSCORE",) if name == "ZSCORE" and arity == 2 else (),
             }
         return _first_error(tuple(_classify_syntax_and_calls(arg, signatures) for arg in node.args))
     return {
@@ -339,14 +340,7 @@ def _extract_arities(node: ast.AST) -> tuple[int, ...]:
 
 
 def _is_len_args_call(node: ast.AST) -> bool:
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "len"
-        and len(node.args) == 1
-        and isinstance(node.args[0], ast.Name)
-        and node.args[0].id == "args"
-    )
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "len" and len(node.args) == 1 and isinstance(node.args[0], ast.Name) and node.args[0].id == "args"
 
 
 def _suggest_operator_alternatives(

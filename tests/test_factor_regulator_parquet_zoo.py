@@ -28,6 +28,7 @@ def tmp_parquet_store():
 def _write_parquet_factor(store_path, factor_name, factor_expression, sequence=1, expression_hash=None):
     """Helper to write a factor to a Parquet store."""
     from quantaalpha.factors.parquet_library import ParquetFactorLibrary
+
     library = ParquetFactorLibrary(store_path=store_path)
     fid = f"factor_{uuid.uuid4().hex[:8]}"
     expr_hash = expression_hash or f"hash_{uuid.uuid4().hex[:8]}"
@@ -64,6 +65,7 @@ class TestFactorRegulatorParquetZoo:
         )
 
         from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
         regulator = FactorRegulator(factor_zoo_path=tmp_parquet_store)
         assert regulator.alphazoo is not None, "alphazoo should not be None"
         assert not regulator.alphazoo.empty, "alphazoo should not be empty after loading Parquet store"
@@ -82,14 +84,13 @@ class TestFactorRegulatorParquetZoo:
         )
 
         from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
         regulator = FactorRegulator(factor_zoo_path=tmp_parquet_store)
         ok, eval_dict = regulator.evaluate(existing_expression)
 
         assert ok is True, "evaluate should return ok=True"
         assert eval_dict is not None, "eval_dict should not be None"
-        assert eval_dict["duplicated_subtree_size"] > 0, (
-            f"duplicated_subtree_size should be > 0 for existing expression, got {eval_dict['duplicated_subtree_size']}"
-        )
+        assert eval_dict["duplicated_subtree_size"] > 0, f"duplicated_subtree_size should be > 0 for existing expression, got {eval_dict['duplicated_subtree_size']}"
 
     def test_match_alphazoo_uses_explicit_factor_expression_column(self, tmp_parquet_store):
         """A DataFrame with columns ordered as factor_expression, then factor_name,
@@ -102,6 +103,7 @@ class TestFactorRegulatorParquetZoo:
         )
 
         from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
         regulator = FactorRegulator(factor_zoo_path=tmp_parquet_store)
 
         df = regulator.alphazoo
@@ -124,11 +126,12 @@ class TestFactorRegulatorParquetZoo:
             factor_expression="STD($close, 20)",
         )
 
-        with patch.object(FactorStoreFacade, 'to_factor_zoo_frame', wraps=None) as mock_zoo:
+        with patch.object(FactorStoreFacade, "to_factor_zoo_frame", wraps=None) as mock_zoo:
             regulator = FactorRegulator(factor_zoo_path=tmp_parquet_store)
             # The facade's to_factor_zoo_frame should have been called
             # We verify by checking the source code path
             import inspect
+
             source = inspect.getsource(FactorRegulator._load_from_parquet_store)
             assert "FactorStoreFacade" in source, "_load_from_parquet_store should use FactorStoreFacade"
 
@@ -145,29 +148,46 @@ class TestFactorRegulatorParquetZoo:
         source = inspect.getsource(FactorRegulator._load_from_parquet_store)
 
         # Should NOT have the old warning-only pattern
-        assert 'logger.warning(f"Failed to load Parquet factor store' not in source, (
-            "_load_from_parquet_store should not use warning-only error handling"
-        )
+        assert 'logger.warning(f"Failed to load Parquet factor store' not in source, "_load_from_parquet_store should not use warning-only error handling"
 
         # Should have proper error-level logging
-        assert "logger.error" in source, (
-            "_load_from_parquet_store should use logger.error for unexpected errors"
-        )
+        assert "logger.error" in source, "_load_from_parquet_store should use logger.error for unexpected errors"
 
         # Should have traceback logging
-        assert "traceback" in source.lower(), (
-            "_load_from_parquet_store should log traceback for unexpected errors"
-        )
+        assert "traceback" in source.lower(), "_load_from_parquet_store should log traceback for unexpected errors"
 
 
 class TestFactorRegulatorDslSignatures:
+    def test_rejects_two_argument_zscore_with_ts_zscore_alternative(self):
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        ok, message = regulator.parse_diagnostic("ZSCORE($close, 20)")
+
+        assert ok is False
+        assert "reason_code=unsupported_arity" in message
+        assert "function_name=ZSCORE" in message
+        assert "received_arity=2" in message
+        assert "supported_arities=(1,)" in message
+        assert 'suggested_alternatives=["TS_ZSCORE"]' in message
+
+    def test_rejects_unary_and_with_explicit_arity_diagnostic(self):
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        regulator = FactorRegulator()
+        ok, message = regulator.parse_diagnostic("AND($close > $open)")
+
+        assert ok is False
+        assert "reason_code=unsupported_arity" in message
+        assert "function_name=AND" in message
+        assert "received_arity=1" in message
+        assert "supported_arities=(2,)" in message
+
     def test_rejects_sequence_outside_regression_argument_b(self):
         from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
 
         regulator = FactorRegulator()
-        ok, message = regulator.parse_diagnostic(
-            "TS_MEAN(($close - $open) / $open * SEQUENCE(5), 5)"
-        )
+        ok, message = regulator.parse_diagnostic("TS_MEAN(($close - $open) / $open * SEQUENCE(5), 5)")
 
         assert ok is False
         assert "SEQUENCE(n) may only be used as argument B" in message

@@ -97,6 +97,48 @@ def test_develop_logs_backtest_boundaries(tmp_path: Path) -> None:
     assert result.result == "result-frame"
 
 
+def test_factor_template_to_noqlib_config_prefers_runtime_segments() -> None:
+    runner = object.__new__(QlibFactorRunner)
+    runner.set_noqlib_config(
+        {
+            "segments": {
+                "train": ("2022-01-01", "2023-12-31"),
+                "valid": ("2024-01-01", "2024-12-31"),
+                "test": ("2025-01-01", "2025-12-31"),
+            }
+        }
+    )
+    qlib_cfg = {
+        "data_handler_config": {
+            "start_time": "2016-01-01",
+            "end_time": "2025-12-31",
+            "instruments": "csi300",
+            "data_loader": {"kwargs": {"config": {}}},
+        },
+        "task": {
+            "dataset": {
+                "kwargs": {
+                    "segments": {
+                        "train": ["2016-01-01", "2019-12-31"],
+                        "valid": ["2020-01-01", "2020-12-31"],
+                        "test": ["2021-01-01", "2025-12-31"],
+                    }
+                }
+            },
+            "model": {"kwargs": {}},
+        },
+        "port_analysis_config": {"backtest": {}},
+    }
+
+    result = runner._factor_template_to_noqlib_config(qlib_cfg)
+
+    assert result["dataset"]["segments"] == {
+        "train": ("2022-01-01", "2023-12-31"),
+        "valid": ("2024-01-01", "2024-12-31"),
+        "test": ("2025-01-01", "2025-12-31"),
+    }
+
+
 def test_develop_runs_correlation_dedup_when_sota_factors_exist(tmp_path: Path) -> None:
     runner = object.__new__(QlibFactorRunner)
     (tmp_path / "ws").mkdir()

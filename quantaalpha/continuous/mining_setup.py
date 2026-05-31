@@ -52,7 +52,7 @@ class MiningSetupMixin:
         self.parquet_library_dir = parquet_library_dir
         self.parquet_compact_config = parquet_compact_config or {}
         self.backtest_backend = str(backtest_backend or "qlib").strip().lower()
-        self.backtest_noqlib_config = backtest_noqlib_config or {}
+        self.backtest_noqlib_config = dict(backtest_noqlib_config or {})
         self._factor_validator = factor_validator
         self._data_bridge = data_bridge
         self._execution_periods = execution_periods or {
@@ -60,6 +60,7 @@ class MiningSetupMixin:
             "valid": ("2023-01-01", "2023-12-31"),
             "test": ("2024-01-01", "2024-12-31"),
         }
+        self.backtest_noqlib_config["segments"] = dict(self._execution_periods)
         self.min_ic = min_ic
         self.min_rank_ic = min_rank_ic
         self._per_factor_timeout_seconds = per_factor_timeout_seconds

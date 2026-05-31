@@ -1,9 +1,11 @@
 """Tests for factor proposal retry diagnostics: last failure reason and bounded feedback."""
+
 import pytest
 from unittest.mock import MagicMock, patch, call
 
 try:
     from quantaalpha.factors.proposal import _bound_feedback_accumulation
+
     _HAS_BOUNDED_FEEDBACK = True
 except ImportError:
     _bound_feedback_accumulation = None
@@ -20,13 +22,7 @@ def test_parse_diagnostic_returns_error_message_for_unbalanced_parentheses():
     assert error is not None
     assert len(error) > 0
     # Must mention a concrete parser failure signal
-    assert (
-        "Unclosed parentheses" in error
-        or "Expected end of text" in error
-        or "ParseException" in error
-        or "parse" in error.lower()
-        or "Unbalanced parentheses" in error
-    )
+    assert "Unclosed parentheses" in error or "Expected end of text" in error or "ParseException" in error or "parse" in error.lower() or "Unbalanced parentheses" in error
 
 
 def test_construct_prompt_requires_parentheses_balance():
@@ -75,10 +71,9 @@ class TestConvertReportsLastFailureReason:
         mock_hypothesis = MagicMock()
         mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
 
-        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
-                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
-                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
-                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression, "prepare_context", return_value=({"target_hypothesis": "test", "experiment_output_format": "", "hypothesis_and_feedback": "fb", "function_lib_description": "fl", "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)
+        ):
             with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.return_value = "mock prompt"
@@ -100,9 +95,9 @@ class TestConvertReportsLastFailureReason:
                             error_msg = str(exc_info.value)
                             assert "last failure reason" in error_msg.lower()
                             assert "unparsable" in error_msg.lower() or "parsable" in error_msg.lower()
-                            warning_text = "\n".join(str(args[0]) for args, _ in mock_logger.warning.call_args_list if args)
-                            assert "[retry attempt 1/2]" in warning_text
-                            assert "unparsable expression for factor_A" in warning_text
+                            info_text = "\n".join(str(args[0]) for args, _ in mock_logger.info.call_args_list if args)
+                            assert "[retry attempt 1/2]" in info_text
+                            assert "construct candidate was unparsable for factor_A" in info_text
 
     def test_unparsable_expression_feedback_is_added_to_retry_prompt(self):
         """When expression is unparsable, the next retry user_prompt must contain parser-error feedback."""
@@ -135,10 +130,9 @@ class TestConvertReportsLastFailureReason:
             seen_user_prompts.append(prompt)
             return prompt
 
-        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
-                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
-                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
-                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression, "prepare_context", return_value=({"target_hypothesis": "test", "experiment_output_format": "", "hypothesis_and_feedback": "fb", "function_lib_description": "fl", "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)
+        ):
             with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.side_effect = fake_render
@@ -151,13 +145,7 @@ class TestConvertReportsLastFailureReason:
 
                     with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
                         # Return an unbalanced expression
-                        mock_call.return_value = {
-                            "factor_A": {
-                                "expression": "RANK($close))",
-                                "description": "test",
-                                "formulation": "test"
-                            }
-                        }
+                        mock_call.return_value = {"factor_A": {"expression": "RANK($close))", "description": "test", "formulation": "test"}}
 
                         with pytest.raises(RuntimeError) as exc_info:
                             h2e._convert_with_history_limit(mock_hypothesis, mock_trace, 6)
@@ -176,6 +164,80 @@ class TestConvertReportsLastFailureReason:
         assert "Ensure every opening parenthesis" in combined_retry
         assert "Do not return the same expression again" in combined_retry
         assert "factor_A" in combined_retry
+
+    def test_zscore_arity_feedback_is_added_to_retry_prompt(self):
+        """Known DSL signature errors must be returned to the LLM before coder execution."""
+        from quantaalpha.factors.proposal import AlphaAgentHypothesis2FactorExpression
+        from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+
+        h2e = object.__new__(AlphaAgentHypothesis2FactorExpression)
+        h2e.factor_regulator = FactorRegulator()
+        h2e.data_capabilities = None
+        h2e.targets = []
+        h2e.consistency_enabled = False
+        h2e._quality_gate = None
+
+        mock_trace = MagicMock()
+        mock_trace.scen.data_capabilities = None
+        mock_trace.scen.get_scenario_all_desc.return_value = "mock"
+        mock_trace.scen.background = "mock"
+        mock_trace.hist = MagicMock()
+        mock_trace.hist.__len__ = MagicMock(return_value=0)
+        mock_trace.hist.__bool__ = MagicMock(return_value=False)
+
+        mock_hypothesis = MagicMock()
+        mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
+
+        seen_user_prompts = []
+
+        def fake_render(**kwargs):
+            prompt = f"feedback={kwargs.get('expression_duplication')}"
+            seen_user_prompts.append(prompt)
+            return prompt
+
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression,
+            "prepare_context",
+            return_value=(
+                {
+                    "target_hypothesis": "test",
+                    "experiment_output_format": "",
+                    "hypothesis_and_feedback": "fb",
+                    "function_lib_description": "fl",
+                    "target_list": [],
+                    "RAG": None,
+                    "financial_pit_context_hint": "",
+                },
+                True,
+            ),
+        ):
+            with patch("quantaalpha.factors.proposal_expression.Environment") as mock_env:
+                mock_template = MagicMock()
+                mock_template.render.side_effect = fake_render
+                mock_env.return_value.from_string.return_value = mock_template
+
+                with patch("quantaalpha.factors.proposal_expression.APIBackend") as mock_api_type:
+                    mock_api = MagicMock()
+                    mock_api.build_messages.return_value = [{"role": "user", "content": "test"}]
+                    mock_api_type.return_value = mock_api
+
+                    with patch("quantaalpha.factors.proposal_expression.call_structured") as mock_call:
+                        mock_call.return_value = {
+                            "factor_A": {
+                                "expression": "ZSCORE($close, 20)",
+                                "description": "test",
+                                "formulation": "test",
+                            }
+                        }
+
+                        with pytest.raises(RuntimeError):
+                            h2e._convert_with_history_limit(mock_hypothesis, mock_trace, 6)
+
+        combined_retry = "\n".join(seen_user_prompts[1:])
+        assert "Expression Syntax Check Failed" in combined_retry
+        assert "reason_code=unsupported_arity" in combined_retry
+        assert "function_name=ZSCORE" in combined_retry
+        assert 'suggested_alternatives=["TS_ZSCORE"]' in combined_retry
 
     def test_capability_validation_failure_reports_last_failure(self):
         """When capability validation always fails, final RuntimeError must mention capability validation."""
@@ -197,10 +259,9 @@ class TestConvertReportsLastFailureReason:
         mock_hypothesis = MagicMock()
         mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
 
-        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
-                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
-                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
-                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression, "prepare_context", return_value=({"target_hypothesis": "test", "experiment_output_format": "", "hypothesis_and_feedback": "fb", "function_lib_description": "fl", "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)
+        ):
             with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.return_value = "mock prompt"
@@ -228,9 +289,7 @@ class TestConvertReportsLastFailureReason:
         h2e = self._make_h2e()
         h2e.factor_regulator.parse_diagnostic.return_value = (True, None)
         h2e._validate_expression_capabilities = MagicMock(return_value=(True, ""))
-        h2e.factor_regulator.evaluate.return_value = (True, {"num_all_nodes": 5, "num_free_args": 0,
-                                                               "num_unique_vars": 2, "duplicated_subtree_size": 0,
-                                                               "symbol_length": 20, "num_base_features": 1})
+        h2e.factor_regulator.evaluate.return_value = (True, {"num_all_nodes": 5, "num_free_args": 0, "num_unique_vars": 2, "duplicated_subtree_size": 0, "symbol_length": 20, "num_base_features": 1})
         h2e.factor_regulator.is_expression_acceptable.return_value = False
         h2e.factor_regulator.duplication_threshold = 0.5
         h2e.factor_regulator.symbol_length_threshold = 100
@@ -247,10 +306,9 @@ class TestConvertReportsLastFailureReason:
         mock_hypothesis = MagicMock()
         mock_hypothesis.__str__ = MagicMock(return_value="test hypothesis")
 
-        with patch.object(AlphaAgentHypothesis2FactorExpression, 'prepare_context',
-                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
-                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
-                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression, "prepare_context", return_value=({"target_hypothesis": "test", "experiment_output_format": "", "hypothesis_and_feedback": "fb", "function_lib_description": "fl", "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)
+        ):
             with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.return_value = "mock prompt"
@@ -312,10 +370,9 @@ class TestConvertReportsLastFailureReason:
             "factor_B": {"expression": "REGRESI([A,B],C,20)", "description": "invalid", "formulation": "invalid"},
         }
 
-        with patch.object(AlphaAgentHypothesis2FactorExpression, "prepare_context",
-                          return_value=({"target_hypothesis": "test", "experiment_output_format": "",
-                                         "hypothesis_and_feedback": "fb", "function_lib_description": "fl",
-                                         "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)):
+        with patch.object(
+            AlphaAgentHypothesis2FactorExpression, "prepare_context", return_value=({"target_hypothesis": "test", "experiment_output_format": "", "hypothesis_and_feedback": "fb", "function_lib_description": "fl", "target_list": [], "RAG": None, "financial_pit_context_hint": ""}, True)
+        ):
             with patch("quantaalpha.factors.proposal_expression.Environment") as MockEnv:
                 mock_template = MagicMock()
                 mock_template.render.return_value = "mock prompt"
@@ -343,6 +400,7 @@ class TestBoundedFeedbackAccumulation:
         which counts as a genuine product-behavior gap.
         """
         from quantaalpha.factors.proposal import _bound_feedback_accumulation
+
         # Simulate many rounds of feedback accumulation
         feedback_items = [f"feedback item {i} " * 50 for i in range(30)]
 
@@ -361,6 +419,7 @@ class TestBoundedFeedbackAccumulation:
     def test_feedback_total_length_is_bounded(self):
         """Total character length of accumulated feedback must have a hard cap."""
         from quantaalpha.factors.proposal import _bound_feedback_accumulation
+
         # Create very long feedback items
         long_items = ["X" * 5000 for _ in range(10)]
 

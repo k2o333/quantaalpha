@@ -6,6 +6,7 @@ from quantaalpha.core.evaluation import Evaluator
 from quantaalpha.log import logger
 from quantaalpha.core.scenario import Scenario
 
+
 class FactorRegulator(Evaluator):
     """
     FactorRegulator class to evaluate expressions for duplication and manage the factor zoo database.
@@ -13,9 +14,7 @@ class FactorRegulator(Evaluator):
     and ensure new factors maintain appropriate originality.
     """
 
-    def __init__(self, factor_zoo_path: str = None, duplication_threshold: int = 8,
-                 symbol_length_threshold: int = 300, base_features_threshold: int = 6,
-                 similarity_engine = None):
+    def __init__(self, factor_zoo_path: str = None, duplication_threshold: int = 8, symbol_length_threshold: int = 300, base_features_threshold: int = 6, similarity_engine=None):
         """
         Initialize the FactorRegulator with a reference to the factor zoo database.
 
@@ -73,6 +72,7 @@ class FactorRegulator(Evaluator):
         """
         try:
             from quantaalpha.factors.factor_store_facade import FactorStoreFacade
+
             facade = FactorStoreFacade(store_path=store_path)
             df = facade.to_factor_zoo_frame()
 
@@ -89,11 +89,10 @@ class FactorRegulator(Evaluator):
         except Exception as e:
             logger.error(f"Unexpected error loading parquet store from {store_path}: {e}")
             import traceback
+
             logger.error(traceback.format_exc())
             return pd.DataFrame(columns=["factor_name", "factor_expression"])
-        
-    
-        
+
     def parse_diagnostic(self, expression: str) -> tuple[bool, str | None]:
         """Diagnose whether an expression can be parsed and return structured feedback.
 
@@ -120,6 +119,7 @@ class FactorRegulator(Evaluator):
 
         try:
             from quantaalpha.factors.coder.expr_parser import parse_expression
+
             parse_expression(expression)
         except Exception as exc:
             message = str(exc)
@@ -295,6 +295,7 @@ class FactorRegulator(Evaluator):
 
         violations = []
         self._collect_mean_violations(tree, violations)
+        self._collect_known_arity_violations(tree, violations)
         self._collect_sequence_violations(tree, violations)
         if violations:
             return violations[0]
@@ -313,19 +314,36 @@ class FactorRegulator(Evaluator):
             # Only reject exact "MEAN" name, not prefixed variants like TS_MEAN
             if func_name == "MEAN" and len(node.args) > 1:
                 args_repr = ", ".join(str(arg) for arg in node.args)
-                violations.append(
-                    f"MEAN() is a single-argument cross-sectional function in this DSL, "
-                    f"but got {len(node.args)} arguments: MEAN({args_repr}). "
-                    f"Use explicit weighted addition (e.g. 0.33*A + 0.33*B + 0.34*C) "
-                    f"or MEAN(A) for a single expression."
-                )
+                violations.append(f"MEAN() is a single-argument cross-sectional function in this DSL, but got {len(node.args)} arguments: MEAN({args_repr}). Use explicit weighted addition (e.g. 0.33*A + 0.33*B + 0.34*C) or MEAN(A) for a single expression.")
             # Recurse into all children
             for arg in node.args:
                 self._collect_mean_violations(arg, violations)
-        elif hasattr(node, '__iter__') and not isinstance(node, str):
+        elif hasattr(node, "__iter__") and not isinstance(node, str):
             for child in node:
-                if hasattr(child, '__dict__'):
+                if hasattr(child, "__dict__"):
                     self._collect_mean_violations(child, violations)
+
+    def _collect_known_arity_violations(self, node, violations: list[str]) -> None:
+        """Reject known DSL calls whose arity changes their intended semantics."""
+        try:
+            from quantaalpha.factors.coder.factor_ast import FunctionNode, VarNode
+        except ImportError:
+            return
+
+        if isinstance(node, FunctionNode):
+            func_name = node.name.name if isinstance(node.name, VarNode) else str(node.name)
+            upper_name = func_name.upper()
+            expected_arities = {"ZSCORE": (1,), "AND": (2,)}
+            supported_arities = expected_arities.get(upper_name)
+            if supported_arities is not None and len(node.args) not in supported_arities:
+                alternatives = ' suggested_alternatives=["TS_ZSCORE"]' if upper_name == "ZSCORE" and len(node.args) == 2 else ""
+                violations.append(f"reason_code=unsupported_arity function_name={upper_name} received_arity={len(node.args)} supported_arities={supported_arities}{alternatives}")
+            for arg in node.args:
+                self._collect_known_arity_violations(arg, violations)
+        elif hasattr(node, "__iter__") and not isinstance(node, str):
+            for child in node:
+                if hasattr(child, "__dict__"):
+                    self._collect_known_arity_violations(child, violations)
 
     def _collect_sequence_violations(
         self,
@@ -351,11 +369,7 @@ class FactorRegulator(Evaluator):
             upper_name = func_name.upper()
             if upper_name == "SEQUENCE":
                 if parent_function not in {"REGBETA", "REGRESI"} or parent_arg_index != 1:
-                    violations.append(
-                        "SEQUENCE(n) may only be used as argument B of REGBETA(A, B, n) "
-                        "or REGRESI(A, B, n). Do not multiply, divide, add, subtract, "
-                        "or wrap SEQUENCE() in other functions."
-                    )
+                    violations.append("SEQUENCE(n) may only be used as argument B of REGBETA(A, B, n) or REGRESI(A, B, n). Do not multiply, divide, add, subtract, or wrap SEQUENCE() in other functions.")
                     return
             for idx, arg in enumerate(node.args):
                 self._collect_sequence_violations(arg, violations, upper_name, idx)
@@ -380,7 +394,7 @@ class FactorRegulator(Evaluator):
         import re
 
         # Match MEAN(...) but NOT TS_MEAN, CS_MEAN, etc.
-        mean_pattern = re.compile(r'(?<![_A-Z])MEAN\s*\((.+)\)', re.DOTALL)
+        mean_pattern = re.compile(r"(?<![_A-Z])MEAN\s*\((.+)\)", re.DOTALL)
         match = mean_pattern.search(expression)
         if match:
             args_str = match.group(1).strip()
@@ -390,24 +404,16 @@ class FactorRegulator(Evaluator):
             depth = 0
             arg_count = 1
             for ch in args_str:
-                if ch == '(':
+                if ch == "(":
                     depth += 1
-                elif ch == ')':
+                elif ch == ")":
                     depth -= 1
-                elif ch == ',' and depth == 0:
+                elif ch == "," and depth == 0:
                     arg_count += 1
             if arg_count > 1:
-                return (
-                    f"MEAN() is a single-argument cross-sectional function in this DSL, "
-                    f"but got {arg_count} arguments. "
-                    f"Use explicit weighted addition (e.g. 0.33*A + 0.33*B + 0.34*C) "
-                    f"or MEAN(A) for a single expression."
-                )
+                return f"MEAN() is a single-argument cross-sectional function in this DSL, but got {arg_count} arguments. Use explicit weighted addition (e.g. 0.33*A + 0.33*B + 0.34*C) or MEAN(A) for a single expression."
         if "SEQUENCE" in expression.upper():
-            return (
-                "SEQUENCE(n) may only be used as argument B of REGBETA(A, B, n) "
-                "or REGRESI(A, B, n)."
-            )
+            return "SEQUENCE(n) may only be used as argument B of REGBETA(A, B, n) or REGRESI(A, B, n)."
         return None
 
     def is_parsable(self, expression: str) -> bool:
@@ -422,7 +428,7 @@ class FactorRegulator(Evaluator):
         """
         ok, _ = self.parse_diagnostic(expression)
         return ok
-        
+
     def evaluate(self, expression: str) -> Tuple[int, str, Optional[str]]:
         """
         Evaluates an expression for duplication with existing factors in the factor zoo.
@@ -440,18 +446,13 @@ class FactorRegulator(Evaluator):
         """
         try:
             # Lazy import to avoid circular dependency
-            from quantaalpha.factors.coder.factor_ast import (
-                match_alphazoo, count_free_args, count_unique_vars, count_all_nodes,
-                calculate_symbol_length, count_base_features
-            )
-            
+            from quantaalpha.factors.coder.factor_ast import match_alphazoo, count_free_args, count_unique_vars, count_all_nodes, calculate_symbol_length, count_base_features
+
             simplification = self.simplify_expression(expression)
             evaluated_expression = str(simplification.get("simplified_expression") or expression)
 
             # Check for duplication
-            duplicated_subtree_size, duplicated_subtree, matched_alpha = match_alphazoo(
-                evaluated_expression, self.alphazoo
-            )
+            duplicated_subtree_size, duplicated_subtree, matched_alpha = match_alphazoo(evaluated_expression, self.alphazoo)
 
             num_free_args = count_free_args(evaluated_expression)
             num_unique_vars = count_unique_vars(evaluated_expression)
@@ -480,8 +481,8 @@ class FactorRegulator(Evaluator):
                 "num_unique_vars": num_unique_vars,
                 "num_all_nodes": num_all_nodes,
                 "symbol_length": symbol_length,
-                "num_base_features": num_base_features
-                }
+                "num_base_features": num_base_features,
+            }
 
             # 如果注入了 SimilarityEngine,计算与 factor_zoo 的融合相似度
             if self._similarity_engine is not None and not self.alphazoo.empty:
@@ -490,7 +491,7 @@ class FactorRegulator(Evaluator):
                     best_score = 0.0
                     best_expr = None
                     for idx, row in self.alphazoo.iterrows():
-                        expr_b = row.get('factor_expression', '')
+                        expr_b = row.get("factor_expression", "")
                         if expr_b:
                             ensemble = self._similarity_engine.compute_pairwise(expression, expr_b)
                             if ensemble.final_score > best_score:
@@ -511,90 +512,85 @@ class FactorRegulator(Evaluator):
         except Exception as e:
             logger.error(f"Failed to evaluate expression: {expression}. Error: {str(e)}")
             return False, None
-    
-    
+
     def is_expression_acceptable(self, eval_dict) -> bool:
         """
         Determines if an expression is acceptable based on the duplication threshold,
         the ratio of num_free_args and num_unique_vars to the total number of nodes,
         symbol length (SL), and base features count (ER).
-        
+
         This implements the complexity regularization R_g(f, h) from the paper:
         R_g(f, h) = α₁·SL(f) + α₂·PC(f) + α₃·ER(f, h)
-        
+
         Args:
             eval_dict (dict): Dictionary containing evaluation results of the expression.
-            
+
         Returns:
             bool: True if the expression is acceptable, False otherwise.
         """
         # Condition 1: Check if the duplicated subtree size is within the threshold
-        cond1 = eval_dict['duplicated_subtree_size'] <= self.duplication_threshold
-        
+        cond1 = eval_dict["duplicated_subtree_size"] <= self.duplication_threshold
+
         # Get the number of free arguments, unique variables, and total nodes
-        num_free_args = eval_dict['num_free_args']
-        num_unique_vars = eval_dict['num_unique_vars']
-        num_all_nodes = eval_dict['num_all_nodes']
-        symbol_length = eval_dict.get('symbol_length', 0)
-        num_base_features = eval_dict.get('num_base_features', 0)
-        
+        num_free_args = eval_dict["num_free_args"]
+        num_unique_vars = eval_dict["num_unique_vars"]
+        num_all_nodes = eval_dict["num_all_nodes"]
+        symbol_length = eval_dict.get("symbol_length", 0)
+        num_base_features = eval_dict.get("num_base_features", 0)
+
         # Avoid division by zero and invalid ratios
         if num_all_nodes == 0:
             logger.warning(f"Expression has no nodes: {eval_dict['expr']}")
             return False
-        
+
         # Calculate ratios
         free_args_ratio = float(num_free_args) / float(num_all_nodes)
         unique_vars_ratio = float(num_unique_vars) / float(num_all_nodes)
-        
+
         # Ensure ratios are within valid range (0 <= ratio < 1)
         if free_args_ratio >= 1 or unique_vars_ratio >= 1:
             logger.warning(f"Invalid ratio detected: free_args_ratio={free_args_ratio}, unique_vars_ratio={unique_vars_ratio}")
             return False
-        
+
         # Condition 2: Ensure the ratio of num_free_args to total nodes is not too high using -log(1 - ratio)
         # -log(1 - x) increases as x increases, so we set a threshold (e.g., -log(1 - 0.5) ≈ 0.693)
         # This ensures the ratio is not too high (e.g., x < 0.5)
         cond2 = -np.log(1 - free_args_ratio) < 0.693  # Threshold for x < 0.5
-        
+
         # Condition 3: Ensure the ratio of num_unique_vars to total nodes is not too high using -log(1 - ratio)
         cond3 = -np.log(1 - unique_vars_ratio) < 0.693  # Threshold for x < 0.5
-        
+
         # Condition 4: Check symbol length (SL) - expression should not be too long
         cond4 = symbol_length <= self.symbol_length_threshold
-        
+
         # Condition 5: Check base features count (ER) - should not use too many raw features
         # Using log(1 + |F_f|) penalty as in the paper
         cond5 = num_base_features <= self.base_features_threshold
-        
+
         # The expression is acceptable if all conditions are met
         return cond1 and cond2 and cond3 and cond4 and cond5
-    
-            
+
     def add_factor(self, factor_name: str, factor_expression: str) -> bool:
         """
         Adds a new factor to the in-memory factor zoo if it passes the duplication check.
-        
+
         Args:
             factor_name (str): Name of the new factor.
             factor_expression (str): Expression of the new factor.
-            
+
         Returns:
             bool: True if the factor was added, False otherwise.
         """
-        new_factor = pd.DataFrame({
-                'factor_name': factor_name,
-                'factor_expression': factor_expression
-                })
-            
+        new_factor = pd.DataFrame({"factor_name": factor_name, "factor_expression": factor_expression})
+
         self.alphazoo = pd.concat([self.alphazoo, new_factor])
         self.new_factors.append((factor_name, factor_expression))
         logger.info(f"Added new factor: {factor_name} with expression: {factor_expression}")
-            
+
     def save_factor_zoo(self, output_path: Optional[str] = None) -> None:
         """
         Saves the updated factor zoo to a CSV file.
-        
+
         Args:
             output_path (str, optional): Path to save the updated factor zoo.
                                          If None, updates the original file.
@@ -602,11 +598,11 @@ class FactorRegulator(Evaluator):
         save_path = output_path if output_path else self.factor_zoo_path
         self.alphazoo.to_csv(save_path, index=False)
         logger.info(f"Saved updated factor zoo to {save_path}")
-        
+
     def get_new_factors(self) -> List[Tuple[str, str]]:
         """
         Returns the list of new factors added during this session.
-        
+
         Returns:
             List[Tuple[str, str]]: List of (factor_name, factor_expression) tuples.
         """

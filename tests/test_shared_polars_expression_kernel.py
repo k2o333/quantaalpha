@@ -112,6 +112,46 @@ def test_shared_polars_kernel_accepts_prod_alias_from_documented_dsl() -> None:
     assert result.loc[(pd.Timestamp("2020-01-02"), "B"), "prod2"] == pytest.approx(6.0)
 
 
+def test_ts_pctchange_strict_mode_converts_zero_denominator_to_null() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    market = _market()
+    market.loc[(pd.Timestamp("2020-01-01"), "A"), "$close"] = 0.0
+
+    result = SharedPolarsExpressionKernel(market).compute_expression("TS_PCTCHANGE($close, 1)", "pct")
+
+    assert pd.isna(result.loc[(pd.Timestamp("2020-01-02"), "A"), "pct"])
+
+
+def test_ts_pctchange_h5_coder_mode_fills_zero_denominator_with_zero() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    market = _market()
+    market.loc[(pd.Timestamp("2020-01-01"), "A"), "$close"] = 0.0
+
+    result = SharedPolarsExpressionKernel(market, compat_mode="h5_coder").compute_expression(
+        "TS_PCTCHANGE($close, 1)",
+        "pct",
+    )
+
+    assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "pct"] == pytest.approx(0.0)
+
+
+def test_cross_sectional_zscore_ignores_non_finite_values_from_division() -> None:
+    from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
+
+    market = _market()
+    market.loc[(pd.Timestamp("2020-01-02"), "A"), "$open"] = 0.0
+
+    result = SharedPolarsExpressionKernel(market, compat_mode="h5_coder").compute_expression(
+        "ZSCORE($close / $open)",
+        "zscore",
+    )
+
+    assert pd.isna(result.loc[(pd.Timestamp("2020-01-02"), "A"), "zscore"])
+    assert result.loc[(pd.Timestamp("2020-01-02"), "B"), "zscore"] == pytest.approx(0.0)
+
+
 def test_shared_polars_kernel_evaluates_alpha158_operator_subset() -> None:
     from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
 
@@ -154,11 +194,11 @@ def test_shared_polars_kernel_evaluates_alpha158_operator_subset() -> None:
                 "factor_name": "regbeta_seq",
                 "factor_expression": "REGBETA(LOG(TS_VAR(DELTA(LOG($close), 1), 2)), LOG(SEQUENCE(2)), 2)",
             },
-                {
-                    "factor_id": "regbeta_scalar",
-                    "factor_name": "regbeta_scalar",
-                    "factor_expression": "REGBETA($close, LOG(5), 1)",
-                },
+            {
+                "factor_id": "regbeta_scalar",
+                "factor_name": "regbeta_scalar",
+                "factor_expression": "REGBETA($close, LOG(5), 1)",
+            },
         ]
     )
     idx = (pd.Timestamp("2020-01-02"), "A")
@@ -236,9 +276,7 @@ def test_shared_polars_kernel_matches_real_qlib_oracle_for_builtin_sets(
     market = pd.read_parquet(tmp_path / "oracle_market.parquet").set_index(["datetime", "instrument"]).sort_index()
     oracle = pd.read_parquet(tmp_path / "oracle_features.parquet").set_index(["datetime", "instrument"]).sort_index()
     factors, _custom = FactorLoader({"factor_source": {"type": factor_source}}).load_factors()
-    calculated = SharedPolarsExpressionKernel(market).compute(
-        [{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()]
-    )
+    calculated = SharedPolarsExpressionKernel(market).compute([{"factor_id": name, "factor_name": name, "factor_expression": expr} for name, expr in factors.items()])
     calculated = calculated.sort_index().loc[oracle.index, oracle.columns]
     for column in oracle.columns:
         np.testing.assert_allclose(
@@ -261,7 +299,7 @@ def _provider_uri() -> Path | None:
 
 def test_polars_kernel_fill_null_and_zero_variance_zscore() -> None:
     from quantaalpha.backtest.expression import SharedPolarsExpressionKernel
-    
+
     # Create market with some nulls / identical values
     rows = []
     # Day 1: A has NaN, B has 2.0
@@ -272,40 +310,46 @@ def test_polars_kernel_fill_null_and_zero_variance_zscore() -> None:
         (pd.Timestamp("2020-01-02"), 3.0, 3.0),
         (pd.Timestamp("2020-01-03"), 4.0, 5.0),
     ]:
-        rows.append({
-            "datetime": dt,
-            "instrument": "A",
-            "$close": val_a,
-            "$volume": 100.0,
-        })
-        rows.append({
-            "datetime": dt,
-            "instrument": "B",
-            "$close": val_b,
-            "$volume": 100.0,
-        })
+        rows.append(
+            {
+                "datetime": dt,
+                "instrument": "A",
+                "$close": val_a,
+                "$volume": 100.0,
+            }
+        )
+        rows.append(
+            {
+                "datetime": dt,
+                "instrument": "B",
+                "$close": val_b,
+                "$volume": 100.0,
+            }
+        )
     market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
-    
+
     kernel = SharedPolarsExpressionKernel(market)
-    result = kernel.compute([
-        {"factor_id": "f_fill", "factor_name": "f_fill", "factor_expression": "FILL_NULL($close, 0.0)"},
-        {"factor_id": "f_cs_fill", "factor_name": "f_cs_fill", "factor_expression": "CS_FILL_NULL($close)"},
-        {"factor_id": "f_zscore", "factor_name": "f_zscore", "factor_expression": "ZSCORE($close)"},
-        {"factor_id": "f_ts_zscore", "factor_name": "f_ts_zscore", "factor_expression": "TS_ZSCORE($close, 2)"},
-    ])
-    
+    result = kernel.compute(
+        [
+            {"factor_id": "f_fill", "factor_name": "f_fill", "factor_expression": "FILL_NULL($close, 0.0)"},
+            {"factor_id": "f_cs_fill", "factor_name": "f_cs_fill", "factor_expression": "CS_FILL_NULL($close)"},
+            {"factor_id": "f_zscore", "factor_name": "f_zscore", "factor_expression": "ZSCORE($close)"},
+            {"factor_id": "f_ts_zscore", "factor_name": "f_ts_zscore", "factor_expression": "TS_ZSCORE($close, 2)"},
+        ]
+    )
+
     # 1. FILL_NULL: on Day 1, A should be 0.0 instead of NaN, B should be 2.0
     assert result.loc[(pd.Timestamp("2020-01-01"), "A"), "f_fill"] == pytest.approx(0.0)
     assert result.loc[(pd.Timestamp("2020-01-01"), "B"), "f_fill"] == pytest.approx(2.0)
-    
+
     # 2. CS_FILL_NULL: on Day 1, A should be filled with B's value (2.0)
     assert result.loc[(pd.Timestamp("2020-01-01"), "A"), "f_cs_fill"] == pytest.approx(2.0)
     assert result.loc[(pd.Timestamp("2020-01-01"), "B"), "f_cs_fill"] == pytest.approx(2.0)
-    
+
     # 3. ZSCORE with zero cross-sectional variance: Day 2 close has std dev = 0. Should return 0.0 instead of NaN
     assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "f_zscore"] == pytest.approx(0.0)
     assert result.loc[(pd.Timestamp("2020-01-02"), "B"), "f_zscore"] == pytest.approx(0.0)
-    
+
     # 4. TS_ZSCORE protection test: insufficient/zero rolling std returns 0.0 instead of NaN
     assert result.loc[(pd.Timestamp("2020-01-02"), "A"), "f_ts_zscore"] == pytest.approx(0.0)
 
@@ -330,12 +374,14 @@ def test_polars_kernel_nan_propagation_in_cross_sectional_functions() -> None:
 
     market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
     kernel = SharedPolarsExpressionKernel(market)
-    result = kernel.compute([
-        {"factor_id": "zscore", "factor_name": "zscore", "factor_expression": "ZSCORE($pe)"},
-        {"factor_id": "cs_mean", "factor_name": "cs_mean", "factor_expression": "MEAN($pe)"},
-        {"factor_id": "cs_std", "factor_name": "cs_std", "factor_expression": "STD($pe)"},
-        {"factor_id": "cs_median", "factor_name": "cs_median", "factor_expression": "MEDIAN($pe)"},
-    ])
+    result = kernel.compute(
+        [
+            {"factor_id": "zscore", "factor_name": "zscore", "factor_expression": "ZSCORE($pe)"},
+            {"factor_id": "cs_mean", "factor_name": "cs_mean", "factor_expression": "MEAN($pe)"},
+            {"factor_id": "cs_std", "factor_name": "cs_std", "factor_expression": "STD($pe)"},
+            {"factor_id": "cs_median", "factor_name": "cs_median", "factor_expression": "MEDIAN($pe)"},
+        ]
+    )
 
     d1 = pd.Timestamp("2020-01-01")
     d2 = pd.Timestamp("2020-01-02")
@@ -375,9 +421,11 @@ def test_polars_kernel_cs_rank_excludes_nan() -> None:
     market = pd.DataFrame(rows).set_index(["datetime", "instrument"])
 
     kernel = SharedPolarsExpressionKernel(market)
-    result = kernel.compute([
-        {"factor_id": "rank", "factor_name": "rank", "factor_expression": "RANK($pe)"},
-    ])
+    result = kernel.compute(
+        [
+            {"factor_id": "rank", "factor_name": "rank", "factor_expression": "RANK($pe)"},
+        ]
+    )
 
     d1 = pd.Timestamp("2020-01-01")
     # A (NaN) should be null, not ranked as highest

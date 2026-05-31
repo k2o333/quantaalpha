@@ -32,6 +32,18 @@ def test_expression_admission_classifies_wrong_arity() -> None:
     assert result.arity == 1
 
 
+def test_expression_admission_suggests_ts_zscore_for_two_argument_zscore() -> None:
+    from quantaalpha.backtest.expression import admit_expression
+
+    result = admit_expression("ZSCORE($close, 20)", available_fields=["close"])
+
+    assert not result.accepted
+    assert result.reason_code == "unsupported_arity"
+    assert result.function_name == "ZSCORE"
+    assert result.arity == 2
+    assert result.suggested_alternatives == ("TS_ZSCORE",)
+
+
 def test_expression_admission_classifies_missing_field_from_runtime_columns() -> None:
     from quantaalpha.backtest.expression import admit_expression
 

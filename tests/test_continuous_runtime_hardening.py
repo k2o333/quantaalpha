@@ -96,10 +96,7 @@ def test_llm_runtime_config_preserves_flat_embedding_fields() -> None:
 def test_tool_choice_thinking_mode_error_is_tool_call_capability_failure() -> None:
     from quantaalpha.llm.client_shared import _is_tool_call_capability_failure
 
-    error = Exception(
-        "InternalError.Algo.InvalidParameter: The tool_choice parameter does not support "
-        "being set to required or object in thinking mode"
-    )
+    error = Exception("InternalError.Algo.InvalidParameter: The tool_choice parameter does not support being set to required or object in thinking mode")
 
     assert _is_tool_call_capability_failure(error) is True
 
@@ -219,6 +216,25 @@ def test_open_circuit_breaker_skips_mining_before_workspace_allocation(monkeypat
     assert result.factors_generated == 0
     assert result.errors == []
     assert result.governance_events[0]["reason"] == "zero_pass_cooldown"
+
+
+def test_mining_scheduler_injects_execution_periods_into_noqlib_segments() -> None:
+    from quantaalpha.continuous.implementations import DefaultMiningScheduler
+
+    scheduler = DefaultMiningScheduler(
+        backtest_noqlib_config={"benchmark_mode": "mean"},
+        execution_periods={
+            "train": ("2022-01-01", "2023-12-31"),
+            "valid": ("2024-01-01", "2024-12-31"),
+            "test": ("2025-01-01", "2025-12-31"),
+        },
+    )
+
+    assert scheduler.backtest_noqlib_config["segments"] == {
+        "train": ("2022-01-01", "2023-12-31"),
+        "valid": ("2024-01-01", "2024-12-31"),
+        "test": ("2025-01-01", "2025-12-31"),
+    }
 
 
 def test_quality_overlay_emits_fine_grained_reason_codes() -> None:

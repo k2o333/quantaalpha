@@ -49,7 +49,8 @@ class KernelValue:
             "mul": left * right,
             "div": left / right,
         }
-        return KernelValue(frame.select("datetime", "instrument", operations[op].alias("data")))
+        result = KernelValue(frame.select("datetime", "instrument", operations[op].alias("data")))
+        return _null_non_finite(result) if op == "div" else result
 
     def __add__(self, other: "KernelValue | float") -> "KernelValue":
         return self.binary_op(other, "add")
@@ -73,7 +74,8 @@ class KernelValue:
         return self.binary_op(other, "div")
 
     def __rtruediv__(self, other: float) -> "KernelValue":
-        return KernelValue(self.frame.select("datetime", "instrument", (pl.lit(float(other)) / pl.col("data")).alias("data")))
+        result = KernelValue(self.frame.select("datetime", "instrument", (pl.lit(float(other)) / pl.col("data")).alias("data")))
+        return _null_non_finite(result)
 
     def __neg__(self) -> "KernelValue":
         return KernelValue(self.frame.select("datetime", "instrument", (-pl.col("data")).alias("data")))
@@ -258,7 +260,7 @@ class SharedPolarsExpressionKernel:
         if name == "TS_PCTCHANGE" and len(args) == 2:
             value = _expect_value(args[0])
             period = int(_expect_number(args[1]))
-            result = value / _delay(value, period) - 1.0
+            result = _null_non_finite(value / _delay(value, period) - 1.0)
             return _fill_null_nan(result, 0.0) if self.compat_mode == "h5_coder" else result
         if name == "TS_QUANTILE" and len(args) == 3:
             window = int(_expect_number(args[1]))
@@ -638,11 +640,22 @@ def _rolling_loose(operation: str, value: KernelValue, window: int) -> KernelVal
 
 
 def _fill_null_nan(value: KernelValue, fill_value: float) -> KernelValue:
+    value = _null_non_finite(value)
     return KernelValue(
         value.frame.select(
             "datetime",
             "instrument",
             pl.col("data").fill_nan(None).fill_null(fill_value).alias("data"),
+        )
+    )
+
+
+def _null_non_finite(value: KernelValue) -> KernelValue:
+    return KernelValue(
+        value.frame.select(
+            "datetime",
+            "instrument",
+            pl.when(pl.col("data").is_finite()).then(pl.col("data")).otherwise(None).alias("data"),
         )
     )
 
@@ -688,9 +701,7 @@ def _cs_aggregate(value: KernelValue, operation: str) -> KernelValue:
         data_expr = expr.std(ddof=1).over("datetime")
     elif operation == "skew":
         _std = expr.std(ddof=1).over("datetime")
-        data_expr = pl.when((_std == 0) | _std.is_null()).then(0.0).otherwise(
-            ((expr - expr.mean().over("datetime")).pow(3).mean().over("datetime")) / _std.pow(3)
-        )
+        data_expr = pl.when((_std == 0) | _std.is_null()).then(0.0).otherwise(((expr - expr.mean().over("datetime")).pow(3).mean().over("datetime")) / _std.pow(3))
     else:
         raise UnsupportedExpressionError(f"unsupported cross-sectional aggregate: {operation}")
     return KernelValue(value.frame.select("datetime", "instrument", data_expr.alias("data")))
@@ -812,12 +823,7 @@ def _cs_zscore(value: KernelValue) -> KernelValue:
         frame.select(
             "datetime",
             "instrument",
-            pl.when(pl.col("_clean").is_null())
-            .then(None)
-            .when((pl.col("_std") == 0) | pl.col("_std").is_null())
-            .then(0.0)
-            .otherwise((pl.col("_clean") - pl.col("_mean")) / pl.col("_std"))
-            .alias("data"),
+            pl.when(pl.col("_clean").is_null()).then(None).when((pl.col("_std") == 0) | pl.col("_std").is_null()).then(0.0).otherwise((pl.col("_clean") - pl.col("_mean")) / pl.col("_std")).alias("data"),
         )
     )
 

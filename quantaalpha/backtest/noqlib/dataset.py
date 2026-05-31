@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import polars as pl
@@ -46,6 +47,8 @@ class NoQlibDatasetBuilder:
         combined = features.join(raw_labels, on=["datetime", "instrument"], how="inner")
         if combined.is_empty():
             raise ValueError("noqlib feature/label key intersection is empty")
+        segments = _segments(self.config)
+        _validate_segment_coverage(combined, segments)
         combined = combined.with_columns(*[pl.when(pl.col(column).is_infinite() | pl.col(column).is_nan()).then(None).otherwise(pl.col(column)).fill_null(0.0).alias(column) for column in feature_columns])
         combined = _cross_section_rank_norm(combined, feature_columns)
         combined = _cross_section_rank_norm(combined, [label_column])
@@ -53,7 +56,7 @@ class NoQlibDatasetBuilder:
             combined=combined.sort(["datetime", "instrument"]),
             feature_columns=feature_columns,
             label_column=label_column,
-            segments=_segments(self.config),
+            segments=segments,
             learn_combined=None,
             raw_labels=raw_labels,
         )
@@ -77,3 +80,38 @@ def _cross_section_rank_norm(frame: pl.DataFrame, columns: list[str]) -> pl.Data
 def _segments(config: dict[str, Any]) -> dict[str, tuple[str, str]]:
     raw_segments = config.get("dataset", {}).get("segments", {})
     return {name: (str(value[0]), str(value[1])) for name, value in raw_segments.items()}
+
+
+def _validate_segment_coverage(combined: pl.DataFrame, segments: dict[str, tuple[str, str]]) -> None:
+    """Reject ambiguous or uncovered model-evaluation windows before training."""
+    required = {"train", "test"}
+    missing = sorted(required - set(segments))
+    if missing:
+        raise ValueError(f"noqlib dataset segments missing required entries: {missing}")
+
+    parsed: list[tuple[str, datetime, datetime]] = []
+    for name in ("train", "valid", "test"):
+        if name not in segments:
+            continue
+        start_text, end_text = segments[name]
+        start = datetime.fromisoformat(start_text)
+        end = datetime.fromisoformat(end_text)
+        if start > end:
+            raise ValueError(f"noqlib dataset segment has reversed bounds: {name}={segments[name]}")
+        parsed.append((name, start, end))
+
+    for (_, _, previous_end), (name, start, _) in zip(parsed, parsed[1:]):
+        if previous_end >= start:
+            raise ValueError(f"noqlib dataset segments must be ordered and mutually exclusive: overlap before {name}")
+
+    actual_start, actual_end = combined.select(
+        pl.col("datetime").min().alias("min_datetime"),
+        pl.col("datetime").max().alias("max_datetime"),
+    ).row(0)
+    for name, start, end in parsed:
+        requested = segments[name]
+        if start < actual_start or end > actual_end:
+            raise ValueError(f"noqlib segment coverage validation failed: requested {name}={requested}, actual combined bounds=('{actual_start.date().isoformat()}', '{actual_end.date().isoformat()}')")
+        segment_rows = combined.filter(pl.col("datetime").is_between(start, end)).height
+        if segment_rows == 0:
+            raise ValueError(f"noqlib segment coverage validation failed: requested {name}={requested} has 0 rows")

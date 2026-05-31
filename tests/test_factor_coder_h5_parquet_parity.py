@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import polars as pl
 import pytest
+import sys
 from pathlib import Path
 
 
@@ -182,11 +183,7 @@ def test_factor_workspace_dual_runtime_keeps_h5_and_writes_parquet_result(tmp_pa
         write_h5_oracle=True,
     )
     expression = "TS_MEAN($daily_basic_turnover_rate, 2) + $close / DELAY($close, 1)"
-    template = Template(
-        (QUANTAALPHA_ROOT / "quantaalpha/factors/coder/template.jinjia2").read_text(
-            encoding="utf-8"
-        )
-    )
+    template = Template((QUANTAALPHA_ROOT / "quantaalpha/factors/coder/template.jinjia2").read_text(encoding="utf-8"))
     task = FactorTask(
         factor_name="expanded_alpha",
         factor_description="fixture",
@@ -206,6 +203,7 @@ def test_factor_workspace_dual_runtime_keeps_h5_and_writes_parquet_result(tmp_pa
 
     monkeypatch.setattr(FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
     monkeypatch.setattr(FACTOR_COSTEER_SETTINGS, "data_folder_debug", str(data_root))
+    monkeypatch.setattr(FACTOR_COSTEER_SETTINGS, "python_bin", sys.executable)
     monkeypatch.setenv("QUANTAALPHA_FACTOR_CODER_RUNTIME", "dual_h5_parquet")
 
     message, result = workspace.execute("All")
@@ -232,11 +230,7 @@ def test_factor_workspace_polars_runtime_returns_feedback_for_expression_errors(
         write_h5_oracle=True,
     )
     expression = "UNSUPPORTED($close, 2)"
-    template = Template(
-        (QUANTAALPHA_ROOT / "quantaalpha/factors/coder/template.jinjia2").read_text(
-            encoding="utf-8"
-        )
-    )
+    template = Template((QUANTAALPHA_ROOT / "quantaalpha/factors/coder/template.jinjia2").read_text(encoding="utf-8"))
     task = FactorTask(
         factor_name="bad_expr",
         factor_description="fixture",

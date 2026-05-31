@@ -10,6 +10,7 @@ from typing import List
 import json
 import os
 import numpy as np
+import pandas as pd
 import polars as pl
 import yaml
 
@@ -658,6 +659,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
         data_loader_cfg = handler.get("data_loader", {}).get("kwargs", {}).get("config", {})
         label_exprs = data_loader_cfg.get("label", [["Ref($close, -2)/Ref($close, -1) - 1"], ["LABEL0"]])[0]
         runtime_options = dict(getattr(self, "_noqlib_config", {}) or {})
+        runtime_segments = runtime_options.pop("segments", None)
         if isinstance(runtime_options.get("standard_frame"), dict):
             runtime_options["standard_frame"] = _market_only_standard_frame_config(runtime_options["standard_frame"])
         workspace_root = Path(__file__).resolve().parents[4]
@@ -669,7 +671,7 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
             },
             "dataset": {
                 "label": str(label_exprs[0]),
-                "segments": dataset_cfg.get("segments", {}),
+                "segments": runtime_segments or dataset_cfg.get("segments", {}),
             },
             "model": {
                 "type": "lgb",
