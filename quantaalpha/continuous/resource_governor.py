@@ -17,6 +17,18 @@ from pathlib import Path
 from typing import Any
 
 
+def current_memory_usage_gb() -> float | None:
+    """Read system memory usage from Linux procfs when available."""
+    try:
+        values = {}
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            key, raw_value = line.split(":", 1)
+            values[key] = float(raw_value.strip().split()[0])
+        return round((values["MemTotal"] - values["MemAvailable"]) / (1024**2), 3)
+    except (KeyError, OSError, ValueError):
+        return None
+
+
 @dataclass(frozen=True)
 class GovernorConfig:
     """Runtime resource-governor configuration."""
@@ -78,6 +90,7 @@ class ResourceState:
     failed_readiness_probes: list[str] = field(default_factory=list)
     compaction_running: bool = False
     data_updating: bool = False
+    memory_usage_gb: float | None = None
 
 
 def _snapshot_marker_ready(marker_path: str | Path | None) -> bool | None:
@@ -194,6 +207,24 @@ def evaluate_resource_request(
             scheduler=request.scheduler,
             run_id=request.run_id,
             lock_name=request.lock_name,
+        )
+
+    if (
+        config.max_memory_soft_limit_gb is not None
+        and state.memory_usage_gb is not None
+        and state.memory_usage_gb > config.max_memory_soft_limit_gb
+    ):
+        return ResourceDecision(
+            allowed=False,
+            action="defer",
+            reason="memory_soft_limit_exceeded",
+            scheduler=request.scheduler,
+            run_id=request.run_id,
+            lock_name=request.lock_name,
+            metadata={
+                "memory_usage_gb": state.memory_usage_gb,
+                "max_memory_soft_limit_gb": config.max_memory_soft_limit_gb,
+            },
         )
 
     if state.active_compute_owner and state.active_compute_owner != request.scheduler:

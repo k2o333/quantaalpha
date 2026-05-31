@@ -353,6 +353,7 @@ def _run_tasks_parallel(
     user_direction: str | None,
     log_root: str,
     factor_store_kwargs: dict[str, Any] | None = None,
+    max_workers: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Run multiple evolution tasks in parallel.
@@ -362,46 +363,49 @@ def _run_tasks_parallel(
         return []
 
     result_queue = Queue()
-    processes = []
+    worker_limit = max(1, int(max_workers or len(tasks)))
 
-    logger.info(f"Starting {len(tasks)} parallel evolution tasks")
-
-    for idx, task in enumerate(tasks):
-        serialized_task = _serialize_task_for_parallel(task)
-
-        p = Process(
-            target=_parallel_task_worker,
-            args=(
-                serialized_task,
-                directions,
-                step_n,
-                use_local,
-                user_direction,
-                log_root,
-                result_queue,
-                idx,
-                factor_store_kwargs,
-            ),
-        )
-        p.start()
-        processes.append(p)
-        logger.info(f"Started task {idx}: phase={task['phase'].value}, direction={task['direction_id']}")
+    logger.info(f"Starting {len(tasks)} parallel evolution tasks with max_workers={worker_limit}")
 
     results = []
-    for _ in range(len(tasks)):
-        result = result_queue.get()
-        if result["success"]:
-            original_task = tasks[result["task_idx"]]
-            result["task"] = original_task
-            result["traj_data"]["task"] = original_task
-            logger.info(f"Task {result['task_idx']} completed")
-        else:
-            logger.error(f"Task {result['task_idx']} failed: {result['error']}")
-            logger.error(result.get("traceback", ""))
-        results.append(result)
+    for batch_start in range(0, len(tasks), worker_limit):
+        processes = []
+        batch = list(enumerate(tasks[batch_start : batch_start + worker_limit], start=batch_start))
+        for idx, task in batch:
+            serialized_task = _serialize_task_for_parallel(task)
 
-    for p in processes:
-        p.join()
+            p = Process(
+                target=_parallel_task_worker,
+                args=(
+                    serialized_task,
+                    directions,
+                    step_n,
+                    use_local,
+                    user_direction,
+                    log_root,
+                    result_queue,
+                    idx,
+                    factor_store_kwargs,
+                ),
+            )
+            p.start()
+            processes.append(p)
+            logger.info(f"Started task {idx}: phase={task['phase'].value}, direction={task['direction_id']}")
+
+        for _ in batch:
+            result = result_queue.get()
+            if result["success"]:
+                original_task = tasks[result["task_idx"]]
+                result["task"] = original_task
+                result["traj_data"]["task"] = original_task
+                logger.info(f"Task {result['task_idx']} completed")
+            else:
+                logger.error(f"Task {result['task_idx']} failed: {result['error']}")
+                logger.error(result.get("traceback", ""))
+            results.append(result)
+
+        for p in processes:
+            p.join()
 
     successful_results = sum(1 for result in results if result["success"])
     logger.info(f"Parallel tasks done: {successful_results}/{len(tasks)} succeeded")
@@ -569,6 +573,8 @@ def run_evolution_loop(
     if log_root is None:
         log_root = str(logger.storage.path)
     parallel_enabled = bool(evolution_cfg.get("parallel_enabled", False))
+    raw_max_factor_workers = evolution_cfg.get("max_factor_workers")
+    max_factor_workers = int(raw_max_factor_workers) if raw_max_factor_workers else None
     fresh_start = bool(evolution_cfg.get("fresh_start", True))
     cleanup_on_finish = bool(evolution_cfg.get("cleanup_on_finish", False))
     raw_failure_threshold = evolution_cfg.get("failed_task_threshold")
@@ -700,6 +706,7 @@ def run_evolution_loop(
                 user_direction=initial_direction,
                 log_root=log_root,
                 factor_store_kwargs=factor_store_kwargs,
+                max_workers=max_factor_workers,
             )
 
             completed_pairs = []

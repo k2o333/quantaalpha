@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -171,6 +172,10 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
                 and set(required_columns).issubset(marker_columns)
                 and all_targets_ready
             ):
+                _standard_frame_preflight_summary(
+                    pl.scan_parquet(data_root / "standard_frame.parquet"),
+                    noqlib_config.get("segments", {}),
+                )
                 return True
         except (json.JSONDecodeError, OSError, ValueError, TypeError):
             pass
@@ -181,6 +186,7 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
     del result
     if frame.is_empty():
         raise ValueError("standard-frame coder data source is empty")
+    _standard_frame_preflight_summary(frame, noqlib_config.get("segments", {}))
 
     # Only write H5 oracle when the coder runtime needs it (saves a full
     # Polars→Pandas conversion per write — up to ~4 GB for large frames).
@@ -248,6 +254,42 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
     marker_path.write_text(json.dumps(marker_payload, ensure_ascii=True, indent=2, sort_keys=True, default=str), encoding="utf-8")
     logger.info(f"Materialized factor coder data from App5 standard frame: rows={row_count} columns={columns} data_root={data_root}")
     return True
+
+
+def _standard_frame_preflight_summary(
+    frame: pl.DataFrame | pl.LazyFrame,
+    segments: dict,
+) -> dict:
+    """Validate requested execution windows against standard-frame bounds."""
+    lazy_frame = frame.lazy() if isinstance(frame, pl.DataFrame) else frame
+    actual_start, actual_end = lazy_frame.select(
+        pl.col("datetime").min().alias("min_datetime"),
+        pl.col("datetime").max().alias("max_datetime"),
+    ).collect().row(0)
+    if actual_start is None or actual_end is None:
+        raise ValueError("standard-frame coverage preflight failed: standard frame is empty")
+
+    summary = {
+        "requested_segments": dict(segments or {}),
+        "standard_frame_bounds": (
+            actual_start.date().isoformat(),
+            actual_end.date().isoformat(),
+        ),
+    }
+    logger.info(f"standard-frame coverage preflight: {summary}")
+    for name in ("train", "valid", "test"):
+        if name not in segments:
+            continue
+        requested = segments[name]
+        start = datetime.fromisoformat(str(requested[0]))
+        end = datetime.fromisoformat(str(requested[1]))
+        if start < actual_start or end > actual_end:
+            raise ValueError(
+                "standard-frame coverage preflight failed: "
+                f"requested {name}={requested}, "
+                f"actual standard-frame bounds={summary['standard_frame_bounds']}"
+            )
+    return summary
 
 
 def _factor_coder_uses_backtest_universe(noqlib_config: dict) -> bool:

@@ -124,6 +124,7 @@ class MiningPipelineMixin:
                     "crossover_size": effective_evolution_cfg.get("crossover_size", 2),
                     "crossover_n": effective_evolution_cfg.get("crossover_n", 2),
                     "parallel_enabled": effective_evolution_cfg.get("parallel_enabled", False),
+                    "max_factor_workers": effective_evolution_cfg.get("max_factor_workers"),
                     "fresh_start": effective_evolution_cfg.get("fresh_start", False),
                     "parquet_library_dir": effective_evolution_cfg.get("parquet_library_dir", self.parquet_library_dir),
                     "historical_active_parent_count": effective_evolution_cfg.get("historical_active_parent_count", 0),

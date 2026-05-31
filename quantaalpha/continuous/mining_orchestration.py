@@ -206,6 +206,18 @@ class MiningOrchestrationMixin:
         """
         from quantaalpha.continuous.orchestration import ActionResult
 
+        memory_event = self._memory_soft_limit_event(
+            scheduler="mining",
+            run_id=str(params.get("cycle_id") or node_id),
+        )
+        if memory_event:
+            return ActionResult(
+                action=action or "unknown",
+                status="deferred",
+                error="memory soft limit exceeded",
+                metadata={"resource_decision": memory_event},
+            )
+
         # Phase 6: For decision nodes with no action, dispatch by decision_mode
         if action is None:
             node = self._orchestration_cfg.get("nodes", [])

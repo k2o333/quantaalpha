@@ -37,6 +37,7 @@ def test_repository_pipeline_config_enables_resource_governor():
     assert config.mining.resource_governor.enabled is True
     assert config.mining.resource_governor.max_concurrent_mining_jobs == 1
     assert config.mining.resource_governor.max_concurrent_revalidation_jobs == 1
+    assert config.mining.resource_governor.max_memory_soft_limit_gb <= 19.2
     assert config.mining.resource_governor.pause_when_data_updating is True
     assert config.mining.resource_governor.pause_when_compaction_running is True
 

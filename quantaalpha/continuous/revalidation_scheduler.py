@@ -234,11 +234,25 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
     def _try_acquire_global_compute_lock(self, scheduler: str, run_id: str):
         from pathlib import Path
 
-        from quantaalpha.continuous.resource_governor import GovernorConfig
+        from quantaalpha.continuous.resource_governor import (
+            GovernorConfig,
+            ResourceRequest,
+            ResourceState,
+            current_memory_usage_gb,
+            evaluate_resource_request,
+        )
 
         config = GovernorConfig.from_dict(getattr(self, "_resource_governor_config", {}))
         if not config.enabled:
             return None, None
+        memory_usage_probe = getattr(self, "_memory_usage_probe", current_memory_usage_gb)
+        decision = evaluate_resource_request(
+            ResourceRequest(scheduler=scheduler, run_id=run_id),
+            ResourceState(memory_usage_gb=memory_usage_probe()),
+            config,
+        )
+        if not decision.allowed:
+            return None, {"event": "resource_decision", **decision.to_dict()}
         lock_path = Path(getattr(self, "_continuous_lock_dir", "log/continuous/locks")) / "global_compute_lock.lock"
         lock_factory = getattr(self, "_resource_lock_factory", None)
         if lock_factory is None:
@@ -322,7 +336,10 @@ class DefaultRevalidationScheduler(RevalidationScheduler):
         if governance_event:
             result.governance_events.append(governance_event)
         if governance_event and not governance_event["allowed"]:
-            result.errors.append("global compute lock held")
+            if governance_event["reason"] == "memory_soft_limit_exceeded":
+                result.errors.append("memory soft limit exceeded")
+            else:
+                result.errors.append("global compute lock held")
             result.duration_seconds = (dt.now() - start_time).total_seconds()
             self._update_next_run()
             return result

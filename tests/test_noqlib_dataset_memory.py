@@ -57,6 +57,8 @@ def test_noqlib_dataset_builder_rejects_uncovered_segment_with_actual_bounds() -
 
     message = str(exc_info.value)
     assert "requested train=('2022-01-01', '2023-12-31')" in message
+    assert "feature bounds=('2024-01-01', '2024-01-02')" in message
+    assert "label bounds=('2024-01-01', '2024-01-02')" in message
     assert "actual combined bounds=('2024-01-01', '2024-01-02')" in message
 
 

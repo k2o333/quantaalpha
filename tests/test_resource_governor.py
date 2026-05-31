@@ -43,3 +43,19 @@ def test_governor_disabled_allows_request():
     assert decision.allowed is True
     assert decision.action == "allow"
     assert decision.reason == "resource_governor_disabled"
+
+
+def test_memory_soft_limit_defers_heavy_compute():
+    decision = evaluate_resource_request(
+        ResourceRequest(scheduler="mining", run_id="run-4"),
+        ResourceState(memory_usage_gb=29.5),
+        GovernorConfig(enabled=True, max_memory_soft_limit_gb=28.0),
+    )
+
+    assert decision.allowed is False
+    assert decision.action == "defer"
+    assert decision.reason == "memory_soft_limit_exceeded"
+    assert decision.metadata == {
+        "memory_usage_gb": 29.5,
+        "max_memory_soft_limit_gb": 28.0,
+    }

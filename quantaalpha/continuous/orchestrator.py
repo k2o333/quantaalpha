@@ -206,6 +206,7 @@ class MiningOrchestrator:
                     "crossover_size": self.config.mining.evolution.crossover_size,
                     "crossover_n": self.config.mining.evolution.crossover_n,
                     "parallel_enabled": self.config.mining.evolution.parallel_enabled,
+                    "max_factor_workers": self.config.mining.resource_governor.max_factor_workers,
                     "fresh_start": self.config.mining.evolution.fresh_start,
                     "parquet_library_dir": self.config.factor.parquet_library_dir,
                     "historical_active_parent_count": self.config.mining.evolution.historical_active_parent_count,

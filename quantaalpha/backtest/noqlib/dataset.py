@@ -48,7 +48,12 @@ class NoQlibDatasetBuilder:
         if combined.is_empty():
             raise ValueError("noqlib feature/label key intersection is empty")
         segments = _segments(self.config)
-        _validate_segment_coverage(combined, segments)
+        _validate_segment_coverage(
+            combined,
+            segments,
+            feature_bounds=_frame_bounds(features),
+            label_bounds=_frame_bounds(raw_labels),
+        )
         combined = combined.with_columns(*[pl.when(pl.col(column).is_infinite() | pl.col(column).is_nan()).then(None).otherwise(pl.col(column)).fill_null(0.0).alias(column) for column in feature_columns])
         combined = _cross_section_rank_norm(combined, feature_columns)
         combined = _cross_section_rank_norm(combined, [label_column])
@@ -82,7 +87,22 @@ def _segments(config: dict[str, Any]) -> dict[str, tuple[str, str]]:
     return {name: (str(value[0]), str(value[1])) for name, value in raw_segments.items()}
 
 
-def _validate_segment_coverage(combined: pl.DataFrame, segments: dict[str, tuple[str, str]]) -> None:
+def _frame_bounds(frame: pl.DataFrame) -> tuple[str, str]:
+    """Return ISO date bounds for one normalized noqlib frame."""
+    start, end = frame.select(
+        pl.col("datetime").min().alias("min_datetime"),
+        pl.col("datetime").max().alias("max_datetime"),
+    ).row(0)
+    return start.date().isoformat(), end.date().isoformat()
+
+
+def _validate_segment_coverage(
+    combined: pl.DataFrame,
+    segments: dict[str, tuple[str, str]],
+    *,
+    feature_bounds: tuple[str, str] | None = None,
+    label_bounds: tuple[str, str] | None = None,
+) -> None:
     """Reject ambiguous or uncovered model-evaluation windows before training."""
     required = {"train", "test"}
     missing = sorted(required - set(segments))
@@ -111,7 +131,13 @@ def _validate_segment_coverage(combined: pl.DataFrame, segments: dict[str, tuple
     for name, start, end in parsed:
         requested = segments[name]
         if start < actual_start or end > actual_end:
-            raise ValueError(f"noqlib segment coverage validation failed: requested {name}={requested}, actual combined bounds=('{actual_start.date().isoformat()}', '{actual_end.date().isoformat()}')")
+            raise ValueError(
+                "noqlib segment coverage validation failed: "
+                f"requested {name}={requested}, "
+                f"feature bounds={feature_bounds}, "
+                f"label bounds={label_bounds}, "
+                f"actual combined bounds=('{actual_start.date().isoformat()}', '{actual_end.date().isoformat()}')"
+            )
         segment_rows = combined.filter(pl.col("datetime").is_between(start, end)).height
         if segment_rows == 0:
             raise ValueError(f"noqlib segment coverage validation failed: requested {name}={requested} has 0 rows")

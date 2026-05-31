@@ -428,3 +428,27 @@ def test_factor_coder_universe_scope_can_decouple_from_backtest_instruments() ->
 
     assert _factor_coder_uses_backtest_universe({"factor_coder_universe_scope": "backtest"})
     assert not _factor_coder_uses_backtest_universe({"factor_coder_universe_scope": "all"})
+
+
+def test_standard_frame_preflight_rejects_uncovered_execution_segments() -> None:
+    from quantaalpha.factors.qlib_utils import _standard_frame_preflight_summary
+
+    frame = pl.DataFrame(
+        {
+            "datetime": [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")],
+            "instrument": ["A", "A"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="standard-frame coverage preflight failed") as exc_info:
+        _standard_frame_preflight_summary(
+            frame,
+            {
+                "train": ("2023-01-01", "2023-12-31"),
+                "test": ("2024-01-02", "2024-01-03"),
+            },
+        )
+
+    message = str(exc_info.value)
+    assert "requested train=('2023-01-01', '2023-12-31')" in message
+    assert "actual standard-frame bounds=('2024-01-02', '2024-01-03')" in message
