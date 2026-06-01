@@ -156,6 +156,26 @@ class App5StandardFrameBuilder:
             manifest_path=manifest_path,
         )
 
+    def validate_source_readiness(self, request: StandardFrameRequest) -> StandardFrameRequest:
+        """Validate daily-source open-market coverage without materializing the frame."""
+        classify_app5_interface(request.daily_interface)
+        request = self._resolve_latest_available_window(request)
+        source_dates = self.adapter.read(
+            request.daily_interface,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            columns=["trade_date"],
+            unique=True,
+        )
+        if source_dates.is_empty():
+            raise ValueError(f"standard frame source is empty: {request.daily_interface}")
+        source_dates = source_dates.select(_date_expr("trade_date").alias("datetime")).filter(
+            pl.col("datetime").is_not_null()
+        )
+        calendar = self._standard_frame_calendar(source_dates, request)
+        validate_open_market_source_coverage(source_dates, calendar, interface=request.daily_interface)
+        return request
+
     def _resolve_latest_available_window(self, request: StandardFrameRequest) -> StandardFrameRequest:
         if request.end_date_policy != "latest_available" or not request.lookback_days:
             return request

@@ -90,6 +90,12 @@ def _prepare_standard_frame(config: dict) -> None:
     prepare_func(config)
 
 
+def _run_standard_frame_source_preflight(config: dict) -> None:
+    from quantaalpha.pipeline.preflight import run_standard_frame_source_preflight
+
+    run_standard_frame_source_preflight(config)
+
+
 def _configure_standard_frame_capabilities(
     backtest_noqlib_config: dict,
     quality_gate_config: dict,
@@ -194,6 +200,7 @@ class AlphaAgentLoop(LoopBase, metaclass=LoopMeta):
 
             # Quality gate config
             self.quality_gate_config = quality_gate_config or {}
+            _run_standard_frame_source_preflight(self.backtest_noqlib_config)
             _configure_standard_frame_capabilities(self.backtest_noqlib_config, self.quality_gate_config)
             factor_coder_runtime = validate_factor_coder_runtime_contract(
                 backtest_backend=self.backtest_backend,
