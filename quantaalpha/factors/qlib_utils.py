@@ -63,6 +63,11 @@ def generate_data_folder_from_qlib(use_local: bool = True):
     logger.info("Data preparation done")
 
 
+def _standard_frame_marker_matches_source(marker: dict, current_fingerprints: dict) -> bool:
+    """仅在 App5 active source manifest 未变化时允许复用 coder runtime。"""
+    return marker.get("source_manifest_fingerprints") == current_fingerprints
+
+
 def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
     """Materialize coder H5 source data from an App5 standard-frame config."""
 
@@ -91,6 +96,10 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
         return False
 
     from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, request_from_mapping
+    from quantaalpha.backtest.standard_frame_source_contract import (
+        source_interfaces_for_request,
+        source_manifest_fingerprints,
+    )
 
     storage_root = Path(noqlib_config.get("app5_storage_root") or standard_frame_cfg.get("storage_root") or "data")
     if not storage_root.is_absolute():
@@ -114,6 +123,7 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
             )
     request = request_from_mapping(payload)
     request_hash = request.identity_hash()
+    current_source_fingerprints = source_manifest_fingerprints(storage_root, source_interfaces_for_request(request))
 
     data_root = Path(FACTOR_COSTEER_SETTINGS.data_folder)
     debug_root = Path(FACTOR_COSTEER_SETTINGS.data_folder_debug)
@@ -151,7 +161,7 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
             marker = json.loads(marker_path.read_text(encoding="utf-8"))
             marker_columns = set(marker.get("columns") or [])
             all_targets_ready = True
-            for candidate_data_root, candidate_debug_root in zip(data_roots, debug_roots):
+            for candidate_data_root, candidate_debug_root in ((data_root, debug_root),):
                 if (
                     not (candidate_data_root / "standard_frame.parquet").exists()
                     or not (candidate_debug_root / "standard_frame.parquet").exists()
@@ -169,6 +179,7 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
                     break
             if (
                 marker.get("request_hash") == request_hash
+                and _standard_frame_marker_matches_source(marker, current_source_fingerprints)
                 and set(required_columns).issubset(marker_columns)
                 and all_targets_ready
             ):
@@ -247,6 +258,7 @@ def prepare_data_folder_from_standard_frame(noqlib_config: dict) -> bool:
 
     marker_payload = {
         "request_hash": request_hash,
+        "source_manifest_fingerprints": current_source_fingerprints,
         "rows": row_count,
         "columns": columns,
         "manifest": source_manifest,
@@ -268,6 +280,10 @@ def _standard_frame_preflight_summary(
     ).collect().row(0)
     if actual_start is None or actual_end is None:
         raise ValueError("standard-frame coverage preflight failed: standard frame is empty")
+    if not isinstance(actual_start, datetime):
+        actual_start = datetime(actual_start.year, actual_start.month, actual_start.day)
+    if not isinstance(actual_end, datetime):
+        actual_end = datetime(actual_end.year, actual_end.month, actual_end.day)
 
     summary = {
         "requested_segments": dict(segments or {}),

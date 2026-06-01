@@ -5,7 +5,6 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
-import re
 import warnings
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
@@ -22,9 +21,33 @@ from quantaalpha.backtest.contracts import (
     validate_standard_frame_columns,
 )
 from quantaalpha.backtest.mining_admission import MiningAdmissionField
+from quantaalpha.backtest.standard_frame_source_contract import (
+    source_interfaces_for_request,
+    source_bound_cache_identity,
+    source_manifest_fingerprints,
+    validate_open_market_source_coverage,
+    validate_tradable_core_prices,
+)
+from quantaalpha.backtest.standard_frame_support import (
+    _event_prefix,
+    admitted_field_from_mapping as _admitted_field_from_mapping,
+    aggregate_expr as _aggregate_expr,
+    asof_lte_filters as _asof_lte_filters,
+    compact_date as _compact_date,
+    date_expr as _date_expr,
+    dtype as _dtype,
+    event_source_column as _event_source_column,
+    event_window_filters as _event_window_filters,
+    filter_frame_by_markets as _filter_frame_by_markets,
+    frame_date_bound as _frame_date_bound,
+    missing_float_expr as _missing_float_expr,
+    missing_marker_expr as _missing_marker_expr,
+    optional_field_from_mapping as _optional_field_from_mapping,
+    parse_date_or_none as _parse_date_or_none,
+)
 
 
-STANDARD_FRAME_FILL_POLICY_VERSION = "standard_frame_ohlcv_fill_v1"
+STANDARD_FRAME_FILL_POLICY_VERSION = "standard_frame_ohlcv_fill_v2"
 STANDARD_FRAME_MISSING_MARKER_COLUMNS = (
     "$open_was_missing",
     "$high_was_missing",
@@ -117,7 +140,7 @@ class App5StandardFrameBuilder:
         parquet_path: str | None = None
         manifest_path: str | None = None
         if request.materialized_cache_root:
-            cache_dir = Path(request.materialized_cache_root) / request.identity_hash()
+            cache_dir = Path(request.materialized_cache_root) / manifest["cache_identity"]
             cache_dir.mkdir(parents=True, exist_ok=True)
             parquet_path = str(cache_dir / "standard_frame.parquet")
             manifest_path = str(cache_dir / "manifest.json")
@@ -185,6 +208,9 @@ class App5StandardFrameBuilder:
                 f"standard frame adjustment={adjustment} requires columns missing from "
                 f"{request.daily_interface}: {missing_prices}"
             )
+        source_dates = raw.select(_date_expr("trade_date").alias("datetime")).filter(pl.col("datetime").is_not_null())
+        calendar = self._standard_frame_calendar(source_dates, request)
+        validate_open_market_source_coverage(source_dates, calendar, interface=request.daily_interface)
         if request.instruments:
             raw = raw.filter(pl.col("ts_code").cast(pl.Utf8).is_in(list(request.instruments)))
         raw = _filter_frame_by_markets(raw, request.include_markets, request.exclude_markets)
@@ -238,10 +264,16 @@ class App5StandardFrameBuilder:
             .unique(subset=["datetime", "instrument"], keep="first", maintain_order=True)
             .sort(["datetime", "instrument"])
         )
+        validate_tradable_core_prices(
+            base,
+            interface=request.daily_interface,
+            adjustment=adjustment,
+        )
         return self._apply_core_fill_policy(base, request)
 
     def _apply_core_fill_policy(self, frame: pl.DataFrame, request: StandardFrameRequest) -> pl.DataFrame:
-        panel = self._complete_daily_panel(frame, request)
+        calendar = self._standard_frame_calendar(frame, request)
+        panel = self._complete_daily_panel(frame, request, calendar=calendar)
         source_row = pl.col("__has_source_row").fill_null(False)
         raw_volume_missing = _missing_float_expr("$volume")
         raw_volume_zero = pl.col("$volume").fill_nan(None).fill_null(0.0) <= 0.0
@@ -294,8 +326,14 @@ class App5StandardFrameBuilder:
             .sort(["datetime", "instrument"])
         )
 
-    def _complete_daily_panel(self, frame: pl.DataFrame, request: StandardFrameRequest) -> pl.DataFrame:
-        calendar = self._standard_frame_calendar(frame, request)
+    def _complete_daily_panel(
+        self,
+        frame: pl.DataFrame,
+        request: StandardFrameRequest,
+        *,
+        calendar: pl.DataFrame | None = None,
+    ) -> pl.DataFrame:
+        calendar = self._standard_frame_calendar(frame, request) if calendar is None else calendar
         if calendar.is_empty():
             return frame
         if request.instruments:
@@ -458,9 +496,11 @@ class App5StandardFrameBuilder:
 
     def _manifest(self, request: StandardFrameRequest, frame: pl.DataFrame) -> dict[str, Any]:
         admissions = inventory_clean_active_interfaces(self.storage_root)
+        source_interfaces = source_interfaces_for_request(request)
+        fingerprints = source_manifest_fingerprints(self.storage_root, source_interfaces)
         return {
             "built_at": datetime.now(timezone.utc).isoformat(),
-            "cache_identity": request.identity_hash(),
+            "cache_identity": source_bound_cache_identity(request.identity_hash(), fingerprints),
             "request": request.identity(),
             "standard_frame": {
                 "columns": frame.columns,
@@ -472,11 +512,8 @@ class App5StandardFrameBuilder:
                 "row_count": frame.height,
                 "required_columns": ["datetime", "instrument", "$open", "$high", "$low", "$close", "$volume", "$vwap", "$return"],
             },
-            "source_interfaces": [
-                request.daily_interface,
-                *[field.source_interface for field in request.optional_fields],
-                *[field.source_interface for field in request.admitted_fields],
-            ],
+            "source_interfaces": list(source_interfaces),
+            "source_manifest_fingerprints": fingerprints,
             "app5_interface_admissions": [asdict(item) for item in admissions],
         }
 
@@ -1006,194 +1043,3 @@ def request_from_mapping(payload: Mapping[str, Any]) -> StandardFrameRequest:
         materialized_cache_root=payload.get("materialized_cache_root"),
         lookback_days=int(payload["lookback_days"]) if payload.get("lookback_days") is not None else None,
     )
-
-
-def _parse_date_or_none(value: str | None) -> date | None:
-    if not value:
-        return None
-    text = str(value)
-    if len(text) == 8 and text.isdigit():
-        return datetime.strptime(text, "%Y%m%d").date()
-    return datetime.fromisoformat(text[:10]).date()
-
-
-def _frame_date_bound(frame: pl.DataFrame, bound: str) -> str | None:
-    if frame.is_empty() or "datetime" not in frame.columns:
-        return None
-    expr = pl.col("datetime").min() if bound == "min" else pl.col("datetime").max()
-    value = frame.select(expr.alias("value")).item()
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    text = str(value)
-    if len(text) == 8 and text.isdigit():
-        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
-    return text[:10]
-
-
-def _admitted_field_from_mapping(payload: Mapping[str, Any]) -> MiningAdmissionField:
-    base_payload = payload.get("base")
-    if not isinstance(base_payload, Mapping):
-        raise ValueError("standard_frame.admitted_fields item requires base mapping")
-    return MiningAdmissionField(
-        base=_optional_field_from_mapping(base_payload),
-        source_kind=str(payload["source_kind"]),
-        payload=dict(payload.get("payload", {}) or {}),
-        rationale=payload.get("rationale"),
-        admitted_by=payload.get("admitted_by"),
-    )
-
-
-def _optional_field_from_mapping(payload: Mapping[str, Any]) -> OptionalStandardFrameField:
-    return OptionalStandardFrameField(
-        source_interface=str(payload["source_interface"]),
-        source_field=str(payload["source_field"]),
-        feature_name=str(payload["feature_name"]),
-        dtype=str(payload.get("dtype", "float64")),
-        join_key=tuple(str(item) for item in payload.get("join_key", ("datetime", "instrument"))),
-        time_policy=str(payload["time_policy"]),
-        missing_policy=str(payload.get("missing_policy", "nan")),
-        allowed_usage=tuple(str(item) for item in payload.get("allowed_usage", ())),
-    )
-
-
-def _date_expr(column: str) -> pl.Expr:
-    digits = pl.col(column).cast(pl.Utf8).str.replace_all(r"\D", "")
-    normalized = (
-        pl.when(digits.str.len_chars() == 6)
-        .then(digits + pl.lit("01"))
-        .otherwise(digits.str.slice(0, 8))
-    )
-    return normalized.str.strptime(pl.Date, "%Y%m%d", strict=False)
-
-
-def _missing_float_expr(column: str) -> pl.Expr:
-    value = pl.col(column).cast(pl.Float64, strict=False)
-    return value.is_null() | value.is_nan()
-
-
-def _missing_marker_expr(column: str) -> pl.Expr:
-    return pl.col(column).fill_null(True).cast(pl.Boolean, strict=False).fill_null(True)
-
-
-def _filter_frame_by_markets(
-    frame: pl.DataFrame,
-    include_markets: Sequence[str],
-    exclude_markets: Sequence[str],
-) -> pl.DataFrame:
-    include = [str(value).upper() for value in include_markets if str(value).strip()]
-    exclude = [str(value).upper() for value in exclude_markets if str(value).strip()]
-    if not include and not exclude:
-        return frame
-    if "ts_code" not in frame.columns:
-        return frame
-    market = pl.col("ts_code").cast(pl.Utf8).str.to_uppercase().str.extract(r"\.([A-Z]+)$", 1)
-    predicate = pl.lit(True)
-    if include:
-        predicate = predicate & market.is_in(include)
-    if exclude:
-        predicate = predicate & (~market.is_in(exclude))
-    return frame.filter(predicate)
-
-
-def _compact_date(value: date | datetime | str | None) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date().strftime("%Y%m%d")
-    if isinstance(value, date):
-        return value.strftime("%Y%m%d")
-    digits = re.sub(r"\D", "", str(value))
-    return digits[:8] if digits else None
-
-
-def _frame_date_bounds(frame: pl.DataFrame) -> tuple[date | None, date | None]:
-    if frame.is_empty() or "datetime" not in frame.columns:
-        return None, None
-    dates = frame.get_column("datetime")
-    return dates.min(), dates.max()
-
-
-def _asof_lte_filters(frame: pl.DataFrame, date_column: str) -> list[tuple[str, str, object]]:
-    _min_date, max_date = _frame_date_bounds(frame)
-    compact_max = _compact_date(max_date)
-    if compact_max is None:
-        return []
-    return [(date_column, "<=", compact_max)]
-
-
-def _event_window_filters(
-    frame: pl.DataFrame,
-    event_date_column: str,
-    visibility_column: str,
-    window_days: int,
-) -> list[tuple[str, str, object]]:
-    min_date, max_date = _frame_date_bounds(frame)
-    compact_max = _compact_date(max_date)
-    if compact_max is None:
-        return []
-    filters: list[tuple[str, str, object]] = [(visibility_column, "<=", compact_max)]
-    if min_date is not None:
-        event_start = min_date - timedelta(days=window_days)
-        compact_start = _compact_date(event_start)
-        if compact_start is not None:
-            filters.append((event_date_column, "between", (compact_start, compact_max)))
-    return filters
-
-
-def _event_prefix(feature_name: str, window_days: int) -> str:
-    name = feature_name.lstrip("$")
-    suffixes = (
-        f"_count_{window_days}d",
-        f"_amount_{window_days}d",
-        f"_vol_{window_days}d",
-        f"_ratio_{window_days}d",
-        "_recency_days",
-    )
-    for suffix in suffixes:
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    match = re.match(r"(.+?)_(count|amount|vol|ratio|recency)(?:_\d+d|_days)?$", name)
-    if match:
-        return match.group(1)
-    return name
-
-
-def _event_source_column(feature_name: str, window_days: int, *, amount_column: str | None) -> str:
-    name = feature_name.lstrip("$")
-    if name.endswith(f"_count_{window_days}d"):
-        return name
-    if name.endswith("_recency_days"):
-        return name
-    if amount_column:
-        return f"{_event_prefix(feature_name, window_days)}_amount_{window_days}d"
-    return name
-
-
-def _aggregate_expr(field_item: MiningAdmissionField, aggregation: str) -> pl.Expr:
-    value = pl.col(field_item.source_field).cast(_dtype(field_item.dtype), strict=False)
-    if aggregation == "sum":
-        return value.sum()
-    if aggregation == "mean":
-        return value.mean()
-    if aggregation == "count":
-        return pl.len().cast(_dtype(field_item.dtype))
-    raise ValueError(f"unsupported aggregate context aggregation for {field_item.feature_name}: {aggregation}")
-
-
-def _dtype(dtype: str) -> pl.DataType:
-    normalized = dtype.lower()
-    if normalized in {"float", "float64"}:
-        return pl.Float64
-    if normalized == "float32":
-        return pl.Float32
-    if normalized in {"int", "int64"}:
-        return pl.Int64
-    if normalized == "int32":
-        return pl.Int32
-    if normalized in {"str", "string", "utf8"}:
-        return pl.Utf8
-    raise ValueError(f"unsupported standard-frame dtype: {dtype}")

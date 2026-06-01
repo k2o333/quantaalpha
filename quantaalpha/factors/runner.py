@@ -474,12 +474,12 @@ class QlibFactorRunner(CachedRunner[QlibFactorExperiment]):
                         encoding="utf-8",
                     )
 
-            if len(factor_value_columns(combined_factors)) >= 2:
-                logger.info(f"Factor correlation: \n\n{combined_factors.select(factor_value_columns(combined_factors)).corr()}\n")
-
             combined_factors = self._apply_combined_quality_gate(combined_factors)
             if combined_factors.is_empty():
                 raise FactorEmptyError("No valid factor data remained after combined quality gate.")
+
+            if len(factor_value_columns(combined_factors)) >= 2:
+                logger.info(f"Cleaned factor correlation: \n\n{combined_factors.select(factor_value_columns(combined_factors)).corr()}\n")
 
             combined_factors = combined_factors.sort(list(KEY_COLUMNS))
             if parquet_runtime_combined_factors is not None and not parquet_runtime_combined_factors.is_empty():

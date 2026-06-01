@@ -191,6 +191,44 @@ def test_develop_runs_correlation_dedup_when_sota_factors_exist(tmp_path: Path) 
     assert result.result == "result-frame"
 
 
+def test_develop_logs_cleaned_factor_correlation_after_quality_gate(tmp_path: Path) -> None:
+    runner = object.__new__(QlibFactorRunner)
+    workspace_path = tmp_path / "ws"
+    workspace_path.mkdir()
+    factors = pl.DataFrame(
+        {
+            "datetime": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
+            "instrument": ["A", "A", "A", "A"],
+            "alpha": [1.0, None, 3.0, 4.0],
+            "beta": [2.0, None, 6.0, 8.0],
+        }
+    ).with_columns(pl.col("datetime").str.strptime(pl.Datetime("ns")))
+    workspace = SimpleNamespace(
+        workspace_path=workspace_path,
+        before_execute=lambda: None,
+        execute=lambda **kwargs: ("result-frame", "executor-log"),
+    )
+    exp = SimpleNamespace(
+        based_experiments=[SimpleNamespace(result="ok")],
+        sub_workspace_list=[],
+        experiment_workspace=workspace,
+        result=None,
+    )
+    runner.process_factor_data = lambda _exp: factors
+    runner._apply_combined_quality_gate = lambda df: df.drop_nulls()
+    fake_logger = SimpleNamespace(info=MagicMock(), warning=MagicMock(), error=MagicMock())
+
+    with patch("quantaalpha.factors.runner.logger", fake_logger):
+        QlibFactorRunner.develop.__wrapped__(runner, exp, use_local=True)
+
+    correlation_messages = [
+        call.args[0] for call in fake_logger.info.call_args_list if "correlation" in call.args[0].lower()
+    ]
+    assert len(correlation_messages) == 1
+    assert "Cleaned factor correlation" in correlation_messages[0]
+    assert "NaN" not in correlation_messages[0]
+
+
 def test_combined_quality_gate_prunes_highly_correlated_candidates() -> None:
     runner = object.__new__(QlibFactorRunner)
     index = pd.MultiIndex.from_product(

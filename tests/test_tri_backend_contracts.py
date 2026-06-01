@@ -142,8 +142,10 @@ def test_long_only_daily_report_contract_is_deterministic_for_same_prediction() 
     dates = pd.date_range("2020-01-01", periods=5, freq="D")
     instruments = ["A", "B", "C"]
     index = pd.MultiIndex.from_product([dates, instruments], names=["datetime", "instrument"])
-    market = pd.DataFrame(
+    market = pl.DataFrame(
         {
+            "datetime": [dt for dt, _instrument in index],
+            "instrument": [instrument for _dt, instrument in index],
             "$open": [10.0, 20.0, 30.0] * len(dates),
             "$high": [11.0, 21.0, 31.0] * len(dates),
             "$low": [9.0, 19.0, 29.0] * len(dates),
@@ -151,10 +153,15 @@ def test_long_only_daily_report_contract_is_deterministic_for_same_prediction() 
             "$volume": [100.0, 100.0, 100.0] * len(dates),
             "$vwap": [10.2, 20.2, 30.2] * len(dates),
             "$return": [0.01, 0.02, 0.03] * len(dates),
-        },
-        index=index,
+        }
     )
-    prediction = pd.Series(range(len(index)), index=index, dtype=float)
+    prediction = pl.DataFrame(
+        {
+            "datetime": [dt for dt, _instrument in index],
+            "instrument": [instrument for _dt, instrument in index],
+            "score": list(range(len(index))),
+        }
+    )
     config = {
         "backtest": {
             "strategy": {"kwargs": {"topk": 2, "n_drop": 1}},
@@ -172,8 +179,8 @@ def test_long_only_daily_report_contract_is_deterministic_for_same_prediction() 
     _right_metrics, right_report, right_positions = NoQlibTopkDropoutBacktester(config, market).run(prediction)
 
     assert {"return", "bench", "cost", "turnover", "cash", "equity"} <= set(left_report.columns)
-    pd.testing.assert_frame_equal(left_report, right_report)
-    pd.testing.assert_frame_equal(left_positions, right_positions)
+    assert left_report.equals(right_report)
+    assert left_positions.equals(right_positions)
 
 
 def test_app5_standard_frame_builder_materializes_manifest(tmp_path: Path) -> None:
@@ -295,15 +302,15 @@ def test_app5_standard_frame_fills_missing_calendar_panel_rows() -> None:
 
     daily_frame = pl.DataFrame(
         {
-            "ts_code": ["000001.SZ", "000001.SZ"],
-            "trade_date": ["20240102", "20240104"],
-            "open": [10.0, 11.0],
-            "high": [10.5, 11.5],
-            "low": [9.5, 10.5],
-            "close": [10.0, 11.0],
-            "vol": [1000.0, 1200.0],
-            "amount": [1000.0, 1320.0],
-            "pct_chg": [0.0, 10.0],
+            "ts_code": ["000001.SZ", "000002.SZ", "000001.SZ"],
+            "trade_date": ["20240102", "20240103", "20240104"],
+            "open": [10.0, 20.0, 11.0],
+            "high": [10.5, 20.5, 11.5],
+            "low": [9.5, 19.5, 10.5],
+            "close": [10.0, 20.0, 11.0],
+            "vol": [1000.0, 2000.0, 1200.0],
+            "amount": [1000.0, 4000.0, 1320.0],
+            "pct_chg": [0.0, 0.0, 10.0],
         }
     )
     trade_cal_frame = pl.DataFrame(
@@ -340,7 +347,7 @@ def test_app5_standard_frame_fills_missing_calendar_panel_rows() -> None:
     assert synthetic["$close_was_missing"] is True
     assert synthetic["$volume_was_missing"] is True
     assert synthetic["$is_suspended_or_no_trade"] is True
-    assert result.manifest["standard_frame"]["fill_policy_version"] == "standard_frame_ohlcv_fill_v1"
+    assert result.manifest["standard_frame"]["fill_policy_version"] == "standard_frame_ohlcv_fill_v2"
 
 
 def test_app5_standard_frame_batches_daily_panel_optional_fields(tmp_path: Path) -> None:
@@ -854,6 +861,113 @@ def test_app5_standard_frame_qfq_adjustment_fails_without_adjusted_columns(tmp_p
         App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
             StandardFrameRequest(daily_interface="daily", adjustment="qfq")
         )
+
+
+def test_app5_standard_frame_rejects_missing_open_market_source_date(tmp_path: Path) -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            if interface_name == "trade_cal":
+                return pl.DataFrame({"cal_date": ["20240102", "20240103", "20240104"], "is_open": [1, 1, 1]})
+            return pl.DataFrame(
+                {
+                    "ts_code": ["000001.SZ", "000001.SZ"],
+                    "trade_date": ["20240102", "20240104"],
+                    "open": [10.0, 10.2],
+                    "high": [10.5, 10.7],
+                    "low": [9.5, 9.7],
+                    "close": [10.2, 10.4],
+                    "vol": [1000.0, 1100.0],
+                    "amount": [1020.0, 1144.0],
+                    "pct_chg": [1.0, 1.9608],
+                }
+            )
+
+    with pytest.raises(ValueError, match="open-market dates missing from standard frame source") as exc_info:
+        App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+            StandardFrameRequest(start_date="2024-01-02", end_date="2024-01-04")
+        )
+
+    assert "2024-01-03" in str(exc_info.value)
+
+
+def test_app5_standard_frame_rejects_positive_volume_missing_hfq_core_price(tmp_path: Path) -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            if interface_name == "trade_cal":
+                return pl.DataFrame({"cal_date": ["20240102"], "is_open": [1]})
+            return pl.DataFrame(
+                {
+                    "ts_code": ["000001.SZ"],
+                    "trade_date": ["20240102"],
+                    "open_hfq": [None],
+                    "high_hfq": [10.5],
+                    "low_hfq": [9.5],
+                    "close_hfq": [10.2],
+                    "vol": [1000.0],
+                    "amount": [1020.0],
+                    "pct_chg": [1.0],
+                }
+            )
+
+    with pytest.raises(ValueError, match="tradable standard frame source rows have missing core prices") as exc_info:
+        App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+            StandardFrameRequest(
+                start_date="2024-01-02",
+                end_date="2024-01-02",
+                daily_interface="stk_factor_pro",
+                adjustment="hfq",
+            )
+        )
+
+    assert "000001.SZ" in str(exc_info.value)
+
+
+def test_app5_standard_frame_manifest_records_active_source_fingerprint(tmp_path: Path) -> None:
+    from quantaalpha.backtest.standard_frame import App5StandardFrameBuilder, StandardFrameRequest
+
+    manifest_path = tmp_path / "daily" / "manifest" / "current.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text('{"run_id": "daily-run-1", "active_files": ["clean/active/a.parquet"]}', encoding="utf-8")
+
+    class FakeAdapter:
+        def read(self, interface_name, **kwargs):
+            del kwargs
+            if interface_name == "trade_cal":
+                return pl.DataFrame({"cal_date": ["20240102"], "is_open": [1]})
+            return pl.DataFrame(
+                {
+                    "ts_code": ["000001.SZ"],
+                    "trade_date": ["20240102"],
+                    "open": [10.0],
+                    "high": [10.5],
+                    "low": [9.5],
+                    "close": [10.2],
+                    "vol": [1000.0],
+                    "amount": [1020.0],
+                    "pct_chg": [1.0],
+                }
+            )
+
+    result = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(start_date="2024-01-02", end_date="2024-01-02")
+    )
+
+    daily_fingerprint = result.manifest["source_manifest_fingerprints"]["daily"]
+    assert daily_fingerprint["status"] == "active"
+    assert daily_fingerprint["sha256"].startswith("sha256:")
+
+    manifest_path.write_text('{"run_id": "daily-run-2", "active_files": ["clean/active/b.parquet"]}', encoding="utf-8")
+    rebuilt = App5StandardFrameBuilder(adapter=FakeAdapter(), storage_root=tmp_path).build(
+        StandardFrameRequest(start_date="2024-01-02", end_date="2024-01-02")
+    )
+
+    assert rebuilt.manifest["cache_identity"] != result.manifest["cache_identity"]
 
 
 def test_app5_standard_frame_rejects_optional_field_without_asof_policy(tmp_path: Path) -> None:

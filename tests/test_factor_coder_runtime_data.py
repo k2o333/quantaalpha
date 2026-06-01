@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -370,6 +371,10 @@ def test_standard_frame_latest_available_lookback_bounds_materialization_window(
 def test_prepare_standard_frame_parquet_runtime_reuses_cache_without_h5(tmp_path, monkeypatch) -> None:
     from quantaalpha.backtest import standard_frame as standard_frame_module
     from quantaalpha.backtest.standard_frame import request_from_mapping
+    from quantaalpha.backtest.standard_frame_source_contract import (
+        source_interfaces_for_request,
+        source_manifest_fingerprints,
+    )
     from quantaalpha.factors import qlib_utils
     from quantaalpha.factors.coder import config as coder_config
 
@@ -383,18 +388,26 @@ def test_prepare_standard_frame_parquet_runtime_reuses_cache_without_h5(tmp_path
             "time_policy": "same_trade_date_no_lookahead",
         }
     ]
-    request_hash = request_from_mapping(
+    request = request_from_mapping(
         {
             "storage_root": str(tmp_path / "data"),
             "optional_fields": optional_fields,
         }
-    ).identity_hash()
+    )
+    request_hash = request.identity_hash()
+    fingerprints = source_manifest_fingerprints(tmp_path / "data", source_interfaces_for_request(request))
     for root in (data_root, debug_root):
         root.mkdir(parents=True)
         _standard_frame().write_parquet(root / "standard_frame.parquet")
         (root / "standard_frame_manifest.json").write_text("{}", encoding="utf-8")
     (data_root / ".standard_frame_source.json").write_text(
-        f'{{"request_hash": "{request_hash}", "columns": ["$daily_basic_turnover_rate"]}}',
+        json.dumps(
+            {
+                "request_hash": request_hash,
+                "columns": ["$daily_basic_turnover_rate"],
+                "source_manifest_fingerprints": fingerprints,
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(coder_config.FACTOR_COSTEER_SETTINGS, "data_folder", str(data_root))
@@ -428,6 +441,15 @@ def test_factor_coder_universe_scope_can_decouple_from_backtest_instruments() ->
 
     assert _factor_coder_uses_backtest_universe({"factor_coder_universe_scope": "backtest"})
     assert not _factor_coder_uses_backtest_universe({"factor_coder_universe_scope": "all"})
+
+
+def test_standard_frame_marker_reuse_rejects_changed_source_manifest() -> None:
+    from quantaalpha.factors.qlib_utils import _standard_frame_marker_matches_source
+
+    marker = {"source_manifest_fingerprints": {"daily": {"status": "active", "sha256": "sha256:old"}}}
+    current = {"daily": {"status": "active", "sha256": "sha256:new"}}
+
+    assert not _standard_frame_marker_matches_source(marker, current)
 
 
 def test_standard_frame_preflight_rejects_uncovered_execution_segments() -> None:
